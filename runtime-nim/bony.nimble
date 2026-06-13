@@ -9,6 +9,7 @@ bin           = @[]
 
 # Dependencies are added after the license-scan bead verifies them.
 
-# Tests use the local sibling checkout at ~/git/bddy via runtime-nim/nim.cfg.
+# Tests use the local sibling checkout at ../../bddy, matching ~/git/bddy when
+# this repository lives at ~/git/bony.
 task test, "Run the Nim smoke tests":
   exec "nim c -r tests/test_smoke.nim"
