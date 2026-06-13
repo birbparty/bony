@@ -1,0 +1,96 @@
+{
+  "runtime": "node",
+  "comparison": "f64-style inputs vs f32-quantized loaded inputs, f32-rounded outputs",
+  "tolerance": 0.0001,
+  "samplesPerCurve": 101,
+  "bezierCases": [
+    {
+      "name": "ease",
+      "c": [
+        0.25,
+        0.1,
+        0.25,
+        1
+      ]
+    },
+    {
+      "name": "ease-in-out",
+      "c": [
+        0.42,
+        0,
+        0.58,
+        1
+      ]
+    },
+    {
+      "name": "crossing-slopes",
+      "c": [
+        0.17,
+        0.67,
+        0.83,
+        0.33
+      ]
+    }
+  ],
+  "ikCases": [
+    {
+      "name": "reachable",
+      "v": [
+        100,
+        70,
+        80,
+        50
+      ]
+    },
+    {
+      "name": "over-extended",
+      "v": [
+        100,
+        70,
+        200,
+        0
+      ]
+    },
+    {
+      "name": "too-close",
+      "v": [
+        100,
+        70,
+        5,
+        2
+      ]
+    },
+    {
+      "name": "mixed-quadrant",
+      "v": [
+        23.75,
+        97.125,
+        -42.5,
+        31.25
+      ]
+    }
+  ],
+  "pathCase": {
+    "name": "representative-cubic",
+    "p0": [
+      0,
+      0
+    ],
+    "p1": [
+      30.25,
+      80.5
+    ],
+    "p2": [
+      90.75,
+      -20.125
+    ],
+    "p3": [
+      130.5,
+      40.25
+    ]
+  },
+  "maxBezierDrift": 1.1920928955078125e-7,
+  "maxIkComponentDrift": 0,
+  "maxPathComponentDrift": 0.00000762939453125,
+  "pass": true
+}
