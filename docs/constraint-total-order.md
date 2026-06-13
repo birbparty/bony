@@ -34,17 +34,17 @@ integration formulas.
 Every constraint has a canonical key:
 
 ```text
-(order, stageRank, kindRank, sourceIndex)
+(stageRank, order, kindRank, sourceIndex)
 ```
 
 Fields are compared lexicographically in ascending order.
 
-`order`
-: The integer `order` property stored on the constraint.
-
 `stageRank`
 : `0` for world-transform constraints (`ik`, `transform`, `path`) and `1` for
   physics constraints.
+
+`order`
+: The integer `order` property stored on the constraint.
 
 `kindRank`
 : Fixed constraint-kind priority:
@@ -54,6 +54,10 @@ Fields are compared lexicographically in ascending order.
 : The zero-based index of the constraint in its source array after loading and
   validation.
 
+`stageRank` is intentionally the primary key. A physics constraint with a lower
+`order` than a non-physics constraint still runs in the physics stage, after the
+world-transform constraint pass.
+
 No other value participates in ordering. Names, object identities, hash-table
 iteration order, pointer addresses, allocation order, and map insertion order
 must never affect constraint order.
@@ -61,13 +65,14 @@ must never affect constraint order.
 ## Execution Domains
 
 The canonical key is shared by all constraint kinds, but the pose pipeline has
-two execution domains.
+two execution domains. Cross-domain `order` values never move constraints
+across the stage boundary.
 
 ### World-Transform Constraint Pass
 
 The world-transform pass consumes only entries with `stageRank = 0`. IK,
-transform, and path constraints are interleaved with parent-first bone world
-updates using their canonical order.
+transform, and path constraints are merged into a precomputed parent-first bone
+update cache using their canonical order.
 
 If two non-physics constraints share the same `order`, the fixed kind priority
 applies before source array index:
@@ -82,6 +87,24 @@ If two constraints of the same kind share the same `order`, the lower
 The update cache must precompute this order once per loaded skeleton data, or
 recompute it only when skeleton data changes. Per-frame runtime state must not
 change the order.
+
+The cache is built as a sequence of `(bone-group | constraint)` entries:
+
+1. Start with bones in parent-first skeleton array order.
+2. Sort active and inactive non-physics constraints by canonical key.
+3. For each constraint in sorted order, emit one `bone-group` containing every
+   not-yet-emitted bone whose parent chain does not depend on that constraint.
+4. Emit the constraint.
+5. After the last constraint, emit one final `bone-group` containing every
+   remaining not-yet-emitted bone.
+
+Within a `bone-group`, bones are evaluated in parent-first skeleton array order.
+A bone is "not-yet-emitted" until its world transform has been computed by the
+cache for the current pose. A bone "depends on" a constraint when the constraint
+can write that bone or any ancestor needed to compute that bone's world
+transform. If two runtimes disagree about dependency analysis, they must choose
+the conservative result that delays the bone until after the constraint. This
+may reduce batching, but it preserves the canonical constraint order.
 
 ### Physics Stage
 
@@ -127,17 +150,23 @@ diagnostics only. Duplicate names do not change ordering.
 
 ## Inactive Constraints
 
-Constraints disabled by `skinRequired`, missing required skin membership, zero
-runtime mix, or other documented activation rules are skipped when evaluated.
-They retain their canonical position in the update cache.
+Constraints disabled by `skinRequired`, missing required skin membership, or
+other documented activation rules are skipped when evaluated. They retain their
+canonical position in the update cache.
 
 Skipping an inactive constraint must not collapse, renumber, or reorder any
 later active constraint. If an inactive constraint becomes active on a later
 frame, it runs at the same canonical position it always had.
 
+Runtime `mix == 0` is not a generic inactive rule. Stateless solver contracts
+may define a zero-mix fast path only when it produces the same observable
+result as evaluating the constraint at its canonical position. Stateful
+constraints, including physics, must follow their own state and accumulator
+rules even when their output mix is zero.
+
 ## Determinism Requirements
 
-- Sort constraints only by `(order, stageRank, kindRank, sourceIndex)`.
+- Sort constraints only by `(stageRank, order, kindRank, sourceIndex)`.
 - Preserve source array order at load and canonical emission boundaries.
 - Build ordered update caches from arrays, not maps.
 - Use stable iteration over the precomputed cache during playback.
@@ -161,6 +190,10 @@ The M5 conformance suite must include:
   constraint positions.
 - Physics constraints with the same `order`, proving physics-stage
   `sourceIndex` tie-breaking.
+- A low-`order` physics constraint and a higher-`order` non-physics constraint,
+  proving physics still runs after the world-transform constraint pass.
+- Non-physics constraints interleaved with parent-first bone groups, proving
+  every runtime builds the same `(bone-group | constraint)` cache.
 - A mixed fixture whose JSON object keys are deliberately shuffled, proving
   object key order does not affect constraint order.
 - A fixture loaded, canonicalized, and reloaded, proving constraint array order
