@@ -10,8 +10,8 @@ does not change runtime semantics.
 
 - Applies to `.bony` JSON emitted by project tools.
 - Required for `json->bnb->json` idempotency modulo default omission.
-- Does not define binary byte stability; that is owned by the binary
-  canonicalization contract.
+- Does not define binary byte stability; that is owned by
+  `docs/binary-canonicalization.md`.
 
 ## Object Key Order
 
