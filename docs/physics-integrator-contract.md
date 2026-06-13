@@ -9,9 +9,8 @@ and must be followed before the M5 physics-constraint implementation.
 Physics constraints add spring-driven inertial offsets to selected logical bone
 channels. They run at the physics stage of the pose pipeline, after the
 non-physics world-transform/constraint pass has produced the animated target
-pose. If the later constraint-total-order contract allows physics constraints
-to interleave with other constraint kinds, it must update this document and the
-physics conformance expectations in the same change.
+pose. The stage boundary and tie-breaking rules are defined in
+`docs/constraint-total-order.md`.
 
 This document owns:
 
