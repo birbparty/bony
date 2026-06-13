@@ -31,19 +31,26 @@ keySpaces:
 backingTypesStatus: skip-safe-via-property-byte-length
 backingTypes:
   - id: varuint
+    code: 1
     skipRule: read unsigned LEB128 value
   - id: varint
+    code: 2
     skipRule: read zig-zag signed LEB128 value
   - id: f32
+    code: 3
     skipRule: skip 4 little-endian bytes
   - id: bool
+    code: 4
     skipRule: skip 1 byte
   - id: string
+    code: 5
     skipRule: read varuint string-table index
   - id: color
+    code: 6
     skipRule: skip 4 rgba8 bytes
   - id: bytes
-    skipRule: read varuint byte count, then skip that many bytes
+    code: 7
+    skipRule: skip exactly the surrounding property byteLength
 
 tocSkipContract:
   status: resolved
@@ -56,6 +63,15 @@ tocSkipContract:
     internal layout.
 
 entrySchemas:
+  backingType:
+    required:
+      - id
+      - code
+      - skipRule
+    fields:
+      id: stable lowerCamelCase backing-type identifier used by codegen
+      code: stable u8 backing type code used in the ToC
+      skipRule: human-readable payload decoding or skip rule
   typeKey:
     required:
       - id
@@ -108,6 +124,7 @@ mutationRules:
     - delete-shipped-key
     - reuse-deprecated-key
     - change-property-backing-type
+    - change-backing-type-code
     - repurpose-identifier
 
 schemaGeneration:

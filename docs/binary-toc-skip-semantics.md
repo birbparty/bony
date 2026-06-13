@@ -34,8 +34,11 @@ ToC entry:
 
 ```text
 varuint propertyKey
-u8 backingType
+u8 backingTypeCode
 ```
+
+`backingTypeCode` is the stable numeric code assigned to the property's
+registered backing type in `registry/wire.yml`.
 
 The ToC is still required because:
 
@@ -55,6 +58,8 @@ Each object is encoded as:
 
 ```text
 varuint typeKey
+if typeKey == 0:
+  end object stream
 repeat:
   varuint propertyKey
   if propertyKey == 0:
@@ -65,6 +70,7 @@ repeat:
 
 Reading rules:
 
+- Type key `0` terminates the object stream and is not followed by properties.
 - Unknown `typeKey`: read property records until property key `0`, skipping
   every payload by `byteLength`, then discard the object.
 - Known `typeKey`, unknown `propertyKey`: skip the payload by `byteLength` and
@@ -75,12 +81,16 @@ Reading rules:
   malformed.
 - If a known-property decoder consumes fewer or more bytes than `byteLength`,
   reject the file as malformed.
-- If a property key is absent from the ToC, reject the file as malformed before
-  object decoding.
-- If a property appears in the ToC with a backing type different from the
-  registry entry known to the reader, reject the file as malformed for same-major
-  data. Changing a shipped property backing type requires a major version break
-  or a new property key.
+- When reading any nonzero property key, reject the file as malformed if that
+  key is absent from the ToC before reading or using its payload bytes.
+- If a known property appears in the ToC with a backing type code different from
+  the registry entry known to the reader, reject the file as malformed for
+  same-major data. Changing a shipped property backing type requires a major
+  version break or a new property key.
+- Unknown backing type codes are allowed only for property keys unknown to the
+  reader. This preserves forward-compatible skipping for future composite
+  backing types. A known property with an unknown backing type code is a backing
+  type mismatch and must be rejected.
 
 ## Payload Encoding
 
@@ -136,12 +146,15 @@ M6 forward-compat tests must include:
 - Unknown property with array-of-struct payload skipped by `byteLength`.
 - Unknown object containing multiple unknown properties skipped until property
   key `0`.
+- Object stream stops at type key `0` without reading a property list.
 - Known property whose decoder consumes fewer bytes than `byteLength`, rejected
   as malformed.
 - Known property whose decoder would read past `byteLength`, rejected as
   malformed.
 - Property key missing from the ToC, rejected as malformed.
 - ToC backing-type mismatch for a known property, rejected as malformed.
+- Unknown ToC backing-type code for an unknown property, still skipped by
+  `byteLength`.
 - Truncated `byteLength` varuint and payload length beyond remaining bytes,
   rejected as malformed.
 
