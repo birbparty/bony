@@ -131,8 +131,11 @@ S = | sx  k |
     |  0 sy |
 ```
 
-For non-degenerate matrices, `sy` is non-negative by construction. If `sy` is
-within `basisEpsilon` of zero, clamp it to `0` after computing `S`.
+For non-degenerate matrices, `sy` is non-negative by construction. Do not clamp
+`sy` in this path. A `normal` child with all inherit flags enabled must
+recompose the parent linear matrix exactly, within floating-point evaluation
+rules, even when `sy` is very small. The degenerate path is selected only by
+the `sx <= basisEpsilon` predicate above.
 
 ### Degenerate Factoring
 
@@ -212,7 +215,7 @@ For a root bone, `P`, `R`, `F`, and `H` are identity, parent translation is
 
 `transformMode` is a named presentation of the three inherit flags. The flags
 are the canonical stored data; the modes are aliases used by importers, UI, and
-fixtures.
+fixtures. Only the five flag triples in this table are valid v1 file states.
 
 | transformMode | inheritRotation | inheritScale | inheritReflection |
 | --- | --- | --- | --- |
@@ -225,6 +228,11 @@ fixtures.
 If a file stores both a mode alias and explicit flags, validation must reject
 the file unless they match the table exactly. Canonical emission writes the
 flags and may omit the alias.
+
+If a file stores explicit flags without a mode alias, validation must still
+reject any flag triple not listed in the table. The general formulas above are
+defined for clarity and implementation reuse; they do not authorize extra v1
+transform modes.
 
 ## Reflection
 
@@ -264,10 +272,11 @@ The M2 numeric golden suite must include:
 - A root bone using rotation, scale, and shear.
 - A parent with non-uniform scale and shear, plus one child for each of the
   five transform modes.
-- A reflected parent with one child each for `normal`, `noScale`, and
-  `noScaleOrReflection`.
+- A reflected parent with one child for each of the five transform modes.
 - A child with negative local scale, proving local reflection is not folded into
   parent reflection factoring.
+- Rejection of the three boolean flag triples not listed in the transform-mode
+  table.
 - A parent whose first basis column is degenerate but second column is not.
 - A parent whose full linear basis is degenerate.
 - A hierarchy of at least three bones proving parent translation uses full `P`
