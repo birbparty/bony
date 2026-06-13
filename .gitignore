@@ -1,6 +1,10 @@
 nimcache/
 nimblecache/
 htmldocs/
+runtime-dart/.dart_tool/
+runtime-dart/pubspec.lock
+runtime-nim/tests/*
+!runtime-nim/tests/*.nim
 
 # Beads / Dolt files (added by bd init)
 .dolt/
