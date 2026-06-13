@@ -1,6 +1,9 @@
 nimcache/
 nimblecache/
 htmldocs/
+runtime-dart/.dart_tool/
+runtime-nim/tests/test_smoke
+runtime-nim/tests/*.exe
 
 # Beads / Dolt files (added by bd init)
 .dolt/
