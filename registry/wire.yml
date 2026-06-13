@@ -1,0 +1,83 @@
+# Canonical append-only .bnb wire registry.
+#
+# This file defines the stable key spaces consumed by codegen and schema sync.
+# Later feature beads append concrete object and property entries here. Do not
+# renumber, delete, or repurpose existing keys.
+
+format: bony-wire-registry
+registryVersion: 1
+
+reserved:
+  typeKeyTerminator:
+    key: 0
+    meaning: object-stream-eof
+  propertyKeyTerminator:
+    key: 0
+    meaning: object-property-list-terminator
+
+keySpaces:
+  typeKeys:
+    encoding: varuint
+    firstAssignable: 1
+    appendOnly: true
+  propertyKeys:
+    encoding: varuint
+    firstAssignable: 1
+    appendOnly: true
+    backingTypeScope: global
+
+backingTypes:
+  - id: varuint
+    skipRule: read unsigned LEB128 value
+  - id: varint
+    skipRule: read zig-zag signed LEB128 value
+  - id: f32
+    skipRule: skip 4 little-endian bytes
+  - id: bool
+    skipRule: skip 1 byte
+  - id: string
+    skipRule: read varuint string-table index
+  - id: color
+    skipRule: skip 4 rgba8 bytes
+  - id: bytes
+    skipRule: read varuint byte count, then skip that many bytes
+  - id: array-varuint
+    skipRule: read varuint count, then count varuint values
+  - id: array-varint
+    skipRule: read varuint count, then count varint values
+  - id: array-f32
+    skipRule: read varuint count, then skip count * 4 bytes
+  - id: array-bool
+    skipRule: read varuint count, then skip count bytes
+  - id: array-string
+    skipRule: read varuint count, then count string-table indices
+  - id: array-color
+    skipRule: read varuint count, then skip count * 4 rgba8 bytes
+  - id: bytes-array
+    skipRule: read varuint count, then count length-prefixed byte blobs
+
+mutationRules:
+  allowed:
+    - append-type-key
+    - append-property-key
+    - add-compatible-object-property-use
+    - add-documentation
+    - mark-deprecated
+  forbidden:
+    - assign-key-zero
+    - renumber-key
+    - delete-shipped-key
+    - reuse-deprecated-key
+    - change-property-backing-type
+    - repurpose-identifier
+
+schemaGeneration:
+  jsonSchemaPath: spec/bony.schema.json
+  generatedFrom:
+    - registry/wire.yml
+    - default-table-source
+  schemaIsIndependentSource: false
+
+typeKeys: []
+propertyKeys: []
+objects: []
