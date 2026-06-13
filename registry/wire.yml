@@ -20,12 +20,15 @@ keySpaces:
     encoding: varuint
     firstAssignable: 1
     appendOnly: true
+    rangeSource: registry/key-ranges.md
   propertyKeys:
     encoding: varuint
     firstAssignable: 1
     appendOnly: true
     backingTypeScope: global
+    rangeSource: registry/key-ranges.md
 
+backingTypesStatus: provisional-until-toc-skip-contract
 backingTypes:
   - id: varuint
     skipRule: read unsigned LEB128 value
@@ -41,20 +44,56 @@ backingTypes:
     skipRule: skip 4 rgba8 bytes
   - id: bytes
     skipRule: read varuint byte count, then skip that many bytes
-  - id: array-varuint
-    skipRule: read varuint count, then count varuint values
-  - id: array-varint
-    skipRule: read varuint count, then count varint values
-  - id: array-f32
-    skipRule: read varuint count, then skip count * 4 bytes
-  - id: array-bool
-    skipRule: read varuint count, then skip count bytes
-  - id: array-string
-    skipRule: read varuint count, then count string-table indices
-  - id: array-color
-    skipRule: read varuint count, then skip count * 4 rgba8 bytes
-  - id: bytes-array
-    skipRule: read varuint count, then count length-prefixed byte blobs
+
+tocSkipContract:
+  status: pending
+  ownerBead: bony-uq1
+  note: >
+    Composite and repeated values are intentionally not frozen here. The ToC
+    skip-semantics bead must decide whether arrays and array-of-struct values
+    use length-prefixed byte payloads, richer descriptors, or another
+    skip-safe encoding before any property entry may use a composite backing
+    type.
+
+entrySchemas:
+  typeKey:
+    required:
+      - id
+      - key
+      - status
+      - milestone
+      - ownerBead
+    fields:
+      id: stable lowerCamelCase object-kind identifier used by codegen
+      key: positive varuint unique within typeKeys
+      status: active | deprecated | reserved
+      milestone: owning milestone or reserved band label
+      ownerBead: bead that introduced the key
+      doc: human-readable description
+  propertyKey:
+    required:
+      - id
+      - key
+      - backingType
+      - status
+      - milestone
+      - ownerBead
+    fields:
+      id: stable lowerCamelCase property identifier used by codegen
+      key: positive varuint unique within propertyKeys
+      backingType: id from backingTypes; composite ids require tocSkipContract to be resolved
+      status: active | deprecated | reserved
+      milestone: owning milestone or reserved band label
+      ownerBead: bead that introduced the key
+      doc: human-readable description
+  object:
+    required:
+      - type
+      - properties
+    fields:
+      type: id of a declared typeKey
+      properties: ordered list of declared propertyKey ids valid for this object
+      doc: human-readable description
 
 mutationRules:
   allowed:

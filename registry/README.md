@@ -35,8 +35,10 @@ wire backing requirements, they must use different property keys.
 
 Allowed changes:
 
-- Append a new type key with an unused positive key.
-- Append a new property key with an unused positive key.
+- Append a new type key with an unused positive key in the owning milestone's
+  reserved range once `registry/key-ranges.md` exists.
+- Append a new property key with an unused positive key in the owning
+  milestone's reserved range once `registry/key-ranges.md` exists.
 - Add a new object/property use that references an existing compatible property
   key.
 - Add documentation, owner milestone, or references that do not change wire
@@ -69,6 +71,8 @@ ordering for generated schema properties.
 Any bead that edits `registry/**` must verify:
 
 - New keys are positive and unused in their key space.
+- New keys fall inside the owning milestone's reserved range once
+  `registry/key-ranges.md` exists.
 - Key `0` remains reserved.
 - Property backing types are unchanged for existing keys.
 - Object property lists reference declared property keys.
