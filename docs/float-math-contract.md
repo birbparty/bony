@@ -116,8 +116,9 @@ Use the platform standard library for these operations. In Dart, `pow` results
 must be converted to `double` before downstream arithmetic.
 
 This section does not define transform composition formulas, inherit modes, or
-reflection factoring. It constrains arithmetic order after the transform
-composition contract chooses those formulas.
+reflection factoring. Those formulas live in
+`docs/transform-composition-contract.md`; this section constrains arithmetic
+order after that contract chooses them.
 
 ## Bézier Curves
 
