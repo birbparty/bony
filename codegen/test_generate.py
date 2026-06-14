@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import sys
+import json
 import unittest
 from pathlib import Path
 
@@ -91,7 +92,12 @@ class GeneratorValidationTests(unittest.TestCase):
 
         self.assertIn("BonyObjectSpec", generate.generate_nim(registry, defaults))
         self.assertIn("BonyObjectSpec", generate.generate_dart(registry, defaults))
-        self.assertIn('"bones"', generate.generate_schema(registry, defaults))
+        schema_text = generate.generate_schema(registry, defaults)
+        schema = json.loads(schema_text)
+        self.assertEqual(list(schema["properties"].keys()), ["bones"])
+        self.assertEqual(schema["required"], ["bones"])
+        self.assertFalse(schema["$defs"]["bone"]["additionalProperties"])
+        self.assertEqual(schema["$defs"]["bone"]["properties"]["name"]["minLength"], 1)
 
     def test_invalid_default_type_is_rejected(self) -> None:
         registry = sample_registry()

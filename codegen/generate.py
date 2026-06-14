@@ -446,7 +446,7 @@ def generate_schema(registry: dict[str, Any], defaults: dict[str, Any]) -> str:
         object_id = entry["type"]
         properties: dict[str, Any] = {}
         for property_id in entry["properties"]:
-            property_schema = schema_for_backing_type(property_backing[property_id])
+            property_schema = schema_for_property(property_id, property_backing[property_id])
             if property_id in default_map.get(object_id, {}):
                 property_schema["default"] = default_map[object_id][property_id]["value"]
             properties[property_id] = property_schema
@@ -465,10 +465,12 @@ def generate_schema(registry: dict[str, Any], defaults: dict[str, Any]) -> str:
             root_properties["skeleton"] = {"$ref": "#/$defs/skeleton"}
             required_root.append("skeleton")
         else:
-            root_properties[object_id + "s"] = {
+            collection_id = object_id + "s"
+            root_properties[collection_id] = {
                 "type": "array",
                 "items": {"$ref": f"#/$defs/{object_id}"},
             }
+            required_root.append(collection_id)
 
     schema: dict[str, Any] = {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -483,7 +485,7 @@ def generate_schema(registry: dict[str, Any], defaults: dict[str, Any]) -> str:
     }
     if not type_keys:
         schema["not"] = {}
-    return json.dumps(schema, indent=2, sort_keys=True) + "\n"
+    return json.dumps(schema, indent=2) + "\n"
 
 
 def schema_for_backing_type(backing_type: str) -> dict[str, Any]:
@@ -504,6 +506,13 @@ def schema_for_backing_type(backing_type: str) -> dict[str, Any]:
     if backing_type not in mapping:
         raise SourceError(f"cannot map backing type to JSON Schema: {backing_type}")
     return dict(mapping[backing_type])
+
+
+def schema_for_property(property_id: str, backing_type: str) -> dict[str, Any]:
+    schema = schema_for_backing_type(backing_type)
+    if property_id == "name":
+        schema["minLength"] = 1
+    return schema
 
 
 def generate_nim(registry: dict[str, Any], defaults: dict[str, Any]) -> str:

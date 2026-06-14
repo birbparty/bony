@@ -1,56 +1,59 @@
 {
-  "$defs": {
-    "bone": {
-      "additionalProperties": false,
-      "properties": {
-        "name": {
-          "type": "string"
-        },
-        "parent": {
-          "default": "",
-          "type": "string"
-        }
-      },
-      "required": [
-        "name"
-      ],
-      "type": "object"
-    },
-    "skeleton": {
-      "additionalProperties": false,
-      "properties": {
-        "name": {
-          "type": "string"
-        },
-        "version": {
-          "default": "0.1.0",
-          "type": "string"
-        }
-      },
-      "required": [
-        "name"
-      ],
-      "type": "object"
-    }
-  },
-  "$id": "https://bony.local/spec/bony.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "additionalProperties": false,
+  "$id": "https://bony.local/spec/bony.schema.json",
+  "title": "bony",
   "description": "Generated from registry/wire.yml and spec/defaults.yml.",
+  "type": "object",
+  "additionalProperties": false,
   "properties": {
-    "bones": {
-      "items": {
-        "$ref": "#/$defs/bone"
-      },
-      "type": "array"
-    },
     "skeleton": {
       "$ref": "#/$defs/skeleton"
+    },
+    "bones": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/bone"
+      }
     }
   },
   "required": [
-    "skeleton"
+    "skeleton",
+    "bones"
   ],
-  "title": "bony",
-  "type": "object"
+  "$defs": {
+    "skeleton": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "default": "0.1.0"
+        }
+      },
+      "required": [
+        "name"
+      ]
+    },
+    "bone": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "parent": {
+          "type": "string",
+          "default": ""
+        }
+      },
+      "required": [
+        "name"
+      ]
+    }
+  }
 }

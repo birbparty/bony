@@ -17,6 +17,78 @@ proc defaultFor(objectId, propertyId: string): string =
   raise newBonyLoadError(schemaViolation, "missing generated default for " & objectId & "." & propertyId)
 
 
+proc skipJsonWhitespace(text: string; index: var int) =
+  while index < text.len and text[index] in {' ', '\t', '\r', '\n'}:
+    inc index
+
+
+proc readJsonString(text: string; index: var int): string =
+  if index >= text.len or text[index] != '"':
+    raise newBonyLoadError(schemaViolation, "expected JSON string")
+  inc index
+  while index < text.len:
+    let ch = text[index]
+    if ch == '"':
+      inc index
+      return result
+    if ch == '\\':
+      result.add(ch)
+      inc index
+      if index >= text.len:
+        raise newBonyLoadError(schemaViolation, "unterminated JSON escape")
+      result.add(text[index])
+      inc index
+    else:
+      result.add(ch)
+      inc index
+  raise newBonyLoadError(schemaViolation, "unterminated JSON string")
+
+
+proc rejectDuplicateObjectKeys(text: string) =
+  type JsonContext = object
+    isObject: bool
+    keys: HashSet[string]
+    expectingKey: bool
+
+  var stack: seq[JsonContext] = @[]
+  var index = 0
+  while index < text.len:
+    skipJsonWhitespace(text, index)
+    if index >= text.len:
+      break
+    case text[index]
+    of '{':
+      stack.add(JsonContext(isObject: true, keys: initHashSet[string](), expectingKey: true))
+      inc index
+    of '}':
+      if stack.len > 0:
+        discard stack.pop()
+      inc index
+    of '[':
+      stack.add(JsonContext(isObject: false))
+      inc index
+    of ']':
+      if stack.len > 0:
+        discard stack.pop()
+      inc index
+    of ',':
+      if stack.len > 0 and stack[^1].isObject:
+        stack[^1].expectingKey = true
+      inc index
+    of '"':
+      let token = readJsonString(text, index)
+      if stack.len > 0 and stack[^1].isObject and stack[^1].expectingKey:
+        var after = index
+        skipJsonWhitespace(text, after)
+        if after < text.len and text[after] == ':':
+          if token in stack[^1].keys:
+            raise newBonyLoadError(duplicateKey, "duplicate JSON object key: " & token)
+          stack[^1].keys.incl(token)
+          stack[^1].expectingKey = false
+    else:
+      inc index
+
+
 proc requireObject(node: JsonNode; context: string): JsonNode =
   if node.kind != JObject:
     raise newBonyLoadError(schemaViolation, context & " must be an object")
@@ -56,6 +128,8 @@ proc validateKnownKeys(node: JsonNode; allowed: openArray[string]; context: stri
 
 
 proc loadBonyJson*(text: string): SkeletonData =
+  rejectDuplicateObjectKeys(text)
+
   let parsed =
     try:
       parseJson(text)
@@ -70,40 +144,36 @@ proc loadBonyJson*(text: string): SkeletonData =
   let skeleton = requireObject(root["skeleton"], "skeleton")
   validateKnownKeys(skeleton, ["name", "version"], "skeleton")
 
-  result.header = SkeletonHeader(
-    name: requiredString(skeleton, "name", "skeleton"),
-    version: optionalString(skeleton, "version", defaultFor(skeletonTypeId, "version"), "skeleton"),
+  let loadedHeader = skeletonHeader(
+    requiredString(skeleton, "name", "skeleton"),
+    optionalString(skeleton, "version", defaultFor(skeletonTypeId, "version"), "skeleton"),
   )
 
-  let bonesNode =
-    if root.hasKey("bones"): requireArray(root["bones"], "bones")
-    else: newJArray()
+  if not root.hasKey("bones"):
+    raise newBonyLoadError(schemaViolation, "root.bones is required")
+  let bonesNode = requireArray(root["bones"], "bones")
 
-  var seen = initHashSet[string]()
+  var loadedBones: seq[BoneData] = @[]
   for index, boneNode in bonesNode.elems:
     let context = "bones[" & $index & "]"
     let boneObject = requireObject(boneNode, context)
     validateKnownKeys(boneObject, ["name", "parent"], context)
-    let bone = BoneData(
-      name: requiredString(boneObject, "name", context),
-      parent: optionalString(boneObject, "parent", defaultFor(boneTypeId, "parent"), context),
+    loadedBones.add boneData(
+      requiredString(boneObject, "name", context),
+      optionalString(boneObject, "parent", defaultFor(boneTypeId, "parent"), context),
     )
-    if bone.name.len == 0:
-      raise newBonyLoadError(schemaViolation, context & ".name must not be empty")
-    if bone.name in seen:
-      raise newBonyLoadError(duplicateKey, "duplicate bone name: " & bone.name)
-    if bone.parent.len > 0 and bone.parent notin seen:
-      raise newBonyLoadError(orderingViolation, "bone parent must appear before child: " & bone.name)
-    seen.incl(bone.name)
-    result.bones.add(bone)
+
+  skeletonData(loadedHeader, loadedBones)
 
 
 proc toBonyJson*(data: SkeletonData): string =
+  validateSkeletonData(data)
   var root = newJObject()
   var skeleton = newJObject()
-  skeleton["name"] = newJString(data.header.name)
-  if data.header.version != defaultFor(skeletonTypeId, "version"):
-    skeleton["version"] = newJString(data.header.version)
+  let header = data.header
+  skeleton["name"] = newJString(header.name)
+  if header.version != defaultFor(skeletonTypeId, "version"):
+    skeleton["version"] = newJString(header.version)
   root["skeleton"] = skeleton
 
   var bones = newJArray()
