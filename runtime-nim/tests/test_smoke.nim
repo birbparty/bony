@@ -251,6 +251,10 @@ spec "bony package":
       , duplicateKey)
       raisesBonyLoadError(proc() =
         var bad: seq[byte]
+        bad.writeObjectRecord(0, @[])
+      , schemaViolation)
+      raisesBonyLoadError(proc() =
+        var bad: seq[byte]
         bad.writeObjectRecord(2, @[BnbPropertyRecord(propertyKey: 900000, payload: @[])])
         var badIndex = 0
         discard bad.readObjectRecord(badIndex, @[])
@@ -270,6 +274,15 @@ spec "bony package":
         bad.writePropertyTerminator()
         var badIndex = 0
         discard bad.readObjectRecord(badIndex, toc)
+      , duplicateKey)
+      raisesBonyLoadError(proc() =
+        var bad: seq[byte]
+        bad.writeVaruint(999999)
+        bad.writePropertyRecord(900000, @[])
+        bad.writePropertyRecord(900000, @[])
+        bad.writePropertyTerminator()
+        var badIndex = 0
+        discard bad.skipObjectRecord(badIndex, toc)
       , duplicateKey)
 
   it "handles .bnb embedded atlas trailer bytes":
@@ -295,6 +308,18 @@ spec "bony package":
         discard bad.readToc(badIndex)
         discard bad.readObjectStream(badIndex, @[])
         discard bad.readEmbeddedAtlas(badIndex, BnbHeader(major: badHeader.major, minor: badHeader.minor, flags: 0))
+      , schemaViolation)
+      raisesBonyLoadError(proc() =
+        var bad: seq[byte]
+        bad.writeHeader(flags = 0)
+        bad.writeToc(@[])
+        bad.writeObjectStreamTerminator()
+        bad.add 42'u8
+        var badIndex = 0
+        let badHeader = bad.readHeader(badIndex)
+        discard bad.readToc(badIndex)
+        discard bad.readObjectStream(badIndex, @[])
+        discard bad.readEmbeddedAtlas(badIndex, badHeader)
       , schemaViolation)
 
   it "encodes .bnb string tables in first-seen order":

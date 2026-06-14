@@ -346,8 +346,9 @@ proc normalizedProperties(properties: openArray[BnbPropertyRecord]): seq[BnbProp
 proc writeObjectRecord*(output: var seq[byte]; typeKey: uint64; properties: openArray[BnbPropertyRecord]) =
   if typeKey == 0:
     raise newBonyLoadError(schemaViolation, ".bnb type key 0 is the object stream terminator")
+  let normalized = normalizedProperties(properties)
   output.writeVaruint(typeKey)
-  for property in normalizedProperties(properties):
+  for property in normalized:
     output.writePropertyRecord(property.propertyKey, property.payload)
   output.writePropertyTerminator()
 
