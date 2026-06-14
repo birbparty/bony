@@ -824,6 +824,62 @@ spec "bony package":
         discard constraintOrderEntry(ckPath, 0, -1)
       , schemaViolation)
 
+  it "builds deterministic ordered constraint update caches":
+    let data = skeletonData(
+      skeletonHeader("demo", "0.1.0"),
+      @[
+        boneData("root", ""),
+        boneData("spine", "root"),
+        boneData("hand", "spine"),
+        boneData("fx", "root"),
+      ],
+      pathAttachments = @[pathAttachmentData("curve", 0.0, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0)],
+      paths = @[pathConstraintData("follow", "hand", "root", "curve", order = 2)],
+    )
+    let cache = buildConstraintUpdateCache(data.bones, @[
+      constraintCacheDescriptor(ckPath, 2, 0, ["hand"]),
+      constraintCacheDescriptor(ckIk, 2, 0, ["spine"]),
+      constraintCacheDescriptor(ckTransform, 2, 0, ["fx"], active = false),
+      constraintCacheDescriptor(ckPath, 2, 1, ["fx"]),
+      constraintCacheDescriptor(ckPhysics, -10, 0, ["root"]),
+    ])
+    let pathCache = buildPathConstraintUpdateCache(data)
+    let physicsOrder = buildPhysicsConstraintOrder(@[
+      constraintCacheDescriptor(ckPhysics, 3, 2, ["root"]),
+      constraintCacheDescriptor(ckPhysics, -1, 0, ["root"]),
+      constraintCacheDescriptor(ckPhysics, 3, 1, ["root"]),
+      constraintCacheDescriptor(ckPath, -10, 0, ["hand"]),
+    ])
+
+    then:
+      cache.len == 8
+      cache[0].kind == ccekBoneGroup
+      cache[0].bones == @[0]
+      cache[1].kind == ccekConstraint
+      cache[1].constraint.kind == ckIk
+      cache[1].constraint.sourceIndex == 0
+      cache[2].kind == ccekBoneGroup
+      cache[2].bones == @[1]
+      cache[3].kind == ccekConstraint
+      cache[3].constraint.kind == ckTransform
+      cache[3].active == false
+      cache[4].constraint.kind == ckPath
+      cache[4].constraint.sourceIndex == 0
+      cache[5].bones == @[2]
+      cache[6].constraint.kind == ckPath
+      cache[6].constraint.sourceIndex == 1
+      cache[7].bones == @[3]
+      pathCache.len == 3
+      pathCache[0].bones == @[0, 1, 3]
+      pathCache[1].constraint.kind == ckPath
+      pathCache[1].constraint.order == 2
+      pathCache[2].bones == @[2]
+      physicsOrder.mapIt(it.order) == @[-1, 3, 3]
+      physicsOrder.mapIt(it.sourceIndex) == @[0, 1, 2]
+      raisesBonyLoadError(proc() =
+        discard buildConstraintUpdateCache(data.bones, @[constraintCacheDescriptor(ckPath, 0, 0, ["missing"])])
+      , unknownRequiredReference)
+
   it "stores f32-backed numeric fields at f32 precision":
     let data = loadBonyJson("""{"skeleton":{"name":"demo"},"bones":[{"name":"root","x":0.1000000001}]}""")
     let expected = quantizeF32(0.1000000001)

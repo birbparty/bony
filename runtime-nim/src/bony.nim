@@ -9,6 +9,7 @@ import bony/constraints/ik
 import bony/constraints/path_constraints
 import bony/constraints/physics_constraints
 import bony/constraints/transform_constraints
+import bony/constraints/update_cache
 import bony/deform/deformers
 import bony/deform/keyforms
 import bony/deform/parameter_timelines
@@ -30,6 +31,7 @@ export ik
 export path_constraints
 export physics_constraints
 export transform_constraints
+export update_cache
 export clipping
 export deformers
 export keyforms
