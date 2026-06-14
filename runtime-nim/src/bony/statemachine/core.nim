@@ -67,10 +67,22 @@ type
     fromState*: string
     toState*: string
 
+  StateMachineStateKind* = enum
+    clipState,
+    blend1DState
+
+  StateMachineBlendClip* = object
+    clip*: AnimationClip
+    value*: float64
+    loop*: bool
+
   StateMachineState* = object
     name*: string
+    kind*: StateMachineStateKind
     clip*: AnimationClip
     loop*: bool
+    blendInput*: string
+    blendClips*: seq[StateMachineBlendClip]
 
   StateMachineLayer* = object
     name*: string
@@ -117,9 +129,43 @@ proc validateName(value, context: string) =
     raise newBonyLoadError(schemaViolation, context & " name must not be empty")
 
 
-proc validateState(state: StateMachineState) =
+proc blendClipOrder(a, b: StateMachineBlendClip): int = cmp(a.value, b.value)
+
+
+proc normalizeBlendClip(clip: StateMachineBlendClip): StateMachineBlendClip =
+  validateName(clip.clip.name, "state-machine blend clip animation")
+  StateMachineBlendClip(
+    clip: clip.clip,
+    value: quantizeF32(clip.value, "stateMachine.blendClip.value"),
+    loop: clip.loop,
+  )
+
+
+proc normalizeState(state: StateMachineState): StateMachineState =
   validateName(state.name, "state-machine state")
-  validateName(state.clip.name, "state-machine state animation")
+  result = StateMachineState(name: state.name, kind: state.kind)
+  case state.kind
+  of clipState:
+    validateName(state.clip.name, "state-machine state animation")
+    if state.blendInput.len != 0 or state.blendClips.len != 0:
+      raise newBonyLoadError(schemaViolation, "state-machine clip state must not contain blend data")
+    result.clip = state.clip
+    result.loop = state.loop
+  of blend1DState:
+    if state.clip.name.len != 0:
+      raise newBonyLoadError(schemaViolation, "state-machine blend state must not contain a direct animation")
+    if state.loop:
+      raise newBonyLoadError(schemaViolation, "state-machine blend state must not set direct loop")
+    validateName(state.blendInput, "state-machine blend input")
+    if state.blendClips.len == 0:
+      raise newBonyLoadError(schemaViolation, "state-machine blend state must contain at least one clip")
+    result.blendInput = state.blendInput
+    for input in state.blendClips:
+      result.blendClips.add normalizeBlendClip(input)
+    result.blendClips.sort(blendClipOrder)
+    for index in 1 ..< result.blendClips.len:
+      if result.blendClips[index - 1].value == result.blendClips[index].value:
+        raise newBonyLoadError(duplicateKey, "duplicate state-machine blend clip value")
 
 
 proc requireInactiveNumberUnset(value: float64; context: string) =
@@ -254,9 +300,20 @@ proc stateMachineTransitionListener*(name, layer, fromState, toState: string): S
   validateName(result.toState, "state-machine listener to")
 
 
+proc stateMachineBlendClip*(clip: AnimationClip; value: float64; loop = false): StateMachineBlendClip =
+  normalizeBlendClip(StateMachineBlendClip(clip: clip, value: value, loop: loop))
+
+
 proc stateMachineState*(name: string; clip: AnimationClip; loop = false): StateMachineState =
-  result = StateMachineState(name: name, clip: clip, loop: loop)
-  validateState(result)
+  normalizeState(StateMachineState(name: name, kind: clipState, clip: clip, loop: loop))
+
+
+proc stateMachineBlendState*(
+  name: string;
+  input: string;
+  clips: openArray[StateMachineBlendClip];
+): StateMachineState =
+  normalizeState(StateMachineState(name: name, kind: blend1DState, blendInput: input, blendClips: @clips))
 
 
 proc stateByName(layer: StateMachineLayer; name: string): StateMachineState =
@@ -273,11 +330,11 @@ proc normalizeLayer(layer: StateMachineLayer): StateMachineLayer =
   var names = initHashSet[string]()
   result.name = layer.name
   for state in layer.states:
-    validateState(state)
-    if state.name in names:
-      raise newBonyLoadError(duplicateKey, "duplicate state-machine state: " & state.name)
-    names.incl(state.name)
-    result.states.add state
+    let normalized = normalizeState(state)
+    if normalized.name in names:
+      raise newBonyLoadError(duplicateKey, "duplicate state-machine state: " & normalized.name)
+    names.incl(normalized.name)
+    result.states.add normalized
   result.initialState = if layer.initialState.len == 0: result.states[0].name else: layer.initialState
   discard result.stateByName(result.initialState)
   for transition in layer.transitions:
@@ -368,6 +425,11 @@ proc normalizeMachine(machine: StateMachine): StateMachine =
     names.incl(normalized.name)
     result.inputs.add normalized
   for layer in result.layers:
+    for state in layer.states:
+      if state.kind == blend1DState:
+        let input = result.inputByName(state.blendInput)
+        if input.kind != numberInput:
+          raise newBonyLoadError(schemaViolation, "state-machine blend input is not number: " & state.blendInput)
     for transition in layer.transitions:
       for condition in transition.conditions:
         let input = result.inputByName(condition.input)
@@ -622,10 +684,19 @@ proc update*(runtime: var StateMachineRuntime; dt: float64) =
 
 
 proc sampleTime(layer: StateMachineLayerRuntime; state: StateMachineState): float64 =
+  if state.kind == blend1DState:
+    return layer.time
   if state.loop and state.clip.duration > 0:
     layer.time mod state.clip.duration
   else:
     min(layer.time, state.clip.duration)
+
+
+proc sampleTime(time: float64; clip: AnimationClip; loop: bool): float64 =
+  if loop and clip.duration > 0:
+    time mod clip.duration
+  else:
+    min(time, clip.duration)
 
 
 proc normalizedRuntime(runtime: StateMachineRuntime): StateMachineRuntime =
@@ -762,15 +833,149 @@ proc overlayPose(base: var MixedPose; layer: MixedPose) =
   base.sequences.sort(sequenceOrder)
 
 
+proc addWeightedPose(
+  output: var MixedPose;
+  pose: MixedPose;
+  weight: float64;
+  replaceDiscrete = false;
+) =
+  let weight = min(1.0, max(0.0, weight))
+  if weight <= 0:
+    return
+  for value in pose.scalars:
+    output.scalars.add MixedScalar(target: value.target, kind: value.kind, value: value.value * weight)
+  for value in pose.vectors:
+    output.vectors.add MixedVector(target: value.target, kind: value.kind, x: value.x * weight, y: value.y * weight)
+  for value in pose.colors:
+    output.colors.add MixedColor(
+      target: value.target,
+      kind: value.kind,
+      color: colorRgba(
+        value.color.r * weight,
+        value.color.g * weight,
+        value.color.b * weight,
+        value.color.a * weight,
+      ),
+    )
+  for value in pose.colors2:
+    output.colors2.add MixedColor2(
+      target: value.target,
+      color: colorRgba2(
+        colorRgba(
+          value.color.light.r * weight,
+          value.color.light.g * weight,
+          value.color.light.b * weight,
+          value.color.light.a * weight,
+        ),
+        value.color.darkR * weight,
+        value.color.darkG * weight,
+        value.color.darkB * weight,
+      ),
+    )
+  if replaceDiscrete:
+    output.attachments = pose.attachments
+    output.inherits = pose.inherits
+    output.sequences = pose.sequences
+
+
+proc blendedPose(lowPose, highPose: MixedPose; t: float64): MixedPose =
+  var scalars = initTable[string, MixedScalar]()
+  var vectors = initTable[string, MixedVector]()
+  var colors = initTable[string, MixedColor]()
+  var colors2 = initTable[string, MixedColor2]()
+  var weighted = MixedPose()
+  weighted.addWeightedPose(lowPose, 1.0 - t, replaceDiscrete = t < 0.5)
+  weighted.addWeightedPose(highPose, t, replaceDiscrete = t >= 0.5)
+  for value in weighted.scalars:
+    let key = value.scalarKey
+    let base = if key in scalars: scalars[key] else: MixedScalar(target: value.target, kind: value.kind)
+    scalars[key] = MixedScalar(target: value.target, kind: value.kind, value: base.value + value.value)
+  for value in weighted.vectors:
+    let key = value.vectorKey
+    let base = if key in vectors: vectors[key] else: MixedVector(target: value.target, kind: value.kind)
+    vectors[key] = MixedVector(target: value.target, kind: value.kind, x: base.x + value.x, y: base.y + value.y)
+  for value in weighted.colors:
+    let key = value.colorKey
+    let base = if key in colors: colors[key] else: MixedColor(target: value.target, kind: value.kind)
+    colors[key] = MixedColor(
+      target: value.target,
+      kind: value.kind,
+      color: colorRgba(
+        base.color.r + value.color.r,
+        base.color.g + value.color.g,
+        base.color.b + value.color.b,
+        base.color.a + value.color.a,
+      ),
+    )
+  for value in weighted.colors2:
+    let base = if value.target in colors2: colors2[value.target] else: MixedColor2(target: value.target)
+    colors2[value.target] = MixedColor2(
+      target: value.target,
+      color: colorRgba2(
+        colorRgba(
+          base.color.light.r + value.color.light.r,
+          base.color.light.g + value.color.light.g,
+          base.color.light.b + value.color.light.b,
+          base.color.light.a + value.color.light.a,
+        ),
+        base.color.darkR + value.color.darkR,
+        base.color.darkG + value.color.darkG,
+        base.color.darkB + value.color.darkB,
+      ),
+    )
+  for value in scalars.values:
+    result.scalars.add value
+  result.scalars.sort(scalarOrder)
+  for value in vectors.values:
+    result.vectors.add value
+  result.vectors.sort(vectorOrder)
+  result.attachments = weighted.attachments
+  result.inherits = weighted.inherits
+  for value in colors.values:
+    result.colors.add value
+  result.colors.sort(colorOrder)
+  for value in colors2.values:
+    result.colors2.add value
+  result.colors2.sort(color2Order)
+  result.sequences = weighted.sequences
+
+
+proc sampleClipPose(data: ref SkeletonData; clip: AnimationClip; loop: bool; time: float64): MixedPose =
+  var animation = animationState(data, 1)
+  animation.setAnimation(0, clip, loop = loop)
+  animation.tracks[0].current.time = quantizeF32(time.sampleTime(clip, loop), "stateMachine.sample.time")
+  animation.sample()
+
+
+proc sampleBlendPose(runtime: StateMachineRuntime; state: StateMachineState; time: float64; data: ref SkeletonData): MixedPose =
+  let input = runtime.getNumberInput(state.blendInput)
+  let clips = state.blendClips
+  if input <= clips[0].value:
+    return sampleClipPose(data, clips[0].clip, clips[0].loop, time)
+  for index in 0 ..< clips.len - 1:
+    let low = clips[index]
+    let high = clips[index + 1]
+    if input <= high.value:
+      let t = if high.value == low.value: 0.0 else: (input - low.value) / (high.value - low.value)
+      return blendedPose(
+        sampleClipPose(data, low.clip, low.loop, time),
+        sampleClipPose(data, high.clip, high.loop, time),
+        t,
+      )
+  sampleClipPose(data, clips[^1].clip, clips[^1].loop, time)
+
+
 proc evaluate*(runtime: StateMachineRuntime; data: ref SkeletonData = nil): EvaluatedStateMachine =
   let runtime = normalizedRuntime(runtime)
   for layer in runtime.layers:
     let state = layer.currentState
     let active = layer.currentState()
     let time = layer.sampleTime(active)
-    var animation = animationState(data, 1)
-    animation.setAnimation(0, active.clip, loop = active.loop)
-    animation.tracks[0].current.time = quantizeF32(time, "stateMachine.sample.time")
-    let pose = animation.sample()
+    let pose =
+      case active.kind
+      of clipState:
+        sampleClipPose(data, active.clip, active.loop, time)
+      of blend1DState:
+        runtime.sampleBlendPose(active, time, data)
     result.layers.add EvaluatedStateMachineLayer(layer: layer.layer.name, state: state, time: time, pose: pose)
     result.pose.overlayPose(pose)
