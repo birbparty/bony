@@ -10,6 +10,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 LICENSE_SCAN = ROOT / "docs" / "nim-dependency-license-scan.md"
+CLEANROOM = ROOT / "docs" / "CLEANROOM.md"
+PROVENANCE = ROOT / "docs" / "PROVENANCE.md"
 NIMBLE = ROOT / "runtime-nim" / "bony.nimble"
 PUBSPEC = ROOT / "runtime-dart" / "pubspec.yaml"
 PUBSPEC_LOCK = ROOT / "runtime-dart" / "pubspec.lock"
@@ -199,6 +201,41 @@ def assert_bddy_provenance(scan_text: str) -> None:
         fail("bddy pinned commit is not covered by the license/provenance scan")
 
 
+def assert_cleanroom_docs(cleanroom_text: str, provenance_text: str) -> None:
+    combined = (cleanroom_text + "\n" + provenance_text).lower()
+    for required in [
+        "clean-room",
+        "no-fetch-source build rule",
+        "must not fetch",
+        "spine",
+        "live2d",
+        "rive",
+        "dragonbones",
+        "capability",
+        "public/textbook math",
+        "human/legal review",
+    ]:
+        if required not in combined:
+            fail(f"clean-room provenance docs must mention {required!r}")
+
+    cleanroom_lower = cleanroom_text.lower()
+    if not re.search(r"must not fetch,\s+clone,\s+browse,\s+download,\s+inspect", cleanroom_lower):
+        fail("CLEANROOM.md must include the explicit no-fetch-source standing instruction")
+    if not re.search(r"generated\s+runtime\s+definition\s+files", cleanroom_lower):
+        fail("CLEANROOM.md must forbid generated prior-art runtime definition files")
+    if "spine importer is blocked for human/legal review" not in cleanroom_lower:
+        fail("CLEANROOM.md must preserve the blocked Spine importer rule")
+
+    provenance_lower = provenance_text.lower()
+    if not re.search(
+        r"no `bony` implementation is intentionally derived from spine,\s+live2d,\s+rive,\s+or\s+dragonbones runtime source",
+        provenance_lower,
+    ):
+        fail("PROVENANCE.md must record current prior-art runtime source status")
+    if "docs/nim-dependency-license-scan.md" not in provenance_text:
+        fail("PROVENANCE.md must link dependency license evidence")
+
+
 def main() -> None:
     root_license = read(ROOT_LICENSE)
     if "MIT License" not in root_license:
@@ -208,11 +245,14 @@ def main() -> None:
     pubspec_text = read(PUBSPEC)
     pubspec_lock_text = read(PUBSPEC_LOCK)
     scan_text = read(LICENSE_SCAN)
+    cleanroom_text = read(CLEANROOM)
+    provenance_text = read(PROVENANCE)
 
     assert_nim_license_scan(scan_text, nim_dependencies(nimble_text))
     assert_bddy_provenance(scan_text)
     assert_dart_provenance(pubspec_text)
     assert_dart_lock_provenance(pubspec_lock_text)
+    assert_cleanroom_docs(cleanroom_text, provenance_text)
 
 
 if __name__ == "__main__":
