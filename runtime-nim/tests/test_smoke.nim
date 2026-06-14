@@ -1071,6 +1071,24 @@ spec "bony package":
     let table = buildPathArcLengthTable(curve)
     let halfDistance = samplePathByDistance(curve, table.totalLength * 0.5)
     let mixed = applyPathPositionConstraint(pathPoint(10.0, 20.0), curve, table.totalLength, 0.25)
+    let precise = evaluateCubicPath(pathCubic(
+      pathPoint(0.0, 0.0),
+      pathPoint(1.00000001, 0.0),
+      pathPoint(0.0, 0.0),
+      pathPoint(0.0, 0.0),
+    ), 0.5)
+    let flatStart = samplePathByDistance(pathCubic(
+      pathPoint(0.0, 0.0),
+      pathPoint(0.0, 0.0),
+      pathPoint(10.0, 10.0),
+      pathPoint(10.0, 10.0),
+    ), 0.0)
+    let coincident = samplePathByDistance(pathCubic(
+      pathPoint(2.0, 3.0),
+      pathPoint(2.0, 3.0),
+      pathPoint(2.0, 3.0),
+      pathPoint(2.0, 3.0),
+    ), 0.0)
 
     then:
       pathArcLengthSamples == 32
@@ -1089,6 +1107,9 @@ spec "bony package":
       closeTo(halfDistance.position.y, 27.843587919709595)
       closeTo(mixed.position.x, 40.125)
       closeTo(mixed.position.y, 25.0625)
+      closeTo(precise.x, 0.37500000375)
+      closeTo(flatStart.tangentAngle, 45.0)
+      closeTo(coincident.tangentAngle, 0.0)
       closeTo(samplePathByDistance(curve, -10.0).distance, 0.0)
       closeTo(samplePathByDistance(curve, table.totalLength + 10.0).distance, table.totalLength)
       raisesBonyLoadError(proc() =

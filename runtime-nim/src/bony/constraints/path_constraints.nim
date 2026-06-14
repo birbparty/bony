@@ -1,4 +1,8 @@
 ## M5 path constraint sampling primitives.
+##
+## This module locks the deterministic path math used by path constraints and
+## path attachments. First-class skeleton constraint ordering and wire support
+## are owned by the later M5 integration work.
 
 import std/math
 
@@ -50,7 +54,7 @@ proc requirePoint(point: PathPoint; context: string): PathPoint =
 
 
 proc pathPoint*(x, y: float64): PathPoint =
-  PathPoint(x: quantizeF32(x, "path.x"), y: quantizeF32(y, "path.y"))
+  PathPoint(x: requireFinite(x, "path.x"), y: requireFinite(y, "path.y"))
 
 
 proc pathCubic*(p0, p1, p2, p3: PathPoint): PathCubic =
@@ -146,7 +150,8 @@ proc samplePathByDistance*(curve: PathCubic; distance: float64): PathConstraintS
     x: lerp(startPoint.x, endPoint.x, segmentMix),
     y: lerp(startPoint.y, endPoint.y, segmentMix),
   )
-  result.tangentAngle = tangentAngle(cubicPathTangent(curve, u), result.tangentAngle)
+  let segmentTangent = PathPoint(x: endPoint.x - startPoint.x, y: endPoint.y - startPoint.y)
+  result.tangentAngle = tangentAngle(cubicPathTangent(curve, u), tangentAngle(segmentTangent))
   result.distance = clampedDistance
 
 
