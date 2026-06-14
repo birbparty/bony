@@ -1877,7 +1877,7 @@ spec "bony package":
     let output = toBonyJson(data)
 
     then:
-      output.contains("\"x\": 3.0")
+      output.contains("\"x\": 3")
       output.contains("\"slots\"")
       output.contains("\"regions\"")
 

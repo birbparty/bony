@@ -1,6 +1,6 @@
 ## M1 .bony JSON loader/serializer.
 
-import std/[json, sets, strutils]
+import std/[json, math, sets, strutils]
 
 import bony/generated/wire
 import bony/model
@@ -212,6 +212,79 @@ proc validateKnownKeys(node: JsonNode; allowed: openArray[string]; context: stri
       raise newBonyLoadError(schemaViolation, context & "." & key & " is not a known M1 field")
 
 
+proc addIndent(output: var string; level: int) =
+  for _ in 0 ..< level * 2:
+    output.add ' '
+
+
+proc addJsonString(output: var string; value: string) =
+  const hex = "0123456789abcdef"
+  output.add '"'
+  for ch in value:
+    case ch
+    of '"':
+      output.add "\\\""
+    of '\\':
+      output.add "\\\\"
+    of '\b':
+      output.add "\\b"
+    of '\f':
+      output.add "\\f"
+    of '\n':
+      output.add "\\n"
+    of '\r':
+      output.add "\\r"
+    of '\t':
+      output.add "\\t"
+    else:
+      let code = ord(ch)
+      if code < 0x20:
+        output.add "\\u00"
+        output.add hex[(code shr 4) and 0xf]
+        output.add hex[code and 0xf]
+      else:
+        output.add ch
+  output.add '"'
+
+
+proc canonicalNumber(value: float64): string =
+  let finite = requireFiniteF64(value)
+  if finite == 0.0:
+    return "0"
+  if finite == floor(finite) and abs(finite) <= 9007199254740991.0:
+    return $int64(finite)
+  $finite
+
+
+proc addFieldPrefix(output: var string; key: string; indent: int; first: var bool) =
+  if not first:
+    output.add ",\n"
+  first = false
+  output.addIndent(indent)
+  output.addJsonString(key)
+  output.add ": "
+
+
+proc addStringField(output: var string; key, value: string; indent: int; first: var bool) =
+  output.addFieldPrefix(key, indent, first)
+  output.addJsonString(value)
+
+
+proc addNumberField(output: var string; key: string; value: float64; indent: int; first: var bool) =
+  output.addFieldPrefix(key, indent, first)
+  output.add canonicalNumber(value)
+
+
+proc addIntField(output: var string; key: string; value: int; indent: int; first: var bool) =
+  output.addFieldPrefix(key, indent, first)
+  output.add $value
+
+
+proc addBoolField(output: var string; key: string; value: bool; indent: int; first: var bool) =
+  output.addFieldPrefix(key, indent, first)
+  output.add (if value: "true" else: "false")
+
+
 proc loadBonyJson*(text: string): SkeletonData =
   rejectDuplicateObjectKeys(text)
 
@@ -361,89 +434,149 @@ proc loadBonyJson*(text: string): SkeletonData =
 
 proc toBonyJson*(data: SkeletonData): string =
   validateSkeletonData(data)
-  var root = newJObject()
-  var skeleton = newJObject()
-  let header = data.header
-  skeleton["name"] = newJString(header.name)
-  if header.version != defaultFor(skeletonTypeId, "version"):
-    skeleton["version"] = newJString(header.version)
-  root["skeleton"] = skeleton
+  result.add "{\n"
 
-  var bones = newJArray()
-  for bone in data.bones:
-    let local = bone.local
-    var boneObject = newJObject()
-    boneObject["name"] = newJString(bone.name)
-    if bone.parent != defaultFor(boneTypeId, "parent"):
-      boneObject["parent"] = newJString(bone.parent)
-    if local.x != defaultFloat(boneTypeId, "x"):
-      boneObject["x"] = newJFloat(local.x)
-    if local.y != defaultFloat(boneTypeId, "y"):
-      boneObject["y"] = newJFloat(local.y)
-    if local.rotation != defaultFloat(boneTypeId, "rotation"):
-      boneObject["rotation"] = newJFloat(local.rotation)
-    if local.scaleX != defaultFloat(boneTypeId, "scaleX"):
-      boneObject["scaleX"] = newJFloat(local.scaleX)
-    if local.scaleY != defaultFloat(boneTypeId, "scaleY"):
-      boneObject["scaleY"] = newJFloat(local.scaleY)
-    if local.shearX != defaultFloat(boneTypeId, "shearX"):
-      boneObject["shearX"] = newJFloat(local.shearX)
-    if local.shearY != defaultFloat(boneTypeId, "shearY"):
-      boneObject["shearY"] = newJFloat(local.shearY)
-    if local.inheritRotation != defaultBool(boneTypeId, "inheritRotation"):
-      boneObject["inheritRotation"] = newJBool(local.inheritRotation)
-    if local.inheritScale != defaultBool(boneTypeId, "inheritScale"):
-      boneObject["inheritScale"] = newJBool(local.inheritScale)
-    if local.inheritReflection != defaultBool(boneTypeId, "inheritReflection"):
-      boneObject["inheritReflection"] = newJBool(local.inheritReflection)
-    if transformModeName(local.transformMode) != defaultFor(boneTypeId, "transformMode"):
-      boneObject["transformMode"] = newJString(transformModeName(local.transformMode))
-    bones.add(boneObject)
-  root["bones"] = bones
+  result.addIndent(1)
+  result.add "\"skeleton\": {\n"
+  var first = true
+  result.addStringField("name", data.header.name, 2, first)
+  if data.header.version != defaultFor(skeletonTypeId, "version"):
+    result.addStringField("version", data.header.version, 2, first)
+  result.add "\n"
+  result.addIndent(1)
+  result.add "},\n"
 
-  var slots = newJArray()
-  for slot in data.slots:
-    var slotObject = newJObject()
-    slotObject["name"] = newJString(slot.name)
-    slotObject["bone"] = newJString(slot.bone)
-    if slot.attachment != defaultFor(slotTypeId, "attachment"):
-      slotObject["attachment"] = newJString(slot.attachment)
-    slots.add(slotObject)
-  root["slots"] = slots
+  result.addIndent(1)
+  result.add "\"bones\": ["
+  if data.bones.len > 0:
+    result.add "\n"
+    for index, bone in data.bones:
+      if index > 0:
+        result.add ",\n"
+      result.addIndent(2)
+      result.add "{\n"
+      let local = bone.local
+      first = true
+      result.addStringField("name", bone.name, 3, first)
+      if bone.parent != defaultFor(boneTypeId, "parent"):
+        result.addStringField("parent", bone.parent, 3, first)
+      if local.x != defaultFloat(boneTypeId, "x"):
+        result.addNumberField("x", local.x, 3, first)
+      if local.y != defaultFloat(boneTypeId, "y"):
+        result.addNumberField("y", local.y, 3, first)
+      if local.rotation != defaultFloat(boneTypeId, "rotation"):
+        result.addNumberField("rotation", local.rotation, 3, first)
+      if local.scaleX != defaultFloat(boneTypeId, "scaleX"):
+        result.addNumberField("scaleX", local.scaleX, 3, first)
+      if local.scaleY != defaultFloat(boneTypeId, "scaleY"):
+        result.addNumberField("scaleY", local.scaleY, 3, first)
+      if local.shearX != defaultFloat(boneTypeId, "shearX"):
+        result.addNumberField("shearX", local.shearX, 3, first)
+      if local.shearY != defaultFloat(boneTypeId, "shearY"):
+        result.addNumberField("shearY", local.shearY, 3, first)
+      if local.inheritRotation != defaultBool(boneTypeId, "inheritRotation"):
+        result.addBoolField("inheritRotation", local.inheritRotation, 3, first)
+      if local.inheritScale != defaultBool(boneTypeId, "inheritScale"):
+        result.addBoolField("inheritScale", local.inheritScale, 3, first)
+      if local.inheritReflection != defaultBool(boneTypeId, "inheritReflection"):
+        result.addBoolField("inheritReflection", local.inheritReflection, 3, first)
+      if transformModeName(local.transformMode) != defaultFor(boneTypeId, "transformMode"):
+        result.addStringField("transformMode", transformModeName(local.transformMode), 3, first)
+      result.add "\n"
+      result.addIndent(2)
+      result.add "}"
+    result.add "\n"
+    result.addIndent(1)
+  result.add "],\n"
 
-  var regions = newJArray()
-  for region in data.regions:
-    var regionObject = newJObject()
-    regionObject["name"] = newJString(region.name)
-    regionObject["width"] = newJFloat(region.width)
-    regionObject["height"] = newJFloat(region.height)
-    regions.add(regionObject)
-  root["regions"] = regions
-  if data.pathAttachments.len > 0:
-    var pathAttachments = newJArray()
-    for pathAttachment in data.pathAttachments:
-      var pathAttachmentObject = newJObject()
-      pathAttachmentObject["name"] = newJString(pathAttachment.name)
-      pathAttachmentObject["p0x"] = newJFloat(pathAttachment.p0x)
-      pathAttachmentObject["p0y"] = newJFloat(pathAttachment.p0y)
-      pathAttachmentObject["p1x"] = newJFloat(pathAttachment.p1x)
-      pathAttachmentObject["p1y"] = newJFloat(pathAttachment.p1y)
-      pathAttachmentObject["p2x"] = newJFloat(pathAttachment.p2x)
-      pathAttachmentObject["p2y"] = newJFloat(pathAttachment.p2y)
-      pathAttachmentObject["p3x"] = newJFloat(pathAttachment.p3x)
-      pathAttachmentObject["p3y"] = newJFloat(pathAttachment.p3y)
-      pathAttachments.add(pathAttachmentObject)
-    root["pathAttachments"] = pathAttachments
+  result.addIndent(1)
+  result.add "\"slots\": ["
+  if data.slots.len > 0:
+    result.add "\n"
+    for index, slot in data.slots:
+      if index > 0:
+        result.add ",\n"
+      result.addIndent(2)
+      result.add "{\n"
+      first = true
+      result.addStringField("name", slot.name, 3, first)
+      result.addStringField("bone", slot.bone, 3, first)
+      if slot.attachment != defaultFor(slotTypeId, "attachment"):
+        result.addStringField("attachment", slot.attachment, 3, first)
+      result.add "\n"
+      result.addIndent(2)
+      result.add "}"
+    result.add "\n"
+    result.addIndent(1)
+  result.add "],\n"
+
+  result.addIndent(1)
+  result.add "\"regions\": ["
+  if data.regions.len > 0:
+    result.add "\n"
+    for index, region in data.regions:
+      if index > 0:
+        result.add ",\n"
+      result.addIndent(2)
+      result.add "{\n"
+      first = true
+      result.addStringField("name", region.name, 3, first)
+      result.addNumberField("width", region.width, 3, first)
+      result.addNumberField("height", region.height, 3, first)
+      result.add "\n"
+      result.addIndent(2)
+      result.add "}"
+    result.add "\n"
+    result.addIndent(1)
+  result.add "]"
+
   if data.paths.len > 0:
-    var paths = newJArray()
-    for path in data.paths:
-      var pathObject = newJObject()
-      pathObject["name"] = newJString(path.name)
-      pathObject["bone"] = newJString(path.bone)
-      pathObject["target"] = newJString(path.target)
-      pathObject["path"] = newJString(path.path)
+    result.add ",\n"
+    result.addIndent(1)
+    result.add "\"paths\": [\n"
+    for index, path in data.paths:
+      if index > 0:
+        result.add ",\n"
+      result.addIndent(2)
+      result.add "{\n"
+      first = true
+      result.addStringField("name", path.name, 3, first)
+      result.addStringField("bone", path.bone, 3, first)
+      result.addStringField("target", path.target, 3, first)
+      result.addStringField("path", path.path, 3, first)
       if path.order != defaultInt(pathTypeId, "order"):
-        pathObject["order"] = newJInt(path.order)
-      paths.add(pathObject)
-    root["paths"] = paths
-  pretty(root) & "\n"
+        result.addIntField("order", path.order, 3, first)
+      result.add "\n"
+      result.addIndent(2)
+      result.add "}"
+    result.add "\n"
+    result.addIndent(1)
+    result.add "]"
+
+  if data.pathAttachments.len > 0:
+    result.add ",\n"
+    result.addIndent(1)
+    result.add "\"pathAttachments\": [\n"
+    for index, pathAttachment in data.pathAttachments:
+      if index > 0:
+        result.add ",\n"
+      result.addIndent(2)
+      result.add "{\n"
+      first = true
+      result.addStringField("name", pathAttachment.name, 3, first)
+      result.addNumberField("p0x", pathAttachment.p0x, 3, first)
+      result.addNumberField("p0y", pathAttachment.p0y, 3, first)
+      result.addNumberField("p1x", pathAttachment.p1x, 3, first)
+      result.addNumberField("p1y", pathAttachment.p1y, 3, first)
+      result.addNumberField("p2x", pathAttachment.p2x, 3, first)
+      result.addNumberField("p2y", pathAttachment.p2y, 3, first)
+      result.addNumberField("p3x", pathAttachment.p3x, 3, first)
+      result.addNumberField("p3y", pathAttachment.p3y, 3, first)
+      result.add "\n"
+      result.addIndent(2)
+      result.add "}"
+    result.add "\n"
+    result.addIndent(1)
+    result.add "]"
+
+  result.add "\n}\n"

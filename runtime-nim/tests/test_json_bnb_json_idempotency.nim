@@ -91,19 +91,6 @@ const canonicalFixture = """{
       "height": 4.5
     }
   ],
-  "pathAttachments": [
-    {
-      "name": "curve",
-      "p0x": 0.0,
-      "p0y": 1000.0,
-      "p1x": 0.1,
-      "p1y": 2.0,
-      "p2x": 3.0,
-      "p2y": 4.0,
-      "p3x": 5.5,
-      "p3y": 6.25
-    }
-  ],
   "paths": [
     {
       "name": "follow",
@@ -111,6 +98,19 @@ const canonicalFixture = """{
       "target": "root",
       "path": "curve",
       "order": -2
+    }
+  ],
+  "pathAttachments": [
+    {
+      "name": "curve",
+      "p0x": 0,
+      "p0y": 1000,
+      "p1x": 0.1,
+      "p1y": 2,
+      "p2x": 3,
+      "p2y": 4,
+      "p3x": 5.5,
+      "p3y": 6.25
     }
   ]
 }
@@ -143,6 +143,19 @@ proc expectJsonBnbJsonIdempotent(name, input, expected: string) =
   doAssert canonicalJson(cycled) == cycled, name & " canonical JSON is not stable"
 
 proc expectDefaultsReapplied() =
+  const expected = """{
+  "skeleton": {
+    "name": "defaults"
+  },
+  "bones": [
+    {
+      "name": "root"
+    }
+  ],
+  "slots": [],
+  "regions": []
+}
+"""
   let explicitDefaults = """{
   "skeleton": {"name": "defaults", "version": "0.1.0"},
   "bones": [
@@ -167,13 +180,15 @@ proc expectDefaultsReapplied() =
 }
 """
   let omittedDefaults = """{"skeleton":{"name":"defaults"},"bones":[{"name":"root"}],"slots":[],"regions":[]}"""
-  doAssert canonicalJson(explicitDefaults) == canonicalJson(omittedDefaults)
-  doAssert viaBnb(explicitDefaults) == canonicalJson(omittedDefaults)
+  doAssert canonicalJson(explicitDefaults) == expected
+  doAssert canonicalJson(omittedDefaults) == expected
+  doAssert viaBnb(explicitDefaults) == expected
 
 proc expectAngleBoundaryPreserved() =
   let data = loadBonyJson(mixedOrderFixture)
   let cycled = loadBonyJson(viaBnb(mixedOrderFixture))
   doAssert data.bones[0].local.rotation == cycled.bones[0].local.rotation
+  doAssert abs(data.bones[0].local.rotation - cycled.bones[0].local.rotation) <= 1e-4
 
 proc expectCliRoundTrip(expected: string) =
   let cliPath = "/tmp/bony_json_idempotency_cli"
@@ -185,7 +200,7 @@ proc expectCliRoundTrip(expected: string) =
       removeFile(path)
 
   let compileResult = execCmdEx(
-    "nim c --path:src --path:~/git/bddy/src -o:" & cliPath & " ../cli/bony_cli.nim",
+    "nim c --path:src --path:" & getHomeDir() / "git/bddy/src" & " -o:" & cliPath & " ../cli/bony_cli.nim",
     options = {poStdErrToStdOut},
   )
   doAssert compileResult.exitCode == 0, compileResult.output
