@@ -2027,6 +2027,17 @@ spec "bony package":
       not runtime.getBoolInput("armed")
       closeTo(runtime.getNumberInput("speed"), 2.5)
       runtime.isTriggerSet("jump")
+
+    runtime.clearTrigger("jump")
+
+    then:
+      not runtime.isTriggerSet("jump")
+
+    runtime.setNumberInput("speed", 0.1)
+    runtime.fireTrigger("jump")
+
+    then:
+      closeTo(runtime.getNumberInput("speed"), quantizeF32(0.1))
       runtime.consumeTrigger("jump")
       not runtime.isTriggerSet("jump")
 
@@ -2051,6 +2062,30 @@ spec "bony package":
     then:
       raisesBonyLoadError(proc() = discard stateMachineBoolInput(""), schemaViolation)
       raisesBonyLoadError(proc() = discard stateMachineNumberInput("bad", defaultValue = Inf), numericOutOfRange)
+      raisesBonyLoadError(
+        proc() = discard stateMachine(
+          "machine",
+          @[layer],
+          @[StateMachineInput(name: "armed", kind: boolInput, defaultNumber: 1.0)],
+        ),
+        schemaViolation,
+      )
+      raisesBonyLoadError(
+        proc() = discard stateMachine(
+          "machine",
+          @[layer],
+          @[StateMachineInput(name: "armed", kind: boolInput, defaultNumber: Inf)],
+        ),
+        numericOutOfRange,
+      )
+      raisesBonyLoadError(
+        proc() = discard stateMachine(
+          "machine",
+          @[layer],
+          @[StateMachineInput(name: "speed", kind: numberInput, defaultBool: true)],
+        ),
+        schemaViolation,
+      )
 
     then:
       raisesBonyLoadError(proc() =
@@ -2108,4 +2143,16 @@ spec "bony package":
           ],
         ).evaluate(),
         schemaViolation,
+      )
+      raisesBonyLoadError(proc() =
+        discard StateMachineRuntime(
+          machine: machine,
+          layers: runtime.layers,
+          inputs: @[
+            StateMachineInputValue(name: "armed", kind: boolInput),
+            StateMachineInputValue(name: "speed", kind: numberInput),
+            StateMachineInputValue(name: "speed", kind: numberInput),
+          ],
+        ).evaluate(),
+        duplicateKey,
       )

@@ -76,16 +76,26 @@ proc validateState(state: StateMachineState) =
   validateName(state.clip.name, "state-machine state animation")
 
 
+proc requireInactiveNumberUnset(value: float64; context: string) =
+  let stored = quantizeF32(value, context)
+  if stored != 0:
+    raise newBonyLoadError(schemaViolation, context & " must not be set for this input kind")
+
+
 proc normalizeInput(input: StateMachineInput): StateMachineInput =
   validateName(input.name, "state-machine input")
   result = StateMachineInput(name: input.name, kind: input.kind)
   case input.kind
   of boolInput:
+    requireInactiveNumberUnset(input.defaultNumber, "stateMachine.input.defaultNumber")
     result.defaultBool = input.defaultBool
   of numberInput:
+    if input.defaultBool:
+      raise newBonyLoadError(schemaViolation, "state-machine number input must not have a bool default value")
     result.defaultNumber = quantizeF32(input.defaultNumber, "stateMachine.input.defaultNumber")
   of triggerInput:
-    if input.defaultBool or input.defaultNumber != 0:
+    requireInactiveNumberUnset(input.defaultNumber, "stateMachine.input.defaultNumber")
+    if input.defaultBool:
       raise newBonyLoadError(schemaViolation, "state-machine trigger input must not have a default value")
 
 
