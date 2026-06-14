@@ -20,35 +20,36 @@ type
     values: Table[string, float64]
 
 
-proc validateParameterAxis*(axis: ParameterAxis) =
-  if axis.name.len == 0:
+proc normalizedParameterAxis(axis: ParameterAxis): ParameterAxis =
+  result = ParameterAxis(
+    name: axis.name,
+    minValue: quantizeF32(axis.minValue, "parameter.min"),
+    maxValue: quantizeF32(axis.maxValue, "parameter.max"),
+    defaultValue: quantizeF32(axis.defaultValue, "parameter.default"),
+  )
+  if result.name.len == 0:
     raise newBonyLoadError(schemaViolation, "parameter name must not be empty")
-  let minValue = quantizeF32(axis.minValue, "parameter.min")
-  let maxValue = quantizeF32(axis.maxValue, "parameter.max")
-  let defaultValue = quantizeF32(axis.defaultValue, "parameter.default")
-  if minValue >= maxValue:
+  if result.minValue >= result.maxValue:
     raise newBonyLoadError(schemaViolation, "parameter min must be less than max")
-  if defaultValue < minValue or defaultValue > maxValue:
+  if result.defaultValue < result.minValue or result.defaultValue > result.maxValue:
     raise newBonyLoadError(schemaViolation, "parameter default must be within min..max")
 
 
+proc validateParameterAxis*(axis: ParameterAxis) =
+  discard normalizedParameterAxis(axis)
+
+
 proc parameterAxis*(name: string; minValue = 0.0; maxValue = 1.0; defaultValue = 0.0): ParameterAxis =
-  result = ParameterAxis(
-    name: name,
-    minValue: quantizeF32(minValue, "parameter.min"),
-    maxValue: quantizeF32(maxValue, "parameter.max"),
-    defaultValue: quantizeF32(defaultValue, "parameter.default"),
-  )
-  validateParameterAxis(result)
+  normalizedParameterAxis(ParameterAxis(name: name, minValue: minValue, maxValue: maxValue, defaultValue: defaultValue))
 
 
 proc validateParameterAxes*(axes: openArray[ParameterAxis]) =
   var names = initHashSet[string]()
   for axis in axes:
-    validateParameterAxis(axis)
-    if axis.name in names:
-      raise newBonyLoadError(duplicateKey, "duplicate parameter name: " & axis.name)
-    names.incl(axis.name)
+    let normalized = normalizedParameterAxis(axis)
+    if normalized.name in names:
+      raise newBonyLoadError(duplicateKey, "duplicate parameter name: " & normalized.name)
+    names.incl(normalized.name)
 
 
 proc name*(axis: ParameterAxis): string = axis.name
@@ -64,7 +65,7 @@ proc quantizeParameterValue(axis: ParameterAxis; value: float64): float64 =
 
 
 proc parameterSample*(axis: ParameterAxis; value: float64): ParameterSample =
-  validateParameterAxis(axis)
+  let axis = normalizedParameterAxis(axis)
   ParameterSample(name: axis.name, value: quantizeParameterValue(axis, value))
 
 
@@ -73,10 +74,14 @@ proc defaultParameterSample*(axis: ParameterAxis): ParameterSample =
 
 
 proc initParameterState*(axes: openArray[ParameterAxis]): ParameterState =
-  validateParameterAxes(axes)
-  result.axes = @axes
-  for axis in result.axes:
-    result.values[axis.name] = axis.defaultValue
+  var names = initHashSet[string]()
+  for axis in axes:
+    let normalized = normalizedParameterAxis(axis)
+    if normalized.name in names:
+      raise newBonyLoadError(duplicateKey, "duplicate parameter name: " & normalized.name)
+    names.incl(normalized.name)
+    result.axes.add normalized
+    result.values[normalized.name] = normalized.defaultValue
 
 
 proc axes*(state: ParameterState): seq[ParameterAxis] =

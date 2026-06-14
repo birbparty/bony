@@ -1120,6 +1120,35 @@ spec "bony package":
       raisesBonyLoadError(proc() = state.setParameterValue("Missing", 0.0), unknownRequiredReference)
       raisesBonyLoadError(proc() = state.setParameterValue("AngleX", -40.0), schemaViolation)
 
+  it "normalizes directly constructed parameter axes":
+    let direct = ParameterAxis(name: "p", minValue: 0.0, maxValue: 0.2, defaultValue: 0.1)
+    let sample = parameterSample(direct, 0.2)
+    var state = initParameterState(@[direct])
+
+    then:
+      closeTo(sample.value, quantizeF32(0.2))
+      closeTo(state.getParameterValue("p"), quantizeF32(0.1))
+      closeTo(state.axes[0].defaultValue, quantizeF32(0.1))
+
+    state.setParameterValue("p", 0.2)
+
+    then:
+      closeTo(state.getParameterValue("p"), quantizeF32(0.2))
+      closeTo(state.samples[0].value, quantizeF32(0.2))
+
+    state.resetParameters()
+
+    then:
+      closeTo(state.getParameterValue("p"), quantizeF32(0.1))
+
+  it "validates directly constructed parameter samples":
+    var state = initParameterState(@[parameterAxis("p", minValue = 0.0, maxValue = 1.0, defaultValue = 0.5)])
+
+    then:
+      raisesBonyLoadError(proc() = state.applyParameterSample(ParameterSample(name: "p", value: 2.0)), schemaViolation)
+      raisesBonyLoadError(proc() = state.applyParameterSample(ParameterSample(name: "p", value: Inf)), numericOutOfRange)
+      raisesBonyLoadError(proc() = state.applyParameterSample(ParameterSample(name: "missing", value: 0.0)), unknownRequiredReference)
+
   it "builds sorted scalar bone timelines and samples linearly":
     let timeline = boneScalarTimeline(
       "root",
