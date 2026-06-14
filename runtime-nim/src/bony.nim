@@ -14,6 +14,7 @@ import bony/mesh/sequences
 import bony/mesh/skinning
 import bony/model
 import bony/jsonio
+import bony/statemachine/core
 import bony/transform
 
 export attachments
@@ -29,6 +30,7 @@ export mixer
 export timelines
 export jsonio
 export model
+export core
 export transform
 export wire
 
