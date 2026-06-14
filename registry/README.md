@@ -59,12 +59,13 @@ reserved and must remain decodable.
 ## Relationship To Schema And Defaults
 
 `spec/bony.schema.json` is generated from, or cross-checked against, the
-registry plus the default-table source. It is not an independent source of
+registry plus `spec/defaults.yml`. It is not an independent source of
 truth for keys.
 
-Default tables own default values and default-omission decisions. The registry
-owns field identity, wire key, backing type, object membership, and stable
-ordering for generated schema properties.
+Default tables own default values, default-omission decisions, and
+required/no-default field classification. The registry owns field identity,
+wire key, backing type, object membership, and stable ordering for generated
+schema properties.
 
 ## Review Checklist
 

@@ -71,8 +71,10 @@ below.
 
 ## Defaults
 
-Serializers omit fields whose loaded value equals the documented default table.
-Deserializers apply defaults before validation that depends on field values.
+Serializers omit fields whose loaded value equals the documented default table
+only when that default entry sets `omitWhenDefault: true` in
+`spec/defaults.yml`. Deserializers apply defaults before validation that depends
+on field values.
 
 Idempotency is therefore defined on loaded values, not byte-for-byte source
 JSON:

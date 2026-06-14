@@ -79,7 +79,8 @@ Writers must not emit alternate encodings for the same value.
 ## Table Of Contents
 
 The ToC contains every property key emitted at least once in the object stream.
-Properties omitted because they equal defaults are not included.
+Properties omitted because they equal defaults and have `omitWhenDefault: true`
+in `spec/defaults.yml` are not included.
 
 Canonical ToC order is ascending numeric `propertyKey`.
 
@@ -179,7 +180,9 @@ is emitted only in the post-EOF atlas section defined by File Section Order.
 
 For each object:
 
-1. Determine all properties whose loaded values differ from the default table.
+1. Determine all properties whose loaded values differ from the default table,
+   plus default-valued properties whose default entry has `omitWhenDefault:
+   false`.
 2. Sort those properties by ascending numeric `propertyKey`.
 3. For each property, encode its payload bytes.
 4. Emit `propertyKey`, `byteLength`, and payload bytes.
@@ -198,7 +201,8 @@ application and binary decoding.
 
 Rules:
 
-- Omit every property equal to its default value.
+- Omit a property equal to its default value only when the default entry has
+  `omitWhenDefault: true`.
 - Emit every property not equal to its default value, even if the value is
   falsey, empty, or zero-like.
 - Equality for f32-backed fields compares the stored f32 value, not the source
