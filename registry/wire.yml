@@ -115,6 +115,9 @@ backingTypes:
   - id: bytes
     code: 7
     skipRule: skip exactly the surrounding property byteLength
+  - id: f64
+    code: 8
+    skipRule: skip 8 little-endian bytes
 
 tocSkipContract:
   status: resolved
@@ -229,6 +232,12 @@ typeKeys:
     milestone: M5
     ownerBead: bony-8gs
     doc: Path constraint record participating in the world-transform constraint pass.
+  - id: pathAttachment
+    key: 4001
+    status: active
+    milestone: M5
+    ownerBead: bony-8gs
+    doc: Cubic path attachment sampled by path constraints.
 
 propertyKeys:
   - id: name
@@ -385,6 +394,62 @@ propertyKeys:
     milestone: M5
     ownerBead: bony-8gs
     doc: Signed global constraint order value.
+  - id: p0x
+    key: 4003
+    backingType: f64
+    status: active
+    milestone: M5
+    ownerBead: bony-8gs
+    doc: Cubic path first endpoint x coordinate.
+  - id: p0y
+    key: 4004
+    backingType: f64
+    status: active
+    milestone: M5
+    ownerBead: bony-8gs
+    doc: Cubic path first endpoint y coordinate.
+  - id: p1x
+    key: 4005
+    backingType: f64
+    status: active
+    milestone: M5
+    ownerBead: bony-8gs
+    doc: Cubic path first control x coordinate.
+  - id: p1y
+    key: 4006
+    backingType: f64
+    status: active
+    milestone: M5
+    ownerBead: bony-8gs
+    doc: Cubic path first control y coordinate.
+  - id: p2x
+    key: 4007
+    backingType: f64
+    status: active
+    milestone: M5
+    ownerBead: bony-8gs
+    doc: Cubic path second control x coordinate.
+  - id: p2y
+    key: 4008
+    backingType: f64
+    status: active
+    milestone: M5
+    ownerBead: bony-8gs
+    doc: Cubic path second control y coordinate.
+  - id: p3x
+    key: 4009
+    backingType: f64
+    status: active
+    milestone: M5
+    ownerBead: bony-8gs
+    doc: Cubic path second endpoint x coordinate.
+  - id: p3y
+    key: 4010
+    backingType: f64
+    status: active
+    milestone: M5
+    ownerBead: bony-8gs
+    doc: Cubic path second endpoint y coordinate.
 
 objects:
   - type: skeleton
@@ -428,3 +493,15 @@ objects:
       - path
       - order
     doc: Path constraint record loaded in source order.
+  - type: pathAttachment
+    properties:
+      - name
+      - p0x
+      - p0y
+      - p1x
+      - p1y
+      - p2x
+      - p2y
+      - p3x
+      - p3y
+    doc: Cubic path attachment loaded by name for path constraints.

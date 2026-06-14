@@ -142,6 +142,15 @@ proc optionalFloat(node: JsonNode; key: string; defaultValue: float64; context: 
   quantizeF32(value.getFloat(), context & "." & key)
 
 
+proc requiredF64(node: JsonNode; key, context: string): float64 =
+  if not node.hasKey(key):
+    raise newBonyLoadError(schemaViolation, context & "." & key & " is required")
+  let value = node[key]
+  if value.kind notin {JInt, JFloat}:
+    raise newBonyLoadError(schemaViolation, context & "." & key & " must be numeric")
+  requireFiniteF64(value.getFloat(), context & "." & key)
+
+
 proc optionalInt(node: JsonNode; key: string; defaultValue: int; context: string): int =
   if not node.hasKey(key):
     return defaultValue
@@ -213,7 +222,7 @@ proc loadBonyJson*(text: string): SkeletonData =
       raise newBonyLoadError(schemaViolation, "invalid JSON: " & exc.msg)
 
   let root = requireObject(parsed, "root")
-  validateKnownKeys(root, ["skeleton", "bones", "slots", "regions", "paths"], "root")
+  validateKnownKeys(root, ["skeleton", "bones", "slots", "regions", "pathAttachments", "paths"], "root")
 
   if not root.hasKey("skeleton"):
     raise newBonyLoadError(schemaViolation, "root.skeleton is required")
@@ -313,6 +322,25 @@ proc loadBonyJson*(text: string): SkeletonData =
         requiredFloat(regionObject, "height", context),
       )
 
+  var loadedPathAttachments: seq[PathAttachmentData] = @[]
+  if root.hasKey("pathAttachments"):
+    let pathAttachmentsNode = requireArray(root["pathAttachments"], "pathAttachments")
+    for index, pathAttachmentNode in pathAttachmentsNode.elems:
+      let context = "pathAttachments[" & $index & "]"
+      let pathAttachmentObject = requireObject(pathAttachmentNode, context)
+      validateKnownKeys(pathAttachmentObject, ["name", "p0x", "p0y", "p1x", "p1y", "p2x", "p2y", "p3x", "p3y"], context)
+      loadedPathAttachments.add pathAttachmentData(
+        requiredString(pathAttachmentObject, "name", context),
+        requiredF64(pathAttachmentObject, "p0x", context),
+        requiredF64(pathAttachmentObject, "p0y", context),
+        requiredF64(pathAttachmentObject, "p1x", context),
+        requiredF64(pathAttachmentObject, "p1y", context),
+        requiredF64(pathAttachmentObject, "p2x", context),
+        requiredF64(pathAttachmentObject, "p2y", context),
+        requiredF64(pathAttachmentObject, "p3x", context),
+        requiredF64(pathAttachmentObject, "p3y", context),
+      )
+
   var loadedPaths: seq[PathConstraintData] = @[]
   if root.hasKey("paths"):
     let pathsNode = requireArray(root["paths"], "paths")
@@ -328,7 +356,7 @@ proc loadBonyJson*(text: string): SkeletonData =
         optionalInt(pathObject, "order", defaultInt(pathTypeId, "order"), context),
       )
 
-  skeletonData(loadedHeader, loadedBones, loadedSlots, loadedRegions, loadedPaths)
+  skeletonData(loadedHeader, loadedBones, loadedSlots, loadedRegions, loadedPathAttachments, loadedPaths)
 
 
 proc toBonyJson*(data: SkeletonData): string =
@@ -391,6 +419,21 @@ proc toBonyJson*(data: SkeletonData): string =
     regionObject["height"] = newJFloat(region.height)
     regions.add(regionObject)
   root["regions"] = regions
+  if data.pathAttachments.len > 0:
+    var pathAttachments = newJArray()
+    for pathAttachment in data.pathAttachments:
+      var pathAttachmentObject = newJObject()
+      pathAttachmentObject["name"] = newJString(pathAttachment.name)
+      pathAttachmentObject["p0x"] = newJFloat(pathAttachment.p0x)
+      pathAttachmentObject["p0y"] = newJFloat(pathAttachment.p0y)
+      pathAttachmentObject["p1x"] = newJFloat(pathAttachment.p1x)
+      pathAttachmentObject["p1y"] = newJFloat(pathAttachment.p1y)
+      pathAttachmentObject["p2x"] = newJFloat(pathAttachment.p2x)
+      pathAttachmentObject["p2y"] = newJFloat(pathAttachment.p2y)
+      pathAttachmentObject["p3x"] = newJFloat(pathAttachment.p3x)
+      pathAttachmentObject["p3y"] = newJFloat(pathAttachment.p3y)
+      pathAttachments.add(pathAttachmentObject)
+    root["pathAttachments"] = pathAttachments
   if data.paths.len > 0:
     var paths = newJArray()
     for path in data.paths:

@@ -71,6 +71,8 @@ equalityModes:
     appliesTo: [varuint, varint]
   - id: storedF32
     appliesTo: [f32]
+  - id: exactFloat
+    appliesTo: [f64]
   - id: exactBool
     appliesTo: [bool]
   - id: exactString
@@ -173,6 +175,9 @@ objectDefaults:
         omitWhenDefault: true
         applyOnLoad: true
         doc: Constraint order defaults to the first world-transform slot.
+  - object: pathAttachment
+    ownerBead: bony-8gs
+    properties: {}
 
 requiredProperties:
   - object: skeleton
@@ -218,4 +223,40 @@ requiredProperties:
   - object: path
     property: path
     reason: A path constraint must identify the path attachment it samples.
+    ownerBead: bony-8gs
+  - object: pathAttachment
+    property: name
+    reason: Path attachments are referenced by path constraints.
+    ownerBead: bony-8gs
+  - object: pathAttachment
+    property: p0x
+    reason: Cubic path attachments need a first endpoint x coordinate.
+    ownerBead: bony-8gs
+  - object: pathAttachment
+    property: p0y
+    reason: Cubic path attachments need a first endpoint y coordinate.
+    ownerBead: bony-8gs
+  - object: pathAttachment
+    property: p1x
+    reason: Cubic path attachments need a first control x coordinate.
+    ownerBead: bony-8gs
+  - object: pathAttachment
+    property: p1y
+    reason: Cubic path attachments need a first control y coordinate.
+    ownerBead: bony-8gs
+  - object: pathAttachment
+    property: p2x
+    reason: Cubic path attachments need a second control x coordinate.
+    ownerBead: bony-8gs
+  - object: pathAttachment
+    property: p2y
+    reason: Cubic path attachments need a second control y coordinate.
+    ownerBead: bony-8gs
+  - object: pathAttachment
+    property: p3x
+    reason: Cubic path attachments need a second endpoint x coordinate.
+    ownerBead: bony-8gs
+  - object: pathAttachment
+    property: p3y
+    reason: Cubic path attachments need a second endpoint y coordinate.
     ownerBead: bony-8gs

@@ -363,6 +363,7 @@ def inferred_equality_mode(backing_type: str) -> str:
         "varuint": "exactInteger",
         "varint": "exactInteger",
         "f32": "storedF32",
+        "f64": "exactFloat",
         "bool": "exactBool",
         "string": "exactString",
         "color": "exactColor",
@@ -396,6 +397,9 @@ def validate_default_value(object_id: str, property_id: str, backing_type: str, 
         if not isinstance(value, int) or isinstance(value, bool):
             raise SourceError(f"{where} must be an integer")
     elif backing_type == "f32":
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            raise SourceError(f"{where} must be numeric")
+    elif backing_type == "f64":
         if not isinstance(value, (int, float)) or isinstance(value, bool):
             raise SourceError(f"{where} must be numeric")
     elif backing_type == "bool":
@@ -498,6 +502,7 @@ def schema_for_backing_type(backing_type: str) -> dict[str, Any]:
         "varuint": {"type": "integer", "minimum": 0},
         "varint": {"type": "integer"},
         "f32": {"type": "number"},
+        "f64": {"type": "number"},
         "bool": {"type": "boolean"},
         "string": {"type": "string"},
         "color": {

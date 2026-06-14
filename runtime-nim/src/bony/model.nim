@@ -63,6 +63,17 @@ type
     width: float64
     height: float64
 
+  PathAttachmentData* = object
+    name: string
+    p0x: float64
+    p0y: float64
+    p1x: float64
+    p1y: float64
+    p2x: float64
+    p2y: float64
+    p3x: float64
+    p3y: float64
+
   PathConstraintData* = object
     name: string
     bone: string
@@ -109,6 +120,7 @@ type
     bones: seq[BoneData]
     slots: seq[SlotData]
     regions: seq[RegionAttachment]
+    pathAttachments: seq[PathAttachmentData]
     paths: seq[PathConstraintData]
 
   SkeletonInstance* = object
@@ -131,6 +143,12 @@ proc quantizeF32*(value: float64; context = "value"): float64 =
   result = float64(float32(value))
   if classify(result) in {fcNan, fcInf, fcNegInf}:
     raise newBonyLoadError(numericOutOfRange, context & " must fit in f32")
+
+
+proc requireFiniteF64*(value: float64; context = "value"): float64 =
+  if classify(value) in {fcNan, fcInf, fcNegInf}:
+    raise newBonyLoadError(numericOutOfRange, context & " must be finite")
+  value
 
 
 proc localTransform*(
@@ -177,6 +195,23 @@ proc regionAttachment*(name: string; width, height: float64): RegionAttachment =
   )
 
 
+proc pathAttachmentData*(
+  name: string;
+  p0x, p0y, p1x, p1y, p2x, p2y, p3x, p3y: float64;
+): PathAttachmentData =
+  PathAttachmentData(
+    name: name,
+    p0x: requireFiniteF64(p0x, "pathAttachment.p0x"),
+    p0y: requireFiniteF64(p0y, "pathAttachment.p0y"),
+    p1x: requireFiniteF64(p1x, "pathAttachment.p1x"),
+    p1y: requireFiniteF64(p1y, "pathAttachment.p1y"),
+    p2x: requireFiniteF64(p2x, "pathAttachment.p2x"),
+    p2y: requireFiniteF64(p2y, "pathAttachment.p2y"),
+    p3x: requireFiniteF64(p3x, "pathAttachment.p3x"),
+    p3y: requireFiniteF64(p3y, "pathAttachment.p3y"),
+  )
+
+
 proc pathConstraintData*(name, bone, target, path: string; order = 0): PathConstraintData =
   PathConstraintData(name: name, bone: bone, target: target, path: path, order: order)
 
@@ -214,6 +249,17 @@ proc width*(region: RegionAttachment): float64 = region.width
 proc height*(region: RegionAttachment): float64 = region.height
 
 
+proc name*(pathAttachment: PathAttachmentData): string = pathAttachment.name
+proc p0x*(pathAttachment: PathAttachmentData): float64 = pathAttachment.p0x
+proc p0y*(pathAttachment: PathAttachmentData): float64 = pathAttachment.p0y
+proc p1x*(pathAttachment: PathAttachmentData): float64 = pathAttachment.p1x
+proc p1y*(pathAttachment: PathAttachmentData): float64 = pathAttachment.p1y
+proc p2x*(pathAttachment: PathAttachmentData): float64 = pathAttachment.p2x
+proc p2y*(pathAttachment: PathAttachmentData): float64 = pathAttachment.p2y
+proc p3x*(pathAttachment: PathAttachmentData): float64 = pathAttachment.p3x
+proc p3y*(pathAttachment: PathAttachmentData): float64 = pathAttachment.p3y
+
+
 proc name*(path: PathConstraintData): string = path.name
 proc bone*(path: PathConstraintData): string = path.bone
 proc target*(path: PathConstraintData): string = path.target
@@ -246,6 +292,9 @@ proc slots*(data: SkeletonData): seq[SlotData] = data.slots
 proc regions*(data: SkeletonData): seq[RegionAttachment] = data.regions
 
 
+proc pathAttachments*(data: SkeletonData): seq[PathAttachmentData] = data.pathAttachments
+
+
 proc paths*(data: SkeletonData): seq[PathConstraintData] = data.paths
 
 
@@ -272,6 +321,7 @@ proc validateSkeletonData*(
   bones: openArray[BoneData];
   slots: openArray[SlotData] = [];
   regions: openArray[RegionAttachment] = [];
+  pathAttachments: openArray[PathAttachmentData] = [];
   paths: openArray[PathConstraintData] = [];
 ) =
   if header.name.len == 0:
@@ -326,6 +376,23 @@ proc validateSkeletonData*(
       raise newBonyLoadError(unknownRequiredReference, "unknown slot attachment: " & slot.attachment)
     allSlotNames.incl(slot.name)
 
+  var allPathAttachmentNames = initHashSet[string]()
+  for index, pathAttachment in pathAttachments:
+    let context = "pathAttachments[" & $index & "]"
+    if pathAttachment.name.len == 0:
+      raise newBonyLoadError(schemaViolation, context & ".name must not be empty")
+    if pathAttachment.name in allPathAttachmentNames:
+      raise newBonyLoadError(duplicateKey, "duplicate path attachment name: " & pathAttachment.name)
+    discard requireFiniteF64(pathAttachment.p0x, context & ".p0x")
+    discard requireFiniteF64(pathAttachment.p0y, context & ".p0y")
+    discard requireFiniteF64(pathAttachment.p1x, context & ".p1x")
+    discard requireFiniteF64(pathAttachment.p1y, context & ".p1y")
+    discard requireFiniteF64(pathAttachment.p2x, context & ".p2x")
+    discard requireFiniteF64(pathAttachment.p2y, context & ".p2y")
+    discard requireFiniteF64(pathAttachment.p3x, context & ".p3x")
+    discard requireFiniteF64(pathAttachment.p3y, context & ".p3y")
+    allPathAttachmentNames.incl(pathAttachment.name)
+
   var allPathNames = initHashSet[string]()
   for index, path in paths:
     let context = "paths[" & $index & "]"
@@ -337,7 +404,7 @@ proc validateSkeletonData*(
       raise newBonyLoadError(unknownRequiredReference, "unknown path constraint bone: " & path.bone)
     if path.target notin allNames:
       raise newBonyLoadError(unknownRequiredReference, "unknown path constraint target: " & path.target)
-    if path.path notin allRegionNames:
+    if path.path notin allPathAttachmentNames:
       raise newBonyLoadError(unknownRequiredReference, "unknown path constraint path: " & path.path)
     allPathNames.incl(path.name)
 
@@ -347,18 +414,20 @@ proc skeletonData*(
   bones: openArray[BoneData];
   slots: openArray[SlotData] = [];
   regions: openArray[RegionAttachment] = [];
+  pathAttachments: openArray[PathAttachmentData] = [];
   paths: openArray[PathConstraintData] = [];
 ): SkeletonData =
-  validateSkeletonData(header, bones, slots, regions, paths)
+  validateSkeletonData(header, bones, slots, regions, pathAttachments, paths)
   result.header = header
   result.bones = @bones
   result.slots = @slots
   result.regions = @regions
+  result.pathAttachments = @pathAttachments
   result.paths = @paths
 
 
 proc validateSkeletonData*(data: SkeletonData) =
-  validateSkeletonData(data.header, data.bones, data.slots, data.regions, data.paths)
+  validateSkeletonData(data.header, data.bones, data.slots, data.regions, data.pathAttachments, data.paths)
 
 
 proc constraintOrderEntry*(kind: ConstraintKind; order, sourceIndex: int): ConstraintOrderEntry =
@@ -367,13 +436,30 @@ proc constraintOrderEntry*(kind: ConstraintKind; order, sourceIndex: int): Const
   ConstraintOrderEntry(kind: kind, order: order, sourceIndex: sourceIndex)
 
 
+proc constraintStageRank(kind: ConstraintKind): int =
+  case kind
+  of ckPhysics: 1
+  else: 0
+
+
+proc constraintKindRank(kind: ConstraintKind): int =
+  case kind
+  of ckIk: 0
+  of ckTransform: 1
+  of ckPath: 2
+  of ckPhysics: 3
+
+
 proc canonicalConstraintOrder*(entries: openArray[ConstraintOrderEntry]): seq[ConstraintOrderEntry] =
   result = @entries
   result.sort(proc(left, right: ConstraintOrderEntry): int =
+    result = cmp(constraintStageRank(left.kind), constraintStageRank(right.kind))
+    if result != 0:
+      return
     result = cmp(left.order, right.order)
     if result != 0:
       return
-    result = cmp(ord(left.kind), ord(right.kind))
+    result = cmp(constraintKindRank(left.kind), constraintKindRank(right.kind))
     if result != 0:
       return
     result = cmp(left.sourceIndex, right.sourceIndex)

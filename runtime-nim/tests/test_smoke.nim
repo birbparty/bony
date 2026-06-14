@@ -76,12 +76,12 @@ spec "bony package":
   it "exports generated registry metadata":
     then:
       bonyRegistryVersion == 1
-      bonyBackingTypes.len == 7
+      bonyBackingTypes.len == 8
       bonyBackingTypes[0].id == "varuint"
-      bonyTypeKeys.len == 5
-      bonyPropertyKeys.len == 22
+      bonyTypeKeys.len == 6
+      bonyPropertyKeys.len == 30
       bonyPropertyDefaults.len == 15
-      bonyRequiredProperties.len == 11
+      bonyRequiredProperties.len == 20
 
   it "encodes and rejects .bnb varints canonically":
     var bytes: seq[byte]
@@ -752,9 +752,22 @@ spec "bony package":
   ],
   "regions": [
     {
-      "name": "curve",
+      "name": "visual",
       "width": 1,
       "height": 1
+    }
+  ],
+  "pathAttachments": [
+    {
+      "name": "curve",
+      "p0x": 0,
+      "p0y": 0,
+      "p1x": 1.00000001,
+      "p1y": 2,
+      "p2x": 3,
+      "p2y": 4,
+      "p3x": 5,
+      "p3y": 6
     }
   ],
   "paths": [
@@ -776,19 +789,25 @@ spec "bony package":
       constraintOrderEntry(ckPhysics, 1, 0),
       constraintOrderEntry(ckPath, 3, 2),
       constraintOrderEntry(ckPath, 3, 1),
+      constraintOrderEntry(ckIk, -1, 0),
     ])
 
     then:
       data.paths.len == 1
+      data.pathAttachments.len == 1
+      data.pathAttachments[0].p1x == 1.00000001
       data.paths[0].name == "follow"
       data.paths[0].bone == "root"
       data.paths[0].target == "target"
       data.paths[0].path == "curve"
       data.paths[0].order == 7
+      decoded.pathAttachments[0].p1x == 1.00000001
       decoded.paths[0].order == 7
+      toBonyJson(decoded).contains("\"pathAttachments\"")
       toBonyJson(decoded).contains("\"paths\"")
-      ordered.mapIt(it.kind) == @[ckPhysics, ckIk, ckTransform, ckPath, ckPath, ckPath]
-      ordered.mapIt(it.sourceIndex) == @[0, 0, 0, 0, 1, 2]
+      ordered.mapIt(it.kind) == @[ckIk, ckIk, ckTransform, ckPath, ckPath, ckPath, ckPhysics]
+      ordered.mapIt(it.order) == @[-1, 3, 3, 3, 3, 3, 1]
+      ordered.mapIt(it.sourceIndex) == @[0, 0, 0, 0, 1, 2, 0]
       raisesBonyLoadError(
         """{"skeleton":{"name":"demo"},"bones":[{"name":"root"}],"regions":[{"name":"curve","width":1,"height":1}],"paths":[{"name":"bad","bone":"missing","target":"root","path":"curve"}]}""",
         unknownRequiredReference
@@ -798,7 +817,7 @@ spec "bony package":
         unknownRequiredReference
       )
       raisesBonyLoadError(
-        """{"skeleton":{"name":"demo"},"bones":[{"name":"root"}],"regions":[{"name":"curve","width":1,"height":1}],"paths":[{"name":"bad","bone":"root","target":"root","path":"missing"}]}""",
+        """{"skeleton":{"name":"demo"},"bones":[{"name":"root"}],"regions":[{"name":"curve","width":1,"height":1}],"paths":[{"name":"bad","bone":"root","target":"root","path":"curve"}]}""",
         unknownRequiredReference
       )
       raisesBonyLoadError(proc() =

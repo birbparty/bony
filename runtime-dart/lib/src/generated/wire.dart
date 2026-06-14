@@ -66,6 +66,7 @@ const List<BonyBackingType> bonyBackingTypes = [
   BonyBackingType(id: 'string', code: 5),
   BonyBackingType(id: 'color', code: 6),
   BonyBackingType(id: 'bytes', code: 7),
+  BonyBackingType(id: 'f64', code: 8),
 ];
 const List<BonyTypeKey> bonyTypeKeys = [
   BonyTypeKey(id: 'skeleton', key: 1),
@@ -73,6 +74,7 @@ const List<BonyTypeKey> bonyTypeKeys = [
   BonyTypeKey(id: 'slot', key: 1000),
   BonyTypeKey(id: 'region', key: 1001),
   BonyTypeKey(id: 'path', key: 4000),
+  BonyTypeKey(id: 'pathAttachment', key: 4001),
 ];
 const List<BonyPropertyKey> bonyPropertyKeys = [
   BonyPropertyKey(id: 'name', key: 1, backingType: 'string'),
@@ -97,6 +99,14 @@ const List<BonyPropertyKey> bonyPropertyKeys = [
   BonyPropertyKey(id: 'target', key: 4000, backingType: 'string'),
   BonyPropertyKey(id: 'path', key: 4001, backingType: 'string'),
   BonyPropertyKey(id: 'order', key: 4002, backingType: 'varint'),
+  BonyPropertyKey(id: 'p0x', key: 4003, backingType: 'f64'),
+  BonyPropertyKey(id: 'p0y', key: 4004, backingType: 'f64'),
+  BonyPropertyKey(id: 'p1x', key: 4005, backingType: 'f64'),
+  BonyPropertyKey(id: 'p1y', key: 4006, backingType: 'f64'),
+  BonyPropertyKey(id: 'p2x', key: 4007, backingType: 'f64'),
+  BonyPropertyKey(id: 'p2y', key: 4008, backingType: 'f64'),
+  BonyPropertyKey(id: 'p3x', key: 4009, backingType: 'f64'),
+  BonyPropertyKey(id: 'p3y', key: 4010, backingType: 'f64'),
 ];
 const List<BonyObjectSpec> bonyObjectSpecs = [
   BonyObjectSpec(typeId: 'skeleton', properties: ["name", "version"]),
@@ -104,6 +114,7 @@ const List<BonyObjectSpec> bonyObjectSpecs = [
   BonyObjectSpec(typeId: 'slot', properties: ["name", "bone", "attachment"]),
   BonyObjectSpec(typeId: 'region', properties: ["name", "width", "height"]),
   BonyObjectSpec(typeId: 'path', properties: ["name", "bone", "target", "path", "order"]),
+  BonyObjectSpec(typeId: 'pathAttachment', properties: ["name", "p0x", "p0y", "p1x", "p1y", "p2x", "p2y", "p3x", "p3y"]),
 ];
 const List<BonyPropertyDefault> bonyPropertyDefaults = [
   BonyPropertyDefault(objectId: 'skeleton', propertyId: 'version', equality: 'exactString', value: "\"0.1.0\"", omitWhenDefault: true, applyOnLoad: true),
@@ -134,6 +145,15 @@ const List<BonyRequiredProperty> bonyRequiredProperties = [
   BonyRequiredProperty(objectId: 'path', propertyId: 'bone', reason: "A path constraint must identify the constrained bone."),
   BonyRequiredProperty(objectId: 'path', propertyId: 'target', reason: "A path constraint must identify its target bone."),
   BonyRequiredProperty(objectId: 'path', propertyId: 'path', reason: "A path constraint must identify the path attachment it samples."),
+  BonyRequiredProperty(objectId: 'pathAttachment', propertyId: 'name', reason: "Path attachments are referenced by path constraints."),
+  BonyRequiredProperty(objectId: 'pathAttachment', propertyId: 'p0x', reason: "Cubic path attachments need a first endpoint x coordinate."),
+  BonyRequiredProperty(objectId: 'pathAttachment', propertyId: 'p0y', reason: "Cubic path attachments need a first endpoint y coordinate."),
+  BonyRequiredProperty(objectId: 'pathAttachment', propertyId: 'p1x', reason: "Cubic path attachments need a first control x coordinate."),
+  BonyRequiredProperty(objectId: 'pathAttachment', propertyId: 'p1y', reason: "Cubic path attachments need a first control y coordinate."),
+  BonyRequiredProperty(objectId: 'pathAttachment', propertyId: 'p2x', reason: "Cubic path attachments need a second control x coordinate."),
+  BonyRequiredProperty(objectId: 'pathAttachment', propertyId: 'p2y', reason: "Cubic path attachments need a second control y coordinate."),
+  BonyRequiredProperty(objectId: 'pathAttachment', propertyId: 'p3x', reason: "Cubic path attachments need a second endpoint x coordinate."),
+  BonyRequiredProperty(objectId: 'pathAttachment', propertyId: 'p3y', reason: "Cubic path attachments need a second endpoint y coordinate."),
 ];
 
 BonyObjectSpec bonyObjectSpec(String typeId) {

@@ -32,6 +32,12 @@
       "items": {
         "$ref": "#/$defs/path"
       }
+    },
+    "pathAttachments": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/pathAttachment"
+      }
     }
   },
   "required": [
@@ -510,6 +516,51 @@
         "name",
         "path",
         "target"
+      ]
+    },
+    "pathAttachment": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "p0x": {
+          "type": "number"
+        },
+        "p0y": {
+          "type": "number"
+        },
+        "p1x": {
+          "type": "number"
+        },
+        "p1y": {
+          "type": "number"
+        },
+        "p2x": {
+          "type": "number"
+        },
+        "p2y": {
+          "type": "number"
+        },
+        "p3x": {
+          "type": "number"
+        },
+        "p3y": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "name",
+        "p0x",
+        "p0y",
+        "p1x",
+        "p1y",
+        "p2x",
+        "p2y",
+        "p3x",
+        "p3y"
       ]
     }
   }

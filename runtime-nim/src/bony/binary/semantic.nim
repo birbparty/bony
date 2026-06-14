@@ -12,6 +12,7 @@ const
   slotTypeKey = 1000'u64
   regionTypeKey = 1001'u64
   pathTypeKey = 4000'u64
+  pathAttachmentTypeKey = 4001'u64
 
   nameKey = 1'u64
   versionKey = 2'u64
@@ -34,6 +35,14 @@ const
   targetKey = 4000'u64
   pathKey = 4001'u64
   orderKey = 4002'u64
+  p0xKey = 4003'u64
+  p0yKey = 4004'u64
+  p1xKey = 4005'u64
+  p1yKey = 4006'u64
+  p2xKey = 4007'u64
+  p2yKey = 4008'u64
+  p3xKey = 4009'u64
+  p3yKey = 4010'u64
 
 
 proc defaultString(objectId, propertyId: string): string =
@@ -102,6 +111,28 @@ proc readF32Payload(payload: openArray[byte]; context: string): float64 =
     (uint32(payload[2]) shl 16) or
     (uint32(payload[3]) shl 24)
   result = quantizeF32(float64(cast[float32](bits)), context)
+
+
+proc writeF64Payload(value: float64; context: string): seq[byte] =
+  let stored = requireFiniteF64(value, context)
+  let bits = cast[uint64](stored)
+  for shift in countup(0, 56, 8):
+    result.add byte((bits shr shift) and 0xff'u64)
+
+
+proc readF64Payload(payload: openArray[byte]; context: string): float64 =
+  if payload.len != 8:
+    raise newBonyLoadError(schemaViolation, ".bnb " & context & " f64 payload must be 8 bytes")
+  let bits =
+    uint64(payload[0]) or
+    (uint64(payload[1]) shl 8) or
+    (uint64(payload[2]) shl 16) or
+    (uint64(payload[3]) shl 24) or
+    (uint64(payload[4]) shl 32) or
+    (uint64(payload[5]) shl 40) or
+    (uint64(payload[6]) shl 48) or
+    (uint64(payload[7]) shl 56)
+  requireFiniteF64(cast[float64](bits), context)
 
 
 proc writeBoolPayload(value: bool): seq[byte] =
@@ -190,6 +221,12 @@ proc readFloatProperty(properties: Table[uint64, seq[byte]]; propertyKey: uint64
   readF32Payload(properties[propertyKey], context)
 
 
+proc readF64Property(properties: Table[uint64, seq[byte]]; propertyKey: uint64; context: string): float64 =
+  if propertyKey notin properties:
+    raise newBonyLoadError(schemaViolation, ".bnb " & context & " is required")
+  readF64Payload(properties[propertyKey], context)
+
+
 proc readOptionalFloatProperty(
   properties: Table[uint64, seq[byte]];
   propertyKey: uint64;
@@ -246,6 +283,16 @@ proc addFloatIfNeeded(
 ) =
   if required or quantizeF32(value) != quantizeF32(defaultValue):
     properties.addProperty(toc, propertyKey, writeF32Payload(value))
+
+
+proc addF64Required(
+  properties: var seq[BnbPropertyRecord];
+  toc: var Table[uint64, uint8];
+  propertyKey: uint64;
+  value: float64;
+  context: string;
+) =
+  properties.addProperty(toc, propertyKey, writeF64Payload(value, context))
 
 
 proc addBoolIfNeeded(
@@ -333,6 +380,19 @@ proc buildObjectRecords(data: SkeletonData; table: var BnbStringTable; toc: var 
     properties.addFloatIfNeeded(toc, heightKey, region.height, 0.0, required = true)
     result.add BnbObjectRecord(typeKey: regionTypeKey, properties: properties)
 
+  for pathAttachment in data.pathAttachments:
+    var properties: seq[BnbPropertyRecord]
+    properties.addStringIfNeeded(toc, table, nameKey, pathAttachment.name, "", required = true)
+    properties.addF64Required(toc, p0xKey, pathAttachment.p0x, "pathAttachment.p0x")
+    properties.addF64Required(toc, p0yKey, pathAttachment.p0y, "pathAttachment.p0y")
+    properties.addF64Required(toc, p1xKey, pathAttachment.p1x, "pathAttachment.p1x")
+    properties.addF64Required(toc, p1yKey, pathAttachment.p1y, "pathAttachment.p1y")
+    properties.addF64Required(toc, p2xKey, pathAttachment.p2x, "pathAttachment.p2x")
+    properties.addF64Required(toc, p2yKey, pathAttachment.p2y, "pathAttachment.p2y")
+    properties.addF64Required(toc, p3xKey, pathAttachment.p3x, "pathAttachment.p3x")
+    properties.addF64Required(toc, p3yKey, pathAttachment.p3y, "pathAttachment.p3y")
+    result.add BnbObjectRecord(typeKey: pathAttachmentTypeKey, properties: properties)
+
   for path in data.paths:
     var properties: seq[BnbPropertyRecord]
     properties.addStringIfNeeded(toc, table, nameKey, path.name, "", required = true)
@@ -371,6 +431,7 @@ proc decodeSkeletonObjects(objects: openArray[BnbObjectRecord]; strings: BnbStri
   var bones: seq[BoneData]
   var slots: seq[SlotData]
   var regions: seq[RegionAttachment]
+  var pathAttachments: seq[PathAttachmentData]
   var paths: seq[PathConstraintData]
 
   for record in objects:
@@ -448,6 +509,19 @@ proc decodeSkeletonObjects(objects: openArray[BnbObjectRecord]; strings: BnbStri
         properties.readFloatProperty(widthKey, "region.width"),
         properties.readFloatProperty(heightKey, "region.height"),
       )
+    of pathAttachmentTypeKey:
+      let properties = record.propertyMap([nameKey, p0xKey, p0yKey, p1xKey, p1yKey, p2xKey, p2yKey, p3xKey, p3yKey])
+      pathAttachments.add pathAttachmentData(
+        properties.readStringProperty(strings, nameKey, "pathAttachment.name"),
+        properties.readF64Property(p0xKey, "pathAttachment.p0x"),
+        properties.readF64Property(p0yKey, "pathAttachment.p0y"),
+        properties.readF64Property(p1xKey, "pathAttachment.p1x"),
+        properties.readF64Property(p1yKey, "pathAttachment.p1y"),
+        properties.readF64Property(p2xKey, "pathAttachment.p2x"),
+        properties.readF64Property(p2yKey, "pathAttachment.p2y"),
+        properties.readF64Property(p3xKey, "pathAttachment.p3x"),
+        properties.readF64Property(p3yKey, "pathAttachment.p3y"),
+      )
     of pathTypeKey:
       let properties = record.propertyMap([nameKey, boneKey, targetKey, pathKey, orderKey])
       paths.add pathConstraintData(
@@ -462,7 +536,7 @@ proc decodeSkeletonObjects(objects: openArray[BnbObjectRecord]; strings: BnbStri
 
   if not hasSkeleton:
     raise newBonyLoadError(schemaViolation, ".bnb skeleton object is required")
-  skeletonData(headerValue, bones, slots, regions, paths)
+  skeletonData(headerValue, bones, slots, regions, pathAttachments, paths)
 
 
 proc loadBonyBnb*(input: openArray[byte]): SkeletonData =
