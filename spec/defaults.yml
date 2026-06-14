@@ -111,6 +111,60 @@ objectDefaults:
         omitWhenDefault: true
         applyOnLoad: true
         doc: Missing parent denotes a root bone.
+      x:
+        value: 0.0
+        omitWhenDefault: true
+        applyOnLoad: true
+      y:
+        value: 0.0
+        omitWhenDefault: true
+        applyOnLoad: true
+      rotation:
+        value: 0.0
+        omitWhenDefault: true
+        applyOnLoad: true
+      scaleX:
+        value: 1.0
+        omitWhenDefault: true
+        applyOnLoad: true
+      scaleY:
+        value: 1.0
+        omitWhenDefault: true
+        applyOnLoad: true
+      shearX:
+        value: 0.0
+        omitWhenDefault: true
+        applyOnLoad: true
+      shearY:
+        value: 0.0
+        omitWhenDefault: true
+        applyOnLoad: true
+      inheritRotation:
+        value: true
+        omitWhenDefault: true
+        applyOnLoad: true
+      inheritScale:
+        value: true
+        omitWhenDefault: true
+        applyOnLoad: true
+      inheritReflection:
+        value: true
+        omitWhenDefault: true
+        applyOnLoad: true
+      transformMode:
+        value: "normal"
+        omitWhenDefault: true
+        applyOnLoad: true
+  - object: slot
+    ownerBead: bony-v1p
+    properties:
+      attachment:
+        value: ""
+        omitWhenDefault: true
+        applyOnLoad: true
+  - object: region
+    ownerBead: bony-v1p
+    properties: {}
 
 requiredProperties:
   - object: skeleton
@@ -121,3 +175,23 @@ requiredProperties:
     property: name
     reason: Bones are referenced by stable unique names.
     ownerBead: bony-c5h
+  - object: slot
+    property: name
+    reason: Slots are referenced by stable unique names.
+    ownerBead: bony-v1p
+  - object: slot
+    property: bone
+    reason: Slots must attach draw state to a known bone.
+    ownerBead: bony-v1p
+  - object: region
+    property: name
+    reason: Region attachments are referenced by slot attachment names.
+    ownerBead: bony-v1p
+  - object: region
+    property: width
+    reason: Region attachments need dimensions for draw-batch quads.
+    ownerBead: bony-v1p
+  - object: region
+    property: height
+    reason: Region attachments need dimensions for draw-batch quads.
+    ownerBead: bony-v1p

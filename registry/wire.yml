@@ -211,6 +211,18 @@ typeKeys:
     milestone: M1
     ownerBead: bony-c5h
     doc: Parent-first bone record used by M1 loaders and later transform passes.
+  - id: slot
+    key: 1000
+    status: active
+    milestone: M2
+    ownerBead: bony-v1p
+    doc: Slot record preserving draw order and attachment binding.
+  - id: region
+    key: 1001
+    status: active
+    milestone: M2
+    ownerBead: bony-v1p
+    doc: Rectangular region attachment record for backend-neutral drawing.
 
 propertyKeys:
   - id: name
@@ -234,6 +246,118 @@ propertyKeys:
     milestone: M1
     ownerBead: bony-c5h
     doc: Parent bone name; empty string denotes a root bone.
+  - id: x
+    key: 1000
+    backingType: f32
+    status: active
+    milestone: M2
+    ownerBead: bony-v1p
+    doc: Local bone translation x in skeleton units.
+  - id: y
+    key: 1001
+    backingType: f32
+    status: active
+    milestone: M2
+    ownerBead: bony-v1p
+    doc: Local bone translation y in skeleton units.
+  - id: rotation
+    key: 1002
+    backingType: f32
+    status: active
+    milestone: M2
+    ownerBead: bony-v1p
+    doc: Local bone rotation in degrees at the JSON boundary.
+  - id: scaleX
+    key: 1003
+    backingType: f32
+    status: active
+    milestone: M2
+    ownerBead: bony-v1p
+    doc: Local bone x-axis scale.
+  - id: scaleY
+    key: 1004
+    backingType: f32
+    status: active
+    milestone: M2
+    ownerBead: bony-v1p
+    doc: Local bone y-axis scale.
+  - id: shearX
+    key: 1005
+    backingType: f32
+    status: active
+    milestone: M2
+    ownerBead: bony-v1p
+    doc: Local bone x-axis shear in degrees at the JSON boundary.
+  - id: shearY
+    key: 1006
+    backingType: f32
+    status: active
+    milestone: M2
+    ownerBead: bony-v1p
+    doc: Local bone y-axis shear in degrees at the JSON boundary.
+  - id: inheritRotation
+    key: 1007
+    backingType: bool
+    status: active
+    milestone: M2
+    ownerBead: bony-v1p
+    doc: Whether a bone inherits parent rotation.
+  - id: inheritScale
+    key: 1008
+    backingType: bool
+    status: active
+    milestone: M2
+    ownerBead: bony-v1p
+    doc: Whether a bone inherits parent scale/shear.
+  - id: inheritReflection
+    key: 1009
+    backingType: bool
+    status: active
+    milestone: M2
+    ownerBead: bony-v1p
+    doc: Whether a bone inherits parent reflection sign.
+  - id: transformMode
+    key: 1010
+    backingType: string
+    status: active
+    milestone: M2
+    ownerBead: bony-v1p
+    doc: Optional mode alias for the five valid transform flag triples.
+  - id: slot
+    key: 1011
+    backingType: string
+    status: active
+    milestone: M2
+    ownerBead: bony-v1p
+    doc: Slot name used for draw-order records.
+  - id: bone
+    key: 1012
+    backingType: string
+    status: active
+    milestone: M2
+    ownerBead: bony-v1p
+    doc: Bone name referenced by a slot.
+  - id: attachment
+    key: 1013
+    backingType: string
+    status: active
+    milestone: M2
+    ownerBead: bony-v1p
+    doc: Region attachment name referenced by a slot.
+  - id: width
+    key: 1014
+    backingType: f32
+    status: active
+    milestone: M2
+    ownerBead: bony-v1p
+    doc: Region attachment width in skeleton units.
+  - id: height
+    key: 1015
+    backingType: f32
+    status: active
+    milestone: M2
+    ownerBead: bony-v1p
+    doc: Region attachment height in skeleton units.
 
 objects:
   - type: skeleton
@@ -245,4 +369,27 @@ objects:
     properties:
       - name
       - parent
+      - x
+      - y
+      - rotation
+      - scaleX
+      - scaleY
+      - shearX
+      - shearY
+      - inheritRotation
+      - inheritScale
+      - inheritReflection
+      - transformMode
     doc: Bone object loaded in parent-first order.
+  - type: slot
+    properties:
+      - name
+      - bone
+      - attachment
+    doc: Slot record preserving source draw order.
+  - type: region
+    properties:
+      - name
+      - width
+      - height
+    doc: Rectangular region attachment used by the M2 draw-batch surface.

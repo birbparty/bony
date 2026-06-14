@@ -14,11 +14,25 @@
       "items": {
         "$ref": "#/$defs/bone"
       }
+    },
+    "slots": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/slot"
+      }
+    },
+    "regions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/region"
+      }
     }
   },
   "required": [
     "skeleton",
-    "bones"
+    "bones",
+    "slots",
+    "regions"
   ],
   "$defs": {
     "skeleton": {
@@ -49,10 +63,96 @@
         "parent": {
           "type": "string",
           "default": ""
+        },
+        "x": {
+          "type": "number",
+          "default": 0.0
+        },
+        "y": {
+          "type": "number",
+          "default": 0.0
+        },
+        "rotation": {
+          "type": "number",
+          "default": 0.0
+        },
+        "scaleX": {
+          "type": "number",
+          "default": 1.0
+        },
+        "scaleY": {
+          "type": "number",
+          "default": 1.0
+        },
+        "shearX": {
+          "type": "number",
+          "default": 0.0
+        },
+        "shearY": {
+          "type": "number",
+          "default": 0.0
+        },
+        "inheritRotation": {
+          "type": "boolean",
+          "default": true
+        },
+        "inheritScale": {
+          "type": "boolean",
+          "default": true
+        },
+        "inheritReflection": {
+          "type": "boolean",
+          "default": true
+        },
+        "transformMode": {
+          "type": "string",
+          "default": "normal"
         }
       },
       "required": [
         "name"
+      ]
+    },
+    "slot": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "bone": {
+          "type": "string"
+        },
+        "attachment": {
+          "type": "string",
+          "default": ""
+        }
+      },
+      "required": [
+        "bone",
+        "name"
+      ]
+    },
+    "region": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "width": {
+          "type": "number"
+        },
+        "height": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "height",
+        "name",
+        "width"
       ]
     }
   }

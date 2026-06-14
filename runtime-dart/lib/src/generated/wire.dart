@@ -70,23 +70,60 @@ const List<BonyBackingType> bonyBackingTypes = [
 const List<BonyTypeKey> bonyTypeKeys = [
   BonyTypeKey(id: 'skeleton', key: 1),
   BonyTypeKey(id: 'bone', key: 2),
+  BonyTypeKey(id: 'slot', key: 1000),
+  BonyTypeKey(id: 'region', key: 1001),
 ];
 const List<BonyPropertyKey> bonyPropertyKeys = [
   BonyPropertyKey(id: 'name', key: 1, backingType: 'string'),
   BonyPropertyKey(id: 'version', key: 2, backingType: 'string'),
   BonyPropertyKey(id: 'parent', key: 3, backingType: 'string'),
+  BonyPropertyKey(id: 'x', key: 1000, backingType: 'f32'),
+  BonyPropertyKey(id: 'y', key: 1001, backingType: 'f32'),
+  BonyPropertyKey(id: 'rotation', key: 1002, backingType: 'f32'),
+  BonyPropertyKey(id: 'scaleX', key: 1003, backingType: 'f32'),
+  BonyPropertyKey(id: 'scaleY', key: 1004, backingType: 'f32'),
+  BonyPropertyKey(id: 'shearX', key: 1005, backingType: 'f32'),
+  BonyPropertyKey(id: 'shearY', key: 1006, backingType: 'f32'),
+  BonyPropertyKey(id: 'inheritRotation', key: 1007, backingType: 'bool'),
+  BonyPropertyKey(id: 'inheritScale', key: 1008, backingType: 'bool'),
+  BonyPropertyKey(id: 'inheritReflection', key: 1009, backingType: 'bool'),
+  BonyPropertyKey(id: 'transformMode', key: 1010, backingType: 'string'),
+  BonyPropertyKey(id: 'slot', key: 1011, backingType: 'string'),
+  BonyPropertyKey(id: 'bone', key: 1012, backingType: 'string'),
+  BonyPropertyKey(id: 'attachment', key: 1013, backingType: 'string'),
+  BonyPropertyKey(id: 'width', key: 1014, backingType: 'f32'),
+  BonyPropertyKey(id: 'height', key: 1015, backingType: 'f32'),
 ];
 const List<BonyObjectSpec> bonyObjectSpecs = [
   BonyObjectSpec(typeId: 'skeleton', properties: ["name", "version"]),
-  BonyObjectSpec(typeId: 'bone', properties: ["name", "parent"]),
+  BonyObjectSpec(typeId: 'bone', properties: ["name", "parent", "x", "y", "rotation", "scaleX", "scaleY", "shearX", "shearY", "inheritRotation", "inheritScale", "inheritReflection", "transformMode"]),
+  BonyObjectSpec(typeId: 'slot', properties: ["name", "bone", "attachment"]),
+  BonyObjectSpec(typeId: 'region', properties: ["name", "width", "height"]),
 ];
 const List<BonyPropertyDefault> bonyPropertyDefaults = [
   BonyPropertyDefault(objectId: 'skeleton', propertyId: 'version', equality: 'exactString', value: "\"0.1.0\"", omitWhenDefault: true, applyOnLoad: true),
   BonyPropertyDefault(objectId: 'bone', propertyId: 'parent', equality: 'exactString', value: "\"\"", omitWhenDefault: true, applyOnLoad: true),
+  BonyPropertyDefault(objectId: 'bone', propertyId: 'x', equality: 'storedF32', value: "0.0", omitWhenDefault: true, applyOnLoad: true),
+  BonyPropertyDefault(objectId: 'bone', propertyId: 'y', equality: 'storedF32', value: "0.0", omitWhenDefault: true, applyOnLoad: true),
+  BonyPropertyDefault(objectId: 'bone', propertyId: 'rotation', equality: 'storedF32', value: "0.0", omitWhenDefault: true, applyOnLoad: true),
+  BonyPropertyDefault(objectId: 'bone', propertyId: 'scaleX', equality: 'storedF32', value: "1.0", omitWhenDefault: true, applyOnLoad: true),
+  BonyPropertyDefault(objectId: 'bone', propertyId: 'scaleY', equality: 'storedF32', value: "1.0", omitWhenDefault: true, applyOnLoad: true),
+  BonyPropertyDefault(objectId: 'bone', propertyId: 'shearX', equality: 'storedF32', value: "0.0", omitWhenDefault: true, applyOnLoad: true),
+  BonyPropertyDefault(objectId: 'bone', propertyId: 'shearY', equality: 'storedF32', value: "0.0", omitWhenDefault: true, applyOnLoad: true),
+  BonyPropertyDefault(objectId: 'bone', propertyId: 'inheritRotation', equality: 'exactBool', value: "true", omitWhenDefault: true, applyOnLoad: true),
+  BonyPropertyDefault(objectId: 'bone', propertyId: 'inheritScale', equality: 'exactBool', value: "true", omitWhenDefault: true, applyOnLoad: true),
+  BonyPropertyDefault(objectId: 'bone', propertyId: 'inheritReflection', equality: 'exactBool', value: "true", omitWhenDefault: true, applyOnLoad: true),
+  BonyPropertyDefault(objectId: 'bone', propertyId: 'transformMode', equality: 'exactString', value: "\"normal\"", omitWhenDefault: true, applyOnLoad: true),
+  BonyPropertyDefault(objectId: 'slot', propertyId: 'attachment', equality: 'exactString', value: "\"\"", omitWhenDefault: true, applyOnLoad: true),
 ];
 const List<BonyRequiredProperty> bonyRequiredProperties = [
   BonyRequiredProperty(objectId: 'skeleton', propertyId: 'name', reason: "Skeleton metadata needs a stable name for diagnostics and tooling."),
   BonyRequiredProperty(objectId: 'bone', propertyId: 'name', reason: "Bones are referenced by stable unique names."),
+  BonyRequiredProperty(objectId: 'slot', propertyId: 'name', reason: "Slots are referenced by stable unique names."),
+  BonyRequiredProperty(objectId: 'slot', propertyId: 'bone', reason: "Slots must attach draw state to a known bone."),
+  BonyRequiredProperty(objectId: 'region', propertyId: 'name', reason: "Region attachments are referenced by slot attachment names."),
+  BonyRequiredProperty(objectId: 'region', propertyId: 'width', reason: "Region attachments need dimensions for draw-batch quads."),
+  BonyRequiredProperty(objectId: 'region', propertyId: 'height', reason: "Region attachments need dimensions for draw-batch quads."),
 ];
 
 BonyObjectSpec bonyObjectSpec(String typeId) {

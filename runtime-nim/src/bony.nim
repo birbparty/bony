@@ -3,9 +3,11 @@
 import bony/generated/wire
 import bony/model
 import bony/jsonio
+import bony/transform
 
 export jsonio
 export model
+export transform
 export wire
 
 const bonyVersion* = "0.1.0"
