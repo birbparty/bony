@@ -3,6 +3,7 @@
 import bony/generated/wire
 import bony/anim/mixer
 import bony/anim/timelines
+import bony/binary/framing
 import bony/deform/deformers
 import bony/deform/keyforms
 import bony/deform/parameter_timelines
@@ -18,6 +19,7 @@ import bony/statemachine/core
 import bony/transform
 
 export attachments
+export framing
 export clipping
 export deformers
 export keyforms
