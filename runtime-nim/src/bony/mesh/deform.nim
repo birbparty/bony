@@ -52,12 +52,16 @@ proc deformKeyframe*(
 
 
 proc validateDeformKey(key: DeformKeyframe; vertexCount: int) =
-  if key.time < 0:
+  let storedTime = quantizeF32(key.time, "deform.key.time")
+  if storedTime < 0:
     raise newBonyLoadError(schemaViolation, "deform key time must be non-negative")
   if key.deltas.len == 0:
     raise newBonyLoadError(schemaViolation, "deform key must contain at least one delta")
   if int(key.offset) + key.deltas.len > vertexCount:
     raise newBonyLoadError(schemaViolation, "deform key range exceeds mesh vertex count")
+  for delta in key.deltas:
+    discard quantizeF32(delta.x, "deform.delta.x")
+    discard quantizeF32(delta.y, "deform.delta.y")
 
 
 proc validateDeformTimeline*(timeline: DeformTimeline) =
@@ -98,7 +102,7 @@ proc zeroDeltas(vertexCount: int): seq[MeshDelta] =
 
 proc writeKeyDeltas(output: var seq[MeshDelta]; key: DeformKeyframe) =
   for index, delta in key.deltas:
-    output[int(key.offset) + index] = delta
+    output[int(key.offset) + index] = meshDelta(delta.x, delta.y)
 
 
 proc expandedDeltas(key: DeformKeyframe; vertexCount: int): seq[MeshDelta] =
@@ -152,7 +156,12 @@ proc applyDeformDeltas*(
 
 proc applyDeformTimeline*(
   vertices: openArray[SkinnedMeshVertex];
+  mesh: MeshAttachment;
   timeline: DeformTimeline;
   time: float64;
 ): seq[SkinnedMeshVertex] =
+  if mesh.deformAttachment != timeline.attachment:
+    raise newBonyLoadError(schemaViolation, "deform timeline attachment does not match current mesh")
+  if mesh.vertices.len != vertices.len:
+    raise newBonyLoadError(schemaViolation, "deform mesh vertex count must match skinned vertex count")
   applyDeformDeltas(vertices, sampleDeformDeltas(timeline, time))
