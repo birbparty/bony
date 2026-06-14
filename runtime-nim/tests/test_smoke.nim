@@ -322,6 +322,151 @@ spec "bony package":
         discard bad.readEmbeddedAtlas(badIndex, badHeader)
       , schemaViolation)
 
+  it "round trips SkeletonData through canonical .bnb":
+    let source = loadBonyJson("""
+{
+  "bones": [
+    {
+      "scaleY": 2,
+      "name": "root",
+      "x": 0.1000000001
+    },
+    {
+      "parent": "root",
+      "name": "child",
+      "inheritRotation": false,
+      "inheritScale": false,
+      "inheritReflection": false,
+      "transformMode": "onlyTranslation"
+    }
+  ],
+  "regions": [
+    {
+      "height": 4,
+      "name": "body",
+      "width": 8
+    }
+  ],
+  "slots": [
+    {
+      "attachment": "body",
+      "bone": "root",
+      "name": "bodySlot"
+    }
+  ],
+  "skeleton": {
+    "version": "0.2.0",
+    "name": "demo"
+  }
+}
+""")
+    let bnbBytes = toBonyBnb(source)
+    let decoded = loadBonyBnb(bnbBytes)
+    let decodedJson = toBonyJson(decoded)
+    let stableBytes = toBonyBnb(loadBonyJson(decodedJson))
+
+    then:
+      decodedJson == toBonyJson(source)
+      stableBytes == bnbBytes
+
+    var index = 0
+    let header = bnbBytes.readHeader(index)
+    let toc = bnbBytes.readToc(index)
+    let strings = bnbBytes.readStringTable(index)
+
+    then:
+      header.flags == bnbStringTableFlag
+      toc.len == 13
+      toc[0].propertyKey == 1
+      toc[^1].propertyKey == 1015
+      strings.values == @[
+        "demo",
+        "0.2.0",
+        "root",
+        "child",
+        "onlyTranslation",
+        "bodySlot",
+        "body",
+      ]
+
+  it "loads .bnb while skipping unknown objects":
+    var table = initStringTable()
+    var namePayload: seq[byte]
+    namePayload.writeStringPayload(table, "demo")
+    var bytes: seq[byte]
+    bytes.writeHeader(flags = bnbStringTableFlag)
+    bytes.writeToc(@[
+      BnbTocEntry(propertyKey: 1, backingTypeCode: backingTypeCode("string")),
+      BnbTocEntry(propertyKey: 900000, backingTypeCode: backingTypeCode("bytes")),
+    ])
+    bytes.writeStringTable(table)
+    bytes.writeObjectRecord(999999, @[BnbPropertyRecord(propertyKey: 900000, payload: @[1'u8, 2'u8])])
+    bytes.writeObjectRecord(1, @[BnbPropertyRecord(propertyKey: 1, payload: namePayload)])
+    bytes.writeObjectStreamTerminator()
+
+    let loaded = loadBonyBnb(bytes)
+
+    then:
+      toBonyJson(loaded) == """{
+  "skeleton": {
+    "name": "demo"
+  },
+  "bones": [],
+  "slots": [],
+  "regions": []
+}
+"""
+
+  it "rejects malformed semantic .bnb payloads":
+    then:
+      raisesBonyLoadError(proc() =
+        var table = initStringTable()
+        var skeletonNamePayload: seq[byte]
+        skeletonNamePayload.writeStringPayload(table, "demo")
+        var boneNamePayload: seq[byte]
+        boneNamePayload.writeStringPayload(table, "root")
+        var bytes: seq[byte]
+        bytes.writeHeader(flags = bnbStringTableFlag)
+        bytes.writeToc(@[
+          BnbTocEntry(propertyKey: 1, backingTypeCode: backingTypeCode("string")),
+          BnbTocEntry(propertyKey: 1007, backingTypeCode: backingTypeCode("bool")),
+        ])
+        bytes.writeStringTable(table)
+        bytes.writeObjectRecord(1, @[BnbPropertyRecord(propertyKey: 1, payload: skeletonNamePayload)])
+        bytes.writeObjectRecord(2, @[
+          BnbPropertyRecord(propertyKey: 1, payload: boneNamePayload),
+          BnbPropertyRecord(propertyKey: 1007, payload: @[2'u8]),
+        ])
+        bytes.writeObjectStreamTerminator()
+        discard loadBonyBnb(bytes)
+      , schemaViolation)
+      raisesBonyLoadError(proc() =
+        var table = initStringTable()
+        var skeletonNamePayload: seq[byte]
+        skeletonNamePayload.writeStringPayload(table, "demo")
+        var bytes: seq[byte]
+        bytes.writeHeader(flags = bnbStringTableFlag)
+        bytes.writeToc(@[
+          BnbTocEntry(propertyKey: 1, backingTypeCode: backingTypeCode("string")),
+          BnbTocEntry(propertyKey: 1014, backingTypeCode: backingTypeCode("f32")),
+        ])
+        bytes.writeStringTable(table)
+        bytes.writeObjectRecord(1, @[
+          BnbPropertyRecord(propertyKey: 1, payload: skeletonNamePayload),
+          BnbPropertyRecord(propertyKey: 1014, payload: @[0'u8, 0'u8, 0'u8, 0'u8]),
+        ])
+        bytes.writeObjectStreamTerminator()
+        discard loadBonyBnb(bytes)
+      , schemaViolation)
+      raisesBonyLoadError(proc() =
+        var bytes: seq[byte]
+        bytes.writeHeader(flags = bnbStringTableFlag)
+        bytes.writeToc(@[])
+        bytes.writeStringTable(initStringTable())
+        bytes.writeObjectStreamTerminator()
+        discard loadBonyBnb(bytes)
+      , schemaViolation)
+
   it "encodes .bnb string tables in first-seen order":
     var table = initStringTable()
 

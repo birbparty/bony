@@ -1,0 +1,409 @@
+## M6 semantic .bnb encoder/decoder for the current SkeletonData model.
+
+import std/[json, tables]
+
+import bony/binary/framing
+import bony/generated/wire
+import bony/model
+
+const
+  skeletonTypeKey = 1'u64
+  boneTypeKey = 2'u64
+  slotTypeKey = 1000'u64
+  regionTypeKey = 1001'u64
+
+  nameKey = 1'u64
+  versionKey = 2'u64
+  parentKey = 3'u64
+  xKey = 1000'u64
+  yKey = 1001'u64
+  rotationKey = 1002'u64
+  scaleXKey = 1003'u64
+  scaleYKey = 1004'u64
+  shearXKey = 1005'u64
+  shearYKey = 1006'u64
+  inheritRotationKey = 1007'u64
+  inheritScaleKey = 1008'u64
+  inheritReflectionKey = 1009'u64
+  transformModeKey = 1010'u64
+  boneKey = 1012'u64
+  attachmentKey = 1013'u64
+  widthKey = 1014'u64
+  heightKey = 1015'u64
+
+
+proc defaultString(objectId, propertyId: string): string =
+  for entry in bonyPropertyDefaults:
+    if entry.objectId == objectId and entry.propertyId == propertyId:
+      return parseJson(entry.value).getStr()
+  raise newBonyLoadError(schemaViolation, "missing generated default for " & objectId & "." & propertyId)
+
+
+proc defaultFloat(objectId, propertyId: string): float64 =
+  for entry in bonyPropertyDefaults:
+    if entry.objectId == objectId and entry.propertyId == propertyId:
+      return parseJson(entry.value).getFloat()
+  raise newBonyLoadError(schemaViolation, "missing generated default for " & objectId & "." & propertyId)
+
+
+proc defaultBool(objectId, propertyId: string): bool =
+  for entry in bonyPropertyDefaults:
+    if entry.objectId == objectId and entry.propertyId == propertyId:
+      return parseJson(entry.value).getBool()
+  raise newBonyLoadError(schemaViolation, "missing generated default for " & objectId & "." & propertyId)
+
+
+proc transformModeName(mode: TransformMode): string =
+  case mode
+  of normal: "normal"
+  of onlyTranslation: "onlyTranslation"
+  of noRotationOrReflection: "noRotationOrReflection"
+  of noScale: "noScale"
+  of noScaleOrReflection: "noScaleOrReflection"
+
+
+proc parseTransformMode(value: string): TransformMode =
+  case value
+  of "normal": normal
+  of "onlyTranslation": onlyTranslation
+  of "noRotationOrReflection": noRotationOrReflection
+  of "noScale": noScale
+  of "noScaleOrReflection": noScaleOrReflection
+  else:
+    raise newBonyLoadError(schemaViolation, ".bnb transformMode is invalid")
+
+
+proc writeF32Payload(value: float64): seq[byte] =
+  let stored = float32(quantizeF32(value))
+  let bits = cast[uint32](stored)
+  result.add byte(bits and 0xff'u32)
+  result.add byte((bits shr 8) and 0xff'u32)
+  result.add byte((bits shr 16) and 0xff'u32)
+  result.add byte((bits shr 24) and 0xff'u32)
+
+
+proc readF32Payload(payload: openArray[byte]; context: string): float64 =
+  if payload.len != 4:
+    raise newBonyLoadError(schemaViolation, ".bnb " & context & " f32 payload must be 4 bytes")
+  let bits =
+    uint32(payload[0]) or
+    (uint32(payload[1]) shl 8) or
+    (uint32(payload[2]) shl 16) or
+    (uint32(payload[3]) shl 24)
+  result = quantizeF32(float64(cast[float32](bits)), context)
+
+
+proc writeBoolPayload(value: bool): seq[byte] =
+  if value:
+    @[1'u8]
+  else:
+    @[0'u8]
+
+
+proc readBoolPayload(payload: openArray[byte]; context: string): bool =
+  if payload.len != 1:
+    raise newBonyLoadError(schemaViolation, ".bnb " & context & " bool payload must be 1 byte")
+  case payload[0]
+  of 0'u8: false
+  of 1'u8: true
+  else:
+    raise newBonyLoadError(schemaViolation, ".bnb " & context & " bool payload must be 0 or 1")
+
+
+proc writeStringPayloadBytes(table: var BnbStringTable; value: string): seq[byte] =
+  result.writeStringPayload(table, value)
+
+
+proc addProperty(
+  properties: var seq[BnbPropertyRecord];
+  toc: var Table[uint64, uint8];
+  propertyKey: uint64;
+  payload: seq[byte];
+) =
+  properties.add BnbPropertyRecord(propertyKey: propertyKey, payload: payload)
+  toc[propertyKey] = propertyBackingTypeCode(propertyKey)
+
+
+proc propertyMap(record: BnbObjectRecord; allowedKnownKeys: openArray[uint64]): Table[uint64, seq[byte]] =
+  for property in record.properties:
+    var allowed = false
+    for key in allowedKnownKeys:
+      if property.propertyKey == key:
+        allowed = true
+        break
+    if property.propertyKey.isKnownPropertyKey and not allowed:
+      raise newBonyLoadError(schemaViolation, ".bnb property is not valid for object type: " & $property.propertyKey)
+    if allowed:
+      result[property.propertyKey] = property.payload
+
+
+proc readStringProperty(
+  properties: Table[uint64, seq[byte]];
+  table: BnbStringTable;
+  propertyKey: uint64;
+  context: string;
+): string =
+  if propertyKey notin properties:
+    raise newBonyLoadError(schemaViolation, ".bnb " & context & " is required")
+  readStringPayload(properties[propertyKey], table)
+
+
+proc readOptionalStringProperty(
+  properties: Table[uint64, seq[byte]];
+  table: BnbStringTable;
+  propertyKey: uint64;
+  defaultValue: string;
+): string =
+  if propertyKey notin properties:
+    return defaultValue
+  readStringPayload(properties[propertyKey], table)
+
+
+proc readFloatProperty(properties: Table[uint64, seq[byte]]; propertyKey: uint64; context: string): float64 =
+  if propertyKey notin properties:
+    raise newBonyLoadError(schemaViolation, ".bnb " & context & " is required")
+  readF32Payload(properties[propertyKey], context)
+
+
+proc readOptionalFloatProperty(
+  properties: Table[uint64, seq[byte]];
+  propertyKey: uint64;
+  defaultValue: float64;
+  context: string;
+): float64 =
+  if propertyKey notin properties:
+    return quantizeF32(defaultValue, context)
+  readF32Payload(properties[propertyKey], context)
+
+
+proc readOptionalBoolProperty(
+  properties: Table[uint64, seq[byte]];
+  propertyKey: uint64;
+  defaultValue: bool;
+  context: string;
+): bool =
+  if propertyKey notin properties:
+    return defaultValue
+  readBoolPayload(properties[propertyKey], context)
+
+
+proc addStringIfNeeded(
+  properties: var seq[BnbPropertyRecord];
+  toc: var Table[uint64, uint8];
+  table: var BnbStringTable;
+  propertyKey: uint64;
+  value: string;
+  defaultValue: string;
+  required = false;
+) =
+  if required or value != defaultValue:
+    properties.addProperty(toc, propertyKey, writeStringPayloadBytes(table, value))
+
+
+proc addFloatIfNeeded(
+  properties: var seq[BnbPropertyRecord];
+  toc: var Table[uint64, uint8];
+  propertyKey: uint64;
+  value: float64;
+  defaultValue: float64;
+  required = false;
+) =
+  if required or quantizeF32(value) != quantizeF32(defaultValue):
+    properties.addProperty(toc, propertyKey, writeF32Payload(value))
+
+
+proc addBoolIfNeeded(
+  properties: var seq[BnbPropertyRecord];
+  toc: var Table[uint64, uint8];
+  propertyKey: uint64;
+  value: bool;
+  defaultValue: bool;
+) =
+  if value != defaultValue:
+    properties.addProperty(toc, propertyKey, writeBoolPayload(value))
+
+
+proc tocEntries(toc: Table[uint64, uint8]): seq[BnbTocEntry] =
+  for propertyKey, backingTypeCode in toc:
+    result.add BnbTocEntry(propertyKey: propertyKey, backingTypeCode: backingTypeCode)
+
+
+proc buildObjectRecords(data: SkeletonData; table: var BnbStringTable; toc: var Table[uint64, uint8]): seq[BnbObjectRecord] =
+  validateSkeletonData(data)
+
+  var skeletonProperties: seq[BnbPropertyRecord]
+  skeletonProperties.addStringIfNeeded(toc, table, nameKey, data.header.name, "", required = true)
+  skeletonProperties.addStringIfNeeded(
+    toc,
+    table,
+    versionKey,
+    data.header.version,
+    defaultString("skeleton", "version"),
+  )
+  result.add BnbObjectRecord(typeKey: skeletonTypeKey, properties: skeletonProperties)
+
+  for bone in data.bones:
+    let local = bone.local
+    var properties: seq[BnbPropertyRecord]
+    properties.addStringIfNeeded(toc, table, nameKey, bone.name, "", required = true)
+    properties.addStringIfNeeded(toc, table, parentKey, bone.parent, defaultString("bone", "parent"))
+    properties.addFloatIfNeeded(toc, xKey, local.x, defaultFloat("bone", "x"))
+    properties.addFloatIfNeeded(toc, yKey, local.y, defaultFloat("bone", "y"))
+    properties.addFloatIfNeeded(toc, rotationKey, local.rotation, defaultFloat("bone", "rotation"))
+    properties.addFloatIfNeeded(toc, scaleXKey, local.scaleX, defaultFloat("bone", "scaleX"))
+    properties.addFloatIfNeeded(toc, scaleYKey, local.scaleY, defaultFloat("bone", "scaleY"))
+    properties.addFloatIfNeeded(toc, shearXKey, local.shearX, defaultFloat("bone", "shearX"))
+    properties.addFloatIfNeeded(toc, shearYKey, local.shearY, defaultFloat("bone", "shearY"))
+    properties.addBoolIfNeeded(toc, inheritRotationKey, local.inheritRotation, defaultBool("bone", "inheritRotation"))
+    properties.addBoolIfNeeded(toc, inheritScaleKey, local.inheritScale, defaultBool("bone", "inheritScale"))
+    properties.addBoolIfNeeded(
+      toc,
+      inheritReflectionKey,
+      local.inheritReflection,
+      defaultBool("bone", "inheritReflection"),
+    )
+    properties.addStringIfNeeded(
+      toc,
+      table,
+      transformModeKey,
+      transformModeName(local.transformMode),
+      defaultString("bone", "transformMode"),
+    )
+    result.add BnbObjectRecord(typeKey: boneTypeKey, properties: properties)
+
+  for slot in data.slots:
+    var properties: seq[BnbPropertyRecord]
+    properties.addStringIfNeeded(toc, table, nameKey, slot.name, "", required = true)
+    properties.addStringIfNeeded(toc, table, boneKey, slot.bone, "", required = true)
+    properties.addStringIfNeeded(toc, table, attachmentKey, slot.attachment, defaultString("slot", "attachment"))
+    result.add BnbObjectRecord(typeKey: slotTypeKey, properties: properties)
+
+  for region in data.regions:
+    var properties: seq[BnbPropertyRecord]
+    properties.addStringIfNeeded(toc, table, nameKey, region.name, "", required = true)
+    properties.addFloatIfNeeded(toc, widthKey, region.width, 0.0, required = true)
+    properties.addFloatIfNeeded(toc, heightKey, region.height, 0.0, required = true)
+    result.add BnbObjectRecord(typeKey: regionTypeKey, properties: properties)
+
+
+proc writeBonyBnb*(output: var seq[byte]; data: SkeletonData; embeddedAtlas: openArray[byte] = []) =
+  var table = initStringTable()
+  var toc = initTable[uint64, uint8]()
+  let records = buildObjectRecords(data, table, toc)
+  var flags = bnbStringTableFlag
+  if embeddedAtlas.len > 0:
+    flags = flags or bnbEmbeddedAtlasFlag
+
+  output.writeHeader(flags = flags)
+  output.writeToc(toc.tocEntries)
+  output.writeStringTable(table)
+  for record in records:
+    output.writeObjectRecord(record.typeKey, record.properties)
+  output.writeObjectStreamTerminator()
+  if embeddedAtlas.len > 0:
+    output.writeEmbeddedAtlas(embeddedAtlas)
+
+
+proc toBonyBnb*(data: SkeletonData; embeddedAtlas: openArray[byte] = []): seq[byte] =
+  result.writeBonyBnb(data, embeddedAtlas)
+
+
+proc loadBonyBnb*(input: openArray[byte]): SkeletonData =
+  var index = 0
+  let header = input.readHeader(index)
+  let toc = input.readToc(index)
+  let strings =
+    if (header.flags and bnbStringTableFlag) != 0:
+      input.readStringTable(index)
+    else:
+      initStringTable()
+  let objects = input.readObjectStream(index, toc)
+  discard input.readEmbeddedAtlas(index, header)
+
+  var hasSkeleton = false
+  var headerValue: SkeletonHeader
+  var bones: seq[BoneData]
+  var slots: seq[SlotData]
+  var regions: seq[RegionAttachment]
+
+  for record in objects:
+    case record.typeKey
+    of skeletonTypeKey:
+      if hasSkeleton:
+        raise newBonyLoadError(duplicateKey, ".bnb contains multiple skeleton objects")
+      let properties = record.propertyMap([nameKey, versionKey])
+      headerValue = skeletonHeader(
+        properties.readStringProperty(strings, nameKey, "skeleton.name"),
+        properties.readOptionalStringProperty(strings, versionKey, defaultString("skeleton", "version")),
+      )
+      hasSkeleton = true
+    of boneTypeKey:
+      let properties = record.propertyMap([
+        nameKey,
+        parentKey,
+        xKey,
+        yKey,
+        rotationKey,
+        scaleXKey,
+        scaleYKey,
+        shearXKey,
+        shearYKey,
+        inheritRotationKey,
+        inheritScaleKey,
+        inheritReflectionKey,
+        transformModeKey,
+      ])
+      let inheritRotation = properties.readOptionalBoolProperty(
+        inheritRotationKey,
+        defaultBool("bone", "inheritRotation"),
+        "bone.inheritRotation",
+      )
+      let inheritScale = properties.readOptionalBoolProperty(
+        inheritScaleKey,
+        defaultBool("bone", "inheritScale"),
+        "bone.inheritScale",
+      )
+      let inheritReflection = properties.readOptionalBoolProperty(
+        inheritReflectionKey,
+        defaultBool("bone", "inheritReflection"),
+        "bone.inheritReflection",
+      )
+      bones.add boneData(
+        properties.readStringProperty(strings, nameKey, "bone.name"),
+        properties.readOptionalStringProperty(strings, parentKey, defaultString("bone", "parent")),
+        localTransform(
+          x = properties.readOptionalFloatProperty(xKey, defaultFloat("bone", "x"), "bone.x"),
+          y = properties.readOptionalFloatProperty(yKey, defaultFloat("bone", "y"), "bone.y"),
+          rotation = properties.readOptionalFloatProperty(rotationKey, defaultFloat("bone", "rotation"), "bone.rotation"),
+          scaleX = properties.readOptionalFloatProperty(scaleXKey, defaultFloat("bone", "scaleX"), "bone.scaleX"),
+          scaleY = properties.readOptionalFloatProperty(scaleYKey, defaultFloat("bone", "scaleY"), "bone.scaleY"),
+          shearX = properties.readOptionalFloatProperty(shearXKey, defaultFloat("bone", "shearX"), "bone.shearX"),
+          shearY = properties.readOptionalFloatProperty(shearYKey, defaultFloat("bone", "shearY"), "bone.shearY"),
+          inheritRotation = inheritRotation,
+          inheritScale = inheritScale,
+          inheritReflection = inheritReflection,
+          transformMode = parseTransformMode(
+            properties.readOptionalStringProperty(strings, transformModeKey, defaultString("bone", "transformMode")),
+          ),
+        ),
+      )
+    of slotTypeKey:
+      let properties = record.propertyMap([nameKey, boneKey, attachmentKey])
+      slots.add slotData(
+        properties.readStringProperty(strings, nameKey, "slot.name"),
+        properties.readStringProperty(strings, boneKey, "slot.bone"),
+        properties.readOptionalStringProperty(strings, attachmentKey, defaultString("slot", "attachment")),
+      )
+    of regionTypeKey:
+      let properties = record.propertyMap([nameKey, widthKey, heightKey])
+      regions.add regionAttachment(
+        properties.readStringProperty(strings, nameKey, "region.name"),
+        properties.readFloatProperty(widthKey, "region.width"),
+        properties.readFloatProperty(heightKey, "region.height"),
+      )
+    else:
+      discard
+
+  if not hasSkeleton:
+    raise newBonyLoadError(schemaViolation, ".bnb skeleton object is required")
+  skeletonData(headerValue, bones, slots, regions)
