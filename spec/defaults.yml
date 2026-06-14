@@ -94,5 +94,30 @@ canonicalEquality:
   arrays: length and element equality in stored order
   objects: property-by-property equality using this table
 
-objectDefaults: []
-requiredProperties: []
+objectDefaults:
+  - object: skeleton
+    ownerBead: bony-c5h
+    properties:
+      version:
+        value: "0.1.0"
+        omitWhenDefault: true
+        applyOnLoad: true
+        doc: Skeleton metadata version defaults to the package version.
+  - object: bone
+    ownerBead: bony-c5h
+    properties:
+      parent:
+        value: ""
+        omitWhenDefault: true
+        applyOnLoad: true
+        doc: Missing parent denotes a root bone.
+
+requiredProperties:
+  - object: skeleton
+    property: name
+    reason: Skeleton metadata needs a stable name for diagnostics and tooling.
+    ownerBead: bony-c5h
+  - object: bone
+    property: name
+    reason: Bones are referenced by stable unique names.
+    ownerBead: bony-c5h

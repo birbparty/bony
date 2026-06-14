@@ -37,14 +37,25 @@ const bonyBackingTypes* = [
   BonyBackingType(id: "bytes", code: 7.uint8),
 ]
 const bonyTypeKeys* = [
+  BonyTypeKey(id: "skeleton", key: 1.uint64),
+  BonyTypeKey(id: "bone", key: 2.uint64),
 ]
 const bonyPropertyKeys* = [
+  BonyPropertyKey(id: "name", key: 1.uint64, backingType: "string"),
+  BonyPropertyKey(id: "version", key: 2.uint64, backingType: "string"),
+  BonyPropertyKey(id: "parent", key: 3.uint64, backingType: "string"),
 ]
 let bonyObjectSpecs*: seq[BonyObjectSpec] = @[
+  BonyObjectSpec(typeId: "skeleton", properties: @["name", "version"]),
+  BonyObjectSpec(typeId: "bone", properties: @["name", "parent"]),
 ]
 const bonyPropertyDefaults* = [
+  BonyPropertyDefault(objectId: "skeleton", propertyId: "version", equality: "exactString", value: "\"0.1.0\"", omitWhenDefault: true, applyOnLoad: true),
+  BonyPropertyDefault(objectId: "bone", propertyId: "parent", equality: "exactString", value: "\"\"", omitWhenDefault: true, applyOnLoad: true),
 ]
 const bonyRequiredProperties* = [
+  BonyRequiredProperty(objectId: "skeleton", propertyId: "name", reason: "Skeleton metadata needs a stable name for diagnostics and tooling."),
+  BonyRequiredProperty(objectId: "bone", propertyId: "name", reason: "Bones are referenced by stable unique names."),
 ]
 
 proc bonyObjectSpec*(typeId: string): BonyObjectSpec =

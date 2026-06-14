@@ -198,6 +198,51 @@ schemaGeneration:
     - spec/defaults.yml
   schemaIsIndependentSource: false
 
-typeKeys: []
-propertyKeys: []
-objects: []
+typeKeys:
+  - id: skeleton
+    key: 1
+    status: active
+    milestone: M1
+    ownerBead: bony-c5h
+    doc: Skeleton-level metadata for a loaded SkeletonData asset.
+  - id: bone
+    key: 2
+    status: active
+    milestone: M1
+    ownerBead: bony-c5h
+    doc: Parent-first bone record used by M1 loaders and later transform passes.
+
+propertyKeys:
+  - id: name
+    key: 1
+    backingType: string
+    status: active
+    milestone: M1
+    ownerBead: bony-c5h
+    doc: Stable object name used for references.
+  - id: version
+    key: 2
+    backingType: string
+    status: active
+    milestone: M1
+    ownerBead: bony-c5h
+    doc: Authoring/runtime package version string for skeleton metadata.
+  - id: parent
+    key: 3
+    backingType: string
+    status: active
+    milestone: M1
+    ownerBead: bony-c5h
+    doc: Parent bone name; empty string denotes a root bone.
+
+objects:
+  - type: skeleton
+    properties:
+      - name
+      - version
+    doc: Skeleton-level metadata object.
+  - type: bone
+    properties:
+      - name
+      - parent
+    doc: Bone object loaded in parent-first order.

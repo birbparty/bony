@@ -446,7 +446,7 @@ def generate_schema(registry: dict[str, Any], defaults: dict[str, Any]) -> str:
         object_id = entry["type"]
         properties: dict[str, Any] = {}
         for property_id in entry["properties"]:
-            property_schema = schema_for_backing_type(property_backing[property_id])
+            property_schema = schema_for_property(property_id, property_backing[property_id])
             if property_id in default_map.get(object_id, {}):
                 property_schema["default"] = default_map[object_id][property_id]["value"]
             properties[property_id] = property_schema
@@ -457,6 +457,21 @@ def generate_schema(registry: dict[str, Any], defaults: dict[str, Any]) -> str:
             "required": sorted(required_map.get(object_id, [])),
         }
 
+    root_properties: dict[str, Any] = {}
+    required_root: list[str] = []
+    for entry in type_keys:
+        object_id = entry["id"]
+        if object_id == "skeleton":
+            root_properties["skeleton"] = {"$ref": "#/$defs/skeleton"}
+            required_root.append("skeleton")
+        else:
+            collection_id = object_id + "s"
+            root_properties[collection_id] = {
+                "type": "array",
+                "items": {"$ref": f"#/$defs/{object_id}"},
+            }
+            required_root.append(collection_id)
+
     schema: dict[str, Any] = {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "$id": "https://bony.local/spec/bony.schema.json",
@@ -464,13 +479,13 @@ def generate_schema(registry: dict[str, Any], defaults: dict[str, Any]) -> str:
         "description": "Generated from registry/wire.yml and spec/defaults.yml.",
         "type": "object",
         "additionalProperties": False,
+        "properties": root_properties,
+        "required": required_root,
         "$defs": definitions,
     }
-    if type_keys:
-        schema["oneOf"] = [{"$ref": f"#/$defs/{entry['id']}"} for entry in type_keys]
-    else:
+    if not type_keys:
         schema["not"] = {}
-    return json.dumps(schema, indent=2, sort_keys=True) + "\n"
+    return json.dumps(schema, indent=2) + "\n"
 
 
 def schema_for_backing_type(backing_type: str) -> dict[str, Any]:
@@ -491,6 +506,13 @@ def schema_for_backing_type(backing_type: str) -> dict[str, Any]:
     if backing_type not in mapping:
         raise SourceError(f"cannot map backing type to JSON Schema: {backing_type}")
     return dict(mapping[backing_type])
+
+
+def schema_for_property(property_id: str, backing_type: str) -> dict[str, Any]:
+    schema = schema_for_backing_type(backing_type)
+    if property_id == "name":
+        schema["minLength"] = 1
+    return schema
 
 
 def generate_nim(registry: dict[str, Any], defaults: dict[str, Any]) -> str:
@@ -557,7 +579,7 @@ def generate_nim(registry: dict[str, Any], defaults: dict[str, Any]) -> str:
             lines.append(
                 f'  BonyPropertyDefault(objectId: "{object_id}", propertyId: "{property_id}", '
                 f'equality: "{equality}", '
-                f'value: "{json_text(default["value"])}", '
+                f'value: "{nim_json_text(default["value"])}", '
                 f'omitWhenDefault: {generated_bool(default["omitWhenDefault"])}, '
                 f'applyOnLoad: {generated_bool(default["applyOnLoad"])}),'
             )
@@ -687,7 +709,7 @@ def generate_dart(registry: dict[str, Any], defaults: dict[str, Any]) -> str:
             lines.append(
                 f"  BonyPropertyDefault(objectId: '{object_id}', propertyId: '{property_id}', "
                 f"equality: '{equality}', "
-                f"value: {dart_string_literal(json_text(default['value']))}, "
+                f"value: {dart_string_literal(canonical_json_value(default['value']))}, "
                 f"omitWhenDefault: {generated_bool(default['omitWhenDefault'])}, "
                 f"applyOnLoad: {generated_bool(default['applyOnLoad'])}),"
             )
@@ -730,7 +752,11 @@ def property_backing_type(registry: dict[str, Any], property_id: str) -> str:
     raise SourceError(f"unknown property id {property_id}")
 
 
-def json_text(value: Any) -> str:
+def canonical_json_value(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"))
+
+
+def nim_json_text(value: Any) -> str:
     return escape_string(json.dumps(value, sort_keys=True, separators=(",", ":")))
 
 
