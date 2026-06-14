@@ -929,6 +929,86 @@ spec "bony package":
         discard solveChainIk(@[IkPoint(x: NaN, y: 0.0), ikPoint(1.0, 0.0)], @[1.0], ikPoint(1.0, 0.0))
       , numericOutOfRange)
 
+  it "decomposes and recomposes transform constraint poses":
+    let pose = TransformConstraintPose(
+      x: 3.0,
+      y: 4.0,
+      rotation: 30.0,
+      scaleX: 2.0,
+      scaleY: 3.0,
+      shearX: 0.0,
+      shearY: 10.0,
+    )
+    let world = transformPoseToAffine(pose)
+    let decoded = affineToTransformPose(world)
+    let roundTrip = transformPoseToAffine(decoded)
+
+    then:
+      closeTo(decoded.x, 3.0)
+      closeTo(decoded.y, 4.0)
+      closeTo(decoded.rotation, 30.0)
+      closeTo(decoded.scaleX, 2.0)
+      closeTo(decoded.scaleY, 3.0)
+      closeTo(decoded.shearY, 10.0)
+      closeTo(roundTrip.a, world.a)
+      closeTo(roundTrip.b, world.b)
+      closeTo(roundTrip.c, world.c)
+      closeTo(roundTrip.d, world.d)
+      closeTo(roundTrip.tx, world.tx)
+      closeTo(roundTrip.ty, world.ty)
+
+  it "applies transform constraints per channel":
+    let constrained = transformPoseToAffine(TransformConstraintPose(
+      x: 0.0,
+      y: 0.0,
+      rotation: 0.0,
+      scaleX: 1.0,
+      scaleY: 1.0,
+      shearX: 0.0,
+      shearY: 0.0,
+    ))
+    let target = transformPoseToAffine(TransformConstraintPose(
+      x: 10.0,
+      y: 20.0,
+      rotation: 90.0,
+      scaleX: 3.0,
+      scaleY: 5.0,
+      shearX: 0.0,
+      shearY: 30.0,
+    ))
+    let translated = affineToTransformPose(applyTransformConstraint(
+      constrained,
+      target,
+      transformConstraintMix(translate = 0.5, rotate = 0.0, scale = 0.0, shear = 0.0),
+    ))
+    let rotatedScaled = affineToTransformPose(applyTransformConstraint(
+      constrained,
+      target,
+      transformConstraintMix(translate = 0.0, rotate = 0.5, scale = 0.5, shear = 1.0),
+    ))
+
+    then:
+      closeTo(translated.x, 5.0)
+      closeTo(translated.y, 10.0)
+      closeTo(translated.rotation, 0.0)
+      closeTo(translated.scaleX, 1.0)
+      closeTo(translated.scaleY, 1.0)
+      closeTo(rotatedScaled.x, 0.0)
+      closeTo(rotatedScaled.y, 0.0)
+      closeTo(rotatedScaled.rotation, 45.0)
+      closeTo(rotatedScaled.scaleX, 2.0)
+      closeTo(rotatedScaled.scaleY, 3.0)
+      closeTo(rotatedScaled.shearY, 30.0)
+      raisesBonyLoadError(proc() =
+        discard applyTransformConstraint(constrained, target, transformConstraintMix(translate = -0.1))
+      , schemaViolation)
+      raisesBonyLoadError(proc() =
+        discard applyTransformConstraint(Affine2(a: NaN), target, transformConstraintMix())
+      , numericOutOfRange)
+      raisesBonyLoadError(proc() =
+        discard transformPoseToAffine(TransformConstraintPose(scaleX: Inf))
+      , numericOutOfRange)
+
   it "rejects invalid M2 region data":
     then:
       raisesBonyLoadError(
