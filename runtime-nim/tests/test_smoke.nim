@@ -977,6 +977,16 @@ spec "bony package":
       closeTo(rotated[0].x, 0.0)
       closeTo(rotated[0].y, 1.0)
 
+  it "applies rotation deformer opacity as partial influence":
+    let unchanged = applyDeformer(SkinnedMeshVertex(x: 1.0, y: 0.0), rotationDeformerNode("none", rotationDeformer(0.0, 0.0, 90.0, opacity = 0.0)))
+    let halfway = applyDeformer(SkinnedMeshVertex(x: 1.0, y: 0.0), rotationDeformerNode("half", rotationDeformer(0.0, 0.0, 90.0, opacity = 0.5)))
+
+    then:
+      closeTo(unchanged.x, 1.0)
+      closeTo(unchanged.y, 0.0)
+      closeTo(halfway.x, 0.5)
+      closeTo(halfway.y, 0.5)
+
   it "applies deformers by global order":
     let first = rotationDeformerNode("first", rotationDeformer(0.0, 0.0, 90.0), order = 0'u32)
     let second = rotationDeformerNode("second", rotationDeformer(0.0, 0.0, 90.0), order = 1'u32)
@@ -1008,6 +1018,28 @@ spec "bony package":
       closeTo(deformed[0].x, -0.5)
       closeTo(deformed[0].y, 0.75)
 
+  it "preserves child warp setup coordinates under non-axis-aligned parents":
+    let parent = rotationDeformerNode("parent", rotationDeformer(0.0, 0.0, 45.0), order = 0'u32)
+    let child = warpDeformer(
+      "child",
+      warpLattice(
+        2'u32,
+        2'u32,
+        0.0,
+        0.0,
+        1.0,
+        1.0,
+        @[deformerPoint(0.0, 0.0), deformerPoint(1.0, 0.0), deformerPoint(0.0, 1.0), deformerPoint(2.0, 1.0)],
+      ),
+      parent = "parent",
+      order = 1'u32,
+    )
+    let deformed = applyDeformers(@[SkinnedMeshVertex(x: 0.5, y: 0.5)], @[child, parent])
+
+    then:
+      closeTo(deformed[0].x, 0.1767766922712326)
+      closeTo(deformed[0].y, 0.8838834762573242)
+
   it "rejects invalid deformers and deformer trees":
     let lattice = warpLattice(
       2'u32,
@@ -1038,6 +1070,9 @@ spec "bony package":
       raisesBonyLoadError(proc() = validateDeformerTree(@[warpDeformer("child", lattice, parent = "parent", order = 0'u32), rotationDeformerNode("parent", rotation, order = 1'u32)]), orderingViolation)
       raisesBonyLoadError(proc() = validateDeformerTree(@[warpDeformer("a", lattice, parent = "b", order = 0'u32), rotationDeformerNode("b", rotation, parent = "a", order = 1'u32)]), cycleDetected)
       raisesBonyLoadError(proc() = discard applyDeformers(@[SkinnedMeshVertex(x: Inf, y: 0.0)], @[warpDeformer("warp", lattice)]), numericOutOfRange)
+      raisesBonyLoadError(proc() = discard applyDeformer(SkinnedMeshVertex(x: Inf, y: 0.0), warpDeformer("warp", lattice)), numericOutOfRange)
+      raisesBonyLoadError(proc() = discard applyDeformer(SkinnedMeshVertex(x: 0.0, y: 0.0), Deformer(id: "bad", kind: warpDeformerKind, warp: WarpLattice(rows: 2'u32, cols: 2'u32, minX: 0.0, minY: 0.0, maxX: 1.0, maxY: 1.0, controlPoints: @[]))), schemaViolation)
+      raisesBonyLoadError(proc() = discard applyDeformer(SkinnedMeshVertex(x: 0.0, y: 0.0), Deformer(id: "bad", kind: warpDeformerKind, warp: WarpLattice(rows: 2'u32, cols: 2'u32, minX: 0.0, minY: 0.0, maxX: 0.0, maxY: 1.0, controlPoints: lattice.controlPoints))), schemaViolation)
 
   it "builds sorted scalar bone timelines and samples linearly":
     let timeline = boneScalarTimeline(

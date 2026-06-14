@@ -213,9 +213,7 @@ proc controlPoint(lattice: WarpLattice; row, col: int): DeformerPoint =
   lattice.controlPoints[row * int(lattice.cols) + col]
 
 
-proc applyWarp(vertex: SkinnedMeshVertex; lattice: WarpLattice): SkinnedMeshVertex =
-  let u = (vertex.x - lattice.minX) / (lattice.maxX - lattice.minX)
-  let v = (vertex.y - lattice.minY) / (lattice.maxY - lattice.minY)
+proc applyWarpAt(vertex: SkinnedMeshVertex; lattice: WarpLattice; u, v: float64): SkinnedMeshVertex =
   if u < 0.0 or u > 1.0 or v < 0.0 or v > 1.0:
     return vertex
   let rowDegree = int(lattice.rows) - 1
@@ -233,21 +231,29 @@ proc applyWarp(vertex: SkinnedMeshVertex; lattice: WarpLattice): SkinnedMeshVert
   SkinnedMeshVertex(x: quantizeF32(x, "mesh.warped.x"), y: quantizeF32(y, "mesh.warped.y"), u: vertex.u, v: vertex.v)
 
 
+proc applyWarp(vertex: SkinnedMeshVertex; lattice: WarpLattice): SkinnedMeshVertex =
+  applyWarpAt(vertex, lattice, (vertex.x - lattice.minX) / (lattice.maxX - lattice.minX), (vertex.y - lattice.minY) / (lattice.maxY - lattice.minY))
+
+
 proc applyRotation(vertex: SkinnedMeshVertex; rotation: RotationDeformer): SkinnedMeshVertex =
   let angle = degToRad(rotation.angleDegrees)
   let cosAngle = cos(angle)
   let sinAngle = sin(angle)
   let localX = (vertex.x - rotation.pivotX) * rotation.scaleX
   let localY = (vertex.y - rotation.pivotY) * rotation.scaleY
+  let rotatedX = rotation.pivotX + localX * cosAngle - localY * sinAngle
+  let rotatedY = rotation.pivotY + localX * sinAngle + localY * cosAngle
   SkinnedMeshVertex(
-    x: quantizeF32(rotation.pivotX + localX * cosAngle - localY * sinAngle, "mesh.rotationDeformed.x"),
-    y: quantizeF32(rotation.pivotY + localX * sinAngle + localY * cosAngle, "mesh.rotationDeformed.y"),
+    x: quantizeF32(vertex.x + (rotatedX - vertex.x) * rotation.opacity, "mesh.rotationDeformed.x"),
+    y: quantizeF32(vertex.y + (rotatedY - vertex.y) * rotation.opacity, "mesh.rotationDeformed.y"),
     u: vertex.u,
     v: vertex.v,
   )
 
 
 proc applyDeformer*(vertex: SkinnedMeshVertex; deformer: Deformer): SkinnedMeshVertex =
+  validateSkinnedVertex(vertex, 0)
+  validateDeformer(deformer)
   case deformer.kind
   of warpDeformerKind:
     applyWarp(vertex, deformer.warp)
@@ -302,6 +308,7 @@ proc applyDeformers*(vertices: openArray[SkinnedMeshVertex]; deformers: openArra
   let ordered = orderedDeformers(deformers)
   for index, vertex in vertices:
     validateSkinnedVertex(vertex, index)
+  let setup = @vertices
   result = @vertices
   var effectiveById = initTable[string, Deformer]()
   for deformer in ordered:
@@ -311,5 +318,11 @@ proc applyDeformers*(vertices: openArray[SkinnedMeshVertex]; deformers: openArra
       else:
         deformer.transformFrame(effectiveById[deformer.parent])
     for index, vertex in result:
-      result[index] = applyDeformer(vertex, effective)
+      case effective.kind
+      of warpDeformerKind:
+        let u = (setup[index].x - deformer.warp.minX) / (deformer.warp.maxX - deformer.warp.minX)
+        let v = (setup[index].y - deformer.warp.minY) / (deformer.warp.maxY - deformer.warp.minY)
+        result[index] = applyWarpAt(vertex, effective.warp, u, v)
+      of rotationDeformerKind:
+        result[index] = applyRotation(vertex, effective.rotation)
     effectiveById[deformer.id] = effective
