@@ -1583,9 +1583,27 @@ spec "bony package":
     let roundTripPath = "/tmp/bony_cli_harness_roundtrip.bony"
     let goldenPath = "/tmp/bony_cli_harness_golden.json"
     let framePath = "/tmp/bony_cli_harness_frame.png"
-    for path in [cliPath, assetPath, bnbPath, roundTripPath, goldenPath, framePath]:
+    let lottiePath = "/tmp/bony_cli_harness_lottie.json"
+    let lottieOutPath = "/tmp/bony_cli_harness_lottie.bony"
+    let lottieBnbPath = "/tmp/bony_cli_harness_lottie.bnb"
+    let lottieRoundTripPath = "/tmp/bony_cli_harness_lottie_roundtrip.bony"
+    let lottieAssetsDir = "/tmp/bony_cli_harness_lottie_assets"
+    for path in [
+      cliPath,
+      assetPath,
+      bnbPath,
+      roundTripPath,
+      goldenPath,
+      framePath,
+      lottiePath,
+      lottieOutPath,
+      lottieBnbPath,
+      lottieRoundTripPath,
+    ]:
       if fileExists(path):
         removeFile(path)
+    if dirExists(lottieAssetsDir):
+      removeDir(lottieAssetsDir)
 
     let compileResult = execCmdEx(
       "nim c --path:src --path:../../bddy/src -o:" & cliPath & " ../cli/bony_cli.nim",
@@ -1615,6 +1633,62 @@ spec "bony package":
       ["golden-gen", assetPath, goldenPath, "--state-machine", "main", "--input-script", assetPath],
     )
     let unsupportedTime = runProcess(cliPath, ["golden-gen", assetPath, goldenPath, "--t", "1.25"])
+    createDir(lottieAssetsDir)
+    writeFile(lottieAssetsDir / "body.png", "not decoded by Tier 1")
+    writeFile(lottieAssetsDir / "hand.png", "not decoded by Tier 1")
+    writeFile(lottiePath, """{
+  "w": 100,
+  "h": 80,
+  "fr": 24,
+  "ip": 0,
+  "op": 24,
+  "assets": [
+    {"id": "bodyAsset", "path": "body.png", "w": 20, "h": 10},
+    {"id": "handAsset", "path": "hand.png", "w": 8, "h": 6}
+  ],
+  "layers": [
+    {
+      "name": "body",
+      "kind": "image",
+      "transform": {
+        "position": [50, 40],
+        "rotation": 30,
+        "scale": [100, 100]
+      },
+      "image": {"asset": "bodyAsset"}
+    },
+    {
+      "name": "hand",
+      "kind": "image",
+      "parent": 0,
+      "transform": {
+        "position": [5, 0],
+        "scale": [50, 50]
+      },
+      "image": {"asset": "handAsset"}
+    }
+  ]
+}
+""")
+    let importLottie = runProcess(
+      cliPath,
+      ["import-lottie", lottiePath, lottieOutPath, "--assets-dir", lottieAssetsDir, "--setup-only"],
+    )
+    let lottieJsonToBnb = runProcess(cliPath, ["json-to-bnb", lottieOutPath, lottieBnbPath])
+    let lottieBnbToJson = runProcess(cliPath, ["bnb-to-json", lottieBnbPath, lottieRoundTripPath])
+    let imported = loadBonyJson(readFile(lottieRoundTripPath))
+    let rejectOpacityPath = "/tmp/bony_cli_harness_lottie_opacity.json"
+    let rejectShapePath = "/tmp/bony_cli_harness_lottie_shape.json"
+    writeFile(rejectOpacityPath, """{"w":10,"h":10,"fr":24,"ip":0,"op":1,"assets":[{"id":"a","path":"body.png","w":1,"h":1}],"layers":[{"name":"faded","kind":"image","transform":{"opacity":50},"image":{"asset":"a"}}]}""")
+    writeFile(rejectShapePath, """{"w":10,"h":10,"fr":24,"ip":0,"op":1,"layers":[{"name":"shape","kind":"shape","shapes":[]}]}""")
+    let rejectedOpacity = runProcess(
+      cliPath,
+      ["import-lottie", rejectOpacityPath, "/tmp/bony_cli_harness_lottie_bad.bony", "--assets-dir", lottieAssetsDir],
+    )
+    let rejectedShape = runProcess(
+      cliPath,
+      ["import-lottie", rejectShapePath, "/tmp/bony_cli_harness_lottie_bad.bony", "--assets-dir", lottieAssetsDir],
+    )
     let goldenJson = parseJson(readFile(goldenPath))
 
     then:
@@ -1623,15 +1697,42 @@ spec "bony package":
       bnbToJson.exitCode == 0
       golden.exitCode == 0
       play.exitCode == 0
+      importLottie.exitCode == 0
+      lottieJsonToBnb.exitCode == 0
+      lottieBnbToJson.exitCode == 0
       unsupportedPlayStateMachine.exitCode != 0
       unsupportedPlayStateMachine.output.contains("serialized state machines")
       unsupportedGoldenStateMachine.exitCode != 0
       unsupportedGoldenStateMachine.output.contains("serialized state machines")
       unsupportedTime.exitCode != 0
       unsupportedTime.output.contains("--t is reserved")
+      rejectedOpacity.exitCode != 0
+      rejectedOpacity.output.contains("unsupportedFeature")
+      rejectedOpacity.output.contains("capability=opacity")
+      rejectedShape.exitCode != 0
+      rejectedShape.output.contains("unsupportedFeature")
+      rejectedShape.output.contains("capability=shape")
       fileExists(bnbPath)
       getFileSize(bnbPath) > 0
       loadBonyJson(readFile(roundTripPath)).header.name == "cli-demo"
+      imported.header.name == "lottie-import"
+      imported.bones.len == 3
+      imported.bones[0].name == "composition"
+      closeTo(imported.bones[0].local.x, -50.0)
+      closeTo(imported.bones[0].local.y, -40.0)
+      imported.bones[1].name == "body"
+      imported.bones[1].parent == "composition"
+      imported.bones[2].name == "hand"
+      imported.bones[2].parent == "body"
+      closeTo(imported.bones[1].local.x, 50.0)
+      closeTo(imported.bones[1].local.y, 40.0)
+      closeTo(imported.bones[1].local.rotation, 30.0)
+      closeTo(imported.bones[2].local.x, 5.0)
+      closeTo(imported.bones[2].local.scaleX, 0.5)
+      imported.slots.len == 2
+      imported.regions.len == 2
+      closeTo(imported.regions[0].width, 20.0)
+      closeTo(imported.regions[1].height, 6.0)
       goldenJson["format"].getStr() == "bony.numeric-golden.v1"
       goldenJson["time"].getFloat() == 0.0
       goldenJson["bones"].len == 2
@@ -1651,9 +1752,25 @@ spec "bony package":
       fileExists(framePath)
       getFileSize(framePath) > 0
 
-    for path in [cliPath, assetPath, bnbPath, roundTripPath, goldenPath, framePath]:
+    for path in [
+      cliPath,
+      assetPath,
+      bnbPath,
+      roundTripPath,
+      goldenPath,
+      framePath,
+      lottiePath,
+      lottieOutPath,
+      lottieBnbPath,
+      lottieRoundTripPath,
+      rejectOpacityPath,
+      rejectShapePath,
+      "/tmp/bony_cli_harness_lottie_bad.bony",
+    ]:
       if fileExists(path):
         removeFile(path)
+    if dirExists(lottieAssetsDir):
+      removeDir(lottieAssetsDir)
 
   it "plans naylib draw batches with color-only blend presets":
     let data = skeletonData(

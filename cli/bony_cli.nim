@@ -1,6 +1,6 @@
 ## Headless bony CLI harness core.
 
-import std/[json, os, parseutils, strutils]
+import std/[json, math, os, parseutils, sets, strutils, tables]
 
 import bony
 import pixie
@@ -9,9 +9,70 @@ import pixie
 proc usage(): string =
   "usage: bony json-to-bnb <input.bony> <output.bnb>\n" &
     "       bony bnb-to-json <input.bnb> <output.bony>\n" &
+    "       bony import-lottie <input.json> <output.bony> --assets-dir images [--setup-only] [--origin center|top-left]\n" &
     "       bony golden-gen <input.bony|input.bnb> <output.json> [--t seconds]\n" &
     "       bony play <input.bony|input.bnb> --out frame.png [--t seconds] [--width px] [--height px]\n" &
     "       bony play <input> --state-machine <name> --input-script <script.json> --out frame.png"
+
+type
+  LottieDiagnostic = object of CatchableError
+    code*: string
+    target*: string
+    capability*: string
+
+  LottieAsset = object
+    id: string
+    path: string
+    width: float64
+    height: float64
+
+  LottieTransform = object
+    anchorX: float64
+    anchorY: float64
+    positionX: float64
+    positionY: float64
+    scaleX: float64
+    scaleY: float64
+    rotation: float64
+
+  LottieLayer = object
+    name: string
+    kind: string
+    parent: string
+    imageAsset: string
+    width: float64
+    height: float64
+    transform: LottieTransform
+
+  LottieComposition = object
+    width: int
+    height: int
+    frameRate: float64
+    inFrame: float64
+    outFrame: float64
+    layers: seq[LottieLayer]
+
+
+proc newLottieDiagnostic(code, target, capability, message: string): ref LottieDiagnostic =
+  new(result)
+  result.code = code
+  result.target = target
+  result.capability = capability
+  result.msg = message
+
+
+proc raiseLottie(code, target, capability, message: string) =
+  raise newLottieDiagnostic(code, target, capability, message)
+
+
+proc lottieMessage(exc: ref LottieDiagnostic): string =
+  result = exc.code
+  if exc.target.len > 0:
+    result.add " target=" & exc.target
+  if exc.capability.len > 0:
+    result.add " capability=" & exc.capability
+  if exc.msg.len > 0:
+    result.add " " & exc.msg
 
 
 proc readBytes(path: string): seq[byte] =
@@ -65,6 +126,338 @@ proc loadInputSkeleton(path: string): SkeletonData =
     loadBonyBnb(readBytes(path))
   else:
     loadBonyJson(readFile(path))
+
+
+proc validateKeys(node: JsonNode; allowed: openArray[string]; target: string) =
+  if node.kind != JObject:
+    raiseLottie("schemaViolation", target, "object", "expected object")
+  for key in node.keys:
+    var found = false
+    for allowedKey in allowed:
+      if key == allowedKey:
+        found = true
+        break
+    if not found:
+      raiseLottie("schemaViolation", target, "unknownKey", "unknown key: " & key)
+
+
+proc requireObject(node: JsonNode; target: string): JsonNode =
+  if node.kind != JObject:
+    raiseLottie("schemaViolation", target, "object", "expected object")
+  node
+
+
+proc requireArray(node: JsonNode; target: string): JsonNode =
+  if node.kind != JArray:
+    raiseLottie("schemaViolation", target, "array", "expected array")
+  node
+
+
+proc finiteNumber(node: JsonNode; target, capability: string): float64 =
+  if node.kind notin {JInt, JFloat}:
+    raiseLottie("schemaViolation", target, capability, "expected number")
+  result = node.getFloat()
+  if classify(result) in {fcNan, fcInf, fcNegInf}:
+    raiseLottie("schemaViolation", target, capability, "expected finite number")
+
+
+proc positiveInt(node: JsonNode; target, capability: string): int =
+  if node.kind != JInt:
+    raiseLottie("schemaViolation", target, capability, "expected integer")
+  result = node.getInt()
+  if result <= 0:
+    raiseLottie("schemaViolation", target, capability, "expected positive integer")
+
+
+proc optionalString(node: JsonNode; key, defaultValue, target: string): string =
+  if not node.hasKey(key):
+    return defaultValue
+  if node[key].kind != JString:
+    raiseLottie("schemaViolation", target, key, "expected string")
+  node[key].getStr()
+
+
+proc requiredString(node: JsonNode; key, target: string): string =
+  let value = optionalString(node, key, "", target)
+  if value.len == 0:
+    raiseLottie("schemaViolation", target, key, "expected non-empty string")
+  value
+
+
+proc optionalStringOrInt(node: JsonNode; key, defaultValue, target: string): string =
+  if not node.hasKey(key):
+    return defaultValue
+  case node[key].kind
+  of JString:
+    result = node[key].getStr()
+  of JInt:
+    result = $node[key].getInt()
+  else:
+    raiseLottie("schemaViolation", target, key, "expected string or integer")
+
+
+proc pathIsSafeRelative(path: string): bool =
+  if path.len == 0 or path.isAbsolute:
+    return false
+  for part in path.split({'/', '\\'}):
+    if part.len == 0 or part == "." or part == "..":
+      return false
+  true
+
+
+proc requireVector2(node: JsonNode; target, capability: string; defaultX, defaultY: float64): tuple[x, y: float64] =
+  if node.isNil:
+    return (defaultX, defaultY)
+  if node.kind == JArray:
+    if node.elems.len != 2:
+      raiseLottie("schemaViolation", target, capability, "expected [x, y]")
+    return (
+      finiteNumber(node.elems[0], target, capability),
+      finiteNumber(node.elems[1], target, capability),
+    )
+  raiseLottie("unsupportedFeature", target, capability, "animated channels are not supported in Tier 1")
+
+
+proc requireScalar(node: JsonNode; target, capability: string; defaultValue: float64): float64 =
+  if node.isNil:
+    return defaultValue
+  if node.kind in {JInt, JFloat}:
+    return finiteNumber(node, target, capability)
+  raiseLottie("unsupportedFeature", target, capability, "animated channels are not supported in Tier 1")
+
+
+proc parseTransform(node: JsonNode; target: string): LottieTransform =
+  result = LottieTransform(scaleX: 1.0, scaleY: 1.0)
+  if node.isNil:
+    return
+  let transform = requireObject(node, target & ".transform")
+  validateKeys(transform, ["anchor", "position", "scale", "rotation", "opacity"], target & ".transform")
+  let anchor = requireVector2(if transform.hasKey("anchor"): transform["anchor"] else: nil, target, "anchor", 0.0, 0.0)
+  let position = requireVector2(if transform.hasKey("position"): transform["position"] else: nil, target, "position", 0.0, 0.0)
+  let scale = requireVector2(if transform.hasKey("scale"): transform["scale"] else: nil, target, "scale", 100.0, 100.0)
+  let rotation = requireScalar(if transform.hasKey("rotation"): transform["rotation"] else: nil, target, "rotation", 0.0)
+  let opacity = requireScalar(if transform.hasKey("opacity"): transform["opacity"] else: nil, target, "opacity", 100.0)
+  if opacity != 100.0:
+    raiseLottie("unsupportedFeature", target, "opacity", "non-default opacity is not serializable in Tier 1")
+  result = LottieTransform(
+    anchorX: anchor.x,
+    anchorY: anchor.y,
+    positionX: position.x,
+    positionY: position.y,
+    scaleX: scale.x / 100.0,
+    scaleY: scale.y / 100.0,
+    rotation: rotation,
+  )
+
+
+proc parseAssets(root: JsonNode; assetsDir: string): Table[string, LottieAsset] =
+  result = initTable[string, LottieAsset]()
+  if not root.hasKey("assets"):
+    return
+  let assets = requireArray(root["assets"], "assets")
+  for index, item in assets.elems:
+    let target = "assets[" & $index & "]"
+    let asset = requireObject(item, target)
+    validateKeys(asset, ["id", "path", "w", "h"], target)
+    let id = requiredString(asset, "id", target)
+    if id in result:
+      raiseLottie("schemaViolation", target, "duplicateAsset", "duplicate asset id: " & id)
+    let path = requiredString(asset, "path", target)
+    if not path.pathIsSafeRelative:
+      raiseLottie("schemaViolation", target, "assetPath", "asset path must be safe and relative")
+    if assetsDir.len > 0 and not fileExists(assetsDir / path):
+      raiseLottie("invalidReference", target, "assetPath", "missing external image file: " & path)
+    result[id] = LottieAsset(
+      id: id,
+      path: path,
+      width: float64(positiveInt(asset["w"], target, "w")),
+      height: float64(positiveInt(asset["h"], target, "h")),
+    )
+
+
+proc layerName(layer: JsonNode; index: int): string =
+  if layer.hasKey("name"):
+    result = requiredString(layer, "name", "layers[" & $index & "]")
+  else:
+    result = "layer_" & $index
+
+
+proc parseLayer(
+  layer: JsonNode;
+  index: int;
+  composition: JsonNode;
+  assets: Table[string, LottieAsset];
+): LottieLayer =
+  let target = "layers[" & $index & "]"
+  let layerObject = requireObject(layer, target)
+  validateKeys(layerObject, ["name", "kind", "parent", "in", "out", "blend", "transform", "image", "shapes"], target)
+
+  result.name = layerObject.layerName(index)
+  result.kind = requiredString(layerObject, "kind", target)
+  if result.kind != "image":
+    raiseLottie("unsupportedFeature", target, result.kind, "only image layers are supported in Tier 1")
+  let blend = optionalString(layerObject, "blend", "normal", target)
+  if blend != "normal":
+    raiseLottie("unsupportedFeature", target, "blend", "only normal blend is supported in Tier 1")
+  let compIn = finiteNumber(composition["ip"], "composition", "ip")
+  let compOut = finiteNumber(composition["op"], "composition", "op")
+  let layerIn = if layerObject.hasKey("in"): finiteNumber(layerObject["in"], target, "in") else: compIn
+  let layerOut = if layerObject.hasKey("out"): finiteNumber(layerObject["out"], target, "out") else: compOut
+  if layerIn != compIn or layerOut != compOut:
+    raiseLottie("unsupportedFeature", target, "visibility", "visibility intervals are not supported in Tier 1")
+  if layerObject.hasKey("shapes"):
+    raiseLottie("unsupportedFeature", target, "shape", "shape layers require Tier 2")
+
+  result.parent = optionalStringOrInt(layerObject, "parent", "", target)
+  result.transform = parseTransform(if layerObject.hasKey("transform"): layerObject["transform"] else: nil, target)
+  if not layerObject.hasKey("image"):
+    raiseLottie("schemaViolation", target, "image", "image layer requires image payload")
+  let image = requireObject(layerObject["image"], target & ".image")
+  validateKeys(image, ["asset", "anchor", "size"], target & ".image")
+  result.imageAsset = requiredString(image, "asset", target & ".image")
+  if result.imageAsset notin assets:
+    raiseLottie("invalidReference", target, "asset", "unknown image asset: " & result.imageAsset)
+  let asset = assets[result.imageAsset]
+  if image.hasKey("anchor"):
+    let anchor = requireVector2(image["anchor"], target, "image.anchor", 0.0, 0.0)
+    if anchor.x != 0.0 or anchor.y != 0.0:
+      raiseLottie("unsupportedFeature", target, "image.anchor", "image payload anchor is not supported in Tier 1")
+  if image.hasKey("size"):
+    let size = requireVector2(image["size"], target, "image.size", asset.width, asset.height)
+    if size.x <= 0.0 or size.y <= 0.0:
+      raiseLottie("schemaViolation", target, "image.size", "image size must be positive")
+    result.width = size.x
+    result.height = size.y
+  else:
+    result.width = asset.width
+    result.height = asset.height
+
+
+proc parseLottieComposition(text, assetsDir: string): LottieComposition =
+  var root: JsonNode
+  try:
+    root = parseJson(text)
+  except JsonParsingError as exc:
+    raiseLottie("schemaViolation", "composition", "json", "invalid JSON: " & exc.msg)
+  let compositionObject = requireObject(root, "composition")
+  validateKeys(compositionObject, ["w", "h", "fr", "ip", "op", "assets", "layers"], "composition")
+  result.width = positiveInt(compositionObject["w"], "composition", "w")
+  result.height = positiveInt(compositionObject["h"], "composition", "h")
+  result.frameRate = finiteNumber(compositionObject["fr"], "composition", "fr")
+  if result.frameRate <= 0.0:
+    raiseLottie("schemaViolation", "composition", "fr", "frame rate must be positive")
+  result.inFrame = finiteNumber(compositionObject["ip"], "composition", "ip")
+  result.outFrame = finiteNumber(compositionObject["op"], "composition", "op")
+  if result.outFrame <= result.inFrame:
+    raiseLottie("schemaViolation", "composition", "duration", "op must be greater than ip")
+  if not compositionObject.hasKey("layers"):
+    raiseLottie("schemaViolation", "composition", "layers", "layers are required")
+  let assets = parseAssets(compositionObject, assetsDir)
+  let layers = requireArray(compositionObject["layers"], "layers")
+  var names = initHashSet[string]()
+  for index, item in layers.elems:
+    let layer = parseLayer(item, index, compositionObject, assets)
+    if layer.name in names:
+      raiseLottie("schemaViolation", "layers[" & $index & "]", "duplicateName", "duplicate layer name: " & layer.name)
+    names.incl(layer.name)
+    result.layers.add layer
+  if result.layers.len == 0:
+    raiseLottie("schemaViolation", "composition", "layers", "at least one layer is required")
+  for index, layer in result.layers:
+    if layer.parent.len == 0:
+      continue
+    var found = false
+    for candidate in result.layers:
+      if candidate.name == layer.parent:
+        found = true
+        break
+    if not found:
+      var parentIndex: int
+      if parseInt(layer.parent, parentIndex) == layer.parent.len and parentIndex >= 0 and parentIndex < result.layers.len:
+        result.layers[index].parent = result.layers[parentIndex].name
+      else:
+        raiseLottie("invalidReference", "layers[" & $index & "]", "parent", "unknown parent: " & layer.parent)
+  var parentByName = initTable[string, string]()
+  for layer in result.layers:
+    parentByName[layer.name] = layer.parent
+  for layer in result.layers:
+    var seen = initHashSet[string]()
+    var current = layer.name
+    while current.len > 0:
+      if current in seen:
+        raiseLottie("cycleDetected", layer.name, "parent", "parent graph contains a cycle")
+      seen.incl current
+      current = parentByName.getOrDefault(current, "")
+
+
+proc toSkeletonData(composition: LottieComposition; origin: string): SkeletonData =
+  let offsetX = if origin == "center": -float64(composition.width) * 0.5 else: 0.0
+  let offsetY = if origin == "center": -float64(composition.height) * 0.5 else: 0.0
+  var bones: seq[BoneData] = @[boneData("composition", "", localTransform(x = offsetX, y = offsetY))]
+  var slots: seq[SlotData] = @[]
+  var regions: seq[RegionAttachment] = @[]
+  var knownBones = initHashSet[string]()
+  knownBones.incl "composition"
+  for layer in composition.layers:
+    let parent = if layer.parent.len == 0: "composition" else: layer.parent
+    if parent notin knownBones:
+      raiseLottie("orderingViolation", layer.name, "parent", "parent must appear before child")
+    let x = layer.transform.positionX - layer.transform.anchorX * layer.transform.scaleX
+    let y = layer.transform.positionY - layer.transform.anchorY * layer.transform.scaleY
+    bones.add boneData(
+      layer.name,
+      parent,
+      localTransform(
+        x = x,
+        y = y,
+        rotation = layer.transform.rotation,
+        scaleX = layer.transform.scaleX,
+        scaleY = layer.transform.scaleY,
+      ),
+    )
+    knownBones.incl layer.name
+    slots.add slotData(layer.name & "_slot", layer.name, layer.name)
+    regions.add regionAttachment(layer.name, layer.width, layer.height)
+  skeletonData(skeletonHeader("lottie-import", "0.1.0"), bones, slots, regions)
+
+
+proc importLottie(args: seq[string]) =
+  if args.len < 2:
+    quit(usage(), QuitFailure)
+  let inputPath = args[0]
+  let outputPath = args[1]
+  var assetsDir = ""
+  var origin = "center"
+  var index = 2
+  while index < args.len:
+    case args[index]
+    of "--assets-dir":
+      if index + 1 >= args.len:
+        quit(usage(), QuitFailure)
+      assetsDir = args[index + 1]
+      index += 2
+    of "--setup-only":
+      index += 1
+    of "--origin":
+      if index + 1 >= args.len:
+        quit(usage(), QuitFailure)
+      origin = args[index + 1]
+      if origin notin ["center", "top-left"]:
+        raiseLottie("schemaViolation", "cli", "origin", "origin must be center or top-left")
+      index += 2
+    of "--reject-shapes":
+      index += 1
+    of "--rasterize-shapes":
+      raiseLottie("unsupportedFeature", "cli", "rasterize-shapes", "shape rasterization requires Tier 2")
+    of "--atlas-out":
+      raiseLottie("unsupportedFeature", "cli", "atlas", "atlas output requires Tier 2")
+    else:
+      quit(usage(), QuitFailure)
+  if assetsDir.len == 0:
+    raiseLottie("schemaViolation", "cli", "assets-dir", "--assets-dir is required")
+  let composition = parseLottieComposition(readFile(inputPath), assetsDir)
+  let data = composition.toSkeletonData(origin)
+  writeFile(outputPath, toBonyJson(data))
 
 
 proc affineJson(world: Affine2): JsonNode =
@@ -248,12 +641,16 @@ proc main() =
       if args.len != 3:
         quit(usage(), QuitFailure)
       writeFile(args[2], toBonyJson(loadKnownBonyBnb(readBytes(args[1]))))
+    of "import-lottie":
+      importLottie(args[1 .. ^1])
     of "golden-gen":
       writeNumericGolden(args[1 .. ^1])
     of "play":
       renderSetupPose(args[1 .. ^1])
     else:
       quit(usage(), QuitFailure)
+  except LottieDiagnostic as exc:
+    quit("bony: " & exc.lottieMessage, QuitFailure)
   except BonyLoadError as exc:
     quit("bony: " & exc.msg, QuitFailure)
   except OSError as exc:
