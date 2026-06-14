@@ -1898,3 +1898,88 @@ spec "bony package":
       pose.scalars.len == 2
       pose.scalars[0].target == "a"
       pose.scalars[1].target == "b"
+
+  it "evaluates state-machine layers through current animation states":
+    let data = animationFixture()
+    var dataRef = new SkeletonData
+    dataRef[] = data
+    let idle = animationClip(
+      data,
+      "idle",
+      @[boneScalarTimeline("root", rotateTimeline, @[scalarKeyframe(0.0, 0.0), scalarKeyframe(1.0, 10.0)])],
+    )
+    let blink = animationClip(
+      data,
+      "blink",
+      slotTimelines = @[slotColorTimeline("body", alphaTimeline, @[colorKeyframe(0.0, colorRgba(1.0, 1.0, 1.0, 0.25))])],
+    )
+    let machine = stateMachine(
+      "face",
+      @[
+        stateMachineLayer("base", @[stateMachineState("idle", idle, loop = true)]),
+        stateMachineLayer("eyes", @[stateMachineState("blink", blink)]),
+      ],
+    )
+    var runtime = initStateMachineRuntime(machine)
+    runtime.update(0.5)
+    let evaluated = runtime.evaluate(dataRef)
+
+    then:
+      evaluated.layers.len == 2
+      evaluated.layers[0].layer == "base"
+      evaluated.layers[0].state == "idle"
+      closeTo(evaluated.layers[0].time, 0.5)
+      closeTo(evaluated.layers[0].pose.scalars[0].value, 5.0)
+      evaluated.layers[1].layer == "eyes"
+      evaluated.layers[1].state == "blink"
+      closeTo(evaluated.layers[1].pose.colors[0].color.a, 0.25)
+
+  it "switches state-machine layer states and clamps non-looping time":
+    let data = animationFixture()
+    let idle = animationClip(
+      data,
+      "idle",
+      @[boneScalarTimeline("root", rotateTimeline, @[scalarKeyframe(0.0, 0.0), scalarKeyframe(1.0, 10.0)])],
+    )
+    let wave = animationClip(
+      data,
+      "wave",
+      @[boneScalarTimeline("root", rotateTimeline, @[scalarKeyframe(0.0, 100.0), scalarKeyframe(1.0, 120.0)])],
+    )
+    let machine = stateMachine(
+      "gesture",
+      @[stateMachineLayer("base", @[stateMachineState("idle", idle), stateMachineState("wave", wave)], initialState = "idle")],
+    )
+    var runtime = initStateMachineRuntime(machine)
+    runtime.setState("base", "wave")
+    runtime.update(2.0)
+    let evaluated = runtime.evaluate()
+
+    then:
+      runtime.layers[0].currentState == "wave"
+      closeTo(evaluated.layers[0].time, 1.0)
+      closeTo(evaluated.layers[0].pose.scalars[0].value, 120.0)
+
+  it "rejects invalid state-machine core data":
+    let data = animationFixture()
+    let idle = animationClip(data, "idle")
+    let layer = stateMachineLayer("base", @[stateMachineState("idle", idle)])
+    let machine = stateMachine("machine", @[layer])
+
+    then:
+      raisesBonyLoadError(proc() = discard stateMachineState("", idle), schemaViolation)
+      raisesBonyLoadError(proc() = discard stateMachineLayer("", @[stateMachineState("idle", idle)]), schemaViolation)
+      raisesBonyLoadError(proc() = discard stateMachineLayer("base", @[]), schemaViolation)
+      raisesBonyLoadError(proc() = discard stateMachineLayer("base", @[stateMachineState("idle", idle), stateMachineState("idle", idle)]), duplicateKey)
+      raisesBonyLoadError(proc() = discard stateMachineLayer("base", @[stateMachineState("idle", idle)], initialState = "missing"), unknownRequiredReference)
+      raisesBonyLoadError(proc() = discard stateMachine("", @[layer]), schemaViolation)
+      raisesBonyLoadError(proc() = discard stateMachine("machine", @[]), schemaViolation)
+      raisesBonyLoadError(proc() = discard stateMachine("machine", @[layer, layer]), duplicateKey)
+      raisesBonyLoadError(proc() = discard StateMachineRuntime(machine: machine, layers: @[]).evaluate(), schemaViolation)
+
+    var runtime = initStateMachineRuntime(machine)
+
+    then:
+      raisesBonyLoadError(proc() = runtime.setState("missing", "idle"), unknownRequiredReference)
+      raisesBonyLoadError(proc() = runtime.setState("base", "missing"), unknownRequiredReference)
+      raisesBonyLoadError(proc() = runtime.update(-0.1), schemaViolation)
