@@ -416,6 +416,7 @@ spec "bony package":
   "regions": []
 }
 """
+      raisesBonyLoadError(proc() = discard loadKnownBonyBnb(bytes), schemaViolation)
 
   it "rejects malformed semantic .bnb payloads":
     then:
@@ -465,6 +466,33 @@ spec "bony package":
         bytes.writeStringTable(initStringTable())
         bytes.writeObjectStreamTerminator()
         discard loadBonyBnb(bytes)
+      , schemaViolation)
+      raisesBonyLoadError(proc() =
+        var table = initStringTable()
+        var namePayload: seq[byte]
+        namePayload.writeStringPayload(table, "demo")
+        var bytes: seq[byte]
+        bytes.writeHeader(flags = bnbStringTableFlag)
+        bytes.writeToc(@[
+          BnbTocEntry(propertyKey: 1, backingTypeCode: backingTypeCode("string")),
+          BnbTocEntry(propertyKey: 900000, backingTypeCode: backingTypeCode("bytes")),
+        ])
+        bytes.writeStringTable(table)
+        bytes.writeObjectRecord(1, @[
+          BnbPropertyRecord(propertyKey: 1, payload: namePayload),
+          BnbPropertyRecord(propertyKey: 900000, payload: @[1'u8]),
+        ])
+        bytes.writeObjectStreamTerminator()
+        discard loadKnownBonyBnb(bytes)
+      , schemaViolation)
+      raisesBonyLoadError(proc() =
+        var bytes: seq[byte]
+        bytes.writeHeader(flags = bnbEmbeddedAtlasFlag or bnbStringTableFlag)
+        bytes.writeToc(@[])
+        bytes.writeStringTable(initStringTable())
+        bytes.writeObjectStreamTerminator()
+        bytes.writeEmbeddedAtlas(@[1'u8])
+        discard loadKnownBonyBnb(bytes)
       , schemaViolation)
 
   it "encodes .bnb string tables in first-seen order":

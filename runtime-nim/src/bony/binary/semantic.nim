@@ -308,18 +308,7 @@ proc toBonyBnb*(data: SkeletonData; embeddedAtlas: openArray[byte] = []): seq[by
   result.writeBonyBnb(data, embeddedAtlas)
 
 
-proc loadBonyBnb*(input: openArray[byte]): SkeletonData =
-  var index = 0
-  let header = input.readHeader(index)
-  let toc = input.readToc(index)
-  let strings =
-    if (header.flags and bnbStringTableFlag) != 0:
-      input.readStringTable(index)
-    else:
-      initStringTable()
-  let objects = input.readObjectStream(index, toc)
-  discard input.readEmbeddedAtlas(index, header)
-
+proc decodeSkeletonObjects(objects: openArray[BnbObjectRecord]; strings: BnbStringTable): SkeletonData =
   var hasSkeleton = false
   var headerValue: SkeletonHeader
   var bones: seq[BoneData]
@@ -407,3 +396,53 @@ proc loadBonyBnb*(input: openArray[byte]): SkeletonData =
   if not hasSkeleton:
     raise newBonyLoadError(schemaViolation, ".bnb skeleton object is required")
   skeletonData(headerValue, bones, slots, regions)
+
+
+proc loadBonyBnb*(input: openArray[byte]): SkeletonData =
+  var index = 0
+  let header = input.readHeader(index)
+  let toc = input.readToc(index)
+  let strings =
+    if (header.flags and bnbStringTableFlag) != 0:
+      input.readStringTable(index)
+    else:
+      initStringTable()
+  let objects = input.readObjectStream(index, toc)
+  discard input.readEmbeddedAtlas(index, header)
+  decodeSkeletonObjects(objects, strings)
+
+
+proc readKnownObjectStream(input: openArray[byte]; index: var int; toc: openArray[BnbTocEntry]): seq[BnbObjectRecord] =
+  var objectCount = 0'u64
+  while true:
+    let record = input.readObjectRecord(index, toc)
+    if record.typeKey == 0:
+      return
+    if objectCount >= bnbMaxObjects:
+      raise newBonyLoadError(resourceLimitExceeded, ".bnb object stream has too many objects")
+    inc objectCount
+    if not record.typeKey.isKnownTypeKey:
+      raise newBonyLoadError(schemaViolation, ".bnb JSON conversion cannot preserve unknown object type: " & $record.typeKey)
+    for property in record.properties:
+      if not property.propertyKey.isKnownPropertyKey:
+        raise newBonyLoadError(
+          schemaViolation,
+          ".bnb JSON conversion cannot preserve unknown property key: " & $property.propertyKey,
+        )
+    result.add record
+
+
+proc loadKnownBonyBnb*(input: openArray[byte]): SkeletonData =
+  var index = 0
+  let header = input.readHeader(index)
+  if (header.flags and bnbEmbeddedAtlasFlag) != 0:
+    raise newBonyLoadError(schemaViolation, ".bnb JSON conversion cannot preserve embedded atlas bytes")
+  let toc = input.readToc(index)
+  let strings =
+    if (header.flags and bnbStringTableFlag) != 0:
+      input.readStringTable(index)
+    else:
+      initStringTable()
+  let objects = input.readKnownObjectStream(index, toc)
+  discard input.readEmbeddedAtlas(index, header)
+  decodeSkeletonObjects(objects, strings)

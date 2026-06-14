@@ -15,3 +15,9 @@ nim c -o:bony --path:runtime-nim/src cli/bony_cli.nim
 
 The M6 commands cover the currently registered `SkeletonData` objects:
 `skeleton`, `bone`, `slot`, and `region`.
+
+`bnb-to-json` is intentionally strict: it rejects embedded atlas payloads,
+unknown object types, and unknown property keys because the current `.bony`
+JSON surface has no preservation bucket for those bytes. The byte-stability
+domain for `bnb -> json -> bnb` is canonical known-model `.bnb` emitted by the
+current writer.

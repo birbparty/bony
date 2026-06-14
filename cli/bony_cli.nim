@@ -34,7 +34,7 @@ proc main() =
     of "json-to-bnb":
       writeBytes(args[2], toBonyBnb(loadBonyJson(readFile(args[1]))))
     of "bnb-to-json":
-      writeFile(args[2], toBonyJson(loadBonyBnb(readBytes(args[1]))))
+      writeFile(args[2], toBonyJson(loadKnownBonyBnb(readBytes(args[1]))))
     else:
       quit(usage(), QuitFailure)
   except BonyLoadError as exc:
