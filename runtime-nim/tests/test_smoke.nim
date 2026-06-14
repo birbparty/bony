@@ -1648,24 +1648,33 @@ spec "bony package":
   ],
   "layers": [
     {
-      "name": "body",
-      "kind": "image",
-      "transform": {
-        "position": [50, 40],
-        "rotation": 30,
-        "scale": [100, 100]
-      },
-      "image": {"asset": "bodyAsset"}
-    },
-    {
       "name": "hand",
       "kind": "image",
-      "parent": 0,
+      "parent": 2,
       "transform": {
         "position": [5, 0],
         "scale": [50, 50]
       },
       "image": {"asset": "handAsset"}
+    },
+    {
+      "name": "2",
+      "kind": "image",
+      "transform": {
+        "position": [10, 10]
+      },
+      "image": {"asset": "bodyAsset"}
+    },
+    {
+      "name": "body",
+      "kind": "image",
+      "transform": {
+        "anchor": [10, 0],
+        "position": [50, 40],
+        "rotation": 30,
+        "scale": [100, 100]
+      },
+      "image": {"asset": "bodyAsset"}
     }
   ]
 }
@@ -1679,8 +1688,12 @@ spec "bony package":
     let imported = loadBonyJson(readFile(lottieRoundTripPath))
     let rejectOpacityPath = "/tmp/bony_cli_harness_lottie_opacity.json"
     let rejectShapePath = "/tmp/bony_cli_harness_lottie_shape.json"
+    let rejectMissingPath = "/tmp/bony_cli_harness_lottie_missing.json"
+    let rejectAnimatedPath = "/tmp/bony_cli_harness_lottie_animated.json"
     writeFile(rejectOpacityPath, """{"w":10,"h":10,"fr":24,"ip":0,"op":1,"assets":[{"id":"a","path":"body.png","w":1,"h":1}],"layers":[{"name":"faded","kind":"image","transform":{"opacity":50},"image":{"asset":"a"}}]}""")
     writeFile(rejectShapePath, """{"w":10,"h":10,"fr":24,"ip":0,"op":1,"layers":[{"name":"shape","kind":"shape","shapes":[]}]}""")
+    writeFile(rejectMissingPath, """{"h":10,"fr":24,"ip":0,"op":1,"assets":[{"id":"a","path":"body.png","w":1,"h":1}],"layers":[{"name":"missing","kind":"image","image":{"asset":"a"}}]}""")
+    writeFile(rejectAnimatedPath, """{"w":10,"h":10,"fr":24,"ip":0,"op":1,"assets":[{"id":"a","path":"body.png","w":1,"h":1}],"layers":[{"name":"animated","kind":"image","transform":{"position":[{"t":0,"v":[0,0]},{"t":1,"v":[1,1]}]},"image":{"asset":"a"}}]}""")
     let rejectedOpacity = runProcess(
       cliPath,
       ["import-lottie", rejectOpacityPath, "/tmp/bony_cli_harness_lottie_bad.bony", "--assets-dir", lottieAssetsDir],
@@ -1688,6 +1701,14 @@ spec "bony package":
     let rejectedShape = runProcess(
       cliPath,
       ["import-lottie", rejectShapePath, "/tmp/bony_cli_harness_lottie_bad.bony", "--assets-dir", lottieAssetsDir],
+    )
+    let rejectedMissing = runProcess(
+      cliPath,
+      ["import-lottie", rejectMissingPath, "/tmp/bony_cli_harness_lottie_bad.bony", "--assets-dir", lottieAssetsDir],
+    )
+    let rejectedAnimated = runProcess(
+      cliPath,
+      ["import-lottie", rejectAnimatedPath, "/tmp/bony_cli_harness_lottie_bad.bony", "--assets-dir", lottieAssetsDir],
     )
     let goldenJson = parseJson(readFile(goldenPath))
 
@@ -1712,11 +1733,18 @@ spec "bony package":
       rejectedShape.exitCode != 0
       rejectedShape.output.contains("unsupportedFeature")
       rejectedShape.output.contains("capability=shape")
+      rejectedMissing.exitCode != 0
+      rejectedMissing.output.contains("schemaViolation")
+      rejectedMissing.output.contains("missing required field: w")
+      not rejectedMissing.output.contains("Traceback")
+      rejectedAnimated.exitCode != 0
+      rejectedAnimated.output.contains("unsupportedFeature")
+      rejectedAnimated.output.contains("capability=position")
       fileExists(bnbPath)
       getFileSize(bnbPath) > 0
       loadBonyJson(readFile(roundTripPath)).header.name == "cli-demo"
       imported.header.name == "lottie-import"
-      imported.bones.len == 3
+      imported.bones.len == 4
       imported.bones[0].name == "composition"
       closeTo(imported.bones[0].local.x, -50.0)
       closeTo(imported.bones[0].local.y, -40.0)
@@ -1724,15 +1752,18 @@ spec "bony package":
       imported.bones[1].parent == "composition"
       imported.bones[2].name == "hand"
       imported.bones[2].parent == "body"
-      closeTo(imported.bones[1].local.x, 50.0)
-      closeTo(imported.bones[1].local.y, 40.0)
+      imported.bones[3].name == "2"
+      imported.bones[3].parent == "composition"
+      closeWithin(imported.bones[1].local.x, 41.34, 0.01)
+      closeWithin(imported.bones[1].local.y, 35.0, 0.01)
       closeTo(imported.bones[1].local.rotation, 30.0)
       closeTo(imported.bones[2].local.x, 5.0)
       closeTo(imported.bones[2].local.scaleX, 0.5)
-      imported.slots.len == 2
-      imported.regions.len == 2
-      closeTo(imported.regions[0].width, 20.0)
-      closeTo(imported.regions[1].height, 6.0)
+      imported.slots.len == 3
+      imported.regions.len == 3
+      closeTo(imported.regions[0].width, 8.0)
+      closeTo(imported.regions[1].height, 10.0)
+      closeTo(imported.regions[2].width, 20.0)
       goldenJson["format"].getStr() == "bony.numeric-golden.v1"
       goldenJson["time"].getFloat() == 0.0
       goldenJson["bones"].len == 2
@@ -1765,6 +1796,8 @@ spec "bony package":
       lottieRoundTripPath,
       rejectOpacityPath,
       rejectShapePath,
+      rejectMissingPath,
+      rejectAnimatedPath,
       "/tmp/bony_cli_harness_lottie_bad.bony",
     ]:
       if fileExists(path):

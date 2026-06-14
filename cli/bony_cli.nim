@@ -39,6 +39,8 @@ type
     name: string
     kind: string
     parent: string
+    parentIndex: int
+    parentIsIndex: bool
     imageAsset: string
     width: float64
     height: float64
@@ -153,6 +155,12 @@ proc requireArray(node: JsonNode; target: string): JsonNode =
   node
 
 
+proc requireField(node: JsonNode; key, target: string): JsonNode =
+  if not node.hasKey(key):
+    raiseLottie("schemaViolation", target, key, "missing required field: " & key)
+  node[key]
+
+
 proc finiteNumber(node: JsonNode; target, capability: string): float64 =
   if node.kind notin {JInt, JFloat}:
     raiseLottie("schemaViolation", target, capability, "expected number")
@@ -184,14 +192,16 @@ proc requiredString(node: JsonNode; key, target: string): string =
   value
 
 
-proc optionalStringOrInt(node: JsonNode; key, defaultValue, target: string): string =
+proc optionalParentReference(node: JsonNode; key, target: string): tuple[name: string, index: int, isIndex: bool] =
+  result.index = -1
   if not node.hasKey(key):
-    return defaultValue
+    return
   case node[key].kind
   of JString:
-    result = node[key].getStr()
+    result.name = node[key].getStr()
   of JInt:
-    result = $node[key].getInt()
+    result.index = node[key].getInt()
+    result.isIndex = true
   else:
     raiseLottie("schemaViolation", target, key, "expected string or integer")
 
@@ -209,6 +219,9 @@ proc requireVector2(node: JsonNode; target, capability: string; defaultX, defaul
   if node.isNil:
     return (defaultX, defaultY)
   if node.kind == JArray:
+    for item in node.elems:
+      if item.kind in {JObject, JArray}:
+        raiseLottie("unsupportedFeature", target, capability, "animated channels are not supported in Tier 1")
     if node.elems.len != 2:
       raiseLottie("schemaViolation", target, capability, "expected [x, y]")
     return (
@@ -270,8 +283,8 @@ proc parseAssets(root: JsonNode; assetsDir: string): Table[string, LottieAsset] 
     result[id] = LottieAsset(
       id: id,
       path: path,
-      width: float64(positiveInt(asset["w"], target, "w")),
-      height: float64(positiveInt(asset["h"], target, "h")),
+      width: float64(positiveInt(requireField(asset, "w", target), target, "w")),
+      height: float64(positiveInt(requireField(asset, "h", target), target, "h")),
     )
 
 
@@ -299,8 +312,8 @@ proc parseLayer(
   let blend = optionalString(layerObject, "blend", "normal", target)
   if blend != "normal":
     raiseLottie("unsupportedFeature", target, "blend", "only normal blend is supported in Tier 1")
-  let compIn = finiteNumber(composition["ip"], "composition", "ip")
-  let compOut = finiteNumber(composition["op"], "composition", "op")
+  let compIn = finiteNumber(requireField(composition, "ip", "composition"), "composition", "ip")
+  let compOut = finiteNumber(requireField(composition, "op", "composition"), "composition", "op")
   let layerIn = if layerObject.hasKey("in"): finiteNumber(layerObject["in"], target, "in") else: compIn
   let layerOut = if layerObject.hasKey("out"): finiteNumber(layerObject["out"], target, "out") else: compOut
   if layerIn != compIn or layerOut != compOut:
@@ -308,7 +321,10 @@ proc parseLayer(
   if layerObject.hasKey("shapes"):
     raiseLottie("unsupportedFeature", target, "shape", "shape layers require Tier 2")
 
-  result.parent = optionalStringOrInt(layerObject, "parent", "", target)
+  let parent = optionalParentReference(layerObject, "parent", target)
+  result.parent = parent.name
+  result.parentIndex = parent.index
+  result.parentIsIndex = parent.isIndex
   result.transform = parseTransform(if layerObject.hasKey("transform"): layerObject["transform"] else: nil, target)
   if not layerObject.hasKey("image"):
     raiseLottie("schemaViolation", target, "image", "image layer requires image payload")
@@ -341,13 +357,13 @@ proc parseLottieComposition(text, assetsDir: string): LottieComposition =
     raiseLottie("schemaViolation", "composition", "json", "invalid JSON: " & exc.msg)
   let compositionObject = requireObject(root, "composition")
   validateKeys(compositionObject, ["w", "h", "fr", "ip", "op", "assets", "layers"], "composition")
-  result.width = positiveInt(compositionObject["w"], "composition", "w")
-  result.height = positiveInt(compositionObject["h"], "composition", "h")
-  result.frameRate = finiteNumber(compositionObject["fr"], "composition", "fr")
+  result.width = positiveInt(requireField(compositionObject, "w", "composition"), "composition", "w")
+  result.height = positiveInt(requireField(compositionObject, "h", "composition"), "composition", "h")
+  result.frameRate = finiteNumber(requireField(compositionObject, "fr", "composition"), "composition", "fr")
   if result.frameRate <= 0.0:
     raiseLottie("schemaViolation", "composition", "fr", "frame rate must be positive")
-  result.inFrame = finiteNumber(compositionObject["ip"], "composition", "ip")
-  result.outFrame = finiteNumber(compositionObject["op"], "composition", "op")
+  result.inFrame = finiteNumber(requireField(compositionObject, "ip", "composition"), "composition", "ip")
+  result.outFrame = finiteNumber(requireField(compositionObject, "op", "composition"), "composition", "op")
   if result.outFrame <= result.inFrame:
     raiseLottie("schemaViolation", "composition", "duration", "op must be greater than ip")
   if not compositionObject.hasKey("layers"):
@@ -364,6 +380,12 @@ proc parseLottieComposition(text, assetsDir: string): LottieComposition =
   if result.layers.len == 0:
     raiseLottie("schemaViolation", "composition", "layers", "at least one layer is required")
   for index, layer in result.layers:
+    if layer.parentIsIndex:
+      if layer.parentIndex >= 0 and layer.parentIndex < result.layers.len:
+        result.layers[index].parent = result.layers[layer.parentIndex].name
+      else:
+        raiseLottie("invalidReference", "layers[" & $index & "]", "parent", "unknown parent index: " & $layer.parentIndex)
+      continue
     if layer.parent.len == 0:
       continue
     var found = false
@@ -390,32 +412,59 @@ proc parseLottieComposition(text, assetsDir: string): LottieComposition =
       current = parentByName.getOrDefault(current, "")
 
 
+proc appendLottieBone(
+  index: int;
+  composition: LottieComposition;
+  nameToIndex: Table[string, int];
+  visiting: var HashSet[string];
+  emitted: var HashSet[string];
+  bones: var seq[BoneData];
+) =
+  let layer = composition.layers[index]
+  if layer.name in emitted:
+    return
+  if layer.name in visiting:
+    raiseLottie("cycleDetected", layer.name, "parent", "parent graph contains a cycle")
+  visiting.incl layer.name
+  if layer.parent.len > 0:
+    if layer.parent notin nameToIndex:
+      raiseLottie("invalidReference", layer.name, "parent", "unknown parent: " & layer.parent)
+    appendLottieBone(nameToIndex[layer.parent], composition, nameToIndex, visiting, emitted, bones)
+  let parent = if layer.parent.len == 0: "composition" else: layer.parent
+  let angle = degToRad(layer.transform.rotation)
+  let anchorX = layer.transform.anchorX * layer.transform.scaleX
+  let anchorY = layer.transform.anchorY * layer.transform.scaleY
+  let x = layer.transform.positionX - (anchorX * cos(angle) - anchorY * sin(angle))
+  let y = layer.transform.positionY - (anchorX * sin(angle) + anchorY * cos(angle))
+  bones.add boneData(
+    layer.name,
+    parent,
+    localTransform(
+      x = x,
+      y = y,
+      rotation = layer.transform.rotation,
+      scaleX = layer.transform.scaleX,
+      scaleY = layer.transform.scaleY,
+    ),
+  )
+  visiting.excl layer.name
+  emitted.incl layer.name
+
+
 proc toSkeletonData(composition: LottieComposition; origin: string): SkeletonData =
   let offsetX = if origin == "center": -float64(composition.width) * 0.5 else: 0.0
   let offsetY = if origin == "center": -float64(composition.height) * 0.5 else: 0.0
   var bones: seq[BoneData] = @[boneData("composition", "", localTransform(x = offsetX, y = offsetY))]
   var slots: seq[SlotData] = @[]
   var regions: seq[RegionAttachment] = @[]
-  var knownBones = initHashSet[string]()
-  knownBones.incl "composition"
+  var nameToIndex = initTable[string, int]()
+  for index, layer in composition.layers:
+    nameToIndex[layer.name] = index
+  var visiting = initHashSet[string]()
+  var emitted = initHashSet[string]()
+  for index in 0 ..< composition.layers.len:
+    appendLottieBone(index, composition, nameToIndex, visiting, emitted, bones)
   for layer in composition.layers:
-    let parent = if layer.parent.len == 0: "composition" else: layer.parent
-    if parent notin knownBones:
-      raiseLottie("orderingViolation", layer.name, "parent", "parent must appear before child")
-    let x = layer.transform.positionX - layer.transform.anchorX * layer.transform.scaleX
-    let y = layer.transform.positionY - layer.transform.anchorY * layer.transform.scaleY
-    bones.add boneData(
-      layer.name,
-      parent,
-      localTransform(
-        x = x,
-        y = y,
-        rotation = layer.transform.rotation,
-        scaleX = layer.transform.scaleX,
-        scaleY = layer.transform.scaleY,
-      ),
-    )
-    knownBones.incl layer.name
     slots.add slotData(layer.name & "_slot", layer.name, layer.name)
     regions.add regionAttachment(layer.name, layer.width, layer.height)
   skeletonData(skeletonHeader("lottie-import", "0.1.0"), bones, slots, regions)
