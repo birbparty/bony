@@ -87,6 +87,12 @@ proc validateMeshAttachment*(data: SkeletonData; mesh: MeshAttachment) =
     raise newBonyLoadError(schemaViolation, "mesh triangles must contain index triplets")
   if mesh.hull > uint32(mesh.vertices.len):
     raise newBonyLoadError(schemaViolation, "mesh hull must not exceed vertex count")
+  if mesh.edges.len mod 2 != 0:
+    raise newBonyLoadError(schemaViolation, "mesh edges must contain index pairs")
+  if mesh.parentMesh.len != 0:
+    raise newBonyLoadError(schemaViolation, "linked mesh parent validation is not supported yet")
+  if mesh.deformAttachment.len != 0 and mesh.deformAttachment != mesh.name:
+    raise newBonyLoadError(schemaViolation, "mesh deformAttachment must match the mesh name")
 
   var boneNames = initHashSet[string]()
   for bone in data.bones:
@@ -102,9 +108,22 @@ proc validateMeshAttachment*(data: SkeletonData; mesh: MeshAttachment) =
     if vertex.weighted != mesh.weighted:
       raise newBonyLoadError(schemaViolation, "mesh vertices must match mesh weighted flag")
     if vertex.weighted:
+      if vertex.influences.len == 0:
+        raise newBonyLoadError(schemaViolation, "weighted mesh vertex must contain at least one influence")
+      var sum = 0.0
       for influence in vertex.influences:
+        if influence.bone.len == 0:
+          raise newBonyLoadError(schemaViolation, "mesh influence bone must not be empty")
+        discard quantizeF32(influence.bindX, "mesh.influence.bindX")
+        discard quantizeF32(influence.bindY, "mesh.influence.bindY")
+        let weight = quantizeF32(influence.weight, "mesh.influence.weight")
+        if weight < 0.0:
+          raise newBonyLoadError(schemaViolation, "mesh influence weight must be non-negative")
         if influence.bone notin boneNames:
           raise newBonyLoadError(unknownRequiredReference, "unknown mesh influence bone: " & influence.bone)
+        sum += weight
+      if abs(sum - 1.0) > weightSumTolerance:
+        raise newBonyLoadError(schemaViolation, "weighted mesh vertex influences must sum to 1")
     elif vertex.influences.len != 0:
       raise newBonyLoadError(schemaViolation, "unweighted mesh vertex must not contain influences")
 

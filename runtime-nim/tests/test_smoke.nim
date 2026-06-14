@@ -428,13 +428,13 @@ spec "bony package":
         ]),
       ],
       path = "clothPage",
-      deformAttachment = "weightedClothSetup",
+      deformAttachment = "weightedCloth",
     )
 
     then:
       mesh.weighted
       mesh.path == "clothPage"
-      mesh.deformAttachment == "weightedClothSetup"
+      mesh.deformAttachment == "weightedCloth"
       mesh.vertices[2].influences.len == 2
       mesh.vertices[2].influences[0].bone == "root"
       closeTo(mesh.vertices[2].influences[1].weight, 0.75)
@@ -464,6 +464,17 @@ spec "bony package":
         unknownRequiredReference,
       )
       raisesBonyLoadError(
+        proc() = discard unweightedMeshAttachment(
+          data,
+          "badEdges",
+          @[meshUv(0.0, 0.0), meshUv(1.0, 0.0), meshUv(0.0, 1.0)],
+          @[0'u16, 1'u16, 2'u16],
+          @[unweightedMeshVertex(0.0, 0.0), unweightedMeshVertex(1.0, 0.0), unweightedMeshVertex(0.0, 1.0)],
+          edges = @[0'u16, 1'u16, 2'u16],
+        ),
+        schemaViolation,
+      )
+      raisesBonyLoadError(
         proc() = discard weightedMeshAttachment(
           data,
           "badBone",
@@ -482,6 +493,74 @@ spec "bony package":
           meshInfluence("root", 0.0, 0.0, 0.25),
           meshInfluence("root", 1.0, 0.0, 0.25),
         ]),
+        schemaViolation,
+      )
+      raisesBonyLoadError(
+        proc() = validateMeshAttachment(
+          data,
+          MeshAttachment(
+            name: "directEmptyInfluences",
+            path: "directEmptyInfluences",
+            uvs: @[meshUv(0.0, 0.0), meshUv(1.0, 0.0), meshUv(0.0, 1.0)],
+            triangles: @[0'u16, 1'u16, 2'u16],
+            vertices: @[
+              MeshVertex(weighted: true, influences: @[]),
+              weightedMeshVertex(@[meshInfluence("root", 1.0, 0.0, 1.0)]),
+              weightedMeshVertex(@[meshInfluence("root", 0.0, 1.0, 1.0)]),
+            ],
+            weighted: true,
+            deformAttachment: "directEmptyInfluences",
+          ),
+        ),
+        schemaViolation,
+      )
+      raisesBonyLoadError(
+        proc() = validateMeshAttachment(
+          data,
+          MeshAttachment(
+            name: "directBadWeight",
+            path: "directBadWeight",
+            uvs: @[meshUv(0.0, 0.0), meshUv(1.0, 0.0), meshUv(0.0, 1.0)],
+            triangles: @[0'u16, 1'u16, 2'u16],
+            vertices: @[
+              MeshVertex(weighted: true, influences: @[MeshInfluence(bone: "root", weight: -1.0)]),
+              weightedMeshVertex(@[meshInfluence("root", 1.0, 0.0, 1.0)]),
+              weightedMeshVertex(@[meshInfluence("root", 0.0, 1.0, 1.0)]),
+            ],
+            weighted: true,
+            deformAttachment: "directBadWeight",
+          ),
+        ),
+        schemaViolation,
+      )
+      raisesBonyLoadError(
+        proc() = discard weightedMeshAttachment(
+          data,
+          "linkedUnsupported",
+          @[meshUv(0.0, 0.0), meshUv(1.0, 0.0), meshUv(0.0, 1.0)],
+          @[0'u16, 1'u16, 2'u16],
+          @[
+            weightedMeshVertex(@[meshInfluence("root", 0.0, 0.0, 1.0)]),
+            weightedMeshVertex(@[meshInfluence("root", 1.0, 0.0, 1.0)]),
+            weightedMeshVertex(@[meshInfluence("root", 0.0, 1.0, 1.0)]),
+          ],
+          parentMesh = "baseMesh",
+        ),
+        schemaViolation,
+      )
+      raisesBonyLoadError(
+        proc() = discard weightedMeshAttachment(
+          data,
+          "deformTargetUnsupported",
+          @[meshUv(0.0, 0.0), meshUv(1.0, 0.0), meshUv(0.0, 1.0)],
+          @[0'u16, 1'u16, 2'u16],
+          @[
+            weightedMeshVertex(@[meshInfluence("root", 0.0, 0.0, 1.0)]),
+            weightedMeshVertex(@[meshInfluence("root", 1.0, 0.0, 1.0)]),
+            weightedMeshVertex(@[meshInfluence("root", 0.0, 1.0, 1.0)]),
+          ],
+          deformAttachment = "otherMesh",
+        ),
         schemaViolation,
       )
 
