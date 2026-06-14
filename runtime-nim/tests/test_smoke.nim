@@ -1965,6 +1965,127 @@ spec "bony package":
       closeTo(evaluated.layers[0].time, 1.0)
       closeTo(evaluated.layers[0].pose.scalars[0].value, 120.0)
 
+  it "evaluates one-dimensional state-machine blend states":
+    let data = animationFixture()
+    let idle = animationClip(
+      data,
+      "idle",
+      @[
+        boneScalarTimeline("root", rotateTimeline, @[scalarKeyframe(0.0, 0.0), scalarKeyframe(1.0, 10.0)]),
+        boneVectorTimeline("root", translateTimeline, @[vector2Keyframe(0.0, 0.0, 0.0), vector2Keyframe(1.0, 10.0, 20.0)]),
+      ],
+    )
+    let run = animationClip(
+      data,
+      "run",
+      @[
+        boneScalarTimeline("root", rotateTimeline, @[scalarKeyframe(0.0, 100.0), scalarKeyframe(1.0, 120.0)]),
+        boneVectorTimeline("root", translateTimeline, @[vector2Keyframe(0.0, 20.0, 40.0), vector2Keyframe(1.0, 30.0, 60.0)]),
+      ],
+    )
+    let machine = stateMachine(
+      "locomotion",
+      @[
+        stateMachineLayer(
+          "base",
+          @[
+            stateMachineBlendState(
+              "move",
+              "speed",
+              @[stateMachineBlendClip(run, 1.0), stateMachineBlendClip(idle, 0.0)],
+            ),
+          ],
+        ),
+      ],
+      @[stateMachineNumberInput("speed", 0.25)],
+    )
+    var runtime = initStateMachineRuntime(machine)
+    runtime.update(0.5)
+    var evaluated = runtime.evaluate()
+
+    then:
+      evaluated.layers[0].state == "move"
+      closeTo(evaluated.layers[0].time, 0.5)
+      closeTo(evaluated.layers[0].pose.scalars[0].value, 31.25)
+      closeTo(evaluated.layers[0].pose.vectors[0].x, 10.0)
+      closeTo(evaluated.layers[0].pose.vectors[0].y, 20.0)
+
+    runtime.setNumberInput("speed", 2.0)
+    evaluated = runtime.evaluate()
+
+    then:
+      closeTo(evaluated.pose.scalars[0].value, 110.0)
+
+  it "uses state-machine blend states with transitions":
+    let data = animationFixture()
+    let idle = animationClip(data, "idle", @[boneScalarTimeline("root", rotateTimeline, @[scalarKeyframe(0.0, 0.0)])])
+    let walk = animationClip(data, "walk", @[boneScalarTimeline("root", rotateTimeline, @[scalarKeyframe(0.0, 40.0)])])
+    let run = animationClip(data, "run", @[boneScalarTimeline("root", rotateTimeline, @[scalarKeyframe(0.0, 100.0)])])
+    let machine = stateMachine(
+      "machine",
+      @[
+        stateMachineLayer(
+          "base",
+          @[
+            stateMachineState("idle", idle),
+            stateMachineBlendState(
+              "move",
+              "speed",
+              @[stateMachineBlendClip(walk, 0.0), stateMachineBlendClip(run, 1.0)],
+            ),
+          ],
+          transitions = @[stateMachineTransition("idle", "move", @[stateMachineBoolCondition("moving")])],
+        ),
+      ],
+      @[stateMachineBoolInput("moving"), stateMachineNumberInput("speed", 0.5)],
+      listeners = @[stateMachineStateEnterListener("move-enter", "base", "move")],
+    )
+    var runtime = initStateMachineRuntime(machine)
+    runtime.setBoolInput("moving", true)
+    runtime.update(0.0)
+    let evaluated = runtime.evaluate()
+
+    then:
+      runtime.layers[0].currentState == "move"
+      runtime.events.len == 1
+      runtime.events[0].listener == "move-enter"
+      closeTo(evaluated.pose.scalars[0].value, 70.0)
+
+  it "blends missing state-machine blend channels from setup pose":
+    var dataValue = skeletonData(
+      skeletonHeader("demo", "0.1.0"),
+      @[boneData("root", "", localTransform(rotation = 30.0, scaleX = 1.0, scaleY = 1.0))],
+    )
+    let data = new SkeletonData
+    data[] = dataValue
+    let keyed = animationClip(
+      data[],
+      "keyed",
+      @[
+        boneScalarTimeline("root", rotateTimeline, @[scalarKeyframe(0.0, 10.0)]),
+        boneVectorTimeline("root", scaleTimeline, @[vector2Keyframe(0.0, 2.0, 2.0)]),
+      ],
+    )
+    let sparse = animationClip(data[], "sparse")
+    let machine = stateMachine(
+      "machine",
+      @[
+        stateMachineLayer(
+          "base",
+          @[stateMachineBlendState("move", "blend", @[stateMachineBlendClip(keyed, 0.0), stateMachineBlendClip(sparse, 1.0)])],
+        ),
+      ],
+      @[stateMachineNumberInput("blend", 0.5)],
+    )
+    let evaluated = initStateMachineRuntime(machine).evaluate(data)
+
+    then:
+      evaluated.pose.scalars.len == 1
+      closeTo(evaluated.pose.scalars[0].value, 20.0)
+      evaluated.pose.vectors.len == 1
+      closeTo(evaluated.pose.vectors[0].x, 1.5)
+      closeTo(evaluated.pose.vectors[0].y, 1.5)
+
   it "rejects invalid state-machine core data":
     let data = animationFixture()
     let idle = animationClip(data, "idle")
@@ -1981,6 +2102,40 @@ spec "bony package":
       raisesBonyLoadError(proc() = discard stateMachine("machine", @[]), schemaViolation)
       raisesBonyLoadError(proc() = discard stateMachine("machine", @[layer, layer]), duplicateKey)
       raisesBonyLoadError(proc() = discard StateMachineRuntime(machine: machine, layers: @[]).evaluate(), schemaViolation)
+      raisesBonyLoadError(proc() = discard stateMachineBlendClip(animationClip(data, ""), 0.0), schemaViolation)
+      raisesBonyLoadError(proc() = discard stateMachineBlendClip(idle, Inf), numericOutOfRange)
+      raisesBonyLoadError(proc() = discard stateMachineBlendState("", "speed", @[stateMachineBlendClip(idle, 0.0)]), schemaViolation)
+      raisesBonyLoadError(proc() = discard stateMachineBlendState("move", "", @[stateMachineBlendClip(idle, 0.0)]), schemaViolation)
+      raisesBonyLoadError(proc() = discard stateMachineBlendState("move", "speed", @[]), schemaViolation)
+      raisesBonyLoadError(proc() =
+        discard stateMachineBlendState("move", "speed", @[
+          stateMachineBlendClip(idle, 0.0),
+          stateMachineBlendClip(idle, 0.0),
+        ]),
+        duplicateKey,
+      )
+      raisesBonyLoadError(proc() =
+        discard stateMachine(
+          "machine",
+          @[stateMachineLayer("base", @[stateMachineBlendState("move", "missing", @[stateMachineBlendClip(idle, 0.0)])])],
+        ),
+        unknownRequiredReference,
+      )
+      raisesBonyLoadError(proc() =
+        discard stateMachine(
+          "machine",
+          @[stateMachineLayer("base", @[stateMachineBlendState("move", "armed", @[stateMachineBlendClip(idle, 0.0)])])],
+          @[stateMachineBoolInput("armed")],
+        ),
+        schemaViolation,
+      )
+      raisesBonyLoadError(proc() =
+        discard stateMachineLayer(
+          "base",
+          @[StateMachineState(name: "move", kind: blend1DState, clip: idle, blendInput: "speed", blendClips: @[stateMachineBlendClip(idle, 0.0)])],
+        ),
+        schemaViolation,
+      )
 
     var runtime = initStateMachineRuntime(machine)
     let extraLayer = stateMachineLayer("base", @[stateMachineState("idle", idle), stateMachineState("wave", animationClip(data, "wave"))])
