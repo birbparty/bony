@@ -1,6 +1,6 @@
 ## M6 .bnb binary framing: header, ToC, LEB128, and property records.
 
-import std/[algorithm, tables]
+import std/[algorithm, unicode, tables]
 
 import bony/generated/wire
 import bony/model
@@ -13,6 +13,8 @@ const
   bnbStringTableFlag* = 1'u64 shl 1
   bnbKnownFlags* = bnbStringTableFlag or bnbEmbeddedAtlasFlag
   bnbMaxPropertyPayloadBytes* = 67108864'u64
+  bnbMaxStringTableEntries* = 1048576'u64
+  bnbMaxStringBytes* = 1048576'u64
   maxVaruintBytes = 10
   maxTocEntries = 65536'u64
 
@@ -30,6 +32,10 @@ type
     propertyKey*: uint64
     payload*: seq[byte]
 
+  BnbStringTable* = object
+    values*: seq[string]
+    indexes: Table[string, uint64]
+
 
 proc packedVersion*(major = bnbMajorVersion; minor = bnbMinorVersion): uint64 =
   (major shl 16) or minor
@@ -45,6 +51,21 @@ proc writeVaruint*(output: var seq[byte]; value: uint64) =
     output.add byte((remaining and 0x7f'u64) or 0x80'u64)
     remaining = remaining shr 7
   output.add byte(remaining)
+
+
+proc writeStringBytes(output: var seq[byte]; value: string) =
+  if uint64(value.len) > bnbMaxStringBytes:
+    raise newBonyLoadError(schemaViolation, ".bnb string exceeds maximum UTF-8 byte length")
+  output.writeVaruint(uint64(value.len))
+  for ch in value:
+    output.add byte(ord(ch))
+
+
+proc validateStringValue(value: string) =
+  if uint64(value.len) > bnbMaxStringBytes:
+    raise newBonyLoadError(schemaViolation, ".bnb string exceeds maximum UTF-8 byte length")
+  if value.validateUtf8 != -1:
+    raise newBonyLoadError(schemaViolation, ".bnb string is not valid UTF-8")
 
 
 proc readVaruint*(input: openArray[byte]; index: var int): uint64 =
@@ -80,6 +101,67 @@ proc readVarint*(input: openArray[byte]; index: var int): int64 =
     magnitude
   else:
     -magnitude - 1
+
+
+proc initStringTable*(): BnbStringTable =
+  BnbStringTable(indexes: initTable[string, uint64]())
+
+
+proc intern*(table: var BnbStringTable; value: string): uint64 =
+  validateStringValue(value)
+  if value in table.indexes:
+    return table.indexes[value]
+  if uint64(table.values.len) >= bnbMaxStringTableEntries:
+    raise newBonyLoadError(schemaViolation, ".bnb string table has too many entries")
+  result = uint64(table.values.len)
+  table.values.add value
+  table.indexes[value] = result
+
+
+proc stringAt*(table: BnbStringTable; index: uint64): string =
+  if index >= uint64(table.values.len):
+    raise newBonyLoadError(unknownRequiredReference, ".bnb string index out of range: " & $index)
+  table.values[int(index)]
+
+
+proc writeStringTable*(output: var seq[byte]; table: BnbStringTable) =
+  output.writeVaruint(uint64(table.values.len))
+  for value in table.values:
+    validateStringValue(value)
+    output.writeStringBytes(value)
+
+
+proc readStringTable*(input: openArray[byte]; index: var int): BnbStringTable =
+  result = initStringTable()
+  let count = input.readVaruint(index)
+  if count > bnbMaxStringTableEntries:
+    raise newBonyLoadError(schemaViolation, ".bnb string table has too many entries")
+  for _ in 0'u64 ..< count:
+    let byteLength = input.readVaruint(index)
+    if byteLength > bnbMaxStringBytes:
+      raise newBonyLoadError(schemaViolation, ".bnb string exceeds maximum UTF-8 byte length")
+    if byteLength > uint64(input.len - index):
+      raise newBonyLoadError(truncatedInput, "truncated .bnb string table entry")
+    let endIndex = index + int(byteLength)
+    var value = newString(int(byteLength))
+    for offset in 0 ..< int(byteLength):
+      value[offset] = char(input[index + offset])
+    index = endIndex
+    if value in result.indexes:
+      raise newBonyLoadError(duplicateKey, "duplicate .bnb string table entry")
+    discard result.intern(value)
+
+
+proc writeStringPayload*(output: var seq[byte]; table: var BnbStringTable; value: string) =
+  output.writeVaruint(table.intern(value))
+
+
+proc readStringPayload*(payload: openArray[byte]; table: BnbStringTable): string =
+  var index = 0
+  let stringIndex = payload.readVaruint(index)
+  if index != payload.len:
+    raise newBonyLoadError(schemaViolation, ".bnb string payload has trailing bytes")
+  table.stringAt(stringIndex)
 
 
 proc backingTypeCode*(backingType: string): uint8 =

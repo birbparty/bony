@@ -202,6 +202,70 @@ spec "bony package":
       bytes.skipPropertyRecord(index, toc) == 900000
       index == bytes.len
 
+  it "encodes .bnb string tables in first-seen order":
+    var table = initStringTable()
+
+    then:
+      table.intern("root") == 0
+      table.intern("slot") == 1
+      table.intern("root") == 0
+      table.values == @["root", "slot"]
+
+    var bytes: seq[byte]
+    bytes.writeStringTable(table)
+    var index = 0
+    let decoded = bytes.readStringTable(index)
+
+    then:
+      bytes == @[
+        2'u8,
+        4'u8, byte(ord('r')), byte(ord('o')), byte(ord('o')), byte(ord('t')),
+        4'u8, byte(ord('s')), byte(ord('l')), byte(ord('o')), byte(ord('t')),
+      ]
+      decoded.values == @["root", "slot"]
+      decoded.stringAt(0) == "root"
+      decoded.stringAt(1) == "slot"
+      index == bytes.len
+      raisesBonyLoadError(proc() = discard decoded.stringAt(2), unknownRequiredReference)
+
+  it "encodes .bnb string payload indexes":
+    var table = initStringTable()
+    var payload: seq[byte]
+    payload.writeStringPayload(table, "root")
+    payload.writeStringPayload(table, "slot")
+    payload.writeStringPayload(table, "root")
+
+    then:
+      payload == @[0'u8, 1'u8, 0'u8]
+      table.values == @["root", "slot"]
+      readStringPayload(payload[0 .. 0], table) == "root"
+      readStringPayload(payload[1 .. 1], table) == "slot"
+      raisesBonyLoadError(proc() = discard readStringPayload(@[2'u8], table), unknownRequiredReference)
+      raisesBonyLoadError(proc() = discard readStringPayload(@[0'u8, 0'u8], table), schemaViolation)
+
+  it "rejects malformed .bnb string tables":
+    then:
+      raisesBonyLoadError(proc() =
+        var bytes: seq[byte]
+        bytes.writeVaruint(2)
+        bytes.writeVaruint(4)
+        bytes.add @[byte(ord('r')), byte(ord('o')), byte(ord('o')), byte(ord('t'))]
+        bytes.writeVaruint(4)
+        bytes.add @[byte(ord('r')), byte(ord('o')), byte(ord('o')), byte(ord('t'))]
+        var index = 0
+        discard bytes.readStringTable(index)
+      , duplicateKey)
+      raisesBonyLoadError(proc() =
+        let bytes = @[1'u8, 1'u8, 255'u8]
+        var index = 0
+        discard bytes.readStringTable(index)
+      , schemaViolation)
+      raisesBonyLoadError(proc() =
+        let bytes = @[1'u8, 4'u8, byte(ord('r'))]
+        var index = 0
+        discard bytes.readStringTable(index)
+      , truncatedInput)
+
   it "loads .bony JSON and applies defaults":
     let data = loadBonyJson("""
 {
