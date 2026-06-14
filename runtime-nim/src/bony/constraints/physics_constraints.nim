@@ -164,11 +164,7 @@ proc updatePhysicsConstraint*(
   if not active:
     state.active = false
     for input in inputs:
-      let channelState = state.channels[input.channel]
-      if channelState.initialized:
-        result.outputs.add outputFor(input.channel, channelState, input.target, safeParams.mix)
-      else:
-        result.outputs.add PhysicsChannelOutput(channel: input.channel, value: input.target)
+      result.outputs.add PhysicsChannelOutput(channel: input.channel, value: input.target)
     result.accumulator = state.accumulator
     return
 
@@ -185,7 +181,7 @@ proc updatePhysicsConstraint*(
       state.channels[input.channel].seedPhysicsChannel(input.target)
 
   state.accumulator += safeDt
-  while result.substeps < physicsMaxSubsteps and state.accumulator + physicsStepEpsilon >= physicsFixedDt:
+  while result.substeps < physicsMaxSubsteps and state.accumulator >= physicsFixedDt:
     let firstSubstep = result.substeps == 0
     for input in inputs:
       state.channels[input.channel].integrateChannel(safeParams, input.target, firstSubstep)
@@ -194,7 +190,7 @@ proc updatePhysicsConstraint*(
       state.accumulator = 0.0
     inc result.substeps
 
-  if state.accumulator + physicsStepEpsilon >= physicsFixedDt:
+  if state.accumulator >= physicsFixedDt:
     let dropped = int(floor((state.accumulator + physicsStepEpsilon) / physicsFixedDt))
     if dropped > 0:
       state.accumulator -= float64(dropped) * physicsFixedDt

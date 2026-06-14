@@ -1232,6 +1232,25 @@ spec "bony package":
     let inactive = inactiveState.updatePhysicsConstraint(params, @[physicsChannelInput(pcX, 2.0)], physicsFixedDt, active = false)
     let reactivated = inactiveState.updatePhysicsConstraint(params, @[physicsChannelInput(pcX, 4.0)], 0.0)
 
+    var staleInactiveState: PhysicsConstraintState
+    discard staleInactiveState.updatePhysicsConstraint(params, @[physicsChannelInput(pcX, 0.0)], physicsFixedDt)
+    let staleInactive = staleInactiveState.updatePhysicsConstraint(params, @[physicsChannelInput(pcX, 10.0)], physicsFixedDt, active = false)
+
+    var almostState: PhysicsConstraintState
+    let almost = almostState.updatePhysicsConstraint(params, @[physicsChannelInput(pcX, 0.0)], physicsFixedDt - physicsStepEpsilon * 0.5)
+    let crossed = almostState.updatePhysicsConstraint(params, @[physicsChannelInput(pcX, 0.0)], physicsStepEpsilon)
+
+    var firstPhysics: PhysicsConstraintState
+    var secondPhysics: PhysicsConstraintState
+    discard firstPhysics.updatePhysicsConstraint(params, @[physicsChannelInput(pcX, 0.0)], 0.0)
+    discard secondPhysics.updatePhysicsConstraint(physicsParams(inertia = 1.0), @[physicsChannelInput(pcX, 0.0)], 0.0)
+    let firstOrdered = firstPhysics.updatePhysicsConstraint(params, @[physicsChannelInput(pcX, 0.0)], physicsFixedDt)
+    let secondOrdered = secondPhysics.updatePhysicsConstraint(
+      physicsParams(inertia = 1.0),
+      @[physicsChannelInput(pcX, firstOrdered.outputs[0].value)],
+      physicsFixedDt,
+    )
+
     var channelState: PhysicsConstraintState
     let independent = channelState.updatePhysicsConstraint(
       params,
@@ -1263,6 +1282,14 @@ spec "bony package":
       closeTo(reactivated.accumulator, 0.0)
       closeTo(reactivated.outputs[0].value, 4.0)
       closeTo(inactiveState.channels[pcX].offset, 0.0)
+      closeTo(staleInactive.outputs[0].value, 10.0)
+      closeTo(staleInactiveState.channels[pcX].offset, physicsFixedDt)
+      almost.substeps == 0
+      closeTo(almost.accumulator, physicsFixedDt - physicsStepEpsilon * 0.5)
+      crossed.substeps == 1
+      closeWithin(crossed.accumulator, 0.0, physicsStepEpsilon)
+      closeTo(firstOrdered.outputs[0].value, physicsFixedDt)
+      closeTo(secondOrdered.outputs[0].value, 0.0)
       independent.outputs.len == 2
       closeTo(independent.outputs[0].value, 1.0 + physicsFixedDt)
       closeTo(independent.outputs[1].value, -2.0 + physicsFixedDt)
