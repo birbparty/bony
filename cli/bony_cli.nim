@@ -44,6 +44,22 @@ proc parsePositiveIntArg(value, name: string): int =
   parsed
 
 
+proc requireSetupPoseTime(time: float64) =
+  if time != 0.0:
+    raise newBonyLoadError(
+      schemaViolation,
+      "--t is reserved until serialized animations are available; use --t 0 for setup-pose output",
+    )
+
+
+proc rejectStateMachineArgs(stateMachine, inputScript: string) =
+  if stateMachine.len != 0 or inputScript.len != 0:
+    raise newBonyLoadError(
+      schemaViolation,
+      "serialized state machines and input scripts are not available in the current .bony/.bnb model",
+    )
+
+
 proc loadInputSkeleton(path: string): SkeletonData =
   if path.toLowerAscii.endsWith(".bnb"):
     loadBonyBnb(readBytes(path))
@@ -93,6 +109,19 @@ proc numericGoldenJson(data: SkeletonData; time: float64): string =
     bones.add node
   root["bones"] = bones
 
+  var slots = newJArray()
+  for slot in data.slots:
+    var node = newJObject()
+    node["name"] = newJString(slot.name)
+    node["bone"] = newJString(slot.bone)
+    node["attachment"] = newJString(slot.attachment)
+    node["r"] = newJFloat(1.0)
+    node["g"] = newJFloat(1.0)
+    node["b"] = newJFloat(1.0)
+    node["a"] = newJFloat(1.0)
+    slots.add node
+  root["slots"] = slots
+
   var drawBatches = newJArray()
   for batch in batches:
     var node = newJObject()
@@ -117,13 +146,33 @@ proc numericGoldenJson(data: SkeletonData; time: float64): string =
 
 
 proc writeNumericGolden(args: seq[string]) =
-  if args.len notin {2, 4}:
+  if args.len < 2:
     quit(usage(), QuitFailure)
   var time = 0.0
-  if args.len == 4:
-    if args[2] != "--t":
+  var stateMachine = ""
+  var inputScript = ""
+  var index = 2
+  while index < args.len:
+    case args[index]
+    of "--t":
+      if index + 1 >= args.len:
+        quit(usage(), QuitFailure)
+      time = parseFloatArg(args[index + 1], "--t")
+      index += 2
+    of "--state-machine":
+      if index + 1 >= args.len:
+        quit(usage(), QuitFailure)
+      stateMachine = args[index + 1]
+      index += 2
+    of "--input-script":
+      if index + 1 >= args.len:
+        quit(usage(), QuitFailure)
+      inputScript = args[index + 1]
+      index += 2
+    else:
       quit(usage(), QuitFailure)
-    time = parseFloatArg(args[3], "--t")
+  rejectStateMachineArgs(stateMachine, inputScript)
+  requireSetupPoseTime(time)
   let data = loadInputSkeleton(args[0])
   writeFile(args[1], numericGoldenJson(data, time))
 
@@ -177,12 +226,8 @@ proc renderSetupPose(args: seq[string]) =
 
   if outputPath.len == 0:
     raise newBonyLoadError(schemaViolation, "play requires --out")
-  if stateMachine.len != 0 or inputScript.len != 0:
-    raise newBonyLoadError(
-      schemaViolation,
-      "serialized state machines and input scripts are not available in the current .bony/.bnb model",
-    )
-  discard time
+  rejectStateMachineArgs(stateMachine, inputScript)
+  requireSetupPoseTime(time)
   let data = loadInputSkeleton(inputPath)
   let image = renderSoftware(buildDrawBatches(data), width, height)
   image.writeFile(outputPath)

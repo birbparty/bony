@@ -1604,12 +1604,17 @@ spec "bony package":
 
     let jsonToBnb = runProcess(cliPath, ["json-to-bnb", assetPath, bnbPath])
     let bnbToJson = runProcess(cliPath, ["bnb-to-json", bnbPath, roundTripPath])
-    let golden = runProcess(cliPath, ["golden-gen", bnbPath, goldenPath, "--t", "1.25"])
-    let play = runProcess(cliPath, ["play", assetPath, "--out", framePath, "--width", "8", "--height", "8", "--t", "1.25"])
-    let unsupportedStateMachine = runProcess(
+    let golden = runProcess(cliPath, ["golden-gen", bnbPath, goldenPath, "--t", "0"])
+    let play = runProcess(cliPath, ["play", assetPath, "--out", framePath, "--width", "8", "--height", "8", "--t", "0"])
+    let unsupportedPlayStateMachine = runProcess(
       cliPath,
       ["play", assetPath, "--state-machine", "main", "--input-script", assetPath, "--out", framePath],
     )
+    let unsupportedGoldenStateMachine = runProcess(
+      cliPath,
+      ["golden-gen", assetPath, goldenPath, "--state-machine", "main", "--input-script", assetPath],
+    )
+    let unsupportedTime = runProcess(cliPath, ["golden-gen", assetPath, goldenPath, "--t", "1.25"])
     let goldenJson = parseJson(readFile(goldenPath))
 
     then:
@@ -1618,15 +1623,30 @@ spec "bony package":
       bnbToJson.exitCode == 0
       golden.exitCode == 0
       play.exitCode == 0
-      unsupportedStateMachine.exitCode != 0
-      unsupportedStateMachine.output.contains("serialized state machines")
+      unsupportedPlayStateMachine.exitCode != 0
+      unsupportedPlayStateMachine.output.contains("serialized state machines")
+      unsupportedGoldenStateMachine.exitCode != 0
+      unsupportedGoldenStateMachine.output.contains("serialized state machines")
+      unsupportedTime.exitCode != 0
+      unsupportedTime.output.contains("--t is reserved")
       fileExists(bnbPath)
       getFileSize(bnbPath) > 0
       loadBonyJson(readFile(roundTripPath)).header.name == "cli-demo"
       goldenJson["format"].getStr() == "bony.numeric-golden.v1"
-      goldenJson["time"].getFloat() == 1.25
+      goldenJson["time"].getFloat() == 0.0
       goldenJson["bones"].len == 2
+      closeTo(goldenJson["bones"][0]["world"]["tx"].getFloat(), 2.0)
+      closeTo(goldenJson["bones"][0]["world"]["ty"].getFloat(), 3.0)
+      closeTo(goldenJson["bones"][1]["world"]["tx"].getFloat(), 6.0)
+      closeTo(goldenJson["bones"][1]["world"]["ty"].getFloat(), 3.0)
+      goldenJson["slots"].len == 1
+      goldenJson["slots"][0]["name"].getStr() == "body"
+      goldenJson["slots"][0]["attachment"].getStr() == "bodyRegion"
+      goldenJson["slots"][0]["a"].getFloat() == 1.0
       goldenJson["drawBatches"].len == 1
+      goldenJson["drawBatches"][0]["slot"].getStr() == "body"
+      closeTo(goldenJson["drawBatches"][0]["vertices"][0]["x"].getFloat(), 5.0)
+      closeTo(goldenJson["drawBatches"][0]["vertices"][0]["y"].getFloat(), 1.0)
       goldenJson["drawBatches"][0]["indices"].len == 6
       fileExists(framePath)
       getFileSize(framePath) > 0
