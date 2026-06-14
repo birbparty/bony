@@ -16,6 +16,8 @@ jobs:
     name: Linux quality gates
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      BDDY_COMMIT: 34287484337fbad6626525062fe27d28fcb0fc58
 
     steps:
       - name: Checkout bony
@@ -52,6 +54,9 @@ jobs:
         run: |
           mkdir -p "$HOME/git"
           git clone --depth 1 https://github.com/mattsp1290/bddy.git "$HOME/git/bddy"
+          git -C "$HOME/git/bddy" fetch --depth 1 origin "$BDDY_COMMIT"
+          git -C "$HOME/git/bddy" checkout "$BDDY_COMMIT"
+          ln -s "$HOME/git/bddy" "$GITHUB_WORKSPACE/../../bddy"
 
       - name: Install Nim dependencies
         working-directory: runtime-nim
@@ -60,6 +65,13 @@ jobs:
       - name: Nim package check
         working-directory: runtime-nim
         run: nimble check
+
+      - name: Nim source vet
+        working-directory: runtime-nim
+        run: |
+          nim check --path:src --path:~/git/bddy/src src/bony.nim
+          nim check --path:src --path:~/git/bddy/src tests/test_smoke.nim
+          nim check --path:src --path:~/git/bddy/src ../cli/bony_cli.nim
 
       - name: Nim build and tests
         working-directory: runtime-nim
