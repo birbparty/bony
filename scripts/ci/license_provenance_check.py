@@ -18,6 +18,28 @@ PUBSPEC_LOCK = ROOT / "runtime-dart" / "pubspec.lock"
 ROOT_LICENSE = ROOT / "LICENSE"
 BDDY_URL = "https://github.com/mattsp1290/bddy"
 BDDY_COMMIT = "34287484337fbad6626525062fe27d28fcb0fc58"
+BUILD_POLICY_PATHS = [
+    ROOT / ".github" / "workflows",
+    ROOT / "scripts",
+    ROOT / "runtime-nim" / "bony.nimble",
+    ROOT / "runtime-dart" / "pubspec.yaml",
+    ROOT / "runtime-dart" / "pubspec.lock",
+]
+PRIOR_ART_RUNTIME_TERMS = [
+    "spine",
+    "esoteric",
+    "live2d",
+    "cubism",
+    "rive-runtime",
+    "rive runtime",
+    "dragonbones",
+    "dragon bones",
+]
+NETWORK_FETCH_PATTERN = re.compile(
+    r"\b(git\s+(clone|fetch|submodule)|curl|wget|scp|ssh|npm\s+install|"
+    r"nimble\s+install|dart\s+pub\s+add|go\s+get|pip\s+install)\b|https?://",
+    re.IGNORECASE,
+)
 
 DART_LOCK_ALLOWLIST = {
     "_fe_analyzer_shared": ("99.0.0", "a49d6cf99e8d8e7a8e93668d09ced0bbdb954d0b4fccc2f5f9241c6b87fad95c"),
@@ -202,23 +224,31 @@ def assert_bddy_provenance(scan_text: str) -> None:
 
 
 def assert_cleanroom_docs(cleanroom_text: str, provenance_text: str) -> None:
+    cleanroom_lower = cleanroom_text.lower()
+    provenance_lower = provenance_text.lower()
     combined = (cleanroom_text + "\n" + provenance_text).lower()
     for required in [
         "clean-room",
         "no-fetch-source build rule",
         "must not fetch",
+        "via web tools",
         "spine",
         "live2d",
         "rive",
         "dragonbones",
+        "lottie",
+        "gltf",
+        "creature",
         "capability",
         "public/textbook math",
         "human/legal review",
+        "byte-compatibility",
+        "disassembled binaries",
+        "exact json/binary layouts",
     ]:
-        if required not in combined:
+        if required not in cleanroom_lower:
             fail(f"clean-room provenance docs must mention {required!r}")
 
-    cleanroom_lower = cleanroom_text.lower()
     if not re.search(r"must not fetch,\s+clone,\s+browse,\s+download,\s+inspect", cleanroom_lower):
         fail("CLEANROOM.md must include the explicit no-fetch-source standing instruction")
     if not re.search(r"generated\s+runtime\s+definition\s+files", cleanroom_lower):
@@ -226,7 +256,6 @@ def assert_cleanroom_docs(cleanroom_text: str, provenance_text: str) -> None:
     if "spine importer is blocked for human/legal review" not in cleanroom_lower:
         fail("CLEANROOM.md must preserve the blocked Spine importer rule")
 
-    provenance_lower = provenance_text.lower()
     if not re.search(
         r"no `bony` implementation is intentionally derived from spine,\s+live2d,\s+rive,\s+or\s+dragonbones runtime source",
         provenance_lower,
@@ -234,6 +263,31 @@ def assert_cleanroom_docs(cleanroom_text: str, provenance_text: str) -> None:
         fail("PROVENANCE.md must record current prior-art runtime source status")
     if "docs/nim-dependency-license-scan.md" not in provenance_text:
         fail("PROVENANCE.md must link dependency license evidence")
+    if not re.search(r"not eligible merely\s+because it was recorded here", provenance_lower):
+        fail("PROVENANCE.md must not allow recorded external sources to become implementation source")
+
+
+def build_policy_files() -> list[Path]:
+    files: list[Path] = []
+    for path in BUILD_POLICY_PATHS:
+        if path.is_dir():
+            files.extend(child for child in path.rglob("*") if child.is_file())
+        elif path.exists():
+            files.append(path)
+    return sorted(files)
+
+
+def assert_no_forbidden_runtime_fetches() -> None:
+    for path in build_policy_files():
+        text = path.read_text(encoding="utf-8")
+        for line_number, line in enumerate(text.splitlines(), start=1):
+            lower_line = line.lower()
+            if not NETWORK_FETCH_PATTERN.search(line):
+                continue
+            for term in PRIOR_ART_RUNTIME_TERMS:
+                if term in lower_line:
+                    rel = path.relative_to(ROOT)
+                    fail(f"forbidden prior-art runtime source fetch in {rel}:{line_number}: {term}")
 
 
 def main() -> None:
@@ -253,6 +307,7 @@ def main() -> None:
     assert_dart_provenance(pubspec_text)
     assert_dart_lock_provenance(pubspec_lock_text)
     assert_cleanroom_docs(cleanroom_text, provenance_text)
+    assert_no_forbidden_runtime_fetches()
 
 
 if __name__ == "__main__":

@@ -27,7 +27,8 @@ wire layout, documentation text, or importer implementation.
 
 Agents, scripts, CI jobs, build steps, and implementation tasks MUST NOT fetch,
 clone, browse, download, inspect, or otherwise retrieve Spine, Live2D, Rive, or
-DragonBones runtime source while implementing this project.
+DragonBones runtime source via web tools, GitHub tools, package tools, mirrors,
+or direct network commands while implementing this project.
 
 This includes web tools, GitHub tools, package mirrors, generated runtime
 definition files, SDK source trees, disassembled binaries, and copied snippets
@@ -60,8 +61,8 @@ work. Live2D import is out of scope unless a later legal and design review
 explicitly changes that.
 
 Importers are migration tools only. They must parse documented, user-supplied
-asset files and convert into `bony`'s own data model; they must not target byte
-compatibility or reproduce another runtime.
+asset files and convert into `bony`'s own data model; they must not target
+byte-compatibility or reproduce another runtime.
 
 ## Review Checklist
 

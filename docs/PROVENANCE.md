@@ -44,10 +44,11 @@ class becomes relevant:
 
 1. Record the reason it is needed.
 2. Record whether it is dependency evidence, public math, capability context,
-   or implementation source.
+   or proposed implementation source.
 3. Confirm it does not violate `docs/CLEANROOM.md`.
 4. Update CI checks if the new source must be enforced mechanically.
 
 Implementation source must be project-owned or public/textbook math. Anything
-that looks like prior-art runtime implementation source requires a new bead and
-human/legal review before work continues.
+that looks like prior-art runtime implementation source is not eligible merely
+because it was recorded here; it requires a new bead, human/legal review, and a
+specific written decision before work continues.

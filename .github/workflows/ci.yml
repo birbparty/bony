@@ -23,6 +23,9 @@ jobs:
       - name: Checkout bony
         uses: actions/checkout@v4
 
+      - name: License and provenance scan
+        run: python3 scripts/ci/license_provenance_check.py
+
       - name: Install system libraries
         run: |
           sudo apt-get update
@@ -96,9 +99,6 @@ jobs:
 
       - name: Schema, registry, and defaults validation
         run: python3 -m unittest discover -s codegen -p 'test_*.py'
-
-      - name: License and provenance scan
-        run: python3 scripts/ci/license_provenance_check.py
 
       - name: Dart dependencies
         working-directory: runtime-dart
