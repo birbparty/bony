@@ -36,7 +36,7 @@ Codegen and CI freshness checks must validate:
   JSON schema type.
 - `omitWhenDefault: true` is paired with `applyOnLoad: true`.
 - Every registered object property appears exactly once in either
-  `objectDefaults.properties` or `requiredProperties`.
+  `objectDefaults.properties` or object-scoped `requiredProperties`.
 - Every equality override is one of the closed `equalityModes` ids in
   `spec/defaults.yml`.
 
@@ -57,7 +57,7 @@ Forbidden changes:
   type.
 - Omitting a field on serialize without applying the same default on load.
 - Leaving a registered object property out of both the default table and the
-  required/no-default table.
+  object-scoped required/no-default table.
 
 ## Canonicalization Relationship
 

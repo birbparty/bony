@@ -45,10 +45,12 @@ entrySchemas:
       doc: human-readable explanation
   requiredProperty:
     required:
+      - object
       - property
       - reason
       - ownerBead
     fields:
+      object: id of a declared registry object entry
       property: id of a declared registry property valid for the owning object
       reason: why absence is invalid or owned outside default application
       ownerBead: bead that introduced the required/no-default rule

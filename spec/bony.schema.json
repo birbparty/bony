@@ -1,0 +1,10 @@
+{
+  "$defs": {},
+  "$id": "https://bony.local/spec/bony.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Generated from registry/wire.yml and spec/defaults.yml.",
+  "not": {},
+  "title": "bony",
+  "type": "object"
+}
