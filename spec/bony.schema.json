@@ -1,10 +1,56 @@
 {
-  "$defs": {},
+  "$defs": {
+    "bone": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "parent": {
+          "default": "",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "skeleton": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "version": {
+          "default": "0.1.0",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    }
+  },
   "$id": "https://bony.local/spec/bony.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "description": "Generated from registry/wire.yml and spec/defaults.yml.",
-  "not": {},
+  "properties": {
+    "bones": {
+      "items": {
+        "$ref": "#/$defs/bone"
+      },
+      "type": "array"
+    },
+    "skeleton": {
+      "$ref": "#/$defs/skeleton"
+    }
+  },
+  "required": [
+    "skeleton"
+  ],
   "title": "bony",
   "type": "object"
 }

@@ -91,7 +91,7 @@ class GeneratorValidationTests(unittest.TestCase):
 
         self.assertIn("BonyObjectSpec", generate.generate_nim(registry, defaults))
         self.assertIn("BonyObjectSpec", generate.generate_dart(registry, defaults))
-        self.assertIn('"oneOf"', generate.generate_schema(registry, defaults))
+        self.assertIn('"bones"', generate.generate_schema(registry, defaults))
 
     def test_invalid_default_type_is_rejected(self) -> None:
         registry = sample_registry()
