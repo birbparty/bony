@@ -1,7 +1,8 @@
-import std/[math, sequtils, strutils]
+import std/[math, os, sequtils, strutils]
 
 import bddy
 import bony
+import pixie
 
 proc raisesBonyLoadError(input: string): bool =
   try:
@@ -1429,6 +1430,144 @@ spec "bony package":
       closeTo(batches[0].vertices[2].u, 1)
       closeTo(batches[0].vertices[2].v, 1)
       closeTo(batches[0].vertices[2].a, 1)
+
+  it "renders draw batches with the software rasterizer":
+    let data = skeletonData(
+      skeletonHeader("demo", "0.1.0"),
+      @[boneData("root", "", localTransform(x = 1.0, y = 1.0))],
+      @[slotData("body", "root", "bodyRegion")],
+      @[regionAttachment("bodyRegion", 2.0, 2.0)]
+    )
+    let image = renderSoftware(buildDrawBatches(data), 3, 3)
+
+    then:
+      image[0, 0].a == 255
+      image[0, 0].r == 255
+      image[1, 1].a == 255
+      image[2, 2].a == 0
+
+  it "samples texture pages with the software rasterizer":
+    let texture = newImage(2, 2)
+    texture.fill(rgba(0, 0, 0, 0))
+    texture[0, 0] = rgba(255, 0, 0, 255)
+    let batch = DrawBatch(
+      texturePage: "atlas",
+      blendMode: "normal",
+      vertices: @[
+        DrawVertex(x: 0.0, y: 0.0, u: 0.0, v: 0.0, r: 1.0, g: 1.0, b: 1.0, a: 1.0),
+        DrawVertex(x: 1.0, y: 0.0, u: 0.0, v: 0.0, r: 1.0, g: 1.0, b: 1.0, a: 1.0),
+        DrawVertex(x: 0.0, y: 1.0, u: 0.0, v: 0.0, r: 1.0, g: 1.0, b: 1.0, a: 1.0),
+      ],
+      indices: @[0'u16, 1'u16, 2'u16],
+    )
+    let image = renderSoftware(
+      @[batch],
+      softwareRasterOptions(1, 1, texturePages = @[softwareTexturePage("atlas", texture)])
+    )
+
+    then:
+      image[0, 0].r == 255
+      image[0, 0].g == 0
+      image[0, 0].b == 0
+      image[0, 0].a == 255
+
+  it "does not double blend shared triangle edges":
+    let batch = DrawBatch(
+      blendMode: "normal",
+      vertices: @[
+        DrawVertex(x: 0.0, y: 0.0, r: 1.0, g: 1.0, b: 1.0, a: 0.5),
+        DrawVertex(x: 2.0, y: 0.0, r: 1.0, g: 1.0, b: 1.0, a: 0.5),
+        DrawVertex(x: 2.0, y: 2.0, r: 1.0, g: 1.0, b: 1.0, a: 0.5),
+        DrawVertex(x: 0.0, y: 2.0, r: 1.0, g: 1.0, b: 1.0, a: 0.5),
+      ],
+      indices: @[0'u16, 1'u16, 2'u16, 2'u16, 3'u16, 0'u16],
+    )
+    let image = renderSoftware(@[batch], 2, 2)
+
+    then:
+      image[0, 0].a == 128
+      image[0, 0].r == 128
+      image[1, 0].a == 128
+      image[1, 0].r == 128
+      image[0, 1].a == 128
+      image[0, 1].r == 128
+      image[1, 1].a == 128
+      image[1, 1].r == 128
+
+  it "decodes premultiplied texture pages":
+    let texture = newImage(1, 1)
+    texture[0, 0] = rgba(128, 0, 0, 128)
+    let batch = DrawBatch(
+      texturePage: "atlas",
+      blendMode: "normal",
+      vertices: @[
+        DrawVertex(x: 0.0, y: 0.0, u: 0.0, v: 0.0, r: 1.0, g: 1.0, b: 1.0, a: 1.0),
+        DrawVertex(x: 1.0, y: 0.0, u: 0.0, v: 0.0, r: 1.0, g: 1.0, b: 1.0, a: 1.0),
+        DrawVertex(x: 0.0, y: 1.0, u: 0.0, v: 0.0, r: 1.0, g: 1.0, b: 1.0, a: 1.0),
+      ],
+      indices: @[0'u16, 1'u16, 2'u16],
+    )
+    let image = renderSoftware(
+      @[batch],
+      softwareRasterOptions(1, 1, texturePages = @[softwareTexturePage("atlas", texture, premultipliedAlpha = true)])
+    )
+
+    then:
+      image[0, 0].r == 128
+      image[0, 0].g == 0
+      image[0, 0].b == 0
+      image[0, 0].a == 128
+
+  it "rejects invalid software rasterizer input":
+    let batch = DrawBatch(
+      texturePage: "missing",
+      blendMode: "normal",
+      vertices: @[
+        DrawVertex(x: 0.0, y: 0.0, r: 1.0, g: 1.0, b: 1.0, a: 1.0),
+        DrawVertex(x: 1.0, y: 0.0, r: 1.0, g: 1.0, b: 1.0, a: 1.0),
+        DrawVertex(x: 0.0, y: 1.0, r: 1.0, g: 1.0, b: 1.0, a: 1.0),
+      ],
+      indices: @[0'u16, 1'u16, 2'u16],
+    )
+    let badBlend = DrawBatch(blendMode: "unknown")
+    let badIndex = DrawBatch(
+      blendMode: "normal",
+      vertices: @[DrawVertex(x: 0.0, y: 0.0, r: 1.0, g: 1.0, b: 1.0, a: 1.0)],
+      indices: @[0'u16, 1'u16, 2'u16],
+    )
+
+    then:
+      raisesBonyLoadError(proc() = discard renderSoftware(@[batch], 1, 1), unknownRequiredReference)
+      raisesBonyLoadError(proc() = discard renderSoftware(@[badBlend], 1, 1), schemaViolation)
+      raisesBonyLoadError(proc() = discard renderSoftware(@[badIndex], 1, 1), unknownRequiredReference)
+      raisesBonyLoadError(
+        proc() = discard renderSoftware(
+          @[],
+          softwareRasterOptions(
+            1,
+            1,
+            texturePages = @[
+              softwareTexturePage("atlas", newImage(1, 1)),
+              softwareTexturePage("atlas", newImage(1, 1)),
+            ],
+          ),
+        ),
+        duplicateKey,
+      )
+      raisesBonyLoadError(proc() = discard softwareRasterOptions(0, 1), schemaViolation)
+
+  it "writes software rasterizer images as PNG":
+    let path = "/tmp/bony_software_rasterizer_test.png"
+    if fileExists(path):
+      removeFile(path)
+    let image = renderSoftware(@[], softwareRasterOptions(1, 1, clear = rgba(1, 2, 3, 4)))
+    image.writeFile(path)
+
+    then:
+      fileExists(path)
+      getFileSize(path) > 0
+
+    removeFile(path)
 
   it "serializes M2 region and slot data":
     let data = skeletonData(
