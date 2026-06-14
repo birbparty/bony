@@ -48,10 +48,12 @@ proc parentIndexes(bones: openArray[BoneData]): seq[int] =
     indexes[bone.name] = index
 
 
-proc writeBoneIndexes(bones: openArray[BoneData]; writes: openArray[string]): seq[int] =
-  var byName = initTable[string, int]()
+proc boneIndexByName(bones: openArray[BoneData]): Table[string, int] =
   for index, bone in bones:
-    byName[bone.name] = index
+    result[bone.name] = index
+
+
+proc writeBoneIndexes(byName: Table[string, int]; writes: openArray[string]): seq[int] =
   for boneName in writes:
     if boneName notin byName:
       raise newBonyLoadError(unknownRequiredReference, "unknown constraint write bone: " & boneName)
@@ -95,6 +97,7 @@ proc buildConstraintUpdateCache*(
   descriptors: openArray[ConstraintCacheDescriptor];
 ): seq[ConstraintUpdateCacheEntry] =
   let parents = parentIndexes(bones)
+  let byName = boneIndexByName(bones)
   var sortedEntries: seq[tuple[order: ConstraintOrderEntry; descriptor: ConstraintCacheDescriptor]]
   for descriptor in descriptors:
     let order = constraintOrderEntry(descriptor.kind, descriptor.order, descriptor.sourceIndex)
@@ -108,16 +111,14 @@ proc buildConstraintUpdateCache*(
   for index in 0 ..< writeBlockers.len:
     writeBlockers[index] = -1
   for constraintIndex, item in sortedEntries:
-    for boneIndex in writeBoneIndexes(bones, item.descriptor.writes):
+    for boneIndex in writeBoneIndexes(byName, item.descriptor.writes):
       writeBlockers[boneIndex] = max(writeBlockers[boneIndex], constraintIndex)
 
   var releaseAfter = newSeq[int](bones.len)
   for index in 0 ..< releaseAfter.len:
-    releaseAfter[index] = -1
-    var current = index
-    while current >= 0:
-      releaseAfter[index] = max(releaseAfter[index], writeBlockers[current])
-      current = parents[current]
+    releaseAfter[index] = writeBlockers[index]
+    if parents[index] >= 0:
+      releaseAfter[index] = max(releaseAfter[index], releaseAfter[parents[index]])
 
   var emitted = newSeq[bool](bones.len)
   for itemIndex, item in sortedEntries:

@@ -850,6 +850,16 @@ spec "bony package":
       constraintCacheDescriptor(ckPhysics, 3, 1, ["root"]),
       constraintCacheDescriptor(ckPath, -10, 0, ["hand"]),
     ])
+    let chainCache = buildConstraintUpdateCache(
+      @[
+        boneData("chain0", ""),
+        boneData("chain1", "chain0"),
+        boneData("chain2", "chain1"),
+        boneData("chain3", "chain2"),
+        boneData("side", ""),
+      ],
+      @[constraintCacheDescriptor(ckIk, 0, 0, ["chain0"])],
+    )
 
     then:
       cache.len == 8
@@ -869,6 +879,7 @@ spec "bony package":
       cache[6].constraint.kind == ckPath
       cache[6].constraint.sourceIndex == 1
       cache[7].bones == @[3]
+      cache.allIt(it.kind != ccekConstraint or it.constraint.kind != ckPhysics)
       pathCache.len == 3
       pathCache[0].bones == @[0, 1, 3]
       pathCache[1].constraint.kind == ckPath
@@ -876,6 +887,10 @@ spec "bony package":
       pathCache[2].bones == @[2]
       physicsOrder.mapIt(it.order) == @[-1, 3, 3]
       physicsOrder.mapIt(it.sourceIndex) == @[0, 1, 2]
+      chainCache.len == 3
+      chainCache[0].bones == @[4]
+      chainCache[1].constraint.kind == ckIk
+      chainCache[2].bones == @[0, 1, 2, 3]
       raisesBonyLoadError(proc() =
         discard buildConstraintUpdateCache(data.bones, @[constraintCacheDescriptor(ckPath, 0, 0, ["missing"])])
       , unknownRequiredReference)
