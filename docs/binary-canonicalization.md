@@ -18,9 +18,12 @@ This document owns:
 - String table construction.
 - Object stream ordering.
 - Property ordering and default omission.
+- Interaction with optional `header.hash` and `header.bounds`.
 
 It does not define binary validation for malformed inputs; that belongs to the
 load-validation contract. It also does not define registry key allocation.
+`header.hash` and `header.bounds` policy is defined in
+`docs/header-hash-bounds.md`.
 
 ## Stability Target
 
