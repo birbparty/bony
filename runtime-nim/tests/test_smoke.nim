@@ -1149,6 +1149,85 @@ spec "bony package":
       raisesBonyLoadError(proc() = state.applyParameterSample(ParameterSample(name: "p", value: Inf)), numericOutOfRange)
       raisesBonyLoadError(proc() = state.applyParameterSample(ParameterSample(name: "missing", value: 0.0)), unknownRequiredReference)
 
+  it "samples parameter timelines and applies them to state":
+    let angle = parameterAxis("AngleX", minValue = -30.0, maxValue = 30.0, defaultValue = 0.0)
+    let open = parameterAxis("EyeOpen", minValue = 0.0, maxValue = 1.0, defaultValue = 1.0)
+    let linear = parameterTimeline(
+      angle,
+      @[
+        scalarKeyframe(0.0, -30.0),
+        scalarKeyframe(2.0, 30.0),
+      ],
+    )
+    let stepped = parameterTimeline(
+      open,
+      @[
+        scalarKeyframe(0.0, 1.0, steppedCurve),
+        scalarKeyframe(1.0, 0.0),
+      ],
+    )
+    let bezier = parameterTimeline(
+      open,
+      @[
+        scalarKeyframe(0.0, 0.0, bezierTimelineCurve(0.25, 0.0, 0.75, 1.0)),
+        scalarKeyframe(1.0, 1.0),
+      ],
+    )
+    var state = initParameterState(@[angle, open])
+    state.applyParameterTimeline(linear, 1.0)
+    state.applyParameterTimeline(stepped, 0.75)
+
+    then:
+      linear.target == "AngleX"
+      linear.keys.len == 2
+      closeTo(linear.sampleParameterValue(0.0).value, -30.0)
+      closeTo(linear.sampleParameterValue(1.0).value, 0.0)
+      closeTo(linear.sampleParameterValue(3.0).value, 30.0)
+      closeTo(stepped.sampleParameterValue(0.75).value, 1.0)
+      closeTo(bezier.sampleParameterValue(0.5).value, 0.5)
+      closeTo(state.getParameterValue("AngleX"), 0.0)
+      closeTo(state.getParameterValue("EyeOpen"), 1.0)
+
+    let undershoot = parameterTimeline(
+      open,
+      @[
+        scalarKeyframe(0.0, 0.0, bezierTimelineCurve(0.25, -1.0, 0.75, -1.0)),
+        scalarKeyframe(1.0, 1.0),
+      ],
+    )
+    let overshoot = parameterTimeline(
+      open,
+      @[
+        scalarKeyframe(0.0, 0.0, bezierTimelineCurve(0.25, 2.0, 0.75, 2.0)),
+        scalarKeyframe(1.0, 1.0),
+      ],
+    )
+
+    then:
+      closeTo(undershoot.sampleParameterValue(0.5).value, 0.0)
+      closeTo(overshoot.sampleParameterValue(0.5).value, 1.0)
+
+  it "rejects invalid parameter timelines":
+    let axis = parameterAxis("p", minValue = 0.0, maxValue = 1.0, defaultValue = 0.5)
+
+    then:
+      raisesBonyLoadError(proc() = discard parameterTimeline(axis, @[]), schemaViolation)
+      raisesBonyLoadError(proc() = discard parameterTimeline(axis, @[scalarKeyframe(1.0, 0.0), scalarKeyframe(0.0, 1.0)]), schemaViolation)
+      raisesBonyLoadError(proc() = discard parameterTimeline(axis, @[scalarKeyframe(0.0, 2.0)]), schemaViolation)
+      raisesBonyLoadError(proc() = discard parameterTimeline(axis, @[ScalarKeyframe(time: Inf, value: 0.0, curve: linearTimelineCurve)]), numericOutOfRange)
+      raisesBonyLoadError(proc() = discard parameterTimeline(axis, @[ScalarKeyframe(time: 1.0, value: 0.0, curve: linearTimelineCurve), ScalarKeyframe(time: 1.0 + 1e-10, value: 1.0, curve: linearTimelineCurve)]), schemaViolation)
+      raisesBonyLoadError(proc() = discard ParameterTimeline(target: "", axis: axis, keys: @[scalarKeyframe(0.0, 0.0)]).sampleParameterValue(0.0), schemaViolation)
+      raisesBonyLoadError(proc() = discard ParameterTimeline(target: "other", axis: axis, keys: @[scalarKeyframe(0.0, 0.0)]).sampleParameterValue(0.0), unknownRequiredReference)
+      raisesBonyLoadError(proc() = discard parameterTimeline(axis, @[scalarKeyframe(0.0, 0.0)]).sampleParameterValue(-0.1), schemaViolation)
+
+    var state = initParameterState(@[axis])
+
+    then:
+      raisesBonyLoadError(
+        proc() = state.applyParameterTimeline(parameterTimeline(parameterAxis("missing", minValue = 0.0, maxValue = 1.0), @[scalarKeyframe(0.0, 0.0)]), 0.0),
+        unknownRequiredReference,
+      )
+
   it "samples one-dimensional keyform blends":
     let angle = parameterAxis("AngleX", minValue = -30.0, maxValue = 30.0, defaultValue = 0.0)
     let blend = keyformBlend(
