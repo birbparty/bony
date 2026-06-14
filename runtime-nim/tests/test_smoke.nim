@@ -1074,6 +1074,81 @@ spec "bony package":
       raisesBonyLoadError(proc() = discard applyDeformer(SkinnedMeshVertex(x: 0.0, y: 0.0), Deformer(id: "bad", kind: warpDeformerKind, warp: WarpLattice(rows: 2'u32, cols: 2'u32, minX: 0.0, minY: 0.0, maxX: 1.0, maxY: 1.0, controlPoints: @[]))), schemaViolation)
       raisesBonyLoadError(proc() = discard applyDeformer(SkinnedMeshVertex(x: 0.0, y: 0.0), Deformer(id: "bad", kind: warpDeformerKind, warp: WarpLattice(rows: 2'u32, cols: 2'u32, minX: 0.0, minY: 0.0, maxX: 0.0, maxY: 1.0, controlPoints: lattice.controlPoints))), schemaViolation)
 
+  it "builds and updates named parameter axes":
+    let angleX = parameterAxis("AngleX", minValue = -30.0, maxValue = 30.0, defaultValue = 0.0)
+    let eyeOpen = parameterAxis("EyeOpen", minValue = 0.0, maxValue = 1.0, defaultValue = 1.0)
+    var state = initParameterState(@[angleX, eyeOpen])
+    state.setParameterValue("AngleX", 12.5)
+    state.applyParameterSample(parameterSample(eyeOpen, 0.25))
+    let sampled = state.samples
+
+    then:
+      angleX.name == "AngleX"
+      closeTo(angleX.minValue, -30.0)
+      closeTo(angleX.maxValue, 30.0)
+      closeTo(angleX.defaultValue, 0.0)
+      closeTo(state.getParameterValue("AngleX"), 12.5)
+      closeTo(state.getParameterValue("EyeOpen"), 0.25)
+      sampled.len == 2
+      sampled[0].name == "AngleX"
+      closeTo(sampled[0].value, 12.5)
+      sampled[1].name == "EyeOpen"
+      closeTo(sampled[1].value, 0.25)
+
+    state.resetParameters()
+
+    then:
+      closeTo(state.getParameterValue("AngleX"), 0.0)
+      closeTo(state.getParameterValue("EyeOpen"), 1.0)
+
+  it "rejects invalid parameter axes and values":
+    let angleX = parameterAxis("AngleX", minValue = -30.0, maxValue = 30.0, defaultValue = 0.0)
+
+    then:
+      raisesBonyLoadError(proc() = discard parameterAxis("", minValue = 0.0, maxValue = 1.0, defaultValue = 0.0), schemaViolation)
+      raisesBonyLoadError(proc() = discard parameterAxis("Bad", minValue = 1.0, maxValue = 1.0, defaultValue = 1.0), schemaViolation)
+      raisesBonyLoadError(proc() = discard parameterAxis("Bad", minValue = 0.0, maxValue = 1.0, defaultValue = 2.0), schemaViolation)
+      raisesBonyLoadError(proc() = discard parameterAxis("Bad", minValue = Inf, maxValue = 1.0, defaultValue = 0.0), numericOutOfRange)
+      raisesBonyLoadError(proc() = validateParameterAxis(ParameterAxis(name: "Bad", minValue: 0.0, maxValue: 1.0, defaultValue: Inf)), numericOutOfRange)
+      raisesBonyLoadError(proc() = validateParameterAxes(@[angleX, parameterAxis("AngleX", minValue = -1.0, maxValue = 1.0, defaultValue = 0.0)]), duplicateKey)
+      raisesBonyLoadError(proc() = discard parameterSample(angleX, 40.0), schemaViolation)
+      raisesBonyLoadError(proc() = discard parameterSample(angleX, Inf), numericOutOfRange)
+
+    var state = initParameterState(@[angleX])
+
+    then:
+      raisesBonyLoadError(proc() = state.setParameterValue("Missing", 0.0), unknownRequiredReference)
+      raisesBonyLoadError(proc() = state.setParameterValue("AngleX", -40.0), schemaViolation)
+
+  it "normalizes directly constructed parameter axes":
+    let direct = ParameterAxis(name: "p", minValue: 0.0, maxValue: 0.2, defaultValue: 0.1)
+    let sample = parameterSample(direct, 0.2)
+    var state = initParameterState(@[direct])
+
+    then:
+      closeTo(sample.value, quantizeF32(0.2))
+      closeTo(state.getParameterValue("p"), quantizeF32(0.1))
+      closeTo(state.axes[0].defaultValue, quantizeF32(0.1))
+
+    state.setParameterValue("p", 0.2)
+
+    then:
+      closeTo(state.getParameterValue("p"), quantizeF32(0.2))
+      closeTo(state.samples[0].value, quantizeF32(0.2))
+
+    state.resetParameters()
+
+    then:
+      closeTo(state.getParameterValue("p"), quantizeF32(0.1))
+
+  it "validates directly constructed parameter samples":
+    var state = initParameterState(@[parameterAxis("p", minValue = 0.0, maxValue = 1.0, defaultValue = 0.5)])
+
+    then:
+      raisesBonyLoadError(proc() = state.applyParameterSample(ParameterSample(name: "p", value: 2.0)), schemaViolation)
+      raisesBonyLoadError(proc() = state.applyParameterSample(ParameterSample(name: "p", value: Inf)), numericOutOfRange)
+      raisesBonyLoadError(proc() = state.applyParameterSample(ParameterSample(name: "missing", value: 0.0)), unknownRequiredReference)
+
   it "builds sorted scalar bone timelines and samples linearly":
     let timeline = boneScalarTimeline(
       "root",
