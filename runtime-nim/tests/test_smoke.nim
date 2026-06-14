@@ -1009,6 +1009,55 @@ spec "bony package":
         discard transformPoseToAffine(TransformConstraintPose(scaleX: Inf))
       , numericOutOfRange)
 
+  it "preserves transform constraint reflection and shortest angle mixes":
+    let identity = transformPoseToAffine(TransformConstraintPose(
+      x: 0.0,
+      y: 0.0,
+      rotation: 0.0,
+      scaleX: 1.0,
+      scaleY: 1.0,
+      shearX: 0.0,
+      shearY: 0.0,
+    ))
+    let reflectedTarget = transformPoseToAffine(TransformConstraintPose(
+      x: 0.0,
+      y: 0.0,
+      rotation: 0.0,
+      scaleX: -2.0,
+      scaleY: 1.0,
+      shearX: 0.0,
+      shearY: 0.0,
+    ))
+    let reflectedScaleOnly = applyTransformConstraint(
+      identity,
+      reflectedTarget,
+      transformConstraintMix(translate = 0.0, rotate = 0.0, scale = 1.0, shear = 0.0),
+    )
+    let reflectedFull = applyTransformConstraint(identity, reflectedTarget, transformConstraintMix())
+    let wrappedRotation = affineToTransformPose(applyTransformConstraint(
+      transformPoseToAffine(TransformConstraintPose(rotation: 170.0, scaleX: 1.0, scaleY: 1.0)),
+      transformPoseToAffine(TransformConstraintPose(rotation: -170.0, scaleX: 1.0, scaleY: 1.0)),
+      transformConstraintMix(translate = 0.0, rotate = 0.5, scale = 0.0, shear = 0.0),
+    ))
+    let wrappedShear = applyTransformConstraint(
+      transformPoseToAffine(TransformConstraintPose(scaleX: 1.0, scaleY: 1.0, shearY: 170.0)),
+      transformPoseToAffine(TransformConstraintPose(scaleX: 1.0, scaleY: 1.0, shearY: -170.0)),
+      transformConstraintMix(translate = 0.0, rotate = 0.0, scale = 0.0, shear = 0.5),
+    )
+
+    then:
+      closeTo(reflectedScaleOnly.a, -2.0)
+      closeTo(reflectedScaleOnly.b, 0.0)
+      closeTo(reflectedScaleOnly.c, 0.0)
+      closeTo(reflectedScaleOnly.d, 1.0)
+      closeTo(reflectedFull.a, reflectedTarget.a)
+      closeTo(reflectedFull.b, reflectedTarget.b)
+      closeTo(reflectedFull.c, reflectedTarget.c)
+      closeTo(reflectedFull.d, reflectedTarget.d)
+      closeTo(abs(wrappedRotation.rotation), 180.0)
+      closeTo(wrappedShear.c, 0.0)
+      closeTo(wrappedShear.d, -1.0)
+
   it "rejects invalid M2 region data":
     then:
       raisesBonyLoadError(

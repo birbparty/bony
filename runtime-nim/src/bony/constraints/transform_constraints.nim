@@ -61,10 +61,32 @@ proc lerp(a, b, mix: float64): float64 =
   a + (b - a) * mix
 
 
+proc normalizeDegrees(value: float64): float64 =
+  result = value
+  while result < -180.0:
+    result += 360.0
+  while result > 180.0:
+    result -= 360.0
+
+
+proc lerpAngle(a, b, mix: float64): float64 =
+  a + normalizeDegrees(b - a) * mix
+
+
 proc affineToTransformPose*(world: Affine2): TransformConstraintPose =
   let safe = safeAffine(world, "transformConstraint.world")
-  let scaleX = hypot(safe.a, safe.b)
-  let rotation = radToDeg(arctan2(safe.b, safe.a))
+  let det = safe.a * safe.d - safe.b * safe.c
+  let scaleXMagnitude = hypot(safe.a, safe.b)
+  let scaleX =
+    if det < 0.0:
+      -scaleXMagnitude
+    else:
+      scaleXMagnitude
+  let rotation =
+    if scaleX < 0.0:
+      radToDeg(arctan2(-safe.b, -safe.a))
+    else:
+      radToDeg(arctan2(safe.b, safe.a))
   let yAngle = radToDeg(arctan2(safe.d, safe.c))
   let scaleY = hypot(safe.c, safe.d)
 
@@ -75,7 +97,7 @@ proc affineToTransformPose*(world: Affine2): TransformConstraintPose =
     scaleX: scaleX,
     scaleY: scaleY,
     shearX: 0.0,
-    shearY: yAngle - rotation - 90.0,
+    shearY: normalizeDegrees(yAngle - rotation - 90.0),
   )
 
 
@@ -107,9 +129,9 @@ proc applyTransformConstraint*(constrained, target: Affine2; mix: TransformConst
   transformPoseToAffine(TransformConstraintPose(
     x: lerp(constrainedPose.x, targetPose.x, storedMix.translate),
     y: lerp(constrainedPose.y, targetPose.y, storedMix.translate),
-    rotation: lerp(constrainedPose.rotation, targetPose.rotation, storedMix.rotate),
+    rotation: lerpAngle(constrainedPose.rotation, targetPose.rotation, storedMix.rotate),
     scaleX: lerp(constrainedPose.scaleX, targetPose.scaleX, storedMix.scale),
     scaleY: lerp(constrainedPose.scaleY, targetPose.scaleY, storedMix.scale),
-    shearX: lerp(constrainedPose.shearX, targetPose.shearX, storedMix.shear),
-    shearY: lerp(constrainedPose.shearY, targetPose.shearY, storedMix.shear),
+    shearX: lerpAngle(constrainedPose.shearX, targetPose.shearX, storedMix.shear),
+    shearY: lerpAngle(constrainedPose.shearY, targetPose.shearY, storedMix.shear),
   ))
