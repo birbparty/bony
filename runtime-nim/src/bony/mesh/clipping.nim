@@ -28,6 +28,18 @@ proc clippedVertex(vertex: SkinnedMeshVertex): SkinnedMeshVertex =
   )
 
 
+proc validateClipVertex(vertex: ClipVertex; index: int) =
+  discard quantizeF32(vertex.x, "clip[" & $index & "].x")
+  discard quantizeF32(vertex.y, "clip[" & $index & "].y")
+
+
+proc validateSkinnedVertex(vertex: SkinnedMeshVertex; index: int) =
+  discard quantizeF32(vertex.x, "clip.vertex[" & $index & "].x")
+  discard quantizeF32(vertex.y, "clip.vertex[" & $index & "].y")
+  discard quantizeF32(vertex.u, "clip.vertex[" & $index & "].u")
+  discard quantizeF32(vertex.v, "clip.vertex[" & $index & "].v")
+
+
 proc signedArea(vertices: openArray[ClipVertex]): float64 =
   for index, vertex in vertices:
     let next = vertices[(index + 1) mod vertices.len]
@@ -42,6 +54,8 @@ proc cross(ax, ay, bx, by: float64): float64 =
 proc validateConvexClip*(vertices: openArray[ClipVertex]) =
   if vertices.len < 3:
     raise newBonyLoadError(schemaViolation, "clip polygon must contain at least three vertices")
+  for index, vertex in vertices:
+    validateClipVertex(vertex, index)
   let area = signedArea(vertices)
   if abs(area) <= clipEpsilon:
     raise newBonyLoadError(schemaViolation, "clip polygon area must be non-zero")
@@ -113,6 +127,7 @@ proc clipTrianglesToConvexPolygon*(
   for index in indices:
     if int(index) >= vertices.len:
       raise newBonyLoadError(unknownRequiredReference, "clipped mesh index out of range")
+    validateSkinnedVertex(vertices[int(index)], int(index))
 
   for triangleStart in countup(0, indices.len - 1, 3):
     let polygon = @[

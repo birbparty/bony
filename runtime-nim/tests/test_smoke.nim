@@ -876,6 +876,26 @@ spec "bony package":
       verticesInside
       indicesInRange
 
+  it "clips clockwise polygons and fully excluded triangles":
+    let vertices = @[
+      SkinnedMeshVertex(x: -3.0, y: -3.0, u: 0.0, v: 0.0),
+      SkinnedMeshVertex(x: -2.0, y: -3.0, u: 1.0, v: 0.0),
+      SkinnedMeshVertex(x: -3.0, y: -2.0, u: 0.0, v: 1.0),
+      SkinnedMeshVertex(x: -1.0, y: 0.0, u: 0.0, v: 0.0),
+      SkinnedMeshVertex(x: 2.0, y: 0.0, u: 1.0, v: 0.0),
+      SkinnedMeshVertex(x: 0.5, y: 2.0, u: 0.5, v: 1.0),
+    ]
+    let clip = @[clipVertex(0.0, 0.0), clipVertex(0.0, 1.0), clipVertex(1.0, 1.0), clipVertex(1.0, 0.0)]
+    let empty = clipTrianglesToConvexPolygon(vertices, @[0'u16, 1'u16, 2'u16], clip)
+    let clockwise = clipTrianglesToConvexPolygon(vertices, @[3'u16, 4'u16, 5'u16], clip)
+
+    then:
+      empty.vertices.len == 0
+      empty.indices.len == 0
+      clockwise.vertices.len >= 3
+      clockwise.indices.len >= 3
+      clockwise.indices.len mod 3 == 0
+
   it "rejects invalid convex clip inputs":
     let vertices = @[
       SkinnedMeshVertex(x: 0.0, y: 0.0),
@@ -900,6 +920,14 @@ spec "bony package":
         proc() = discard clipTrianglesToConvexPolygon(vertices, @[0'u16, 1'u16, 3'u16], @[clipVertex(0.0, 0.0), clipVertex(1.0, 0.0), clipVertex(0.0, 1.0)]),
         unknownRequiredReference,
       )
+      raisesBonyLoadError(
+        proc() = discard clipTrianglesToConvexPolygon(vertices, @[0'u16, 1'u16, 2'u16], @[ClipVertex(x: Inf, y: 0.0), clipVertex(1.0, 0.0), clipVertex(0.0, 1.0)]),
+        numericOutOfRange,
+      )
+      raisesBonyLoadError(
+        proc() = discard clipTrianglesToConvexPolygon(@[SkinnedMeshVertex(x: Inf, y: 0.0), vertices[1], vertices[2]], @[0'u16, 1'u16, 2'u16], @[clipVertex(0.0, 0.0), clipVertex(1.0, 0.0), clipVertex(0.0, 1.0)]),
+        numericOutOfRange,
+      )
 
   it "resolves attachment sequence frame names":
     let sequence = attachmentSequence(count = 5'u32, start = 12'u32, digits = 3'u32, setupIndex = 2'u32)
@@ -916,8 +944,10 @@ spec "bony package":
       sampledSequenceFrameName("walk_", sequence, timeline.sampleSequence(0.35, sequence.count)) == "walk_015"
       sampledSequenceFrameName("walk_", sequence, timeline.sampleSequence(1.5, sequence.count)) == "walk_016"
       raisesBonyLoadError(proc() = discard attachmentSequence(count = 0'u32), schemaViolation)
+      raisesBonyLoadError(proc() = discard attachmentSequence(count = 2'u32, start = high(uint32)), schemaViolation)
       raisesBonyLoadError(proc() = discard sequenceFrameName("walk_", AttachmentSequence(count: 0'u32), 0'u32), schemaViolation)
       raisesBonyLoadError(proc() = discard sequenceFrameName("walk_", AttachmentSequence(count: 1'u32, setupIndex: 1'u32), 0'u32), schemaViolation)
+      raisesBonyLoadError(proc() = discard sequenceFrameName("walk_", AttachmentSequence(count: 2'u32, start: high(uint32)), 1'u32), schemaViolation)
       raisesBonyLoadError(proc() = discard sequenceFrameName("walk_", sequence, 5'u32), schemaViolation)
 
   it "builds sorted scalar bone timelines and samples linearly":

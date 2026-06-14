@@ -13,19 +13,22 @@ type
     setupIndex*: uint32
 
 
-proc attachmentSequence*(count: uint32; start = 0'u32; digits = 0'u32; setupIndex = 0'u32): AttachmentSequence =
+proc validateSequenceRange(count, start, setupIndex: uint32) =
   if count == 0:
     raise newBonyLoadError(schemaViolation, "sequence count must be positive")
   if setupIndex >= count:
     raise newBonyLoadError(schemaViolation, "sequence setupIndex must be within count")
+  if uint64(start) + uint64(count) - 1'u64 > uint64(high(uint32)):
+    raise newBonyLoadError(schemaViolation, "sequence frame number must fit in uint32")
+
+
+proc attachmentSequence*(count: uint32; start = 0'u32; digits = 0'u32; setupIndex = 0'u32): AttachmentSequence =
+  validateSequenceRange(count, start, setupIndex)
   AttachmentSequence(count: count, start: start, digits: digits, setupIndex: setupIndex)
 
 
 proc validateAttachmentSequence(sequence: AttachmentSequence) =
-  if sequence.count == 0:
-    raise newBonyLoadError(schemaViolation, "sequence count must be positive")
-  if sequence.setupIndex >= sequence.count:
-    raise newBonyLoadError(schemaViolation, "sequence setupIndex must be within count")
+  validateSequenceRange(sequence.count, sequence.start, sequence.setupIndex)
 
 
 proc sequenceFrameName*(basePath: string; sequence: AttachmentSequence; index: uint32): string =
@@ -34,7 +37,7 @@ proc sequenceFrameName*(basePath: string; sequence: AttachmentSequence; index: u
     raise newBonyLoadError(schemaViolation, "sequence base path must not be empty")
   if index >= sequence.count:
     raise newBonyLoadError(schemaViolation, "sequence frame index must be within count")
-  let frame = sequence.start + index
+  let frame = uint64(sequence.start) + uint64(index)
   let suffix =
     if sequence.digits == 0:
       $frame
