@@ -7,7 +7,15 @@ import bony/model
 type
   TimelineCurveKind* = enum
     linearCurve,
-    steppedCurve
+    steppedCurve,
+    bezierCurve
+
+  TimelineCurve* = object
+    kind: TimelineCurveKind
+    c1x: float64
+    c1y: float64
+    c2x: float64
+    c2y: float64
 
   BoneTimelineKind* = enum
     rotateTimeline,
@@ -52,14 +60,14 @@ type
   ScalarKeyframe* = object
     time*: float64
     value*: float64
-    curve*: TimelineCurveKind
+    curve*: TimelineCurve
 
   Vector2Keyframe* = object
     time*: float64
     x*: float64
     y*: float64
-    curveX*: TimelineCurveKind
-    curveY*: TimelineCurveKind
+    curveX*: TimelineCurve
+    curveY*: TimelineCurve
 
   InheritKeyframe* = object
     time*: float64
@@ -75,12 +83,12 @@ type
   ColorKeyframe* = object
     time*: float64
     color*: ColorRgba
-    curve*: TimelineCurveKind
+    curve*: TimelineCurve
 
   Color2Keyframe* = object
     time*: float64
     color*: ColorRgba2
-    curve*: TimelineCurveKind
+    curve*: TimelineCurve
 
   SequenceKeyframe* = object
     time*: float64
@@ -116,6 +124,25 @@ type
     boneTimelines: seq[BoneTimeline]
     slotTimelines: seq[SlotTimeline]
 
+const
+  linearTimelineCurve* = TimelineCurve(kind: linearCurve)
+  steppedTimelineCurve* = TimelineCurve(kind: steppedCurve)
+
+proc kind*(curve: TimelineCurve): TimelineCurveKind = curve.kind
+proc c1x*(curve: TimelineCurve): float64 = curve.c1x
+proc c1y*(curve: TimelineCurve): float64 = curve.c1y
+proc c2x*(curve: TimelineCurve): float64 = curve.c2x
+proc c2y*(curve: TimelineCurve): float64 = curve.c2y
+
+proc timelineCurve*(kind: TimelineCurveKind): TimelineCurve =
+  case kind
+  of linearCurve:
+    linearTimelineCurve
+  of steppedCurve:
+    steppedTimelineCurve
+  of bezierCurve:
+    raise newBonyLoadError(schemaViolation, "bezierCurve requires control points")
+
 proc target*(timeline: BoneTimeline): string = timeline.target
 proc kind*(timeline: BoneTimeline): BoneTimelineKind = timeline.kind
 proc scalarKeys*(timeline: BoneTimeline): seq[ScalarKeyframe] = timeline.scalarKeys
@@ -149,6 +176,18 @@ proc quantizeChannel(value: float64; context: string): float64 =
   result = quantizeF32(value, context)
   if result < 0 or result > 1:
     raise newBonyLoadError(schemaViolation, context & " must be in 0..1")
+
+
+proc bezierTimelineCurve*(c1x, c1y, c2x, c2y: float64): TimelineCurve =
+  let storedC1x = quantizeF32(c1x, "curve.c1x")
+  let storedC1y = quantizeF32(c1y, "curve.c1y")
+  let storedC2x = quantizeF32(c2x, "curve.c2x")
+  let storedC2y = quantizeF32(c2y, "curve.c2y")
+  if storedC1x < 0 or storedC1x > 1:
+    raise newBonyLoadError(schemaViolation, "curve.c1x must be in 0..1")
+  if storedC2x < 0 or storedC2x > 1:
+    raise newBonyLoadError(schemaViolation, "curve.c2x must be in 0..1")
+  TimelineCurve(kind: bezierCurve, c1x: storedC1x, c1y: storedC1y, c2x: storedC2x, c2y: storedC2y)
 
 
 proc ensureSorted[T](keys: openArray[T]; context: string) =
@@ -249,7 +288,7 @@ proc colorRgba2*(light: ColorRgba; darkR, darkG, darkB: float64): ColorRgba2 =
   )
 
 
-proc scalarKeyframe*(time, value: float64; curve = linearCurve): ScalarKeyframe =
+proc scalarKeyframe*(time, value: float64; curve = linearTimelineCurve): ScalarKeyframe =
   ScalarKeyframe(
     time: quantizeTime(time, "key.time"),
     value: quantizeF32(value, "key.value"),
@@ -257,10 +296,14 @@ proc scalarKeyframe*(time, value: float64; curve = linearCurve): ScalarKeyframe 
   )
 
 
+proc scalarKeyframe*(time, value: float64; curve: TimelineCurveKind): ScalarKeyframe =
+  scalarKeyframe(time, value, timelineCurve(curve))
+
+
 proc vector2Keyframe*(
   time, x, y: float64;
-  curveX = linearCurve;
-  curveY = linearCurve;
+  curveX = linearTimelineCurve;
+  curveY = linearTimelineCurve;
 ): Vector2Keyframe =
   Vector2Keyframe(
     time: quantizeTime(time, "key.time"),
@@ -269,6 +312,30 @@ proc vector2Keyframe*(
     curveX: curveX,
     curveY: curveY,
   )
+
+
+proc vector2Keyframe*(
+  time, x, y: float64;
+  curveX: TimelineCurveKind;
+  curveY = linearTimelineCurve;
+): Vector2Keyframe =
+  vector2Keyframe(time, x, y, timelineCurve(curveX), curveY)
+
+
+proc vector2Keyframe*(
+  time, x, y: float64;
+  curveX = linearTimelineCurve;
+  curveY: TimelineCurveKind;
+): Vector2Keyframe =
+  vector2Keyframe(time, x, y, curveX, timelineCurve(curveY))
+
+
+proc vector2Keyframe*(
+  time, x, y: float64;
+  curveX: TimelineCurveKind;
+  curveY: TimelineCurveKind;
+): Vector2Keyframe =
+  vector2Keyframe(time, x, y, timelineCurve(curveX), timelineCurve(curveY))
 
 
 proc inheritKeyframe*(
@@ -293,12 +360,20 @@ proc attachmentKeyframe*(time: float64; attachment: string): AttachmentKeyframe 
   AttachmentKeyframe(time: quantizeTime(time, "key.time"), attachment: attachment)
 
 
-proc colorKeyframe*(time: float64; color: ColorRgba; curve = linearCurve): ColorKeyframe =
+proc colorKeyframe*(time: float64; color: ColorRgba; curve = linearTimelineCurve): ColorKeyframe =
   ColorKeyframe(time: quantizeTime(time, "key.time"), color: color, curve: curve)
 
 
-proc color2Keyframe*(time: float64; color: ColorRgba2; curve = linearCurve): Color2Keyframe =
+proc colorKeyframe*(time: float64; color: ColorRgba; curve: TimelineCurveKind): ColorKeyframe =
+  colorKeyframe(time, color, timelineCurve(curve))
+
+
+proc color2Keyframe*(time: float64; color: ColorRgba2; curve = linearTimelineCurve): Color2Keyframe =
   Color2Keyframe(time: quantizeTime(time, "key.time"), color: color, curve: curve)
+
+
+proc color2Keyframe*(time: float64; color: ColorRgba2; curve: TimelineCurveKind): Color2Keyframe =
+  color2Keyframe(time, color, timelineCurve(curve))
 
 
 proc sequenceKeyframe*(
@@ -434,11 +509,62 @@ proc animationClip*(
   )
 
 
-proc mix(curve: TimelineCurveKind; a, b, t: float64): float64 =
-  if curve == steppedCurve:
+proc clamp01(value: float64): float64 =
+  min(1.0, max(0.0, value))
+
+
+proc cubicBezier(c1, c2, s: float64): float64 =
+  let inv = 1.0 - s
+  3.0 * inv * inv * s * c1 + 3.0 * inv * s * s * c2 + s * s * s
+
+
+proc cubicBezierDerivative(c1, c2, s: float64): float64 =
+  let inv = 1.0 - s
+  3.0 * inv * inv * c1 + 6.0 * inv * s * (c2 - c1) + 3.0 * s * s * (1.0 - c2)
+
+
+proc evaluate*(curve: TimelineCurve; t: float64): float64 =
+  let input = clamp01(t)
+  case curve.kind
+  of steppedCurve:
+    0.0
+  of linearCurve:
+    input
+  of bezierCurve:
+    if input == 0:
+      return 0.0
+    if input == 1:
+      return 1.0
+
+    var table: array[16, float64]
+    for index in 0 .. 15:
+      let s = float64(index) / 15.0
+      table[index] = cubicBezier(curve.c1x, curve.c2x, s)
+
+    var s = input
+    for index in 0 .. 14:
+      let left = table[index]
+      let right = table[index + 1]
+      if left <= input and input <= right and right > left:
+        let segmentT = (input - left) / (right - left)
+        s = (float64(index) + segmentT) / 15.0
+        break
+
+    for _ in 0 ..< 2:
+      let derivative = cubicBezierDerivative(curve.c1x, curve.c2x, s)
+      if derivative == 0 or classify(derivative) in {fcNan, fcInf, fcNegInf}:
+        break
+      s = clamp01(s - (cubicBezier(curve.c1x, curve.c2x, s) - input) / derivative)
+
+    cubicBezier(curve.c1y, curve.c2y, s)
+
+
+proc mix(curve: TimelineCurve; a, b, t: float64): float64 =
+  if curve.kind == steppedCurve:
     a
   else:
-    a + (b - a) * t
+    let eased = curve.evaluate(t)
+    a + (b - a) * eased
 
 
 proc findSpan[T](keys: openArray[T]; time: float64): int =
