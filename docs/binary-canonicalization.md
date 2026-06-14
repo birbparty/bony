@@ -80,6 +80,17 @@ Properties omitted because they equal defaults are not included.
 
 Canonical ToC order is ascending numeric `propertyKey`.
 
+The ToC section is:
+
+```text
+varuint propertyCount
+repeat propertyCount times:
+  varuint propertyKey
+  u8 backingTypeCode
+```
+
+There is no ToC terminator. `propertyCount` is the exact number of entries.
+
 Each ToC entry is:
 
 ```text
@@ -99,14 +110,21 @@ object stream and canonical property order.
 Rules:
 
 - Start with an empty string table.
-- For every emitted string-valued payload, in canonical object/property order,
-  append the string the first time it is seen.
+- Visit every string encoded anywhere inside emitted payloads, including strings
+  nested inside future composite payloads.
+- Traversal order is canonical object order, then canonical property order, then
+  the field order defined by the backing type's registry layout. Array-like
+  composite payloads are traversed by ascending element index.
+- Append each string the first time it is seen.
 - Later occurrences reuse the first index.
 - String comparison for interning is exact Unicode scalar sequence equality; no
   normalization is performed.
 - String table entries are emitted as `varuint byteLength` followed by UTF-8
   bytes.
 - The table itself is emitted as `varuint count` followed by entries.
+- Emit UTF-8 without a byte-order mark. Writers must reject strings that are not
+  valid Unicode scalar sequences, including lone surrogates. No normalization is
+  performed before UTF-8 encoding.
 
 Only emitted payloads contribute strings. Strings belonging to default-valued
 omitted properties do not appear in the table.
@@ -130,15 +148,16 @@ parameters
 deformers
 animations
 stateMachines
-atlas
+atlasMetadata
 ```
 
 Within each group:
 
 - Bones are parent-first in loaded skeleton array order.
 - Slots are setup draw order.
-- Attachments are grouped by skin order, then slot order, then attachment array
-  order or canonical attachment-name order when the source model stores a map.
+- Attachments are grouped by skin order, then slot order, then attachment name
+  sorted by canonical UTF-8 bytes. Attachment ordering is independent of the
+  runtime's in-memory map or array representation.
 - IK, transform, path, and physics arrays keep loaded array order. Runtime
   evaluation order is separately defined by `docs/constraint-total-order.md`.
 - Skins, events, parameters, deformers, animations, and state machines keep
@@ -148,6 +167,10 @@ Within each group:
 
 If a future registry entry introduces a map-like collection, its canonical
 binary order must be defined in the bead that introduces it.
+
+Raw embedded atlas bytes are not object-stream entries. Atlas metadata objects,
+if present, use the `atlasMetadata` group above. The raw embedded atlas payload
+is emitted only in the post-EOF atlas section defined by File Section Order.
 
 ## Property Emission
 
@@ -198,12 +221,18 @@ define its canonical emission rule in the same change.
 The M6 `bnb->json->bnb` byte-stability gate must include:
 
 - Non-canonical ToC order re-emits in ascending property-key order.
+- ToC section starts with exact `propertyCount` and has no terminator.
 - Non-minimal LEB128 input re-emits with shortest encodings.
 - Repeated strings intern to first-seen indices in canonical object/property
   order.
+- Strings nested inside composite payloads intern using the composite layout's
+  declared field and element order.
+- Invalid Unicode scalar sequences are rejected before binary emission.
 - Default-valued properties omitted from objects and absent from the ToC.
 - Falsey non-default values still emitted.
 - Object stream order follows the canonical group order.
+- Attachment object order is independent of source/runtime map representation.
+- Raw embedded atlas bytes appear only after the object-stream EOF marker.
 - Property order within an object is ascending property key.
 - `byteLength` matches exact payload byte count for scalar and composite
   payloads.
