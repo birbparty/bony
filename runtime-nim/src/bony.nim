@@ -23,6 +23,7 @@ import bony/model
 import bony/jsonio
 import bony/statemachine/core
 import bony/transform
+import render/software_rasterizer
 
 export attachments
 export framing
@@ -46,6 +47,7 @@ export jsonio
 export model
 export core
 export transform
+export software_rasterizer
 export wire
 
 const bonyVersion* = "0.1.0"
