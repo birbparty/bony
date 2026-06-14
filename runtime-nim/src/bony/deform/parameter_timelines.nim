@@ -36,11 +36,11 @@ proc validatedParameterTimeline(timeline: ParameterTimeline): ParameterTimeline 
     raise newBonyLoadError(schemaViolation, "parameter timeline target must not be empty")
   if timeline.target != axis.name:
     raise newBonyLoadError(unknownRequiredReference, "parameter timeline target does not match axis")
-  requireSortedKeys(timeline.keys, "parameter timeline")
   result = ParameterTimeline(target: timeline.target, axis: axis)
   for key in timeline.keys:
     discard quantizeTimelineTime(key.time, "key.time")
     result.keys.add scalarKeyframe(key.time, parameterSample(axis, key.value).value, key.curve)
+  requireSortedKeys(result.keys, "parameter timeline")
 
 
 proc parameterTimeline*(axis: ParameterAxis; keys: openArray[ScalarKeyframe]): ParameterTimeline =
@@ -67,6 +67,10 @@ proc sampleParameterValue*(timeline: ParameterTimeline; time: float64): Paramete
   let next = timeline.keys[index + 1]
   let t = (storedTime - current.time) / (next.time - current.time)
   let mixed = current.value + (next.value - current.value) * current.curve.evaluate(t)
+  if mixed < timeline.axis.minValue:
+    return parameterSample(timeline.axis, timeline.axis.minValue)
+  if mixed > timeline.axis.maxValue:
+    return parameterSample(timeline.axis, timeline.axis.maxValue)
   parameterSample(timeline.axis, mixed)
 
 
