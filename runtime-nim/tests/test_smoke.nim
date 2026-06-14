@@ -1211,6 +1211,71 @@ spec "bony package":
         discard applyPathPositionConstraint(pathPoint(0.0, 0.0), curve, 0.0, 1.1)
       , schemaViolation)
 
+  it "integrates physics constraints with fixed substeps and reset policy":
+    let params = physicsParams(gravity = 60.0)
+    var state: PhysicsConstraintState
+    let seedOnly = state.updatePhysicsConstraint(params, @[physicsChannelInput(pcX, 5.0)], 0.0)
+    let halfStep = state.updatePhysicsConstraint(params, @[physicsChannelInput(pcX, 5.0)], physicsFixedDt * 0.5)
+    let fullStep = state.updatePhysicsConstraint(params, @[physicsChannelInput(pcX, 5.0)], physicsFixedDt * 0.5)
+    let largeStep = state.updatePhysicsConstraint(params, @[physicsChannelInput(pcX, 5.0)], physicsMaxFrameDt)
+
+    var inertiaState: PhysicsConstraintState
+    discard inertiaState.updatePhysicsConstraint(physicsParams(inertia = 0.5), @[physicsChannelInput(pcX, 0.0)], 0.0)
+    let inertiaStep = inertiaState.updatePhysicsConstraint(physicsParams(inertia = 0.5), @[physicsChannelInput(pcX, 10.0)], physicsFixedDt)
+
+    var resetState: PhysicsConstraintState
+    discard resetState.updatePhysicsConstraint(params, @[physicsChannelInput(pcX, 0.0)], physicsFixedDt)
+    let resetNoop = resetState.updatePhysicsConstraint(params, @[physicsChannelInput(pcX, 3.0)], 0.0, reset = true)
+
+    var inactiveState: PhysicsConstraintState
+    inactiveState.accumulator = physicsFixedDt
+    let inactive = inactiveState.updatePhysicsConstraint(params, @[physicsChannelInput(pcX, 2.0)], physicsFixedDt, active = false)
+    let reactivated = inactiveState.updatePhysicsConstraint(params, @[physicsChannelInput(pcX, 4.0)], 0.0)
+
+    var channelState: PhysicsConstraintState
+    let independent = channelState.updatePhysicsConstraint(
+      params,
+      @[physicsChannelInput(pcX, 1.0), physicsChannelInput(pcY, -2.0)],
+      physicsFixedDt,
+    )
+
+    then:
+      closeTo(physicsFixedDt, 1.0 / 60.0)
+      physicsMaxSubsteps == 8
+      closeTo(seedOnly.outputs[0].value, 5.0)
+      seedOnly.substeps == 0
+      closeTo(halfStep.accumulator, physicsFixedDt * 0.5)
+      halfStep.substeps == 0
+      fullStep.substeps == 1
+      closeTo(fullStep.outputs[0].offset, physicsFixedDt)
+      closeTo(fullStep.outputs[0].velocity, 1.0)
+      largeStep.substeps == physicsMaxSubsteps
+      largeStep.droppedSteps == 7
+      closeWithin(largeStep.accumulator, 0.0, physicsStepEpsilon)
+      closeTo(largeStep.outputs[0].offset, 0.75)
+      inertiaStep.substeps == 1
+      closeTo(inertiaStep.outputs[0].value, 5.0)
+      closeTo(resetNoop.outputs[0].value, 3.0)
+      closeTo(resetState.channels[pcX].offset, 0.0)
+      closeTo(resetState.channels[pcX].velocity, 0.0)
+      inactive.substeps == 0
+      closeTo(inactive.accumulator, physicsFixedDt)
+      closeTo(reactivated.accumulator, 0.0)
+      closeTo(reactivated.outputs[0].value, 4.0)
+      closeTo(inactiveState.channels[pcX].offset, 0.0)
+      independent.outputs.len == 2
+      closeTo(independent.outputs[0].value, 1.0 + physicsFixedDt)
+      closeTo(independent.outputs[1].value, -2.0 + physicsFixedDt)
+      raisesBonyLoadError(proc() =
+        discard state.updatePhysicsConstraint(params, @[physicsChannelInput(pcX, 0.0)], -0.1)
+      , schemaViolation)
+      raisesBonyLoadError(proc() =
+        discard physicsParams(mix = 1.1)
+      , schemaViolation)
+      raisesBonyLoadError(proc() =
+        discard state.updatePhysicsConstraint(params, @[physicsChannelInput(pcX, 0.0), physicsChannelInput(pcX, 1.0)], 0.0)
+      , schemaViolation)
+
   it "rejects invalid M2 region data":
     then:
       raisesBonyLoadError(
