@@ -1,11 +1,13 @@
 ## bony Nim reference runtime package root.
 
 import bony/generated/wire
+import bony/anim/mixer
 import bony/anim/timelines
 import bony/model
 import bony/jsonio
 import bony/transform
 
+export mixer
 export timelines
 export jsonio
 export model
