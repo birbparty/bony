@@ -1,0 +1,102 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Linux quality gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      BDDY_COMMIT: 34287484337fbad6626525062fe27d28fcb0fc58
+
+    steps:
+      - name: Checkout bony
+        uses: actions/checkout@v4
+
+      - name: Install system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            git \
+            libasound2-dev \
+            libgl1-mesa-dev \
+            libglu1-mesa-dev \
+            libx11-dev \
+            libxcursor-dev \
+            libxi-dev \
+            libxinerama-dev \
+            libxrandr-dev \
+            pkg-config
+
+      - name: Setup Nim
+        uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: '2.2.10'
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Dart
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Checkout bddy test dependency
+        run: |
+          mkdir -p "$HOME/git"
+          git clone --depth 1 https://github.com/mattsp1290/bddy.git "$HOME/git/bddy"
+          git -C "$HOME/git/bddy" fetch --depth 1 origin "$BDDY_COMMIT"
+          git -C "$HOME/git/bddy" checkout "$BDDY_COMMIT"
+          ln -s "$HOME/git/bddy" "$GITHUB_WORKSPACE/../../bddy"
+
+      - name: Install Nim dependencies
+        working-directory: runtime-nim
+        run: nimble install -y --depsOnly
+
+      - name: Nim package check
+        working-directory: runtime-nim
+        run: nimble check
+
+      - name: Nim source vet
+        working-directory: runtime-nim
+        run: |
+          nim check --path:src --path:~/git/bddy/src src/bony.nim
+          nim check --path:src --path:~/git/bddy/src tests/test_smoke.nim
+          nim check --path:src --path:~/git/bddy/src ../cli/bony_cli.nim
+
+      - name: Nim build and tests
+        working-directory: runtime-nim
+        run: nimble test -y --path:~/git/bddy
+
+      - name: Codegen freshness
+        run: python3 codegen/generate.py --check
+
+      - name: Schema, registry, and defaults validation
+        run: python3 -m unittest discover -s codegen -p 'test_*.py'
+
+      - name: License and provenance scan
+        run: python3 scripts/ci/license_provenance_check.py
+
+      - name: Dart dependencies
+        working-directory: runtime-dart
+        run: dart pub get
+
+      - name: Dart tests
+        working-directory: runtime-dart
+        run: dart test
+
+      - name: Dart analyze
+        working-directory: runtime-dart
+        run: dart analyze
+
+      - name: Whitespace check
+        run: git diff --check

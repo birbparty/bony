@@ -11,8 +11,11 @@ Scan date: 2026-06-14
 
 The named Nim dependency candidates are acceptable for use in this repository.
 `runtime-nim/bony.nimble` pins `pixie == 6.1.0` and `naylib == 26.08.0`; this
-scan authorizes those versions and the resolved transitive versions below.
-Bumping either package or adding a new Nim dependency requires updating this
+scan authorizes those versions and the resolved transitive versions below. The
+Nim test harness also uses the sibling `bddy` checkout pinned in CI to commit
+`34287484337fbad6626525062fe27d28fcb0fc58` from
+`https://github.com/mattsp1290/bddy`. Bumping any package, adding a new Nim
+dependency, or changing the `bddy` test dependency pin requires updating this
 scan first.
 
 - `vmath`: MIT.
@@ -23,6 +26,8 @@ scan first.
 - `binny`: covered as a module shipped inside `flatty`, MIT through `flatty`.
 - `naylib`: MIT.
 - raylib, the native library wrapped by `naylib`: zlib/libpng-style license.
+- `bddy`: MIT. Test-only dependency used through `~/git/bddy` and the matching
+  CI sibling checkout.
 
 No GPL, Creative Commons, proprietary, or source-available-only license was
 found in the named candidates.
@@ -39,6 +44,7 @@ found in the named candidates.
 | `binny` | `https://github.com/treeform/flatty` | Not a separate Nimble package; `flatty` README says it ships `binny` | `flatty` `LICENSE` is MIT | Accept as part of `flatty` |
 | `naylib` 26.08.0 | `https://github.com/planetis-m/naylib` | `naylib.nimble` declares `license = "MIT"` | `LICENSE` is MIT | Accept |
 | `raylib` | `https://github.com/raysan5/raylib` | Native dependency of `naylib` | `LICENSE` permits commercial use, modification, and redistribution with notice conditions | Accept |
+| `bddy` 34287484337fbad6626525062fe27d28fcb0fc58 | `https://github.com/mattsp1290/bddy` | `bddy.nimble` declares `license = "MIT"` | `LICENSE` is MIT | Accept as test-only |
 
 Primary source URLs checked:
 
