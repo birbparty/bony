@@ -21,6 +21,9 @@ Key `0` is reserved forever in both spaces:
 
 No object type or property may ever be assigned key `0`.
 
+Positive keys are reserved by milestone in `registry/key-ranges.md`. The same
+band numbers apply independently to `typeKeys` and `propertyKeys`.
+
 ## Property Backing Types
 
 Property keys are global because the `.bnb` table of contents maps
@@ -72,8 +75,8 @@ schema properties.
 Any bead that edits `registry/**` must verify:
 
 - New keys are positive and unused in their key space.
-- New keys fall inside the owning milestone's reserved range once
-  `registry/key-ranges.md` exists.
+- New keys fall inside the owning milestone's reserved range in
+  `registry/key-ranges.md`.
 - Key `0` remains reserved.
 - Property backing types are unchanged for existing keys.
 - Object property lists reference declared property keys.
