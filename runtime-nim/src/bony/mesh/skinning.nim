@@ -30,6 +30,8 @@ proc boneIndexByName(data: SkeletonData): Table[string, int] =
     result[bone.name] = index
 
 
+## Skins mesh vertices using caller-provided world transforms.
+## `worlds` must be ordered exactly like `data.bones`.
 proc skinMeshVertices*(
   data: SkeletonData;
   worlds: openArray[Affine2];
@@ -44,6 +46,13 @@ proc skinMeshVertices*(
     raise newBonyLoadError(schemaViolation, "world transform count must match bone count")
 
   let boneIndex = boneIndexByName(data)
+  let slotBoneIndex =
+    if mesh.weighted:
+      -1
+    elif slotBone in boneIndex:
+      boneIndex[slotBone]
+    else:
+      raise newBonyLoadError(unknownRequiredReference, "unknown mesh slot bone: " & slotBone)
   result = newSeq[SkinnedMeshVertex](mesh.vertices.len)
   for vertexIndex, vertex in mesh.vertices:
     let uv = mesh.uvs[vertexIndex]
@@ -55,16 +64,14 @@ proc skinMeshVertices*(
         x += influence.weight * transformed.x
         y += influence.weight * transformed.y
     else:
-      if slotBone notin boneIndex:
-        raise newBonyLoadError(unknownRequiredReference, "unknown mesh slot bone: " & slotBone)
-      let transformed = worlds[boneIndex[slotBone]].transformPoint(vertex.x, vertex.y)
+      let transformed = worlds[slotBoneIndex].transformPoint(vertex.x, vertex.y)
       x = transformed.x
       y = transformed.y
     result[vertexIndex] = SkinnedMeshVertex(
       x: quantizeF32(x, "mesh.skinned.x"),
       y: quantizeF32(y, "mesh.skinned.y"),
-      u: uv.u,
-      v: uv.v,
+      u: quantizeF32(uv.u, "mesh.skinned.u"),
+      v: quantizeF32(uv.v, "mesh.skinned.v"),
     )
 
 

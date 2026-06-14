@@ -83,6 +83,9 @@ proc validateMeshAttachment*(data: SkeletonData; mesh: MeshAttachment) =
     raise newBonyLoadError(schemaViolation, "mesh must contain at least one vertex")
   if mesh.uvs.len != mesh.vertices.len:
     raise newBonyLoadError(schemaViolation, "mesh uvs count must match vertex count")
+  for uv in mesh.uvs:
+    discard quantizeUnit(uv.u, "mesh.uv.u")
+    discard quantizeUnit(uv.v, "mesh.uv.v")
   if mesh.triangles.len == 0 or mesh.triangles.len mod 3 != 0:
     raise newBonyLoadError(schemaViolation, "mesh triangles must contain index triplets")
   if mesh.hull > uint32(mesh.vertices.len):

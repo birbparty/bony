@@ -534,6 +534,20 @@ spec "bony package":
         schemaViolation,
       )
       raisesBonyLoadError(
+        proc() = validateMeshAttachment(
+          data,
+          MeshAttachment(
+            name: "directBadUv",
+            path: "directBadUv",
+            uvs: @[MeshUv(u: 2.0, v: 0.0), meshUv(1.0, 0.0), meshUv(0.0, 1.0)],
+            triangles: @[0'u16, 1'u16, 2'u16],
+            vertices: @[unweightedMeshVertex(0.0, 0.0), unweightedMeshVertex(1.0, 0.0), unweightedMeshVertex(0.0, 1.0)],
+            deformAttachment: "directBadUv",
+          ),
+        ),
+        schemaViolation,
+      )
+      raisesBonyLoadError(
         proc() = discard weightedMeshAttachment(
           data,
           "linkedUnsupported",
@@ -614,6 +628,42 @@ spec "bony package":
       vertices.len == 1
       closeTo(vertices[0].x, quantizeF32(10.5))
       closeTo(vertices[0].y, quantizeF32(4.5))
+
+  it "skins weighted mesh vertices through full affine transforms":
+    let data = skeletonData(
+      skeletonHeader("demo", "0.1.0"),
+      @[boneData("root", "", localTransform(rotation = 90.0, scaleX = 2.0))],
+    )
+    let mesh = weightedMeshAttachment(
+      data,
+      "weightedAffine",
+      @[meshUv(0.0, 0.0)],
+      @[0'u16, 0'u16, 0'u16],
+      @[weightedMeshVertex(@[meshInfluence("root", 1.0, 0.0, 1.0)])],
+    )
+    let vertices = skinMeshVertices(data, computeWorldTransforms(data), "root", mesh)
+
+    then:
+      closeTo(vertices[0].x, quantizeF32(0.0))
+      closeTo(vertices[0].y, quantizeF32(2.0))
+
+  it "uses caller-provided world transforms for mesh skinning":
+    let data = skeletonData(
+      skeletonHeader("demo", "0.1.0"),
+      @[boneData("root", "")],
+    )
+    let mesh = unweightedMeshAttachment(
+      data,
+      "manualWorld",
+      @[meshUv(0.0, 0.0)],
+      @[0'u16, 0'u16, 0'u16],
+      @[unweightedMeshVertex(1.0, 1.0)],
+    )
+    let vertices = skinMeshVertices(data, @[Affine2(a: 1.0, d: 1.0, tx: 4.0, ty: 5.0)], "root", mesh)
+
+    then:
+      closeTo(vertices[0].x, 5.0)
+      closeTo(vertices[0].y, 6.0)
 
   it "rejects unsupported mesh skinning modes and invalid world arrays":
     let data = animationFixture()
