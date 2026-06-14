@@ -87,6 +87,10 @@ jobs:
         working-directory: runtime-nim
         run: nim c -r tests/test_bnb_byte_stability.nim
 
+      - name: Nim JSON/.bnb idempotency gate
+        working-directory: runtime-nim
+        run: nim c -r tests/test_json_bnb_json_idempotency.nim
+
       - name: Codegen freshness
         run: python3 codegen/generate.py --check
 
