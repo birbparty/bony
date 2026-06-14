@@ -192,7 +192,7 @@ spec "bony package":
         bad.writeVaruint(bnbMaxPropertyPayloadBytes + 1)
         var badIndex = 0
         discard skipPropertyRecord(bad, badIndex, toc)
-      , schemaViolation)
+      , resourceLimitExceeded)
 
     bytes.setLen(0)
     bytes.writePropertyRecord(900000, @[5'u8, 6'u8, 7'u8])
@@ -243,22 +243,50 @@ spec "bony package":
       raisesBonyLoadError(proc() = discard readStringPayload(@[2'u8], table), unknownRequiredReference)
       raisesBonyLoadError(proc() = discard readStringPayload(@[0'u8, 0'u8], table), schemaViolation)
 
+  it "preserves duplicate .bnb string table entries by index":
+    var bytes: seq[byte]
+    bytes.writeVaruint(2)
+    bytes.writeVaruint(4)
+    bytes.add @[byte(ord('r')), byte(ord('o')), byte(ord('o')), byte(ord('t'))]
+    bytes.writeVaruint(4)
+    bytes.add @[byte(ord('r')), byte(ord('o')), byte(ord('o')), byte(ord('t'))]
+    var index = 0
+    let table = bytes.readStringTable(index)
+
+    then:
+      table.values == @["root", "root"]
+      table.stringAt(0) == "root"
+      table.stringAt(1) == "root"
+      index == bytes.len
+
   it "rejects malformed .bnb string tables":
     then:
       raisesBonyLoadError(proc() =
         var bytes: seq[byte]
-        bytes.writeVaruint(2)
-        bytes.writeVaruint(4)
-        bytes.add @[byte(ord('r')), byte(ord('o')), byte(ord('o')), byte(ord('t'))]
-        bytes.writeVaruint(4)
-        bytes.add @[byte(ord('r')), byte(ord('o')), byte(ord('o')), byte(ord('t'))]
+        bytes.writeVaruint(bnbMaxStringTableEntries + 1)
         var index = 0
         discard bytes.readStringTable(index)
-      , duplicateKey)
+      , resourceLimitExceeded)
+      raisesBonyLoadError(proc() =
+        var bytes: seq[byte]
+        bytes.writeVaruint(1)
+        bytes.writeVaruint(bnbMaxStringBytes + 1)
+        var index = 0
+        discard bytes.readStringTable(index)
+      , resourceLimitExceeded)
       raisesBonyLoadError(proc() =
         let bytes = @[1'u8, 1'u8, 255'u8]
         var index = 0
         discard bytes.readStringTable(index)
+      , schemaViolation)
+      raisesBonyLoadError(proc() =
+        let bytes = @[1'u8, 3'u8, 0xED'u8, 0xA0'u8, 0x80'u8]
+        var index = 0
+        discard bytes.readStringTable(index)
+      , schemaViolation)
+      raisesBonyLoadError(proc() =
+        var table = initStringTable()
+        discard table.intern("\xED\xA0\x80")
       , schemaViolation)
       raisesBonyLoadError(proc() =
         let bytes = @[1'u8, 4'u8, byte(ord('r'))]

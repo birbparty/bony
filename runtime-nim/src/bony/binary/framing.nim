@@ -55,7 +55,7 @@ proc writeVaruint*(output: var seq[byte]; value: uint64) =
 
 proc writeStringBytes(output: var seq[byte]; value: string) =
   if uint64(value.len) > bnbMaxStringBytes:
-    raise newBonyLoadError(schemaViolation, ".bnb string exceeds maximum UTF-8 byte length")
+    raise newBonyLoadError(resourceLimitExceeded, ".bnb string exceeds maximum UTF-8 byte length")
   output.writeVaruint(uint64(value.len))
   for ch in value:
     output.add byte(ord(ch))
@@ -63,9 +63,13 @@ proc writeStringBytes(output: var seq[byte]; value: string) =
 
 proc validateStringValue(value: string) =
   if uint64(value.len) > bnbMaxStringBytes:
-    raise newBonyLoadError(schemaViolation, ".bnb string exceeds maximum UTF-8 byte length")
+    raise newBonyLoadError(resourceLimitExceeded, ".bnb string exceeds maximum UTF-8 byte length")
   if value.validateUtf8 != -1:
     raise newBonyLoadError(schemaViolation, ".bnb string is not valid UTF-8")
+  for rune in value.runes:
+    let scalar = int(rune)
+    if scalar >= 0xD800 and scalar <= 0xDFFF:
+      raise newBonyLoadError(schemaViolation, ".bnb string is not a valid Unicode scalar sequence")
 
 
 proc readVaruint*(input: openArray[byte]; index: var int): uint64 =
@@ -112,10 +116,19 @@ proc intern*(table: var BnbStringTable; value: string): uint64 =
   if value in table.indexes:
     return table.indexes[value]
   if uint64(table.values.len) >= bnbMaxStringTableEntries:
-    raise newBonyLoadError(schemaViolation, ".bnb string table has too many entries")
+    raise newBonyLoadError(resourceLimitExceeded, ".bnb string table has too many entries")
   result = uint64(table.values.len)
   table.values.add value
   table.indexes[value] = result
+
+
+proc appendStringTableValue(table: var BnbStringTable; value: string) =
+  validateStringValue(value)
+  if uint64(table.values.len) >= bnbMaxStringTableEntries:
+    raise newBonyLoadError(resourceLimitExceeded, ".bnb string table has too many entries")
+  if value notin table.indexes:
+    table.indexes[value] = uint64(table.values.len)
+  table.values.add value
 
 
 proc stringAt*(table: BnbStringTable; index: uint64): string =
@@ -135,11 +148,11 @@ proc readStringTable*(input: openArray[byte]; index: var int): BnbStringTable =
   result = initStringTable()
   let count = input.readVaruint(index)
   if count > bnbMaxStringTableEntries:
-    raise newBonyLoadError(schemaViolation, ".bnb string table has too many entries")
+    raise newBonyLoadError(resourceLimitExceeded, ".bnb string table has too many entries")
   for _ in 0'u64 ..< count:
     let byteLength = input.readVaruint(index)
     if byteLength > bnbMaxStringBytes:
-      raise newBonyLoadError(schemaViolation, ".bnb string exceeds maximum UTF-8 byte length")
+      raise newBonyLoadError(resourceLimitExceeded, ".bnb string exceeds maximum UTF-8 byte length")
     if byteLength > uint64(input.len - index):
       raise newBonyLoadError(truncatedInput, "truncated .bnb string table entry")
     let endIndex = index + int(byteLength)
@@ -147,9 +160,7 @@ proc readStringTable*(input: openArray[byte]; index: var int): BnbStringTable =
     for offset in 0 ..< int(byteLength):
       value[offset] = char(input[index + offset])
     index = endIndex
-    if value in result.indexes:
-      raise newBonyLoadError(duplicateKey, "duplicate .bnb string table entry")
-    discard result.intern(value)
+    result.appendStringTableValue(value)
 
 
 proc writeStringPayload*(output: var seq[byte]; table: var BnbStringTable; value: string) =
@@ -278,7 +289,7 @@ proc readPropertyRecord*(input: openArray[byte]; index: var int; toc: openArray[
   discard toc.backingTypeCodeFor(result.propertyKey)
   let byteLength = input.readVaruint(index)
   if byteLength > bnbMaxPropertyPayloadBytes:
-    raise newBonyLoadError(schemaViolation, ".bnb property payload exceeds maximum length")
+    raise newBonyLoadError(resourceLimitExceeded, ".bnb property payload exceeds maximum length")
   if byteLength > uint64(input.len - index):
     raise newBonyLoadError(truncatedInput, ".bnb property payload exceeds remaining input")
   let payloadEnd = index + int(byteLength)
@@ -293,7 +304,7 @@ proc skipPropertyRecord*(input: openArray[byte]; index: var int; toc: openArray[
   discard toc.backingTypeCodeFor(result)
   let byteLength = input.readVaruint(index)
   if byteLength > bnbMaxPropertyPayloadBytes:
-    raise newBonyLoadError(schemaViolation, ".bnb property payload exceeds maximum length")
+    raise newBonyLoadError(resourceLimitExceeded, ".bnb property payload exceeds maximum length")
   if byteLength > uint64(input.len - index):
     raise newBonyLoadError(truncatedInput, ".bnb property payload exceeds remaining input")
   index += int(byteLength)

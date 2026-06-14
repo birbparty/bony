@@ -12,7 +12,8 @@ type
     cycleDetected,
     truncatedInput,
     malformedVarint,
-    invalidBackingType
+    invalidBackingType,
+    resourceLimitExceeded
 
   BonyLoadError* = object of CatchableError
     kind*: BonyLoadErrorKind
