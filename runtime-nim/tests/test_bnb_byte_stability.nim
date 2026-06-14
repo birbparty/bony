@@ -1,3 +1,5 @@
+import std/[os, osproc, sequtils, streams]
+
 import bony
 
 proc stringPayload(table: var BnbStringTable; value: string): seq[byte] =
@@ -53,6 +55,25 @@ proc currentModelFixture(): SkeletonData =
 proc viaJson(bytes: openArray[byte]): seq[byte] =
   toBonyBnb(loadBonyJson(toBonyJson(loadKnownBonyBnb(bytes))))
 
+proc readBytes(path: string): seq[byte] =
+  let content = readFile(path)
+  result = newSeq[byte](content.len)
+  for index, ch in content:
+    result[index] = byte(ord(ch))
+
+proc writeBytes(path: string; data: openArray[byte]) =
+  var content = newString(data.len)
+  for index, value in data:
+    content[index] = char(value)
+  writeFile(path, content)
+
+proc runProcess(binary: string; args: openArray[string]): tuple[output: string; exitCode: int] =
+  let process = startProcess(binary, args = args, options = {poStdErrToStdOut})
+  let output = process.outputStream.readAll()
+  let exitCode = process.waitForExit()
+  process.close()
+  (output, exitCode)
+
 proc expectStable(name: string; bytes: seq[byte]) =
   let cycled = viaJson(bytes)
   doAssert cycled == bytes, name & " changed after bnb->json->bnb"
@@ -61,6 +82,125 @@ proc expectCanonicalizes(name: string; bytes, canonical: seq[byte]) =
   let cycled = viaJson(bytes)
   doAssert cycled == canonical, name & " did not canonicalize to expected bytes"
   doAssert viaJson(cycled) == cycled, name & " canonicalized bytes are not stable"
+
+proc readPropertyKeys(input: openArray[byte]; index: var int): seq[uint64] =
+  while true:
+    let propertyKey = input.readVaruint(index)
+    if propertyKey == 0:
+      return
+    let byteLength = input.readVaruint(index)
+    doAssert byteLength <= uint64(input.len - index), "property byteLength exceeds input"
+    result.add propertyKey
+    index += int(byteLength)
+
+proc inspectCanonicalCurrentModel(bytes: openArray[byte]) =
+  var index = 0
+  let header = bytes.readHeader(index)
+  doAssert header.flags == bnbStringTableFlag
+  let toc = bytes.readToc(index)
+  var previous = 0'u64
+  for itemIndex, item in toc:
+    if itemIndex > 0:
+      doAssert previous < item.propertyKey, "ToC keys must be strictly ascending"
+    previous = item.propertyKey
+  doAssert toc.mapIt(it.propertyKey) == @[
+    1'u64,
+    2'u64,
+    3'u64,
+    1000'u64,
+    1001'u64,
+    1002'u64,
+    1007'u64,
+    1008'u64,
+    1009'u64,
+    1010'u64,
+    1012'u64,
+    1013'u64,
+    1014'u64,
+    1015'u64,
+    4000'u64,
+    4001'u64,
+    4002'u64,
+    4003'u64,
+    4004'u64,
+    4005'u64,
+    4006'u64,
+    4007'u64,
+    4008'u64,
+    4009'u64,
+    4010'u64,
+  ]
+  let strings = bytes.readStringTable(index)
+  doAssert strings.values == @[
+    "demo",
+    "0.2.0",
+    "root",
+    "child",
+    "onlyTranslation",
+    "bodySlot",
+    "body",
+    "curve",
+    "follow",
+  ]
+
+  doAssert bytes.readVaruint(index) == 1
+  doAssert bytes.readPropertyKeys(index) == @[1'u64, 2'u64]
+  doAssert bytes.readVaruint(index) == 2
+  doAssert bytes.readPropertyKeys(index) == @[1'u64, 1001'u64, 1002'u64]
+  doAssert bytes.readVaruint(index) == 2
+  doAssert bytes.readPropertyKeys(index) == @[1'u64, 3'u64, 1000'u64, 1007'u64, 1008'u64, 1009'u64, 1010'u64]
+  doAssert bytes.readVaruint(index) == 1000
+  doAssert bytes.readPropertyKeys(index) == @[1'u64, 1012'u64, 1013'u64]
+  doAssert bytes.readVaruint(index) == 1001
+  doAssert bytes.readPropertyKeys(index) == @[1'u64, 1014'u64, 1015'u64]
+  doAssert bytes.readVaruint(index) == 4001
+  doAssert bytes.readPropertyKeys(index) == @[
+    1'u64,
+    4003'u64,
+    4004'u64,
+    4005'u64,
+    4006'u64,
+    4007'u64,
+    4008'u64,
+    4009'u64,
+    4010'u64,
+  ]
+  doAssert bytes.readVaruint(index) == 4000
+  doAssert bytes.readPropertyKeys(index) == @[1'u64, 1012'u64, 4000'u64, 4001'u64, 4002'u64]
+  doAssert bytes.readVaruint(index) == 0
+  doAssert index == bytes.len, "canonical .bnb must not contain trailing bytes"
+
+proc expectEmitRejectsInvalidUnicode() =
+  try:
+    discard toBonyBnb(skeletonData(skeletonHeader("\xff", "0.1.0"), @[boneData("root", "")]))
+    raise newException(AssertionDefect, "invalid unicode emitted")
+  except BonyLoadError as exc:
+    doAssert exc.kind == schemaViolation
+
+proc expectCliRoundTrip(canonical: seq[byte]) =
+  let cliPath = "/tmp/bony_bnb_byte_stability_cli"
+  let inputPath = "/tmp/bony_bnb_byte_stability_input.bnb"
+  let jsonPath = "/tmp/bony_bnb_byte_stability_output.bony"
+  let outputPath = "/tmp/bony_bnb_byte_stability_output.bnb"
+  for path in [cliPath, inputPath, jsonPath, outputPath]:
+    if fileExists(path):
+      removeFile(path)
+
+  let compileResult = execCmdEx(
+    "nim c --path:src --path:../../bddy/src -o:" & cliPath & " ../cli/bony_cli.nim",
+    options = {poStdErrToStdOut},
+  )
+  doAssert compileResult.exitCode == 0, compileResult.output
+  writeBytes(inputPath, canonical)
+  let toJson = runProcess(cliPath, ["bnb-to-json", inputPath, jsonPath])
+  doAssert toJson.exitCode == 0, toJson.output
+  let toBnb = runProcess(cliPath, ["json-to-bnb", jsonPath, outputPath])
+  doAssert toBnb.exitCode == 0, toBnb.output
+  doAssert readBytes(outputPath) == canonical, "CLI bnb->json->bnb changed canonical bytes"
+
+  for path in [cliPath, inputPath, jsonPath, outputPath]:
+    if fileExists(path):
+      removeFile(path)
 
 proc nonCanonicalCurrentModelBytes(): seq[byte] =
   var table = initStringTable()
@@ -164,9 +304,12 @@ proc nonCanonicalCurrentModelBytes(): seq[byte] =
 
 let canonical = toBonyBnb(currentModelFixture())
 expectStable("canonical current model fixture", canonical)
+inspectCanonicalCurrentModel(canonical)
 expectCanonicalizes("non-canonical toc and property order", nonCanonicalCurrentModelBytes(), canonical)
+expectCliRoundTrip(canonical)
 
 let minimal = toBonyBnb(skeletonData(skeletonHeader("minimal", "0.1.0"), @[boneData("root", "")]))
 expectStable("default omission fixture", minimal)
+expectEmitRejectsInvalidUnicode()
 
 echo ".bnb byte-stability gate passed"
