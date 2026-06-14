@@ -1631,6 +1631,19 @@ spec "bony package":
     var multiplyBatch = batch
     multiplyBatch.blendMode = "multiply"
     let multiply = buildNaylibRenderPlan(@[multiplyBatch], naylibRenderOptions(alphaObserved = true))
+    var pmaAdditiveBatch = batch
+    pmaAdditiveBatch.texturePage = "atlas"
+    let pmaAdditive = buildNaylibRenderPlan(
+      @[pmaAdditiveBatch],
+      naylibRenderOptions(texturePages = @[naylibTexturePage("atlas", 1'u32, premultipliedAlpha)])
+    )
+    var pmaMultiplyBatch = batch
+    pmaMultiplyBatch.texturePage = "atlas"
+    pmaMultiplyBatch.blendMode = "multiply"
+    let pmaMultiply = buildNaylibRenderPlan(
+      @[pmaMultiplyBatch],
+      naylibRenderOptions(texturePages = @[naylibTexturePage("atlas", 1'u32, premultipliedAlpha)])
+    )
 
     then:
       additive[1].kind == nropBlendSeparate
@@ -1642,6 +1655,35 @@ spec "bony package":
       multiply[1].shader == nskMultiplyPremultiply
       multiply[2].kind == nropBlendSeparate
       multiply[2].blendSeparate.srcRgb == nbfDstColor
+      pmaAdditive[1].blendSeparate.srcRgb == nbfOne
+      pmaMultiply[1].kind == nropShader
+      pmaMultiply[2].kind == nropBlendSeparate
+
+  it "plans naylib screen with destination-color factors":
+    let batch = DrawBatch(
+      blendMode: "screen",
+      vertices: @[
+        DrawVertex(x: 0.0, y: 0.0, r: 1.0, g: 1.0, b: 1.0, a: 1.0),
+        DrawVertex(x: 1.0, y: 0.0, r: 1.0, g: 1.0, b: 1.0, a: 1.0),
+        DrawVertex(x: 0.0, y: 1.0, r: 1.0, g: 1.0, b: 1.0, a: 1.0),
+      ],
+      indices: @[0'u16, 1'u16, 2'u16],
+    )
+    let straight = buildNaylibRenderPlan(@[batch], naylibRenderOptions())
+    var pmaBatch = batch
+    pmaBatch.texturePage = "atlas"
+    let pma = buildNaylibRenderPlan(
+      @[pmaBatch],
+      naylibRenderOptions(texturePages = @[naylibTexturePage("atlas", 3'u32, premultipliedAlpha)])
+    )
+
+    then:
+      straight[1].kind == nropShader
+      straight[1].shader == nskScreen
+      straight[2].kind == nropBlendSeparate
+      straight[2].blendSeparate.srcRgb == nbfOneMinusDstColor
+      straight[2].blendSeparate.dstRgb == nbfOne
+      pma[1].pageAlphaMode == premultipliedAlpha
 
   it "plans naylib tint-black and geometry-side clipping":
     let batch = NaylibDrawBatch(
@@ -1663,12 +1705,14 @@ spec "bony package":
     then:
       plan[0].kind == nropShader
       plan[0].shader == nskTintBlack
+      plan[0].requiresCustomVertexLayout == true
       plan[2].kind == nropDrawTriangles
       plan[2].clipId == "clip-a"
       plan[2].usesStencil == false
 
   it "rejects invalid naylib adapter input":
     let badBlend = DrawBatch(blendMode: "bogus")
+    let emptyBlend = DrawBatch(blendMode: "")
     let missingPage = DrawBatch(
       texturePage: "missing",
       blendMode: "normal",
@@ -1682,6 +1726,7 @@ spec "bony package":
 
     then:
       raisesBonyLoadError(proc() = discard buildNaylibRenderPlan(@[badBlend]), schemaViolation)
+      raisesBonyLoadError(proc() = discard buildNaylibRenderPlan(@[emptyBlend]), schemaViolation)
       raisesBonyLoadError(proc() = discard buildNaylibRenderPlan(@[missingPage]), unknownRequiredReference)
       raisesBonyLoadError(
         proc() = discard buildNaylibRenderPlan(
@@ -1693,6 +1738,48 @@ spec "bony package":
         ),
         duplicateKey,
       )
+
+  it "traces naylib bridge call sequencing without a GPU context":
+    let batch = DrawBatch(
+      blendMode: "normal",
+      vertices: @[
+        DrawVertex(x: 0.0, y: 0.0, r: 1.0, g: 1.0, b: 1.0, a: 1.0),
+        DrawVertex(x: 1.0, y: 0.0, r: 1.0, g: 1.0, b: 1.0, a: 1.0),
+        DrawVertex(x: 0.0, y: 1.0, r: 1.0, g: 1.0, b: 1.0, a: 1.0),
+      ],
+      indices: @[0'u16, 1'u16, 2'u16],
+    )
+    let calls = traceNaylibRenderPlan(buildNaylibRenderPlan(@[batch]))
+    let emptyCalls = traceNaylibRenderPlan(buildNaylibRenderPlan(@[DrawBatch(blendMode: "normal")]))
+    let tintPlan = buildNaylibRenderPlan(
+      @[
+        NaylibDrawBatch(
+          blendMode: "normal",
+          vertices: @[
+            NaylibVertex(x: 0.0, y: 0.0, r: 1.0, g: 1.0, b: 1.0, a: 1.0, darkR: 0.5),
+            NaylibVertex(x: 1.0, y: 0.0, r: 1.0, g: 1.0, b: 1.0, a: 1.0, darkR: 0.5),
+            NaylibVertex(x: 0.0, y: 1.0, r: 1.0, g: 1.0, b: 1.0, a: 1.0, darkR: 0.5),
+          ],
+          indices: @[0'u16, 1'u16, 2'u16],
+        )
+      ],
+      naylibRenderOptions(),
+    )
+
+    then:
+      calls[0].kind == nckFlush
+      calls[1].kind == nckShader
+      calls[2].kind == nckFlush
+      calls[3].kind == nckBlendPreset
+      calls[4].kind == nckSetTexture
+      calls[5].kind == nckVertex
+      calls[8].kind == nckSetTexture
+      calls[8].textureId == 0'u32
+      calls[^2].kind == nckDisableShader
+      calls[^1].kind == nckEndBlend
+      emptyCalls.len == 2
+      emptyCalls[0].kind == nckDisableShader
+      raisesBonyLoadError(proc() = discard traceNaylibRenderPlan(tintPlan), schemaViolation)
 
   it "serializes M2 region and slot data":
     let data = skeletonData(

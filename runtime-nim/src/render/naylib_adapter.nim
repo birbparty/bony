@@ -14,7 +14,8 @@ type
     nbfOne,
     nbfSrcAlpha,
     nbfOneMinusSrcAlpha,
-    nbfDstColor
+    nbfDstColor,
+    nbfOneMinusDstColor
 
   NaylibBlendEquation* = enum
     nbeAdd
@@ -34,6 +35,7 @@ type
     nropBlendPreset,
     nropBlendSeparate,
     nropShader,
+    nropFlush,
     nropDrawTriangles
 
   NaylibTexturePage* = object
@@ -77,6 +79,8 @@ type
     blendPreset*: NaylibBlendPreset
     blendSeparate*: NaylibBlendSeparate
     shader*: NaylibShaderKind
+    requiresCustomVertexLayout*: bool
+    pageAlphaMode*: NaylibAlphaMode
     texturePage*: string
     textureId*: uint32
     clipId*: string
@@ -143,7 +147,7 @@ proc hasDarkColor(batch: NaylibDrawBatch): bool =
 
 proc validateBlendMode(mode: string) =
   case mode
-  of "normal", "", "additive", "multiply", "screen":
+  of "normal", "additive", "multiply", "screen":
     discard
   else:
     raise newBonyLoadError(schemaViolation, "unknown naylib blend mode: " & mode)
@@ -194,8 +198,13 @@ proc blendOps(mode: string; alphaMode: NaylibAlphaMode; alphaObserved: bool): se
       blendSeparate: defaultSeparate(srcRgb, nbfOne, nbfOne, nbfOne),
     )
   of "multiply":
-    result.add NaylibRenderOp(kind: nropShader, shader: nskMultiplyPremultiply)
-    if alphaObserved:
+    result.add NaylibRenderOp(kind: nropShader, shader: nskMultiplyPremultiply, pageAlphaMode: alphaMode)
+    if alphaMode == premultipliedAlpha:
+      result.add NaylibRenderOp(
+        kind: nropBlendSeparate,
+        blendSeparate: defaultSeparate(nbfDstColor, nbfOneMinusSrcAlpha, nbfOne, nbfOneMinusSrcAlpha),
+      )
+    elif alphaObserved:
       result.add NaylibRenderOp(
         kind: nropBlendSeparate,
         blendSeparate: defaultSeparate(nbfDstColor, nbfOneMinusSrcAlpha, nbfOne, nbfOneMinusSrcAlpha),
@@ -203,10 +212,10 @@ proc blendOps(mode: string; alphaMode: NaylibAlphaMode; alphaObserved: bool): se
     else:
       result.add NaylibRenderOp(kind: nropBlendPreset, blendPreset: nbpMultiplied)
   of "screen":
-    result.add NaylibRenderOp(kind: nropShader, shader: nskScreen)
+    result.add NaylibRenderOp(kind: nropShader, shader: nskScreen, pageAlphaMode: alphaMode)
     result.add NaylibRenderOp(
       kind: nropBlendSeparate,
-      blendSeparate: defaultSeparate(nbfOne, nbfOneMinusSrcAlpha, nbfOne, nbfOneMinusSrcAlpha),
+      blendSeparate: defaultSeparate(nbfOneMinusDstColor, nbfOne, nbfOne, nbfOneMinusSrcAlpha),
     )
   else:
     raise newBonyLoadError(schemaViolation, "unknown naylib blend mode: " & mode)
@@ -233,8 +242,14 @@ proc buildNaylibRenderPlan*(batches: openArray[NaylibDrawBatch]; options: Naylib
     if batch.indices.len == 0:
       continue
 
-    let shader = if batch.hasDarkColor(): nskTintBlack else: nskOneColor
-    result.add NaylibRenderOp(kind: nropShader, shader: shader)
+    let hasDark = batch.hasDarkColor()
+    let shader = if hasDark: nskTintBlack else: nskOneColor
+    result.add NaylibRenderOp(
+      kind: nropShader,
+      shader: shader,
+      requiresCustomVertexLayout: hasDark,
+      pageAlphaMode: page.alphaMode,
+    )
     for op in blendOps(batch.blendMode, page.alphaMode, options.alphaObserved):
       result.add op
     result.add NaylibRenderOp(
