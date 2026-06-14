@@ -2269,6 +2269,131 @@ spec "bony package":
       runtime.layers[1].currentState == "blink"
       not runtime.isTriggerSet("go")
 
+  it "emits state-machine listener events for matching transitions":
+    let data = animationFixture()
+    let idle = animationClip(data, "idle")
+    let wave = animationClip(data, "wave")
+    let open = animationClip(data, "open")
+    let blink = animationClip(data, "blink")
+    let machine = stateMachine(
+      "machine",
+      @[
+        stateMachineLayer(
+          "base",
+          @[stateMachineState("idle", idle), stateMachineState("wave", wave)],
+          transitions = @[stateMachineTransition("idle", "wave", @[stateMachineBoolCondition("armed")])],
+        ),
+        stateMachineLayer(
+          "eyes",
+          @[stateMachineState("open", open), stateMachineState("blink", blink)],
+          transitions = @[stateMachineTransition("open", "blink", @[stateMachineBoolCondition("armed")])],
+        ),
+      ],
+      @[stateMachineBoolInput("armed")],
+      listeners = @[
+        stateMachineStateExitListener("base-idle-exit", "base", "idle"),
+        stateMachineTransitionListener("base-idle-wave", "base", "idle", "wave"),
+        stateMachineStateEnterListener("base-wave-enter", "base", "wave"),
+        stateMachineStateEnterListener("eyes-blink-enter", "eyes", "blink"),
+      ],
+    )
+    var runtime = initStateMachineRuntime(machine)
+    runtime.update(0.0)
+
+    then:
+      runtime.layers[0].currentState == "idle"
+      runtime.events.len == 0
+
+    runtime.setBoolInput("armed", true)
+    runtime.update(0.0)
+
+    then:
+      runtime.layers[0].currentState == "wave"
+      runtime.layers[1].currentState == "blink"
+      runtime.events.len == 4
+      runtime.events[0].listener == "base-idle-exit"
+      runtime.events[0].kind == stateExitListener
+      runtime.events[0].layer == "base"
+      runtime.events[0].fromState == "idle"
+      runtime.events[0].toState == "wave"
+      runtime.events[1].listener == "base-idle-wave"
+      runtime.events[1].kind == transitionListener
+      runtime.events[2].listener == "base-wave-enter"
+      runtime.events[2].kind == stateEnterListener
+      runtime.events[3].listener == "eyes-blink-enter"
+      runtime.events[3].layer == "eyes"
+      runtime.events[3].fromState == "open"
+      runtime.events[3].toState == "blink"
+
+    runtime.update(0.0)
+
+    then:
+      runtime.events.len == 0
+
+  it "rejects invalid state-machine listeners":
+    let data = animationFixture()
+    let idle = animationClip(data, "idle")
+    let wave = animationClip(data, "wave")
+    let states = @[stateMachineState("idle", idle), stateMachineState("wave", wave)]
+    let layer = stateMachineLayer(
+      "base",
+      states,
+      transitions = @[stateMachineTransition("idle", "wave", @[stateMachineBoolCondition("armed")])],
+    )
+
+    then:
+      raisesBonyLoadError(proc() = discard stateMachineStateEnterListener("", "base", "wave"), schemaViolation)
+      raisesBonyLoadError(proc() = discard stateMachineTransitionListener("changed", "base", "idle", ""), schemaViolation)
+      raisesBonyLoadError(proc() =
+        discard stateMachine("machine", @[layer], @[stateMachineBoolInput("armed")], listeners = @[
+          stateMachineStateEnterListener("changed", "missing", "wave"),
+        ]),
+        unknownRequiredReference,
+      )
+      raisesBonyLoadError(proc() =
+        discard stateMachine("machine", @[layer], @[stateMachineBoolInput("armed")], listeners = @[
+          stateMachineStateEnterListener("changed", "base", "missing"),
+        ]),
+        unknownRequiredReference,
+      )
+      raisesBonyLoadError(proc() =
+        discard stateMachine("machine", @[layer], @[stateMachineBoolInput("armed")], listeners = @[
+          stateMachineStateEnterListener("changed", "base", "wave"),
+          stateMachineStateExitListener("changed", "base", "idle"),
+        ]),
+        duplicateKey,
+      )
+      raisesBonyLoadError(proc() =
+        discard stateMachine("machine", @[layer], @[stateMachineBoolInput("armed")], listeners = @[
+          stateMachineTransitionListener("changed", "base", "wave", "idle"),
+        ]),
+        unknownRequiredReference,
+      )
+      raisesBonyLoadError(proc() =
+        discard stateMachine("machine", @[layer], @[stateMachineBoolInput("armed")], listeners = @[
+          StateMachineListener(
+            name: "changed",
+            kind: stateEnterListener,
+            layer: "base",
+            fromState: "idle",
+            toState: "wave",
+          ),
+        ]),
+        schemaViolation,
+      )
+      raisesBonyLoadError(proc() =
+        discard stateMachine("machine", @[layer], @[stateMachineBoolInput("armed")], listeners = @[
+          StateMachineListener(
+            name: "changed",
+            kind: stateExitListener,
+            layer: "base",
+            fromState: "idle",
+            toState: "wave",
+          ),
+        ]),
+        schemaViolation,
+      )
+
   it "rejects invalid state-machine transitions and conditions":
     let data = animationFixture()
     let idle = animationClip(data, "idle")
