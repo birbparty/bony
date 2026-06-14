@@ -1,6 +1,6 @@
 ## M3 bone and slot timeline data structures.
 
-import std/sets
+import std/[math, sets]
 
 import bony/model
 
@@ -88,26 +88,51 @@ type
     delay*: float64
     mode*: SequenceMode
 
+  SampledSequence* = object
+    time*: float64
+    baseIndex*: uint32
+    index*: uint32
+    delay*: float64
+    mode*: SequenceMode
+
   BoneTimeline* = object
-    target*: string
-    kind*: BoneTimelineKind
-    scalarKeys*: seq[ScalarKeyframe]
-    vectorKeys*: seq[Vector2Keyframe]
-    inheritKeys*: seq[InheritKeyframe]
+    target: string
+    kind: BoneTimelineKind
+    scalarKeys: seq[ScalarKeyframe]
+    vectorKeys: seq[Vector2Keyframe]
+    inheritKeys: seq[InheritKeyframe]
 
   SlotTimeline* = object
-    target*: string
-    kind*: SlotTimelineKind
-    attachmentKeys*: seq[AttachmentKeyframe]
-    colorKeys*: seq[ColorKeyframe]
-    color2Keys*: seq[Color2Keyframe]
-    sequenceKeys*: seq[SequenceKeyframe]
+    target: string
+    kind: SlotTimelineKind
+    attachmentKeys: seq[AttachmentKeyframe]
+    colorKeys: seq[ColorKeyframe]
+    color2Keys: seq[Color2Keyframe]
+    sequenceKeys: seq[SequenceKeyframe]
 
   AnimationClip* = object
-    name*: string
-    duration*: float64
-    boneTimelines*: seq[BoneTimeline]
-    slotTimelines*: seq[SlotTimeline]
+    name: string
+    duration: float64
+    boneTimelines: seq[BoneTimeline]
+    slotTimelines: seq[SlotTimeline]
+
+proc target*(timeline: BoneTimeline): string = timeline.target
+proc kind*(timeline: BoneTimeline): BoneTimelineKind = timeline.kind
+proc scalarKeys*(timeline: BoneTimeline): seq[ScalarKeyframe] = timeline.scalarKeys
+proc vectorKeys*(timeline: BoneTimeline): seq[Vector2Keyframe] = timeline.vectorKeys
+proc inheritKeys*(timeline: BoneTimeline): seq[InheritKeyframe] = timeline.inheritKeys
+
+proc target*(timeline: SlotTimeline): string = timeline.target
+proc kind*(timeline: SlotTimeline): SlotTimelineKind = timeline.kind
+proc attachmentKeys*(timeline: SlotTimeline): seq[AttachmentKeyframe] = timeline.attachmentKeys
+proc colorKeys*(timeline: SlotTimeline): seq[ColorKeyframe] = timeline.colorKeys
+proc color2Keys*(timeline: SlotTimeline): seq[Color2Keyframe] = timeline.color2Keys
+proc sequenceKeys*(timeline: SlotTimeline): seq[SequenceKeyframe] = timeline.sequenceKeys
+
+proc name*(clip: AnimationClip): string = clip.name
+proc duration*(clip: AnimationClip): float64 = clip.duration
+proc boneTimelines*(clip: AnimationClip): seq[BoneTimeline] = clip.boneTimelines
+proc slotTimelines*(clip: AnimationClip): seq[SlotTimeline] = clip.slotTimelines
 
 proc validateTimelineTarget(target, context: string) =
   if target.len == 0:
@@ -137,7 +162,53 @@ proc requireKeys(count: int; context: string) =
     raise newBonyLoadError(schemaViolation, context & " must contain at least one keyframe")
 
 
+proc validateBoneTimeline(timeline: BoneTimeline; context: string) =
+  validateTimelineTarget(timeline.target, context)
+  case timeline.kind
+  of inheritTimeline:
+    requireKeys(timeline.inheritKeys.len, context)
+    ensureSorted(timeline.inheritKeys, context)
+    if timeline.scalarKeys.len != 0 or timeline.vectorKeys.len != 0:
+      raise newBonyLoadError(schemaViolation, context & " has keys for the wrong timeline kind")
+  of translateTimeline, scaleTimeline, shearTimeline:
+    requireKeys(timeline.vectorKeys.len, context)
+    ensureSorted(timeline.vectorKeys, context)
+    if timeline.scalarKeys.len != 0 or timeline.inheritKeys.len != 0:
+      raise newBonyLoadError(schemaViolation, context & " has keys for the wrong timeline kind")
+  else:
+    requireKeys(timeline.scalarKeys.len, context)
+    ensureSorted(timeline.scalarKeys, context)
+    if timeline.vectorKeys.len != 0 or timeline.inheritKeys.len != 0:
+      raise newBonyLoadError(schemaViolation, context & " has keys for the wrong timeline kind")
+
+
+proc validateSlotTimeline(timeline: SlotTimeline; context: string) =
+  validateTimelineTarget(timeline.target, context)
+  case timeline.kind
+  of attachmentTimeline:
+    requireKeys(timeline.attachmentKeys.len, context)
+    ensureSorted(timeline.attachmentKeys, context)
+    if timeline.colorKeys.len != 0 or timeline.color2Keys.len != 0 or timeline.sequenceKeys.len != 0:
+      raise newBonyLoadError(schemaViolation, context & " has keys for the wrong timeline kind")
+  of rgbaTimeline, rgbTimeline, alphaTimeline:
+    requireKeys(timeline.colorKeys.len, context)
+    ensureSorted(timeline.colorKeys, context)
+    if timeline.attachmentKeys.len != 0 or timeline.color2Keys.len != 0 or timeline.sequenceKeys.len != 0:
+      raise newBonyLoadError(schemaViolation, context & " has keys for the wrong timeline kind")
+  of rgba2Timeline:
+    requireKeys(timeline.color2Keys.len, context)
+    ensureSorted(timeline.color2Keys, context)
+    if timeline.attachmentKeys.len != 0 or timeline.colorKeys.len != 0 or timeline.sequenceKeys.len != 0:
+      raise newBonyLoadError(schemaViolation, context & " has keys for the wrong timeline kind")
+  of sequenceTimeline:
+    requireKeys(timeline.sequenceKeys.len, context)
+    ensureSorted(timeline.sequenceKeys, context)
+    if timeline.attachmentKeys.len != 0 or timeline.colorKeys.len != 0 or timeline.color2Keys.len != 0:
+      raise newBonyLoadError(schemaViolation, context & " has keys for the wrong timeline kind")
+
+
 proc lastTime(timeline: BoneTimeline): float64 =
+  validateBoneTimeline(timeline, "bone timeline")
   case timeline.kind
   of inheritTimeline:
     timeline.inheritKeys[^1].time
@@ -148,6 +219,7 @@ proc lastTime(timeline: BoneTimeline): float64 =
 
 
 proc lastTime(timeline: SlotTimeline): float64 =
+  validateSlotTimeline(timeline, "slot timeline")
   case timeline.kind
   of attachmentTimeline:
     timeline.attachmentKeys[^1].time
@@ -259,7 +331,8 @@ proc boneScalarTimeline*(
   validateTimelineTarget(target, "bone timeline")
   requireKeys(keys.len, "bone timeline")
   ensureSorted(keys, "bone timeline")
-  BoneTimeline(target: target, kind: kind, scalarKeys: @keys)
+  result = BoneTimeline(target: target, kind: kind, scalarKeys: @keys)
+  validateBoneTimeline(result, "bone timeline")
 
 
 proc boneVectorTimeline*(
@@ -272,21 +345,24 @@ proc boneVectorTimeline*(
   validateTimelineTarget(target, "bone timeline")
   requireKeys(keys.len, "bone timeline")
   ensureSorted(keys, "bone timeline")
-  BoneTimeline(target: target, kind: kind, vectorKeys: @keys)
+  result = BoneTimeline(target: target, kind: kind, vectorKeys: @keys)
+  validateBoneTimeline(result, "bone timeline")
 
 
 proc boneInheritTimeline*(target: string; keys: openArray[InheritKeyframe]): BoneTimeline =
   validateTimelineTarget(target, "bone timeline")
   requireKeys(keys.len, "bone timeline")
   ensureSorted(keys, "bone timeline")
-  BoneTimeline(target: target, kind: inheritTimeline, inheritKeys: @keys)
+  result = BoneTimeline(target: target, kind: inheritTimeline, inheritKeys: @keys)
+  validateBoneTimeline(result, "bone timeline")
 
 
 proc slotAttachmentTimeline*(target: string; keys: openArray[AttachmentKeyframe]): SlotTimeline =
   validateTimelineTarget(target, "slot timeline")
   requireKeys(keys.len, "slot timeline")
   ensureSorted(keys, "slot timeline")
-  SlotTimeline(target: target, kind: attachmentTimeline, attachmentKeys: @keys)
+  result = SlotTimeline(target: target, kind: attachmentTimeline, attachmentKeys: @keys)
+  validateSlotTimeline(result, "slot timeline")
 
 
 proc slotColorTimeline*(target: string; kind: SlotTimelineKind; keys: openArray[ColorKeyframe]): SlotTimeline =
@@ -295,21 +371,24 @@ proc slotColorTimeline*(target: string; kind: SlotTimelineKind; keys: openArray[
   validateTimelineTarget(target, "slot timeline")
   requireKeys(keys.len, "slot timeline")
   ensureSorted(keys, "slot timeline")
-  SlotTimeline(target: target, kind: kind, colorKeys: @keys)
+  result = SlotTimeline(target: target, kind: kind, colorKeys: @keys)
+  validateSlotTimeline(result, "slot timeline")
 
 
 proc slotColor2Timeline*(target: string; keys: openArray[Color2Keyframe]): SlotTimeline =
   validateTimelineTarget(target, "slot timeline")
   requireKeys(keys.len, "slot timeline")
   ensureSorted(keys, "slot timeline")
-  SlotTimeline(target: target, kind: rgba2Timeline, color2Keys: @keys)
+  result = SlotTimeline(target: target, kind: rgba2Timeline, color2Keys: @keys)
+  validateSlotTimeline(result, "slot timeline")
 
 
 proc slotSequenceTimeline*(target: string; keys: openArray[SequenceKeyframe]): SlotTimeline =
   validateTimelineTarget(target, "slot timeline")
   requireKeys(keys.len, "slot timeline")
   ensureSorted(keys, "slot timeline")
-  SlotTimeline(target: target, kind: sequenceTimeline, sequenceKeys: @keys)
+  result = SlotTimeline(target: target, kind: sequenceTimeline, sequenceKeys: @keys)
+  validateSlotTimeline(result, "slot timeline")
 
 
 proc animationClip*(
@@ -323,19 +402,28 @@ proc animationClip*(
 
   var boneNames = initHashSet[string]()
   var slotNames = initHashSet[string]()
+  var regionNames = initHashSet[string]()
   for bone in data.bones:
     boneNames.incl(bone.name)
   for slot in data.slots:
     slotNames.incl(slot.name)
+  for region in data.regions:
+    regionNames.incl(region.name)
 
   var duration = 0.0
   for timeline in boneTimelines:
+    validateBoneTimeline(timeline, "bone timeline")
     if timeline.target notin boneNames:
       raise newBonyLoadError(unknownRequiredReference, "unknown animated bone: " & timeline.target)
     duration = max(duration, timeline.lastTime)
   for timeline in slotTimelines:
+    validateSlotTimeline(timeline, "slot timeline")
     if timeline.target notin slotNames:
       raise newBonyLoadError(unknownRequiredReference, "unknown animated slot: " & timeline.target)
+    if timeline.kind == attachmentTimeline:
+      for key in timeline.attachmentKeys:
+        if key.attachment.len > 0 and key.attachment notin regionNames:
+          raise newBonyLoadError(unknownRequiredReference, "unknown timeline attachment: " & key.attachment)
     duration = max(duration, timeline.lastTime)
 
   AnimationClip(
@@ -363,7 +451,16 @@ proc findSpan[T](keys: openArray[T]; time: float64): int =
 
 
 proc sample*(timeline: BoneTimeline; time: float64): ScalarKeyframe =
-  if timeline.scalarKeys.len == 0:
+  validateBoneTimeline(timeline, "bone timeline")
+  if timeline.kind notin {
+    rotateTimeline,
+    translateXTimeline,
+    translateYTimeline,
+    scaleXTimeline,
+    scaleYTimeline,
+    shearXTimeline,
+    shearYTimeline,
+  }:
     raise newBonyLoadError(schemaViolation, "bone timeline does not contain scalar keys")
   let storedTime = quantizeTime(time, "sample.time")
   let index = findSpan(timeline.scalarKeys, storedTime)
@@ -376,7 +473,8 @@ proc sample*(timeline: BoneTimeline; time: float64): ScalarKeyframe =
 
 
 proc sampleVector*(timeline: BoneTimeline; time: float64): Vector2Keyframe =
-  if timeline.vectorKeys.len == 0:
+  validateBoneTimeline(timeline, "bone timeline")
+  if timeline.kind notin {translateTimeline, scaleTimeline, shearTimeline}:
     raise newBonyLoadError(schemaViolation, "bone timeline does not contain vector keys")
   let storedTime = quantizeTime(time, "sample.time")
   let index = findSpan(timeline.vectorKeys, storedTime)
@@ -395,19 +493,22 @@ proc sampleVector*(timeline: BoneTimeline; time: float64): Vector2Keyframe =
 
 
 proc sampleInherit*(timeline: BoneTimeline; time: float64): InheritKeyframe =
-  if timeline.inheritKeys.len == 0:
+  validateBoneTimeline(timeline, "bone timeline")
+  if timeline.kind != inheritTimeline:
     raise newBonyLoadError(schemaViolation, "bone timeline does not contain inherit keys")
   timeline.inheritKeys[findSpan(timeline.inheritKeys, quantizeTime(time, "sample.time"))]
 
 
 proc sampleAttachment*(timeline: SlotTimeline; time: float64): AttachmentKeyframe =
-  if timeline.attachmentKeys.len == 0:
+  validateSlotTimeline(timeline, "slot timeline")
+  if timeline.kind != attachmentTimeline:
     raise newBonyLoadError(schemaViolation, "slot timeline does not contain attachment keys")
   timeline.attachmentKeys[findSpan(timeline.attachmentKeys, quantizeTime(time, "sample.time"))]
 
 
 proc sampleColor*(timeline: SlotTimeline; time: float64): ColorKeyframe =
-  if timeline.colorKeys.len == 0:
+  validateSlotTimeline(timeline, "slot timeline")
+  if timeline.kind notin {rgbaTimeline, rgbTimeline, alphaTimeline}:
     raise newBonyLoadError(schemaViolation, "slot timeline does not contain color keys")
   let storedTime = quantizeTime(time, "sample.time")
   let index = findSpan(timeline.colorKeys, storedTime)
@@ -429,7 +530,8 @@ proc sampleColor*(timeline: SlotTimeline; time: float64): ColorKeyframe =
 
 
 proc sampleColor2*(timeline: SlotTimeline; time: float64): Color2Keyframe =
-  if timeline.color2Keys.len == 0:
+  validateSlotTimeline(timeline, "slot timeline")
+  if timeline.kind != rgba2Timeline:
     raise newBonyLoadError(schemaViolation, "slot timeline does not contain rgba2 keys")
   let storedTime = quantizeTime(time, "sample.time")
   let index = findSpan(timeline.color2Keys, storedTime)
@@ -455,7 +557,48 @@ proc sampleColor2*(timeline: SlotTimeline; time: float64): Color2Keyframe =
   )
 
 
-proc sampleSequence*(timeline: SlotTimeline; time: float64): SequenceKeyframe =
-  if timeline.sequenceKeys.len == 0:
+proc sampleSequenceKey*(timeline: SlotTimeline; time: float64): SequenceKeyframe =
+  validateSlotTimeline(timeline, "slot timeline")
+  if timeline.kind != sequenceTimeline:
     raise newBonyLoadError(schemaViolation, "slot timeline does not contain sequence keys")
   timeline.sequenceKeys[findSpan(timeline.sequenceKeys, quantizeTime(time, "sample.time"))]
+
+
+proc resolveSequenceIndex(baseIndex, elapsedFrames, frameCount: uint32; mode: SequenceMode): uint32 =
+  if frameCount == 0:
+    raise newBonyLoadError(schemaViolation, "sequence frameCount must be positive")
+  let last = frameCount - 1
+  let start = min(baseIndex, last)
+  case mode
+  of sequenceHold:
+    start
+  of sequenceOnce:
+    min(start + elapsedFrames, last)
+  of sequenceLoop:
+    (start + elapsedFrames) mod frameCount
+  of sequenceReverse:
+    if elapsedFrames >= start: 0'u32 else: start - elapsedFrames
+  of sequencePingpong:
+    if frameCount == 1:
+      0'u32
+    else:
+      let period = 2'u32 * last
+      let position = (start + elapsedFrames) mod period
+      if position <= last: position else: period - position
+
+
+proc sampleSequence*(timeline: SlotTimeline; time: float64; frameCount: uint32): SampledSequence =
+  let storedTime = quantizeTime(time, "sample.time")
+  let key = timeline.sampleSequenceKey(storedTime)
+  let elapsedFrames =
+    if key.delay <= 0:
+      0'u32
+    else:
+      uint32(floor((storedTime - key.time) / key.delay))
+  SampledSequence(
+    time: storedTime,
+    baseIndex: key.index,
+    index: resolveSequenceIndex(key.index, elapsedFrames, frameCount, key.mode),
+    delay: key.delay,
+    mode: key.mode,
+  )

@@ -417,6 +417,7 @@ spec "bony package":
     then:
       closeTo(sampled.x, 2.5)
       closeTo(sampled.y, 10.0)
+      raisesBonyLoadError(proc() = discard timeline.sample(0.25), schemaViolation)
 
   it "samples inherit timelines as discrete flag changes":
     let timeline = boneInheritTimeline(
@@ -461,8 +462,9 @@ spec "bony package":
     then:
       attachments.sampleAttachment(0.25).attachment == "idle"
       attachments.sampleAttachment(1.0).attachment == ""
-      sequence.sampleSequence(1.0).mode == sequenceLoop
-      sequence.sampleSequence(2.5).index == 4'u32
+      sequence.sampleSequenceKey(1.0).mode == sequenceLoop
+      sequence.sampleSequence(0.35, 5).index == 3'u32
+      sequence.sampleSequence(2.5, 5).index == 4'u32
 
   it "builds slot color timelines and validates normalized channels":
     let rgba = slotColorTimeline(
@@ -496,6 +498,7 @@ spec "bony package":
       skeletonHeader("demo", "0.1.0"),
       @[boneData("root", "")],
       @[slotData("body", "root", "")],
+      @[regionAttachment("idle", 1.0, 1.0), regionAttachment("wave", 1.0, 1.0)],
     )
     let clip = animationClip(
       data,
@@ -526,6 +529,17 @@ spec "bony package":
             data,
             "bad",
             @[boneScalarTimeline("missing", rotateTimeline, @[scalarKeyframe(0.0, 0.0)])],
+          ),
+        unknownRequiredReference
+      )
+      raisesBonyLoadError(
+        proc() =
+          discard animationClip(
+            data,
+            "badAttachment",
+            slotTimelines = @[
+              slotAttachmentTimeline("body", @[attachmentKeyframe(0.0, "missing")]),
+            ],
           ),
         unknownRequiredReference
       )
