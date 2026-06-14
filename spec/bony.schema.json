@@ -30,9 +30,7 @@
   },
   "required": [
     "skeleton",
-    "bones",
-    "slots",
-    "regions"
+    "bones"
   ],
   "$defs": {
     "skeleton": {
@@ -106,11 +104,333 @@
         },
         "transformMode": {
           "type": "string",
+          "enum": [
+            "normal",
+            "onlyTranslation",
+            "noRotationOrReflection",
+            "noScale",
+            "noScaleOrReflection"
+          ],
           "default": "normal"
         }
       },
       "required": [
         "name"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "transformMode": {
+                "const": "normal"
+              }
+            },
+            "required": [
+              "transformMode"
+            ]
+          },
+          "then": {
+            "properties": {
+              "inheritRotation": {
+                "const": true
+              },
+              "inheritScale": {
+                "const": true
+              },
+              "inheritReflection": {
+                "const": true
+              }
+            },
+            "required": []
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "transformMode": {
+                "const": "onlyTranslation"
+              }
+            },
+            "required": [
+              "transformMode"
+            ]
+          },
+          "then": {
+            "properties": {
+              "inheritRotation": {
+                "const": false
+              },
+              "inheritScale": {
+                "const": false
+              },
+              "inheritReflection": {
+                "const": false
+              }
+            },
+            "required": [
+              "inheritRotation",
+              "inheritScale",
+              "inheritReflection"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "inheritRotation": {
+                "const": false
+              },
+              "inheritScale": {
+                "const": false
+              },
+              "inheritReflection": {
+                "const": false
+              }
+            },
+            "required": [
+              "inheritRotation",
+              "inheritScale",
+              "inheritReflection"
+            ]
+          },
+          "then": {
+            "properties": {
+              "transformMode": {
+                "const": "onlyTranslation"
+              }
+            },
+            "required": [
+              "transformMode"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "transformMode": {
+                "const": "noRotationOrReflection"
+              }
+            },
+            "required": [
+              "transformMode"
+            ]
+          },
+          "then": {
+            "properties": {
+              "inheritRotation": {
+                "const": false
+              },
+              "inheritScale": {
+                "const": true
+              },
+              "inheritReflection": {
+                "const": false
+              }
+            },
+            "required": [
+              "inheritRotation",
+              "inheritReflection"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "inheritRotation": {
+                "const": false
+              },
+              "inheritScale": {
+                "const": true
+              },
+              "inheritReflection": {
+                "const": false
+              }
+            },
+            "required": [
+              "inheritRotation",
+              "inheritReflection"
+            ]
+          },
+          "then": {
+            "properties": {
+              "transformMode": {
+                "const": "noRotationOrReflection"
+              }
+            },
+            "required": [
+              "transformMode"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "transformMode": {
+                "const": "noScale"
+              }
+            },
+            "required": [
+              "transformMode"
+            ]
+          },
+          "then": {
+            "properties": {
+              "inheritRotation": {
+                "const": true
+              },
+              "inheritScale": {
+                "const": false
+              },
+              "inheritReflection": {
+                "const": true
+              }
+            },
+            "required": [
+              "inheritScale"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "inheritRotation": {
+                "const": true
+              },
+              "inheritScale": {
+                "const": false
+              },
+              "inheritReflection": {
+                "const": true
+              }
+            },
+            "required": [
+              "inheritScale"
+            ]
+          },
+          "then": {
+            "properties": {
+              "transformMode": {
+                "const": "noScale"
+              }
+            },
+            "required": [
+              "transformMode"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "transformMode": {
+                "const": "noScaleOrReflection"
+              }
+            },
+            "required": [
+              "transformMode"
+            ]
+          },
+          "then": {
+            "properties": {
+              "inheritRotation": {
+                "const": true
+              },
+              "inheritScale": {
+                "const": false
+              },
+              "inheritReflection": {
+                "const": false
+              }
+            },
+            "required": [
+              "inheritScale",
+              "inheritReflection"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "inheritRotation": {
+                "const": true
+              },
+              "inheritScale": {
+                "const": false
+              },
+              "inheritReflection": {
+                "const": false
+              }
+            },
+            "required": [
+              "inheritScale",
+              "inheritReflection"
+            ]
+          },
+          "then": {
+            "properties": {
+              "transformMode": {
+                "const": "noScaleOrReflection"
+              }
+            },
+            "required": [
+              "transformMode"
+            ]
+          }
+        },
+        {
+          "not": {
+            "properties": {
+              "inheritRotation": {
+                "const": false
+              },
+              "inheritScale": {
+                "const": false
+              },
+              "inheritReflection": {
+                "const": true
+              }
+            },
+            "required": [
+              "inheritRotation",
+              "inheritScale"
+            ]
+          }
+        },
+        {
+          "not": {
+            "properties": {
+              "inheritRotation": {
+                "const": false
+              },
+              "inheritScale": {
+                "const": true
+              },
+              "inheritReflection": {
+                "const": true
+              }
+            },
+            "required": [
+              "inheritRotation"
+            ]
+          }
+        },
+        {
+          "not": {
+            "properties": {
+              "inheritRotation": {
+                "const": true
+              },
+              "inheritScale": {
+                "const": true
+              },
+              "inheritReflection": {
+                "const": false
+              }
+            },
+            "required": [
+              "inheritReflection"
+            ]
+          }
+        }
       ]
     },
     "slot": {
@@ -143,10 +463,12 @@
           "minLength": 1
         },
         "width": {
-          "type": "number"
+          "type": "number",
+          "minimum": 0
         },
         "height": {
-          "type": "number"
+          "type": "number",
+          "minimum": 0
         }
       },
       "required": [

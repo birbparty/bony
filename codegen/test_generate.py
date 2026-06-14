@@ -99,6 +99,26 @@ class GeneratorValidationTests(unittest.TestCase):
         self.assertFalse(schema["$defs"]["bone"]["additionalProperties"])
         self.assertEqual(schema["$defs"]["bone"]["properties"]["name"]["minLength"], 1)
 
+    def test_project_schema_contains_m2_runtime_constraints(self) -> None:
+        registry = generate.load_yaml_subset(generate.ROOT / "registry" / "wire.yml")
+        defaults = generate.load_yaml_subset(generate.ROOT / "spec" / "defaults.yml")
+
+        schema = json.loads(generate.generate_schema(registry, defaults))
+
+        self.assertEqual(
+            schema["$defs"]["bone"]["properties"]["transformMode"]["enum"],
+            [
+                "normal",
+                "onlyTranslation",
+                "noRotationOrReflection",
+                "noScale",
+                "noScaleOrReflection",
+            ],
+        )
+        self.assertEqual(schema["$defs"]["region"]["properties"]["width"]["minimum"], 0)
+        self.assertIn("allOf", schema["$defs"]["bone"])
+        self.assertEqual(schema["required"], ["skeleton", "bones"])
+
     def test_invalid_default_type_is_rejected(self) -> None:
         registry = sample_registry()
         defaults = sample_defaults()

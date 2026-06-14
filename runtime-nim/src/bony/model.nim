@@ -1,10 +1,11 @@
 ## Immutable M1 SkeletonData model plus per-instance runtime shell.
 
-import std/sets
+import std/[math, sets]
 
 type
   BonyLoadErrorKind* = enum
     schemaViolation,
+    numericOutOfRange,
     duplicateKey,
     unknownRequiredReference,
     orderingViolation,
@@ -52,6 +53,16 @@ type
     width: float64
     height: float64
 
+  DrawVertex* = object
+    x*: float64
+    y*: float64
+    u*: float64
+    v*: float64
+    r*: float64
+    g*: float64
+    b*: float64
+    a*: float64
+
   Affine2* = object
     a*: float64
     b*: float64
@@ -64,9 +75,12 @@ type
     slot*: string
     bone*: string
     attachment*: string
+    texturePage*: string
+    blendMode*: string
+    clipId*: string
     world*: Affine2
-    width*: float64
-    height*: float64
+    vertices*: seq[DrawVertex]
+    indices*: seq[uint16]
 
   SkeletonData* = object
     header: SkeletonHeader
@@ -88,6 +102,14 @@ proc skeletonHeader*(name, version: string): SkeletonHeader =
   SkeletonHeader(name: name, version: version)
 
 
+proc quantizeF32*(value: float64; context = "value"): float64 =
+  if classify(value) in {fcNan, fcInf, fcNegInf}:
+    raise newBonyLoadError(numericOutOfRange, context & " must be a finite f32 value")
+  result = float64(float32(value))
+  if classify(result) in {fcNan, fcInf, fcNegInf}:
+    raise newBonyLoadError(numericOutOfRange, context & " must fit in f32")
+
+
 proc localTransform*(
   x = 0.0,
   y = 0.0,
@@ -102,13 +124,13 @@ proc localTransform*(
   transformMode = normal,
 ): LocalTransform =
   LocalTransform(
-    x: x,
-    y: y,
-    rotation: rotation,
-    scaleX: scaleX,
-    scaleY: scaleY,
-    shearX: shearX,
-    shearY: shearY,
+    x: quantizeF32(x, "local.x"),
+    y: quantizeF32(y, "local.y"),
+    rotation: quantizeF32(rotation, "local.rotation"),
+    scaleX: quantizeF32(scaleX, "local.scaleX"),
+    scaleY: quantizeF32(scaleY, "local.scaleY"),
+    shearX: quantizeF32(shearX, "local.shearX"),
+    shearY: quantizeF32(shearY, "local.shearY"),
     inheritRotation: inheritRotation,
     inheritScale: inheritScale,
     inheritReflection: inheritReflection,
@@ -125,7 +147,11 @@ proc slotData*(name, bone, attachment: string): SlotData =
 
 
 proc regionAttachment*(name: string; width, height: float64): RegionAttachment =
-  RegionAttachment(name: name, width: width, height: height)
+  RegionAttachment(
+    name: name,
+    width: quantizeF32(width, "region.width"),
+    height: quantizeF32(height, "region.height"),
+  )
 
 
 proc name*(header: SkeletonHeader): string = header.name

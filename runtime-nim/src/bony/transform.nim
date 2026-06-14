@@ -122,6 +122,27 @@ proc computeWorldTransforms*(data: SkeletonData): seq[Affine2] =
     byName[bone.name] = index
 
 
+proc transformPoint(world: Affine2; x, y: float64): tuple[x: float64, y: float64] =
+  (
+    x: world.a * x + world.c * y + world.tx,
+    y: world.b * x + world.d * y + world.ty,
+  )
+
+
+proc vertex(world: Affine2; x, y, u, v: float64): DrawVertex =
+  let point = transformPoint(world, x, y)
+  DrawVertex(
+    x: point.x,
+    y: point.y,
+    u: u,
+    v: v,
+    r: 1.0,
+    g: 1.0,
+    b: 1.0,
+    a: 1.0,
+  )
+
+
 proc buildDrawBatches*(data: SkeletonData): seq[DrawBatch] =
   let worlds = computeWorldTransforms(data)
   var boneIndex = initTable[string, int]()
@@ -137,11 +158,22 @@ proc buildDrawBatches*(data: SkeletonData): seq[DrawBatch] =
       continue
     let region = regions[slot.attachment]
     let index = boneIndex[slot.bone]
+    let world = worlds[index]
+    let halfWidth = region.width * 0.5
+    let halfHeight = region.height * 0.5
     result.add DrawBatch(
       slot: slot.name,
       bone: slot.bone,
       attachment: slot.attachment,
-      world: worlds[index],
-      width: region.width,
-      height: region.height,
+      texturePage: "",
+      blendMode: "normal",
+      clipId: "",
+      world: world,
+      vertices: @[
+        vertex(world, -halfWidth, -halfHeight, 0.0, 0.0),
+        vertex(world, halfWidth, -halfHeight, 1.0, 0.0),
+        vertex(world, halfWidth, halfHeight, 1.0, 1.0),
+        vertex(world, -halfWidth, halfHeight, 0.0, 1.0),
+      ],
+      indices: @[0'u16, 1'u16, 2'u16, 2'u16, 3'u16, 0'u16],
     )

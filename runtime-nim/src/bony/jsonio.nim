@@ -127,11 +127,11 @@ proc optionalString(node: JsonNode; key, defaultValue, context: string): string 
 
 proc optionalFloat(node: JsonNode; key: string; defaultValue: float64; context: string): float64 =
   if not node.hasKey(key):
-    return defaultValue
+    return quantizeF32(defaultValue, context & "." & key)
   let value = node[key]
   if value.kind notin {JInt, JFloat}:
     raise newBonyLoadError(schemaViolation, context & "." & key & " must be numeric")
-  value.getFloat()
+  quantizeF32(value.getFloat(), context & "." & key)
 
 
 proc requiredFloat(node: JsonNode; key, context: string): float64 =
@@ -270,33 +270,31 @@ proc loadBonyJson*(text: string): SkeletonData =
       ),
     )
 
-  if not root.hasKey("slots"):
-    raise newBonyLoadError(schemaViolation, "root.slots is required")
-  let slotsNode = requireArray(root["slots"], "slots")
   var loadedSlots: seq[SlotData] = @[]
-  for index, slotNode in slotsNode.elems:
-    let context = "slots[" & $index & "]"
-    let slotObject = requireObject(slotNode, context)
-    validateKnownKeys(slotObject, ["name", "bone", "attachment"], context)
-    loadedSlots.add slotData(
-      requiredString(slotObject, "name", context),
-      requiredString(slotObject, "bone", context),
-      optionalString(slotObject, "attachment", defaultFor(slotTypeId, "attachment"), context),
-    )
+  if root.hasKey("slots"):
+    let slotsNode = requireArray(root["slots"], "slots")
+    for index, slotNode in slotsNode.elems:
+      let context = "slots[" & $index & "]"
+      let slotObject = requireObject(slotNode, context)
+      validateKnownKeys(slotObject, ["name", "bone", "attachment"], context)
+      loadedSlots.add slotData(
+        requiredString(slotObject, "name", context),
+        requiredString(slotObject, "bone", context),
+        optionalString(slotObject, "attachment", defaultFor(slotTypeId, "attachment"), context),
+      )
 
-  if not root.hasKey("regions"):
-    raise newBonyLoadError(schemaViolation, "root.regions is required")
-  let regionsNode = requireArray(root["regions"], "regions")
   var loadedRegions: seq[RegionAttachment] = @[]
-  for index, regionNode in regionsNode.elems:
-    let context = "regions[" & $index & "]"
-    let regionObject = requireObject(regionNode, context)
-    validateKnownKeys(regionObject, ["name", "width", "height"], context)
-    loadedRegions.add regionAttachment(
-      requiredString(regionObject, "name", context),
-      requiredFloat(regionObject, "width", context),
-      requiredFloat(regionObject, "height", context),
-    )
+  if root.hasKey("regions"):
+    let regionsNode = requireArray(root["regions"], "regions")
+    for index, regionNode in regionsNode.elems:
+      let context = "regions[" & $index & "]"
+      let regionObject = requireObject(regionNode, context)
+      validateKnownKeys(regionObject, ["name", "width", "height"], context)
+      loadedRegions.add regionAttachment(
+        requiredString(regionObject, "name", context),
+        requiredFloat(regionObject, "width", context),
+        requiredFloat(regionObject, "height", context),
+      )
 
   skeletonData(loadedHeader, loadedBones, loadedSlots, loadedRegions)
 

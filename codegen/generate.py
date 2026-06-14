@@ -456,6 +456,10 @@ def generate_schema(registry: dict[str, Any], defaults: dict[str, Any]) -> str:
             "properties": properties,
             "required": sorted(required_map.get(object_id, [])),
         }
+        if object_id == "bone" and {"inheritRotation", "inheritScale", "inheritReflection", "transformMode"}.issubset(
+            properties
+        ):
+            definitions[object_id]["allOf"] = transform_constraint_schema()
 
     root_properties: dict[str, Any] = {}
     required_root: list[str] = []
@@ -470,7 +474,8 @@ def generate_schema(registry: dict[str, Any], defaults: dict[str, Any]) -> str:
                 "type": "array",
                 "items": {"$ref": f"#/$defs/{object_id}"},
             }
-            required_root.append(collection_id)
+            if object_id == "bone":
+                required_root.append(collection_id)
 
     schema: dict[str, Any] = {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -512,7 +517,103 @@ def schema_for_property(property_id: str, backing_type: str) -> dict[str, Any]:
     schema = schema_for_backing_type(backing_type)
     if property_id == "name":
         schema["minLength"] = 1
+    if property_id == "transformMode":
+        schema["enum"] = [
+            "normal",
+            "onlyTranslation",
+            "noRotationOrReflection",
+            "noScale",
+            "noScaleOrReflection",
+        ]
+    if property_id in {"width", "height"}:
+        schema["minimum"] = 0
     return schema
+
+
+def transform_constraint_schema() -> list[dict[str, Any]]:
+    modes = {
+        "normal": (True, True, True),
+        "onlyTranslation": (False, False, False),
+        "noRotationOrReflection": (False, True, False),
+        "noScale": (True, False, True),
+        "noScaleOrReflection": (True, False, False),
+    }
+    constraints: list[dict[str, Any]] = []
+
+    for mode, (inherit_rotation, inherit_scale, inherit_reflection) in modes.items():
+        required_false_flags = [
+            name
+            for name, value in [
+                ("inheritRotation", inherit_rotation),
+                ("inheritScale", inherit_scale),
+                ("inheritReflection", inherit_reflection),
+            ]
+            if value is False
+        ]
+        constraints.append(
+            {
+                "if": {
+                    "properties": {"transformMode": {"const": mode}},
+                    "required": ["transformMode"],
+                },
+                "then": {
+                    "properties": {
+                        "inheritRotation": {"const": inherit_rotation},
+                        "inheritScale": {"const": inherit_scale},
+                        "inheritReflection": {"const": inherit_reflection},
+                    },
+                    "required": required_false_flags,
+                },
+            }
+        )
+        if mode == "normal":
+            continue
+        constraints.append(
+            {
+                "if": {
+                    "properties": {
+                        "inheritRotation": {"const": inherit_rotation},
+                        "inheritScale": {"const": inherit_scale},
+                        "inheritReflection": {"const": inherit_reflection},
+                    },
+                    "required": required_false_flags,
+                },
+                "then": {
+                    "properties": {
+                        "transformMode": {"const": mode},
+                    },
+                    "required": ["transformMode"],
+                },
+            }
+        )
+
+    for inherit_rotation, inherit_scale, inherit_reflection in [
+        (False, False, True),
+        (False, True, True),
+        (True, True, False),
+    ]:
+        required_false_flags = [
+            name
+            for name, value in [
+                ("inheritRotation", inherit_rotation),
+                ("inheritScale", inherit_scale),
+                ("inheritReflection", inherit_reflection),
+            ]
+            if value is False
+        ]
+        constraints.append(
+            {
+                "not": {
+                    "properties": {
+                        "inheritRotation": {"const": inherit_rotation},
+                        "inheritScale": {"const": inherit_scale},
+                        "inheritReflection": {"const": inherit_reflection},
+                    },
+                    "required": required_false_flags,
+                }
+            }
+        )
+    return constraints
 
 
 def generate_nim(registry: dict[str, Any], defaults: dict[str, Any]) -> str:
