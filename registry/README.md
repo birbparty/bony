@@ -21,6 +21,12 @@ Key `0` is reserved forever in both spaces:
 
 No object type or property may ever be assigned key `0`.
 
+Positive keys are reserved by milestone in the machine-readable `keyRanges` map
+in `registry/wire.yml` and documented in `registry/key-ranges.md`. The same band
+numbers apply independently to `typeKeys` and `propertyKeys`. Registry entries
+must use uppercase milestone tokens `M1` through `M10` unless a dedicated
+registry bead defines a new reserved-band label.
+
 ## Property Backing Types
 
 Property keys are global because the `.bnb` table of contents maps
@@ -71,11 +77,19 @@ schema properties.
 
 Any bead that edits `registry/**` must verify:
 
+- The shared `registry/**` surface is reserved with the active coordination
+  mechanism before editing, and the reservation is held through regeneration and
+  rebase.
 - New keys are positive and unused in their key space.
-- New keys fall inside the owning milestone's reserved range once
-  `registry/key-ranges.md` exists.
+- New keys fall inside the owning milestone's reserved range in
+  `registry/key-ranges.md`.
+- Registry-editing bead descriptions include: "Use only your allocated range
+  from registry/key-ranges.md."
 - Key `0` remains reserved.
 - Property backing types are unchanged for existing keys.
 - Object property lists reference declared property keys.
 - New type/property entries cite the milestone or feature bead that owns them.
-- Codegen and schema freshness checks are rerun once those tools exist.
+- Codegen/schema freshness checks pass:
+  `python3 codegen/generate.py --check`.
+- Generator validation tests pass:
+  `python3 -m unittest discover -s codegen -p 'test_*.py'`.

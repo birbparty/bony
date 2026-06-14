@@ -16,13 +16,22 @@ def sample_registry() -> dict:
     return {
         "format": "bony-wire-registry",
         "registryVersion": 1,
+        "keyRanges": {
+            "canonicalMilestoneTokens": ["M1", "M2"],
+            "appliesTo": ["typeKeys", "propertyKeys"],
+            "spacesAreIndependent": True,
+            "bands": [
+                {"milestone": "M1", "first": 1, "last": 999, "scope": "test"},
+                {"milestone": "M2", "first": 1000, "last": 1999, "scope": "test"},
+            ],
+        },
         "backingTypes": [
             {"id": "varuint", "code": 1, "skipRule": "read"},
             {"id": "bool", "code": 4, "skipRule": "read"},
             {"id": "string", "code": 5, "skipRule": "read"},
         ],
         "typeKeys": [
-            {"id": "bone", "key": 1, "status": "active", "milestone": "m1", "ownerBead": "test"},
+            {"id": "bone", "key": 1, "status": "active", "milestone": "M1", "ownerBead": "test"},
         ],
         "propertyKeys": [
             {
@@ -30,7 +39,7 @@ def sample_registry() -> dict:
                 "key": 1,
                 "backingType": "string",
                 "status": "active",
-                "milestone": "m1",
+                "milestone": "M1",
                 "ownerBead": "test",
             },
             {
@@ -38,7 +47,7 @@ def sample_registry() -> dict:
                 "key": 2,
                 "backingType": "bool",
                 "status": "active",
-                "milestone": "m1",
+                "milestone": "M1",
                 "ownerBead": "test",
             },
         ],
@@ -98,6 +107,22 @@ class GeneratorValidationTests(unittest.TestCase):
         defaults["objectDefaults"][0]["properties"]["visible"]["equality"] = "approx"
 
         with self.assertRaisesRegex(generate.SourceError, "unknown equality mode"):
+            generate.validate_sources(registry, defaults)
+
+    def test_out_of_range_milestone_key_is_rejected(self) -> None:
+        registry = sample_registry()
+        defaults = sample_defaults()
+        registry["typeKeys"][0]["key"] = 1000
+
+        with self.assertRaisesRegex(generate.SourceError, "outside M1 range"):
+            generate.validate_sources(registry, defaults)
+
+    def test_unknown_milestone_token_is_rejected(self) -> None:
+        registry = sample_registry()
+        defaults = sample_defaults()
+        registry["propertyKeys"][0]["milestone"] = "m1"
+
+        with self.assertRaisesRegex(generate.SourceError, "unknown milestone"):
             generate.validate_sources(registry, defaults)
 
     def test_parser_preserves_quoted_comment_and_comma(self) -> None:
