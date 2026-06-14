@@ -1,0 +1,66 @@
+# Canonical default-table source.
+#
+# Later feature beads append concrete object defaults here when they append the
+# matching registry entries. Do not duplicate defaults in runtime code by hand;
+# codegen consumes this file.
+
+format: bony-default-table
+defaultsVersion: 1
+
+sourceOfTruth:
+  defaultsOwn:
+    - default values
+    - default-omission decisions
+    - default-apply behavior on load
+  registryOwns:
+    - object identity
+    - property identity
+    - property wire key
+    - backing type
+    - object property membership
+  schemaOwns:
+    - generated validation surface
+    - generated property order
+
+entrySchemas:
+  objectDefaults:
+    required:
+      - object
+      - properties
+      - ownerBead
+    fields:
+      object: id of a declared registry object/type
+      ownerBead: bead that introduced or last intentionally changed the defaults
+      properties: mapping from property id to default entry
+  propertyDefault:
+    required:
+      - value
+      - omitWhenDefault
+      - applyOnLoad
+    fields:
+      value: canonical YAML representation of the default value
+      omitWhenDefault: whether JSON and binary canonical writers omit this value
+      applyOnLoad: whether loaders synthesize this value when the field is absent
+      equality: optional override for default equality; otherwise use backing type equality
+      doc: human-readable explanation
+
+validationRules:
+  - every objectDefaults.object must exist in registry/wire.yml objects or typeKeys
+  - every property key in objectDefaults.properties must exist in registry/wire.yml propertyKeys
+  - every defaulted property must be valid for the owning object
+  - every default value must match the property's registry backing type and JSON schema type
+  - omitWhenDefault true requires applyOnLoad true
+  - properties without defaults must be marked required by generated schema unless their owning contract defines another absence rule
+  - changing an existing default requires the owner bead to update conformance expectations
+
+canonicalEquality:
+  integers: exact numeric equality after range validation
+  floats: compare stored f32 value for f32-backed fields, otherwise exact semantic value
+  bools: exact boolean equality
+  strings: exact Unicode scalar sequence equality with no normalization
+  colors: exact channel equality in canonical RGBA order
+  bytes: exact byte equality
+  arrays: length and element equality in stored order
+  objects: property-by-property equality using this table
+
+objectDefaults: []

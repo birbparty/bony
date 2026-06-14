@@ -59,7 +59,7 @@ reserved and must remain decodable.
 ## Relationship To Schema And Defaults
 
 `spec/bony.schema.json` is generated from, or cross-checked against, the
-registry plus the default-table source. It is not an independent source of
+registry plus `spec/defaults.yml`. It is not an independent source of
 truth for keys.
 
 Default tables own default values and default-omission decisions. The registry

@@ -131,7 +131,7 @@ schemaGeneration:
   jsonSchemaPath: spec/bony.schema.json
   generatedFrom:
     - registry/wire.yml
-    - default-table-source
+    - spec/defaults.yml
   schemaIsIndependentSource: false
 
 typeKeys: []
