@@ -2,13 +2,17 @@
 
 This scan records the permissive-license check required before Nim runtime
 dependencies become hard dependencies. It covers the dependency candidates named
-in the project plan plus the current direct transitives pulled in by `pixie`.
+in the project plan plus the resolved dependency versions currently used by the
+software rasterizer.
 
 Scan date: 2026-06-14
 
 ## Decision
 
-The named Nim dependency candidates are acceptable for use in this repository:
+The named Nim dependency candidates are acceptable for use in this repository.
+`runtime-nim/bony.nimble` pins `pixie == 6.1.0`; this scan authorizes that
+version and the resolved transitive versions below. Bumping `pixie` or adding a
+new Nim dependency requires updating this scan first.
 
 - `vmath`: MIT.
 - `chroma`: MIT.
@@ -28,7 +32,7 @@ found in the named candidates.
 | --- | --- | --- | --- | --- |
 | `vmath` | `https://github.com/treeform/vmath` | `vmath.nimble` declares `license = "MIT"` | `LICENSE` is MIT | Accept |
 | `chroma` | `https://github.com/treeform/chroma` | `chroma.nimble` declares `license = "MIT"` | `LICENSE` is MIT | Accept |
-| `pixie` | `https://github.com/treeform/pixie` | `pixie.nimble` declares `license = "MIT"` | `LICENSE` is MIT | Accept |
+| `pixie` 6.1.0 | `https://github.com/treeform/pixie` | `pixie.nimble` declares `license = "MIT"` | `LICENSE` is MIT | Accept |
 | `jsony` | `https://github.com/treeform/jsony` | `jsony.nimble` declares `license = "MIT"` | `LICENSE` is MIT | Accept |
 | `flatty` | `https://github.com/treeform/flatty` | `flatty.nimble` declares `license = "MIT"` | `LICENSE` is MIT | Accept |
 | `binny` | `https://github.com/treeform/flatty` | Not a separate Nimble package; `flatty` README says it ships `binny` | `flatty` `LICENSE` is MIT | Accept as part of `flatty` |
@@ -54,15 +58,16 @@ Primary source URLs checked:
 
 ## Pixie Transitives
 
-Current `pixie.nimble` lists these direct dependencies:
+The local Nimble resolution for `pixie == 6.1.0` used these direct
+dependencies:
 
-- `vmath >= 3.0.0`: MIT, covered above.
-- `chroma >= 1.0.0`: MIT, covered above.
-- `zippy >= 0.10.16`: MIT.
-- `flatty >= 0.3.4`: MIT, covered above.
-- `nimsimd >= 1.3.2`: MIT.
-- `bumpy >= 1.1.3`: MIT.
-- `crunchy >= 0.1.11`: MIT.
+- `vmath` 3.0.0: MIT, covered above.
+- `chroma` 1.0.0: MIT, covered above.
+- `zippy` 0.10.19: MIT.
+- `flatty` 0.4.0: MIT, covered above.
+- `nimsimd` 1.3.2: MIT.
+- `bumpy` 1.1.3: MIT.
+- `crunchy` 0.1.11: MIT.
 
 Additional primary source URLs checked for pixie transitives:
 

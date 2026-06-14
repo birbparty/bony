@@ -50,11 +50,14 @@ proc clamp01(value: float64): float64 =
 
 
 proc toFloatColor(color: ColorRGBA): FloatColor =
+  let alpha = float64(color.a) / 255.0
+  if alpha <= rasterEpsilon:
+    return FloatColor()
   FloatColor(
-    r: float64(color.r) / 255.0,
-    g: float64(color.g) / 255.0,
-    b: float64(color.b) / 255.0,
-    a: float64(color.a) / 255.0,
+    r: clamp01((float64(color.r) / 255.0) / alpha),
+    g: clamp01((float64(color.g) / 255.0) / alpha),
+    b: clamp01((float64(color.b) / 255.0) / alpha),
+    a: alpha,
   )
 
 
@@ -114,6 +117,14 @@ proc blend(source, dest: FloatColor; mode: string): FloatColor =
     blendMultiply(source, dest)
   of "screen":
     blendScreen(source, dest)
+  else:
+    raise newBonyLoadError(schemaViolation, "unknown software blend mode: " & mode)
+
+
+proc validateBlendMode(mode: string) =
+  case mode
+  of "normal", "", "additive", "multiply", "screen":
+    discard
   else:
     raise newBonyLoadError(schemaViolation, "unknown software blend mode: " & mode)
 
@@ -242,6 +253,7 @@ proc renderSoftware*(batches: openArray[DrawBatch]; options: SoftwareRasterOptio
   result.fill(options.clear)
   let pages = pageTable(options.texturePages)
   for batch in batches:
+    validateBlendMode(batch.blendMode)
     if batch.indices.len == 0:
       continue
     if batch.indices.len mod 3 != 0:

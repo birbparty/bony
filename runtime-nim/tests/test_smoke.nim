@@ -1486,9 +1486,37 @@ spec "bony package":
 
     then:
       image[0, 0].a == 128
+      image[0, 0].r == 128
       image[1, 0].a == 128
+      image[1, 0].r == 128
       image[0, 1].a == 128
+      image[0, 1].r == 128
       image[1, 1].a == 128
+      image[1, 1].r == 128
+
+  it "decodes premultiplied texture pages":
+    let texture = newImage(1, 1)
+    texture[0, 0] = rgba(128, 0, 0, 128)
+    let batch = DrawBatch(
+      texturePage: "atlas",
+      blendMode: "normal",
+      vertices: @[
+        DrawVertex(x: 0.0, y: 0.0, u: 0.0, v: 0.0, r: 1.0, g: 1.0, b: 1.0, a: 1.0),
+        DrawVertex(x: 1.0, y: 0.0, u: 0.0, v: 0.0, r: 1.0, g: 1.0, b: 1.0, a: 1.0),
+        DrawVertex(x: 0.0, y: 1.0, u: 0.0, v: 0.0, r: 1.0, g: 1.0, b: 1.0, a: 1.0),
+      ],
+      indices: @[0'u16, 1'u16, 2'u16],
+    )
+    let image = renderSoftware(
+      @[batch],
+      softwareRasterOptions(1, 1, texturePages = @[softwareTexturePage("atlas", texture, premultipliedAlpha = true)])
+    )
+
+    then:
+      image[0, 0].r == 128
+      image[0, 0].g == 0
+      image[0, 0].b == 0
+      image[0, 0].a == 128
 
   it "rejects invalid software rasterizer input":
     let batch = DrawBatch(
@@ -1501,9 +1529,31 @@ spec "bony package":
       ],
       indices: @[0'u16, 1'u16, 2'u16],
     )
+    let badBlend = DrawBatch(blendMode: "unknown")
+    let badIndex = DrawBatch(
+      blendMode: "normal",
+      vertices: @[DrawVertex(x: 0.0, y: 0.0, r: 1.0, g: 1.0, b: 1.0, a: 1.0)],
+      indices: @[0'u16, 1'u16, 2'u16],
+    )
 
     then:
       raisesBonyLoadError(proc() = discard renderSoftware(@[batch], 1, 1), unknownRequiredReference)
+      raisesBonyLoadError(proc() = discard renderSoftware(@[badBlend], 1, 1), schemaViolation)
+      raisesBonyLoadError(proc() = discard renderSoftware(@[badIndex], 1, 1), unknownRequiredReference)
+      raisesBonyLoadError(
+        proc() = discard renderSoftware(
+          @[],
+          softwareRasterOptions(
+            1,
+            1,
+            texturePages = @[
+              softwareTexturePage("atlas", newImage(1, 1)),
+              softwareTexturePage("atlas", newImage(1, 1)),
+            ],
+          ),
+        ),
+        duplicateKey,
+      )
       raisesBonyLoadError(proc() = discard softwareRasterOptions(0, 1), schemaViolation)
 
   it "writes software rasterizer images as PNG":

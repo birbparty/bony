@@ -7,7 +7,7 @@ license       = "MIT"
 srcDir        = "src"
 bin           = @[]
 
-requires "pixie >= 6.1.0"
+requires "pixie == 6.1.0"
 
 # Tests use the local sibling checkout at ../../bddy, matching ~/git/bddy when
 # this repository lives at ~/git/bony.
