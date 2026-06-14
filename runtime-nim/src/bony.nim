@@ -5,6 +5,7 @@ import bony/anim/mixer
 import bony/anim/timelines
 import bony/deform/deformers
 import bony/deform/keyforms
+import bony/deform/parameter_timelines
 import bony/deform/parameters
 import bony/mesh/attachments
 import bony/mesh/clipping
@@ -19,6 +20,7 @@ export attachments
 export clipping
 export deformers
 export keyforms
+export parameter_timelines
 export parameters
 export deform
 export sequences
