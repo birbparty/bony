@@ -2238,6 +2238,37 @@ spec "bony package":
     then:
       runtime.layers[0].currentState == "first"
 
+  it "lets one trigger drive transitions across multiple state-machine layers":
+    let data = animationFixture()
+    let idle = animationClip(data, "idle")
+    let wave = animationClip(data, "wave")
+    let open = animationClip(data, "open")
+    let blink = animationClip(data, "blink")
+    let machine = stateMachine(
+      "machine",
+      @[
+        stateMachineLayer(
+          "base",
+          @[stateMachineState("idle", idle), stateMachineState("wave", wave)],
+          transitions = @[stateMachineTransition("idle", "wave", @[stateMachineTriggerCondition("go")])],
+        ),
+        stateMachineLayer(
+          "eyes",
+          @[stateMachineState("open", open), stateMachineState("blink", blink)],
+          transitions = @[stateMachineTransition("open", "blink", @[stateMachineTriggerCondition("go")])],
+        ),
+      ],
+      @[stateMachineTriggerInput("go")],
+    )
+    var runtime = initStateMachineRuntime(machine)
+    runtime.fireTrigger("go")
+    runtime.update(0.0)
+
+    then:
+      runtime.layers[0].currentState == "wave"
+      runtime.layers[1].currentState == "blink"
+      not runtime.isTriggerSet("go")
+
   it "rejects invalid state-machine transitions and conditions":
     let data = animationFixture()
     let idle = animationClip(data, "idle")

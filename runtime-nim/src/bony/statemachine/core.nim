@@ -44,6 +44,10 @@ type
     toState*: string
     conditions*: seq[StateMachineCondition]
 
+  MatchedTransition = object
+    layerIndex: int
+    transition: StateMachineTransition
+
   StateMachineState* = object
     name*: string
     clip*: AnimationClip
@@ -452,23 +456,26 @@ proc transitionMatches(runtime: StateMachineRuntime; transition: StateMachineTra
   true
 
 
-proc consumeTransitionTriggers(runtime: var StateMachineRuntime; transition: StateMachineTransition) =
-  for condition in transition.conditions:
-    if condition.kind == triggerSetCondition:
-      let index = runtime.inputValueIndex(condition.input)
-      if index < 0:
-        raise newBonyLoadError(unknownRequiredReference, "missing state-machine runtime input: " & condition.input)
-      runtime.inputs[index].boolValue = false
-
-
 proc applyTransitions(runtime: var StateMachineRuntime) =
   runtime = normalizedRuntime(runtime)
-  for layer in runtime.layers.mitems:
+  let snapshot = runtime
+  var matches: seq[MatchedTransition]
+  var consumedTriggers = initHashSet[string]()
+  for layerIndex, layer in snapshot.layers:
     for transition in layer.layer.transitions:
-      if transition.fromState == layer.currentState and runtime.transitionMatches(transition):
-        layer.setState(transition.toState)
-        runtime.consumeTransitionTriggers(transition)
+      if transition.fromState == layer.currentState and snapshot.transitionMatches(transition):
+        matches.add MatchedTransition(layerIndex: layerIndex, transition: transition)
+        for condition in transition.conditions:
+          if condition.kind == triggerSetCondition:
+            consumedTriggers.incl(condition.input)
         break
+  for match in matches:
+    runtime.layers[match.layerIndex].setState(match.transition.toState)
+  for inputName in consumedTriggers:
+    let index = runtime.inputValueIndex(inputName)
+    if index < 0:
+      raise newBonyLoadError(unknownRequiredReference, "missing state-machine runtime input: " & inputName)
+    runtime.inputs[index].boolValue = false
 
 
 proc update*(runtime: var StateMachineRuntime; dt: float64) =
