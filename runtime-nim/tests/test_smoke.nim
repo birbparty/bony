@@ -2051,6 +2051,41 @@ spec "bony package":
       runtime.events[0].listener == "move-enter"
       closeTo(evaluated.pose.scalars[0].value, 70.0)
 
+  it "blends missing state-machine blend channels from setup pose":
+    var dataValue = skeletonData(
+      skeletonHeader("demo", "0.1.0"),
+      @[boneData("root", "", localTransform(rotation = 30.0, scaleX = 1.0, scaleY = 1.0))],
+    )
+    let data = new SkeletonData
+    data[] = dataValue
+    let keyed = animationClip(
+      data[],
+      "keyed",
+      @[
+        boneScalarTimeline("root", rotateTimeline, @[scalarKeyframe(0.0, 10.0)]),
+        boneVectorTimeline("root", scaleTimeline, @[vector2Keyframe(0.0, 2.0, 2.0)]),
+      ],
+    )
+    let sparse = animationClip(data[], "sparse")
+    let machine = stateMachine(
+      "machine",
+      @[
+        stateMachineLayer(
+          "base",
+          @[stateMachineBlendState("move", "blend", @[stateMachineBlendClip(keyed, 0.0), stateMachineBlendClip(sparse, 1.0)])],
+        ),
+      ],
+      @[stateMachineNumberInput("blend", 0.5)],
+    )
+    let evaluated = initStateMachineRuntime(machine).evaluate(data)
+
+    then:
+      evaluated.pose.scalars.len == 1
+      closeTo(evaluated.pose.scalars[0].value, 20.0)
+      evaluated.pose.vectors.len == 1
+      closeTo(evaluated.pose.vectors[0].x, 1.5)
+      closeTo(evaluated.pose.vectors[0].y, 1.5)
+
   it "rejects invalid state-machine core data":
     let data = animationFixture()
     let idle = animationClip(data, "idle")

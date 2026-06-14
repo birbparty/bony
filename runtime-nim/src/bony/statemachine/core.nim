@@ -878,22 +878,91 @@ proc addWeightedPose(
     output.sequences = pose.sequences
 
 
-proc blendedPose(lowPose, highPose: MixedPose; t: float64): MixedPose =
-  var scalars = initTable[string, MixedScalar]()
-  var vectors = initTable[string, MixedVector]()
+proc setupScalarValue(data: ref SkeletonData; value: MixedScalar): float64 =
+  if data.isNil:
+    return 0.0
+  for bone in data[].bones:
+    if bone.name == value.target:
+      let local = bone.local
+      case value.kind
+      of rotateTimeline: return local.rotation
+      of translateXTimeline: return local.x
+      of translateYTimeline: return local.y
+      of scaleXTimeline: return local.scaleX
+      of scaleYTimeline: return local.scaleY
+      of shearXTimeline: return local.shearX
+      of shearYTimeline: return local.shearY
+      else: return 0.0
+  0.0
+
+
+proc setupVectorValue(data: ref SkeletonData; value: MixedVector): MixedVector =
+  result = MixedVector(target: value.target, kind: value.kind)
+  if data.isNil:
+    return
+  for bone in data[].bones:
+    if bone.name == value.target:
+      let local = bone.local
+      case value.kind
+      of translateTimeline:
+        result.x = local.x
+        result.y = local.y
+      of scaleTimeline:
+        result.x = local.scaleX
+        result.y = local.scaleY
+      of shearTimeline:
+        result.x = local.shearX
+        result.y = local.shearY
+      else:
+        discard
+      return
+
+
+proc blendedPose(data: ref SkeletonData; lowPose, highPose: MixedPose; t: float64): MixedPose =
+  var lowScalars = initTable[string, MixedScalar]()
+  var highScalars = initTable[string, MixedScalar]()
+  var scalarChannels = initTable[string, MixedScalar]()
+  var lowVectors = initTable[string, MixedVector]()
+  var highVectors = initTable[string, MixedVector]()
+  var vectorChannels = initTable[string, MixedVector]()
   var colors = initTable[string, MixedColor]()
   var colors2 = initTable[string, MixedColor2]()
+  for value in lowPose.scalars:
+    let key = value.scalarKey
+    lowScalars[key] = value
+    scalarChannels[key] = value
+  for value in highPose.scalars:
+    let key = value.scalarKey
+    highScalars[key] = value
+    scalarChannels[key] = value
+  for value in lowPose.vectors:
+    let key = value.vectorKey
+    lowVectors[key] = value
+    vectorChannels[key] = value
+  for value in highPose.vectors:
+    let key = value.vectorKey
+    highVectors[key] = value
+    vectorChannels[key] = value
+  for key, channel in scalarChannels:
+    let setup = setupScalarValue(data, channel)
+    let low = if key in lowScalars: lowScalars[key].value else: setup
+    let high = if key in highScalars: highScalars[key].value else: setup
+    result.scalars.add MixedScalar(target: channel.target, kind: channel.kind, value: low + (high - low) * t)
+  result.scalars.sort(scalarOrder)
+  for key, channel in vectorChannels:
+    let setup = setupVectorValue(data, channel)
+    let low = if key in lowVectors: lowVectors[key] else: setup
+    let high = if key in highVectors: highVectors[key] else: setup
+    result.vectors.add MixedVector(
+      target: channel.target,
+      kind: channel.kind,
+      x: low.x + (high.x - low.x) * t,
+      y: low.y + (high.y - low.y) * t,
+    )
+  result.vectors.sort(vectorOrder)
   var weighted = MixedPose()
   weighted.addWeightedPose(lowPose, 1.0 - t, replaceDiscrete = t < 0.5)
   weighted.addWeightedPose(highPose, t, replaceDiscrete = t >= 0.5)
-  for value in weighted.scalars:
-    let key = value.scalarKey
-    let base = if key in scalars: scalars[key] else: MixedScalar(target: value.target, kind: value.kind)
-    scalars[key] = MixedScalar(target: value.target, kind: value.kind, value: base.value + value.value)
-  for value in weighted.vectors:
-    let key = value.vectorKey
-    let base = if key in vectors: vectors[key] else: MixedVector(target: value.target, kind: value.kind)
-    vectors[key] = MixedVector(target: value.target, kind: value.kind, x: base.x + value.x, y: base.y + value.y)
   for value in weighted.colors:
     let key = value.colorKey
     let base = if key in colors: colors[key] else: MixedColor(target: value.target, kind: value.kind)
@@ -923,12 +992,6 @@ proc blendedPose(lowPose, highPose: MixedPose; t: float64): MixedPose =
         base.color.darkB + value.color.darkB,
       ),
     )
-  for value in scalars.values:
-    result.scalars.add value
-  result.scalars.sort(scalarOrder)
-  for value in vectors.values:
-    result.vectors.add value
-  result.vectors.sort(vectorOrder)
   result.attachments = weighted.attachments
   result.inherits = weighted.inherits
   for value in colors.values:
@@ -958,6 +1021,7 @@ proc sampleBlendPose(runtime: StateMachineRuntime; state: StateMachineState; tim
     if input <= high.value:
       let t = if high.value == low.value: 0.0 else: (input - low.value) / (high.value - low.value)
       return blendedPose(
+        data,
         sampleClipPose(data, low.clip, low.loop, time),
         sampleClipPose(data, high.clip, high.loop, time),
         t,
