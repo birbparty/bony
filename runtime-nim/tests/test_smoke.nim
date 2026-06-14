@@ -54,6 +54,14 @@ proc transformFixture(childMode: TransformMode; parentScaleX = 2.0; parentScaleY
     ],
   )
 
+proc animationFixture(): SkeletonData =
+  skeletonData(
+    skeletonHeader("demo", "0.1.0"),
+    @[boneData("root", "")],
+    @[slotData("body", "root", "")],
+    @[regionAttachment("idle", 1.0, 1.0), regionAttachment("wave", 1.0, 1.0)],
+  )
+
 spec "bony package":
   it "exposes version":
     then:
@@ -582,3 +590,77 @@ spec "bony package":
     then:
       closeTo(sampled.x, 50.0)
       closeTo(sampled.y, 0.0)
+
+  it "mixes queued animation tracks with crossfade":
+    let data = animationFixture()
+    let idle = animationClip(
+      data,
+      "idle",
+      @[boneScalarTimeline("root", rotateTimeline, @[scalarKeyframe(0.0, 0.0), scalarKeyframe(1.0, 10.0)])],
+      @[slotAttachmentTimeline("body", @[attachmentKeyframe(0.0, "idle")])],
+    )
+    let wave = animationClip(
+      data,
+      "wave",
+      @[boneScalarTimeline("root", rotateTimeline, @[scalarKeyframe(0.0, 100.0), scalarKeyframe(1.0, 120.0)])],
+      @[slotAttachmentTimeline("body", @[attachmentKeyframe(0.0, "wave")])],
+    )
+    var state = animationState(1)
+    state.setAnimation(0, idle)
+    state.addAnimation(0, wave, delay = 0.5, mixDuration = 1.0)
+    state.update(0.5)
+    state.update(0.5)
+    let pose = state.sample()
+
+    then:
+      pose.scalars.len == 1
+      closeTo(pose.scalars[0].value, 57.5)
+      pose.attachments.len == 1
+      pose.attachments[0].attachment == "wave"
+
+  it "applies track alpha and additive mix blend":
+    let data = animationFixture()
+    let base = animationClip(
+      data,
+      "base",
+      @[boneScalarTimeline("root", rotateTimeline, @[scalarKeyframe(0.0, 10.0), scalarKeyframe(1.0, 20.0)])],
+    )
+    let additive = animationClip(
+      data,
+      "add",
+      @[boneScalarTimeline("root", rotateTimeline, @[scalarKeyframe(0.0, 4.0), scalarKeyframe(1.0, 8.0)])],
+    )
+    var state = animationState(2)
+    state.setAnimation(0, base)
+    state.setAnimation(1, additive, blend = addMix)
+    state.tracks[1].alpha = 0.5
+    state.update(0.5)
+    let pose = state.sample()
+
+    then:
+      pose.scalars.len == 1
+      closeTo(pose.scalars[0].value, 18.0)
+
+  it "gates discrete attachments by mix threshold":
+    let data = animationFixture()
+    let idle = animationClip(
+      data,
+      "idle",
+      slotTimelines = @[slotAttachmentTimeline("body", @[attachmentKeyframe(0.0, "idle")])],
+    )
+    let wave = animationClip(
+      data,
+      "wave",
+      slotTimelines = @[slotAttachmentTimeline("body", @[attachmentKeyframe(0.0, "wave")])],
+    )
+    var state = animationState(1)
+    state.setAnimation(0, idle)
+    state.addAnimation(0, wave, delay = 0.1, mixDuration = 1.0)
+    state.tracks[0].mixAttachmentThreshold = 0.75
+    state.update(0.1)
+    state.update(0.2)
+    let pose = state.sample()
+
+    then:
+      pose.attachments.len == 1
+      pose.attachments[0].attachment == "idle"
