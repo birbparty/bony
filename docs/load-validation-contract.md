@@ -53,6 +53,29 @@ Minimum error categories:
 - `orderingViolation`
 - `schemaViolation`
 - `numericOutOfRange`
+- `resourceLimitExceeded`
+
+Required category mapping for shared fuzz fixtures:
+
+| Case | Required category |
+| --- | --- |
+| Wrong fingerprint | `badMagic` |
+| Unsupported major version | `unsupportedVersion` |
+| Truncated header, ToC, string table, object stream, payload, or atlas | `truncatedInput` |
+| Bad, overlong, or non-terminating varuint/varint | `malformedVarint` |
+| Unknown property missing from ToC | `schemaViolation` |
+| Known property with mismatched ToC backing type | `invalidBackingType` |
+| Unknown backing type on known property | `invalidBackingType` |
+| `byteLength` shorter or longer than known decoder consumption | `lengthMismatch` |
+| Duplicate ToC key, duplicate property record, duplicate JSON object key, or duplicate name | `duplicateKey` |
+| Out-of-range string index or invalid reference index | `unknownRequiredReference` |
+| Unterminated unknown object before EOF | `truncatedInput` |
+| Unknown header flag or unclaimed trailing bytes | `schemaViolation` |
+| Cycle in bone/deformer/nested visible bundle graph | `cycleDetected` |
+| JSON or binary ordering violation | `orderingViolation` |
+| Wrong JSON field type or invalid transform-mode flag triple | `schemaViolation` |
+| Non-finite number or numeric domain violation | `numericOutOfRange` |
+| Count, payload, string, object, or atlas exceeds conformance limit | `resourceLimitExceeded` |
 
 ## Loader Phases
 
@@ -95,12 +118,18 @@ Required checks:
   in the ToC before its payload is decoded or skipped.
 - Every nonzero property record has a `byteLength`, and `byteLength` must fit
   within the remaining file bytes.
+- Duplicate property keys within a single binary object are malformed.
 - Known-property decoders must consume exactly `byteLength` bytes.
 - Unknown properties are skipped by `byteLength`.
 - Unknown objects are skipped by scanning property records until property key
   `0`; each contained property must still satisfy ToC and length validation.
 - Type key `0` terminates the object stream and is not followed by a property
   list.
+- String table entries must have valid `byteLength`, fit within remaining bytes,
+  and decode as valid UTF-8 Unicode scalar sequences. No normalization is
+  performed; duplicate string values are allowed because indices are semantic.
+- Every decoded `string` payload index must be in range for the loaded string
+  table before it is used.
 - Data after the object-stream terminator is allowed only for sections enabled
   by header flags, such as embedded atlas payload. Unclaimed trailing bytes are
   malformed.
@@ -109,6 +138,23 @@ Binary loaders must enforce implementation resource limits before allocation,
 including string-table count, object count, array count, payload length, and
 atlas byte length. Limits may be configurable, but the default test profile must
 reject hostile sizes without exhausting memory.
+
+Conformance profile limits:
+
+| Limit | Value |
+| --- | ---: |
+| Maximum varuint/varint bytes | 10 |
+| Maximum ToC entries | 65536 |
+| Maximum string table entries | 1048576 |
+| Maximum UTF-8 bytes per string | 1048576 |
+| Maximum objects | 1048576 |
+| Maximum properties per object | 65536 |
+| Maximum array elements | 1048576 |
+| Maximum property payload bytes | 67108864 |
+| Maximum embedded atlas bytes | 268435456 |
+
+Runtimes may expose stricter host-configured limits, but conformance fixtures
+use the table above for cross-runtime accept/reject expectations.
 
 ## JSON Structural Validation
 
@@ -119,6 +165,8 @@ Required checks:
 - Input is UTF-8 without malformed byte sequences.
 - Object keys are valid Unicode scalar sequences; lone UTF-16 surrogate escapes
   are invalid.
+- Every string value is a valid Unicode scalar sequence; lone UTF-16 surrogate
+  escapes are invalid in values as well as keys.
 - Duplicate keys in the same JSON object are invalid.
 - Numbers are finite. `NaN`, `Infinity`, and `-Infinity` are invalid.
 - Integer, count, and index fields are integral and within the registry/default
@@ -156,9 +204,10 @@ ambiguous or unbounded.
 Required checks:
 
 - Bone parent graph is acyclic.
-- Bones are parent-first in canonical JSON input and in loaded binary object
-  order. If a non-canonical binary loader accepts out-of-order known objects, it
-  must still reject cycles before building `SkeletonData`.
+- JSON bone arrays must be parent-first; child-before-parent JSON input is an
+  `orderingViolation`. Binary known bone objects must also load parent-first in
+  canonical mode. If a non-canonical binary loader accepts out-of-order known
+  objects, it must still reject cycles before building `SkeletonData`.
 - Deformer tree is acyclic.
 - Skin bone references do not introduce cycles or out-of-range indices.
 - Nested skeleton references do not create an immediate self-reference cycle.
@@ -222,6 +271,8 @@ The M6 fuzz/validation gate must include:
   payload.
 - Bad, overlong, and non-terminating varuint/varint encodings.
 - `byteLength` shorter and longer than the known payload decoder consumes.
+- Duplicate property key within one binary object.
+- Invalid UTF-8/scalar string-table entry and out-of-range string payload index.
 - Property key absent from the ToC.
 - Known property with mismatched ToC backing type code.
 - Unknown property with unknown backing type code and valid `byteLength`,
