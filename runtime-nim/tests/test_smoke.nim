@@ -18,6 +18,13 @@ proc raisesBonyLoadError(input: string; kind: BonyLoadErrorKind): bool =
   except BonyLoadError as exc:
     exc.kind == kind
 
+proc raisesBonyLoadError(action: proc(); kind: BonyLoadErrorKind): bool =
+  try:
+    action()
+    false
+  except BonyLoadError as exc:
+    exc.kind == kind
+
 proc closeTo(actual, expected: float64): bool =
   abs(actual - expected) <= 1e-9
 
@@ -362,3 +369,163 @@ spec "bony package":
       output.contains("\"x\": 3.0")
       output.contains("\"slots\"")
       output.contains("\"regions\"")
+
+  it "builds sorted scalar bone timelines and samples linearly":
+    let timeline = boneScalarTimeline(
+      "root",
+      rotateTimeline,
+      @[
+        scalarKeyframe(0.0, 0.0),
+        scalarKeyframe(1.0, 90.0),
+      ],
+    )
+    let sampled = timeline.sample(0.5)
+
+    then:
+      timeline.target == "root"
+      timeline.kind == rotateTimeline
+      closeTo(sampled.time, 0.5)
+      closeTo(sampled.value, 45)
+      timeline.scalarKeys[1].time == quantizeF32(1.0)
+
+  it "rejects unsorted timeline keyframes":
+    then:
+      raisesBonyLoadError(
+        proc() =
+          discard boneVectorTimeline(
+            "root",
+            translateTimeline,
+            @[
+              vector2Keyframe(1.0, 1.0, 2.0),
+              vector2Keyframe(0.5, 3.0, 4.0),
+            ],
+          ),
+        schemaViolation
+      )
+
+  it "samples vector bone timelines with independent stepped components":
+    let timeline = boneVectorTimeline(
+      "root",
+      translateTimeline,
+      @[
+        vector2Keyframe(0.0, 0.0, 10.0, curveY = steppedCurve),
+        vector2Keyframe(1.0, 10.0, 20.0),
+      ],
+    )
+    let sampled = timeline.sampleVector(0.25)
+
+    then:
+      closeTo(sampled.x, 2.5)
+      closeTo(sampled.y, 10.0)
+
+  it "samples inherit timelines as discrete flag changes":
+    let timeline = boneInheritTimeline(
+      "root",
+      @[
+        inheritKeyframe(0.0),
+        inheritKeyframe(
+          1.0,
+          inheritRotation = false,
+          inheritScale = false,
+          inheritReflection = false,
+          transformMode = onlyTranslation,
+        ),
+      ],
+    )
+
+    then:
+      timeline.sampleInherit(0.5).transformMode == normal
+      timeline.sampleInherit(1.5).transformMode == onlyTranslation
+      raisesBonyLoadError(
+        proc() =
+          discard inheritKeyframe(0.0, inheritRotation = false, transformMode = onlyTranslation),
+        schemaViolation
+      )
+
+  it "builds slot attachment and sequence timelines":
+    let attachments = slotAttachmentTimeline(
+      "body",
+      @[
+        attachmentKeyframe(0.0, "idle"),
+        attachmentKeyframe(1.0, ""),
+      ],
+    )
+    let sequence = slotSequenceTimeline(
+      "body",
+      @[
+        sequenceKeyframe(0.0, 0'u32, 0.1, sequenceLoop),
+        sequenceKeyframe(2.0, 4'u32, 0.2, sequenceHold),
+      ],
+    )
+
+    then:
+      attachments.sampleAttachment(0.25).attachment == "idle"
+      attachments.sampleAttachment(1.0).attachment == ""
+      sequence.sampleSequence(1.0).mode == sequenceLoop
+      sequence.sampleSequence(2.5).index == 4'u32
+
+  it "builds slot color timelines and validates normalized channels":
+    let rgba = slotColorTimeline(
+      "body",
+      rgbaTimeline,
+      @[
+        colorKeyframe(0.0, colorRgba(1.0, 0.0, 0.0, 1.0)),
+        colorKeyframe(1.0, colorRgba(0.0, 0.0, 1.0, 0.5)),
+      ],
+    )
+    let rgba2 = slotColor2Timeline(
+      "body",
+      @[
+        color2Keyframe(0.0, colorRgba2(colorRgba(1.0, 1.0, 1.0, 1.0), 0.0, 0.0, 0.0)),
+        color2Keyframe(1.0, colorRgba2(colorRgba(0.5, 0.5, 0.5, 1.0), 0.25, 0.5, 0.75)),
+      ],
+    )
+    let sampled = rgba.sampleColor(0.5)
+    let sampled2 = rgba2.sampleColor2(0.5)
+
+    then:
+      closeTo(sampled.color.r, 0.5)
+      closeTo(sampled.color.b, 0.5)
+      closeTo(sampled.color.a, 0.75)
+      closeTo(sampled2.color.light.r, 0.75)
+      closeTo(sampled2.color.darkB, 0.375)
+      raisesBonyLoadError(proc() = discard colorRgba(1.1, 0.0, 0.0, 1.0), schemaViolation)
+
+  it "builds animation clips with validated targets and computed duration":
+    let data = skeletonData(
+      skeletonHeader("demo", "0.1.0"),
+      @[boneData("root", "")],
+      @[slotData("body", "root", "")],
+    )
+    let clip = animationClip(
+      data,
+      "wave",
+      @[
+        boneScalarTimeline(
+          "root",
+          rotateTimeline,
+          @[scalarKeyframe(0.0, 0.0), scalarKeyframe(1.25, 20.0)],
+        ),
+      ],
+      @[
+        slotAttachmentTimeline(
+          "body",
+          @[attachmentKeyframe(0.0, "idle"), attachmentKeyframe(2.0, "wave")],
+        ),
+      ],
+    )
+
+    then:
+      clip.name == "wave"
+      closeTo(clip.duration, 2.0)
+      clip.boneTimelines.len == 1
+      clip.slotTimelines.len == 1
+      raisesBonyLoadError(
+        proc() =
+          discard animationClip(
+            data,
+            "bad",
+            @[boneScalarTimeline("missing", rotateTimeline, @[scalarKeyframe(0.0, 0.0)])],
+          ),
+        unknownRequiredReference
+      )
