@@ -23,6 +23,8 @@ import bony/model
 import bony/jsonio
 import bony/statemachine/core
 import bony/transform
+import render/naylib_adapter
+import render/naylib_raylib
 import render/software_rasterizer
 
 export attachments
@@ -47,6 +49,8 @@ export jsonio
 export model
 export core
 export transform
+export naylib_adapter
+export naylib_raylib
 export software_rasterizer
 export wire
 
