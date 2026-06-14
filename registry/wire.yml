@@ -28,6 +28,70 @@ keySpaces:
     backingTypeScope: global
     rangeSource: registry/key-ranges.md
 
+keyRanges:
+  canonicalMilestoneTokens:
+    - M1
+    - M2
+    - M3
+    - M4
+    - M5
+    - M6
+    - M7
+    - M8
+    - M9
+    - M10
+  appliesTo:
+    - typeKeys
+    - propertyKeys
+  spacesAreIndependent: true
+  bands:
+    - milestone: M1
+      first: 1
+      last: 999
+      scope: SkeletonData model, .bony JSON I/O, default tables
+    - milestone: M2
+      first: 1000
+      last: 1999
+      scope: World transforms, region attachments, draw order
+    - milestone: M3
+      first: 2000
+      last: 2999
+      scope: Animations, timelines, curves, mixing
+    - milestone: M4
+      first: 3000
+      last: 3999
+      scope: Meshes, weights, skins, deform timelines, clipping
+    - milestone: M5
+      first: 4000
+      last: 4999
+      scope: IK, transform, path, and physics constraints
+    - milestone: M6
+      first: 5000
+      last: 5999
+      scope: .bnb binary containers, ToC-backed objects, atlas embedding
+    - milestone: M7
+      first: 6000
+      last: 6999
+      scope: Warp and rotation deformers, keyforms, parameter blending
+    - milestone: M8
+      first: 7000
+      last: 7999
+      scope: State machines, layers, transitions, listeners
+    - milestone: M9
+      first: 8000
+      last: 8999
+      scope: Tooling/importer metadata that becomes first-class format data
+    - milestone: M10
+      first: 9000
+      last: 9999
+      scope: Consolidation, compatibility fixtures, reserved v1 completion hooks
+  future:
+    repositoryExtensions:
+      first: 10000
+      last: 19999
+    unassigned:
+      first: 20000
+
 backingTypesStatus: skip-safe-via-property-byte-length
 backingTypes:
   - id: varuint

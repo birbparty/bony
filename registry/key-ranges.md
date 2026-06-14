@@ -1,8 +1,8 @@
 # Registry Key Ranges
 
-This file reserves positive `varuint` key bands for the append-only `.bnb`
-registry. Key `0` remains reserved forever in both key spaces by
-`registry/wire.yml`.
+This file documents the positive `varuint` key bands reserved by the
+machine-readable `keyRanges` map in `registry/wire.yml`. Key `0` remains
+reserved forever in both key spaces.
 
 The ranges below apply independently to `typeKeys` and `propertyKeys`. For
 example, M1 may use type key `1` and property key `1`; those are different key
@@ -10,8 +10,9 @@ spaces and do not collide.
 
 Every bead that appends entries to `registry/wire.yml` must choose keys only
 from its owning milestone band and cite the bead that introduced the entry.
-Changing these bands after registry entries exist is a format-governance change
-and must be done by a dedicated registry bead.
+Use uppercase milestone tokens `M1` through `M10` in registry entries. Changing
+these bands after registry entries exist is a format-governance change and must
+be done by a dedicated registry bead.
 
 | Milestone | Inclusive Key Range | Intended Scope |
 | --- | ---: | --- |
@@ -29,9 +30,23 @@ and must be done by a dedicated registry bead.
 ## Parallel Registry Edits
 
 Milestone implementation beads may edit the registry in parallel once they use
-disjoint bands from this table. A bead that needs keys from more than one
-milestone must either split the registry edit or explicitly document why the
-cross-band edit is required.
+disjoint bands from this table, but disjoint key bands are not a replacement
+for coordination on shared files. Before editing `registry/**`, a bead must
+reserve the shared registry surface with the active coordination mechanism, keep
+that reservation through regeneration and rebase, and release it only after the
+branch is merged or abandoned. There is still no bead dependency edge that
+serializes disjoint milestone registry edits.
+
+A bead that needs keys from more than one milestone must either split the
+registry edit or explicitly document the cross-band exception in both the bead
+description and the affected registry entry `doc` fields.
+
+Downstream registry-editing beads should include this exact instruction in
+their description:
+
+```text
+Use only your allocated range from registry/key-ranges.md.
+```
 
 ## Future Ranges
 

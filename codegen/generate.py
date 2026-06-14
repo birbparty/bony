@@ -189,6 +189,7 @@ def validate_sources(registry: dict[str, Any], defaults: dict[str, Any]) -> None
 
     backing_types = {entry["id"] for entry in require_list(registry, "backingTypes")}
     equality_modes = equality_mode_map(defaults)
+    key_ranges = key_range_map(registry)
     type_keys = require_list(registry, "typeKeys")
     property_keys = require_list(registry, "propertyKeys")
     objects = require_list(registry, "objects")
@@ -200,6 +201,13 @@ def validate_sources(registry: dict[str, Any], defaults: dict[str, Any]) -> None
         key = required(entry, "key", f"typeKey {type_id}")
         if key == 0:
             raise SourceError(f"typeKey {type_id} uses reserved key 0")
+        validate_key_range(
+            "typeKey",
+            type_id,
+            key,
+            required(entry, "milestone", f"typeKey {type_id}"),
+            key_ranges,
+        )
         if key in seen_type_keys or type_id in seen_type_ids:
             raise SourceError(f"duplicate typeKey entry: {type_id}/{key}")
         seen_type_keys.add(key)
@@ -213,6 +221,13 @@ def validate_sources(registry: dict[str, Any], defaults: dict[str, Any]) -> None
         backing_type = required(entry, "backingType", f"propertyKey {property_id}")
         if key == 0:
             raise SourceError(f"propertyKey {property_id} uses reserved key 0")
+        validate_key_range(
+            "propertyKey",
+            property_id,
+            key,
+            required(entry, "milestone", f"propertyKey {property_id}"),
+            key_ranges,
+        )
         if key in seen_property_keys or property_id in property_by_id:
             raise SourceError(f"duplicate propertyKey entry: {property_id}/{key}")
         if backing_type not in backing_types:
@@ -291,6 +306,43 @@ def required(entry: dict[str, Any], key: str, where: str) -> Any:
     if key not in entry:
         raise SourceError(f"{where} missing required field {key}")
     return entry[key]
+
+
+def key_range_map(registry: dict[str, Any]) -> dict[str, tuple[int, int]]:
+    key_ranges = registry.get("keyRanges")
+    if not isinstance(key_ranges, dict):
+        raise SourceError("registry/wire.yml missing keyRanges map")
+    tokens = key_ranges.get("canonicalMilestoneTokens")
+    if not isinstance(tokens, list):
+        raise SourceError("keyRanges.canonicalMilestoneTokens must be a list")
+    ranges: dict[str, tuple[int, int]] = {}
+    for band in require_list(key_ranges, "bands"):
+        milestone = required(band, "milestone", "keyRanges band")
+        first = required(band, "first", f"keyRanges {milestone}")
+        last = required(band, "last", f"keyRanges {milestone}")
+        if milestone not in tokens:
+            raise SourceError(f"keyRanges band uses unknown milestone token {milestone}")
+        if not isinstance(first, int) or not isinstance(last, int) or first <= 0 or last < first:
+            raise SourceError(f"keyRanges {milestone} must have a positive inclusive range")
+        ranges[milestone] = (first, last)
+    missing = sorted(set(tokens) - set(ranges))
+    if missing:
+        raise SourceError(f"keyRanges missing bands for {missing}")
+    return ranges
+
+
+def validate_key_range(
+    space: str,
+    entry_id: str,
+    key: int,
+    milestone: Any,
+    ranges: dict[str, tuple[int, int]],
+) -> None:
+    if not isinstance(milestone, str) or milestone not in ranges:
+        raise SourceError(f"{space} {entry_id} uses unknown milestone {milestone}")
+    first, last = ranges[milestone]
+    if key < first or key > last:
+        raise SourceError(f"{space} {entry_id} key {key} is outside {milestone} range {first}..{last}")
 
 
 def equality_mode_map(defaults: dict[str, Any]) -> dict[str, set[str]]:
