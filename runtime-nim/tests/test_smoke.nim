@@ -1224,7 +1224,41 @@ spec "bony package":
         unknownRequiredReference,
       )
       raisesBonyLoadError(proc() = discard sampleKeyformValues(keyformBlend(@[x], @[keyform(@[parameterSample(x, 0.0)], @[0.0])]), @[ParameterSample(name: "x", value: Inf)]), numericOutOfRange)
+      raisesBonyLoadError(proc() = discard sampleKeyformValues(keyformBlend(@[x], @[keyform(@[parameterSample(x, 0.0)], @[0.0])]), @[parameterSample(x, 0.0), parameterSample(x, 0.0)]), duplicateKey)
       raisesBonyLoadError(proc() = discard blendedPoints(@[0.0]), schemaViolation)
+
+  it "handles high-dimensional degenerate keyform axes":
+    var axes: seq[ParameterAxis]
+    var coordinates: seq[ParameterSample]
+    var samples: seq[ParameterSample]
+    for index in 0 .. 69:
+      let axis = parameterAxis("p" & $index, minValue = 0.0, maxValue = 1.0, defaultValue = 0.0)
+      axes.add axis
+      coordinates.add parameterSample(axis, 0.0)
+      samples.add parameterSample(axis, 0.0)
+    let values = sampleKeyformValues(keyformBlend(axes, @[keyform(coordinates, @[42.0])]), samples)
+
+    then:
+      values.len == 1
+      closeTo(values[0], 42.0)
+
+  it "rejects too many varying keyform axes":
+    var axes: seq[ParameterAxis]
+    var lows: seq[ParameterSample]
+    var highs: seq[ParameterSample]
+    var samples: seq[ParameterSample]
+    for index in 0 .. 20:
+      let axis = parameterAxis("v" & $index, minValue = 0.0, maxValue = 1.0, defaultValue = 0.5)
+      axes.add axis
+      lows.add parameterSample(axis, 0.0)
+      highs.add parameterSample(axis, 1.0)
+      samples.add parameterSample(axis, 0.5)
+
+    then:
+      raisesBonyLoadError(
+        proc() = discard sampleKeyformValues(keyformBlend(axes, @[keyform(lows, @[0.0]), keyform(highs, @[1.0])]), samples),
+        schemaViolation,
+      )
 
   it "builds sorted scalar bone timelines and samples linearly":
     let timeline = boneScalarTimeline(

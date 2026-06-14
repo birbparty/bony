@@ -6,6 +6,8 @@ import bony/deform/deformers
 import bony/deform/parameters
 import bony/model
 
+const maxVaryingKeyformAxes = 20
+
 type
   Keyform* = object
     coordinates*: seq[ParameterSample]
@@ -15,6 +17,12 @@ type
     axes*: seq[ParameterAxis]
     valueCount*: int
     keyforms*: seq[Keyform]
+
+  ActiveAxis = object
+    axisIndex: int
+    low: float64
+    high: float64
+    t: float64
 
 
 proc keyformValue*(value: float64): float64 =
@@ -116,6 +124,16 @@ proc axisValue(samples: openArray[ParameterSample]; axis: ParameterAxis): float6
   parameterSample(axis, samples.sampleByName(axis.name).value).value
 
 
+proc validateRuntimeSamples(samples: openArray[ParameterSample]; axes: openArray[ParameterAxis]) =
+  var names = initHashSet[string]()
+  for sample in samples:
+    if sample.name in names:
+      raise newBonyLoadError(duplicateKey, "duplicate parameter sample: " & sample.name)
+    names.incl(sample.name)
+  for axis in axes:
+    discard samples.sampleByName(axis.name)
+
+
 proc bracket(values: openArray[float64]; value: float64): tuple[low, high: float64; t: float64] =
   if values.len == 0:
     raise newBonyLoadError(schemaViolation, "keyform axis must contain at least one coordinate")
@@ -146,30 +164,36 @@ proc cornerKey(axes: openArray[ParameterAxis]; corner: openArray[float64]): stri
 
 proc sampleKeyformValues*(blend: KeyformBlend; samples: openArray[ParameterSample]): seq[float64] =
   let blend = keyformBlend(blend.axes, blend.keyforms)
+  validateRuntimeSamples(samples, blend.axes)
   let valuesByAxis = blend.axisCoordinateValues()
   let keyformsByCoordinate = blend.keyformTable()
   var lows = newSeq[float64](blend.axes.len)
   var highs = newSeq[float64](blend.axes.len)
   var ts = newSeq[float64](blend.axes.len)
+  var activeAxes: seq[ActiveAxis]
   for axisIndex, axis in blend.axes:
     let value = samples.axisValue(axis)
     let axisBracket = bracket(valuesByAxis[axisIndex], value)
     lows[axisIndex] = axisBracket.low
     highs[axisIndex] = axisBracket.high
     ts[axisIndex] = axisBracket.t
+    if axisBracket.low != axisBracket.high:
+      activeAxes.add ActiveAxis(axisIndex: axisIndex, low: axisBracket.low, high: axisBracket.high, t: axisBracket.t)
+  if activeAxes.len > maxVaryingKeyformAxes:
+    raise newBonyLoadError(schemaViolation, "keyform blend has too many varying axes")
 
   result = newSeq[float64](blend.valueCount)
-  let cornerCount = 1 shl blend.axes.len
+  let cornerCount = 1 shl activeAxes.len
   for mask in 0 ..< cornerCount:
-    var corner = newSeq[float64](blend.axes.len)
+    var corner = lows
     var weight = 1.0
-    for axisIndex in 0 ..< blend.axes.len:
-      if ((mask shr axisIndex) and 1) == 0:
-        corner[axisIndex] = lows[axisIndex]
-        weight *= 1.0 - ts[axisIndex]
+    for activeIndex, activeAxis in activeAxes:
+      if ((mask shr activeIndex) and 1) == 0:
+        corner[activeAxis.axisIndex] = activeAxis.low
+        weight *= 1.0 - activeAxis.t
       else:
-        corner[axisIndex] = highs[axisIndex]
-        weight *= ts[axisIndex]
+        corner[activeAxis.axisIndex] = activeAxis.high
+        weight *= activeAxis.t
     if weight == 0.0:
       continue
     let key = cornerKey(blend.axes, corner)
