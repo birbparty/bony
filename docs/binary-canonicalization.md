@@ -229,7 +229,9 @@ The M6 `bnb->json->bnb` byte-stability gate must include:
 
 - Non-canonical ToC order re-emits in ascending property-key order.
 - ToC section starts with exact `propertyCount` and has no terminator.
-- Non-minimal LEB128 input re-emits with shortest encodings.
+- Writers emit shortest LEB128 encodings. Non-minimal LEB128 input is malformed
+  and belongs to the load-validation rejection gate rather than the
+  `bnb->json->bnb` byte-stability gate.
 - Repeated strings intern to first-seen indices in canonical object/property
   order.
 - Strings nested inside composite payloads intern using the composite layout's
