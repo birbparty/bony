@@ -79,7 +79,9 @@ jobs:
 
       - name: Nim .bnb loader fuzz gate
         working-directory: runtime-nim
-        run: nim c -r tests/test_bnb_fuzz.nim
+        run: |
+          nim c tests/test_bnb_fuzz.nim
+          timeout 10s ./tests/test_bnb_fuzz
 
       - name: Codegen freshness
         run: python3 codegen/generate.py --check
