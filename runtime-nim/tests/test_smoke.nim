@@ -1058,6 +1058,49 @@ spec "bony package":
       closeTo(wrappedShear.c, 0.0)
       closeTo(wrappedShear.d, -1.0)
 
+  it "evaluates path constraint cubics with fixed arc-length samples":
+    let curve = pathCubic(
+      pathPoint(0.0, 0.0),
+      pathPoint(30.25, 80.5),
+      pathPoint(90.75, -20.125),
+      pathPoint(130.5, 40.25),
+    )
+    let quarter = evaluateCubicPath(curve, 0.25)
+    let middle = evaluateCubicPath(curve, 0.5)
+    let tangent = cubicPathTangent(curve, 0.5)
+    let table = buildPathArcLengthTable(curve)
+    let halfDistance = samplePathByDistance(curve, table.totalLength * 0.5)
+    let mixed = applyPathPositionConstraint(pathPoint(10.0, 20.0), curve, table.totalLength, 0.25)
+
+    then:
+      pathArcLengthSamples == 32
+      table.samples.len == pathArcLengthSamples + 1
+      table.distances.len == pathArcLengthSamples + 1
+      closeTo(quarter.x, 27.5625)
+      closeTo(quarter.y, 31.759765625)
+      closeTo(middle.x, 61.6875)
+      closeTo(middle.y, 27.671875)
+      closeTo(tangent.x, 143.25)
+      closeTo(tangent.y, -45.28125)
+      closeTo(tangentAngle(tangent), -17.541718138895483)
+      closeTo(table.totalLength, 155.88369415168393)
+      closeTo(halfDistance.distance, table.totalLength * 0.5)
+      closeTo(halfDistance.position.x, 61.13043750668265)
+      closeTo(halfDistance.position.y, 27.843587919709595)
+      closeTo(mixed.position.x, 40.125)
+      closeTo(mixed.position.y, 25.0625)
+      closeTo(samplePathByDistance(curve, -10.0).distance, 0.0)
+      closeTo(samplePathByDistance(curve, table.totalLength + 10.0).distance, table.totalLength)
+      raisesBonyLoadError(proc() =
+        discard evaluateCubicPath(curve, -0.1)
+      , schemaViolation)
+      raisesBonyLoadError(proc() =
+        discard pathCubic(PathPoint(x: NaN, y: 0.0), pathPoint(0.0, 0.0), pathPoint(1.0, 0.0), pathPoint(1.0, 1.0))
+      , numericOutOfRange)
+      raisesBonyLoadError(proc() =
+        discard applyPathPositionConstraint(pathPoint(0.0, 0.0), curve, 0.0, 1.1)
+      , schemaViolation)
+
   it "rejects invalid M2 region data":
     then:
       raisesBonyLoadError(
