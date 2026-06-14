@@ -689,6 +689,115 @@ spec "bony package":
         unknownRequiredReference,
       )
 
+  it "samples mesh deform timelines with offset expansion":
+    let data = animationFixture()
+    let mesh = unweightedMeshAttachment(
+      data,
+      "deformable",
+      @[meshUv(0.0, 0.0), meshUv(1.0, 0.0), meshUv(1.0, 1.0)],
+      @[0'u16, 1'u16, 2'u16],
+      @[unweightedMeshVertex(0.0, 0.0), unweightedMeshVertex(1.0, 0.0), unweightedMeshVertex(1.0, 1.0)],
+    )
+    let timeline = deformTimeline(
+      "default",
+      "body",
+      mesh,
+      @[
+        deformKeyframe(0.0, 1'u32, @[meshDelta(2.0, 0.0)]),
+        deformKeyframe(1.0, 0'u32, @[meshDelta(0.0, 1.0), meshDelta(4.0, 0.0), meshDelta(0.0, 2.0)]),
+      ],
+    )
+    let start = sampleDeformDeltas(timeline, 0.0)
+    let middle = sampleDeformDeltas(timeline, 0.5)
+
+    then:
+      start.len == 3
+      closeTo(start[0].x, 0.0)
+      closeTo(start[1].x, 2.0)
+      closeTo(start[2].y, 0.0)
+      closeTo(middle[0].y, 0.5)
+      closeTo(middle[1].x, 3.0)
+      closeTo(middle[2].y, 1.0)
+
+  it "samples stepped and bezier mesh deform keys":
+    let data = animationFixture()
+    let mesh = unweightedMeshAttachment(
+      data,
+      "curveDeform",
+      @[meshUv(0.0, 0.0)],
+      @[0'u16, 0'u16, 0'u16],
+      @[unweightedMeshVertex(0.0, 0.0)],
+    )
+    let stepped = deformTimeline(
+      "default",
+      "body",
+      mesh,
+      @[deformKeyframe(0.0, 0'u32, @[meshDelta(2.0, 0.0)], steppedCurve), deformKeyframe(1.0, 0'u32, @[meshDelta(6.0, 0.0)])],
+    )
+    let bezier = deformTimeline(
+      "default",
+      "body",
+      mesh,
+      @[deformKeyframe(0.0, 0'u32, @[meshDelta(0.0, 0.0)], bezierTimelineCurve(0.25, 0.0, 0.75, 1.0)), deformKeyframe(1.0, 0'u32, @[meshDelta(10.0, 0.0)])],
+    )
+
+    then:
+      closeTo(sampleDeformDeltas(stepped, 0.5)[0].x, 2.0)
+      closeTo(sampleDeformDeltas(bezier, 0.5)[0].x, 5.0)
+
+  it "applies mesh deform deltas after skinning":
+    let data = animationFixture()
+    let mesh = unweightedMeshAttachment(
+      data,
+      "applyDeform",
+      @[meshUv(0.0, 0.0), meshUv(1.0, 0.0), meshUv(0.0, 1.0)],
+      @[0'u16, 1'u16, 2'u16],
+      @[unweightedMeshVertex(0.0, 0.0), unweightedMeshVertex(1.0, 0.0), unweightedMeshVertex(0.0, 1.0)],
+    )
+    let timeline = deformTimeline(
+      "default",
+      "body",
+      mesh,
+      @[deformKeyframe(0.0, 0'u32, @[meshDelta(1.0, 0.0), meshDelta(0.0, 2.0), meshDelta(-1.0, -1.0)])],
+    )
+    let skinned = skinMeshVertices(data, "root", mesh)
+    let deformed = applyDeformTimeline(skinned, timeline, 0.0)
+
+    then:
+      closeTo(deformed[0].x, 1.0)
+      closeTo(deformed[1].y, 2.0)
+      closeTo(deformed[2].x, -1.0)
+      closeTo(deformed[2].y, 0.0)
+      closeTo(deformed[1].u, skinned[1].u)
+
+  it "rejects invalid mesh deform timelines":
+    let data = animationFixture()
+    let mesh = unweightedMeshAttachment(
+      data,
+      "badDeform",
+      @[meshUv(0.0, 0.0), meshUv(1.0, 0.0)],
+      @[0'u16, 1'u16, 1'u16],
+      @[unweightedMeshVertex(0.0, 0.0), unweightedMeshVertex(1.0, 0.0)],
+    )
+
+    then:
+      raisesBonyLoadError(
+        proc() = discard deformTimeline("default", "body", mesh, @[deformKeyframe(0.0, 2'u32, @[meshDelta(1.0, 0.0)])]),
+        schemaViolation,
+      )
+      raisesBonyLoadError(
+        proc() = discard deformTimeline("default", "body", mesh, @[deformKeyframe(1.0, 0'u32, @[meshDelta(1.0, 0.0)]), deformKeyframe(0.5, 0'u32, @[meshDelta(2.0, 0.0)])]),
+        schemaViolation,
+      )
+      raisesBonyLoadError(
+        proc() = discard sampleDeformDeltas(deformTimeline("default", "body", mesh, @[deformKeyframe(0.0, 0'u32, @[meshDelta(1.0, 0.0)])]), -0.1),
+        schemaViolation,
+      )
+      raisesBonyLoadError(
+        proc() = discard applyDeformDeltas(@[SkinnedMeshVertex(x: 0.0)], @[meshDelta(1.0, 0.0), meshDelta(2.0, 0.0)]),
+        schemaViolation,
+      )
+
   it "builds sorted scalar bone timelines and samples linearly":
     let timeline = boneScalarTimeline(
       "root",
