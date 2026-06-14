@@ -134,6 +134,15 @@ proc c1y*(curve: TimelineCurve): float64 = curve.c1y
 proc c2x*(curve: TimelineCurve): float64 = curve.c2x
 proc c2y*(curve: TimelineCurve): float64 = curve.c2y
 
+proc timelineCurve*(kind: TimelineCurveKind): TimelineCurve =
+  case kind
+  of linearCurve:
+    linearTimelineCurve
+  of steppedCurve:
+    steppedTimelineCurve
+  of bezierCurve:
+    raise newBonyLoadError(schemaViolation, "bezierCurve requires control points")
+
 proc target*(timeline: BoneTimeline): string = timeline.target
 proc kind*(timeline: BoneTimeline): BoneTimelineKind = timeline.kind
 proc scalarKeys*(timeline: BoneTimeline): seq[ScalarKeyframe] = timeline.scalarKeys
@@ -287,6 +296,10 @@ proc scalarKeyframe*(time, value: float64; curve = linearTimelineCurve): ScalarK
   )
 
 
+proc scalarKeyframe*(time, value: float64; curve: TimelineCurveKind): ScalarKeyframe =
+  scalarKeyframe(time, value, timelineCurve(curve))
+
+
 proc vector2Keyframe*(
   time, x, y: float64;
   curveX = linearTimelineCurve;
@@ -299,6 +312,30 @@ proc vector2Keyframe*(
     curveX: curveX,
     curveY: curveY,
   )
+
+
+proc vector2Keyframe*(
+  time, x, y: float64;
+  curveX: TimelineCurveKind;
+  curveY = linearTimelineCurve;
+): Vector2Keyframe =
+  vector2Keyframe(time, x, y, timelineCurve(curveX), curveY)
+
+
+proc vector2Keyframe*(
+  time, x, y: float64;
+  curveX = linearTimelineCurve;
+  curveY: TimelineCurveKind;
+): Vector2Keyframe =
+  vector2Keyframe(time, x, y, curveX, timelineCurve(curveY))
+
+
+proc vector2Keyframe*(
+  time, x, y: float64;
+  curveX: TimelineCurveKind;
+  curveY: TimelineCurveKind;
+): Vector2Keyframe =
+  vector2Keyframe(time, x, y, timelineCurve(curveX), timelineCurve(curveY))
 
 
 proc inheritKeyframe*(
@@ -327,8 +364,16 @@ proc colorKeyframe*(time: float64; color: ColorRgba; curve = linearTimelineCurve
   ColorKeyframe(time: quantizeTime(time, "key.time"), color: color, curve: curve)
 
 
+proc colorKeyframe*(time: float64; color: ColorRgba; curve: TimelineCurveKind): ColorKeyframe =
+  colorKeyframe(time, color, timelineCurve(curve))
+
+
 proc color2Keyframe*(time: float64; color: ColorRgba2; curve = linearTimelineCurve): Color2Keyframe =
   Color2Keyframe(time: quantizeTime(time, "key.time"), color: color, curve: curve)
+
+
+proc color2Keyframe*(time: float64; color: ColorRgba2; curve: TimelineCurveKind): Color2Keyframe =
+  color2Keyframe(time, color, timelineCurve(curve))
 
 
 proc sequenceKeyframe*(
