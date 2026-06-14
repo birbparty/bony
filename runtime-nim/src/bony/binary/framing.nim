@@ -15,6 +15,9 @@ const
   bnbMaxPropertyPayloadBytes* = 67108864'u64
   bnbMaxStringTableEntries* = 1048576'u64
   bnbMaxStringBytes* = 1048576'u64
+  bnbMaxObjects* = 1048576'u64
+  bnbMaxPropertiesPerObject* = 65536'u64
+  bnbMaxEmbeddedAtlasBytes* = 268435456'u64
   maxVaruintBytes = 10
   maxTocEntries = 65536'u64
 
@@ -31,6 +34,10 @@ type
   BnbPropertyRecord* = object
     propertyKey*: uint64
     payload*: seq[byte]
+
+  BnbObjectRecord* = object
+    typeKey*: uint64
+    properties*: seq[BnbPropertyRecord]
 
   BnbStringTable* = object
     values*: seq[string]
@@ -196,6 +203,13 @@ proc isKnownPropertyKey*(propertyKey: uint64): bool =
   false
 
 
+proc isKnownTypeKey*(typeKey: uint64): bool =
+  for item in bonyTypeKeys:
+    if item.key == typeKey:
+      return true
+  false
+
+
 proc writeHeader*(output: var seq[byte]; flags = bnbStringTableFlag; major = bnbMajorVersion; minor = bnbMinorVersion) =
   if (flags and not bnbKnownFlags) != 0:
     raise newBonyLoadError(schemaViolation, "unknown .bnb header flags")
@@ -308,3 +322,113 @@ proc skipPropertyRecord*(input: openArray[byte]; index: var int; toc: openArray[
   if byteLength > uint64(input.len - index):
     raise newBonyLoadError(truncatedInput, ".bnb property payload exceeds remaining input")
   index += int(byteLength)
+
+
+proc propertyOrder(a, b: BnbPropertyRecord): int = cmp(a.propertyKey, b.propertyKey)
+
+
+proc normalizedProperties(properties: openArray[BnbPropertyRecord]): seq[BnbPropertyRecord] =
+  if uint64(properties.len) > bnbMaxPropertiesPerObject:
+    raise newBonyLoadError(resourceLimitExceeded, ".bnb object has too many properties")
+  var seen = initTable[uint64, bool]()
+  for property in properties:
+    if property.propertyKey == 0:
+      raise newBonyLoadError(schemaViolation, ".bnb property key 0 is a terminator")
+    if property.propertyKey in seen:
+      raise newBonyLoadError(duplicateKey, "duplicate .bnb object property key: " & $property.propertyKey)
+    if uint64(property.payload.len) > bnbMaxPropertyPayloadBytes:
+      raise newBonyLoadError(resourceLimitExceeded, ".bnb property payload exceeds maximum length")
+    seen[property.propertyKey] = true
+    result.add property
+  result.sort(propertyOrder)
+
+
+proc writeObjectRecord*(output: var seq[byte]; typeKey: uint64; properties: openArray[BnbPropertyRecord]) =
+  if typeKey == 0:
+    raise newBonyLoadError(schemaViolation, ".bnb type key 0 is the object stream terminator")
+  output.writeVaruint(typeKey)
+  for property in normalizedProperties(properties):
+    output.writePropertyRecord(property.propertyKey, property.payload)
+  output.writePropertyTerminator()
+
+
+proc writeObjectStreamTerminator*(output: var seq[byte]) =
+  output.writeVaruint(0)
+
+
+proc readObjectProperties(input: openArray[byte]; index: var int; toc: openArray[BnbTocEntry]): seq[BnbPropertyRecord] =
+  var seen = initTable[uint64, bool]()
+  while true:
+    let property = input.readPropertyRecord(index, toc)
+    if property.propertyKey == 0:
+      return
+    if property.propertyKey in seen:
+      raise newBonyLoadError(duplicateKey, "duplicate .bnb object property key: " & $property.propertyKey)
+    if uint64(result.len) >= bnbMaxPropertiesPerObject:
+      raise newBonyLoadError(resourceLimitExceeded, ".bnb object has too many properties")
+    seen[property.propertyKey] = true
+    result.add property
+
+
+proc skipObjectProperties(input: openArray[byte]; index: var int; toc: openArray[BnbTocEntry]) =
+  var seen = initTable[uint64, bool]()
+  var count = 0'u64
+  while true:
+    let propertyKey = input.skipPropertyRecord(index, toc)
+    if propertyKey == 0:
+      return
+    if propertyKey in seen:
+      raise newBonyLoadError(duplicateKey, "duplicate .bnb object property key: " & $propertyKey)
+    if count >= bnbMaxPropertiesPerObject:
+      raise newBonyLoadError(resourceLimitExceeded, ".bnb object has too many properties")
+    seen[propertyKey] = true
+    inc count
+
+
+proc readObjectRecord*(input: openArray[byte]; index: var int; toc: openArray[BnbTocEntry]): BnbObjectRecord =
+  result.typeKey = input.readVaruint(index)
+  if result.typeKey == 0:
+    return
+  result.properties = input.readObjectProperties(index, toc)
+
+
+proc skipObjectRecord*(input: openArray[byte]; index: var int; toc: openArray[BnbTocEntry]): uint64 =
+  result = input.readVaruint(index)
+  if result == 0:
+    return
+  input.skipObjectProperties(index, toc)
+
+
+proc readObjectStream*(input: openArray[byte]; index: var int; toc: openArray[BnbTocEntry]): seq[BnbObjectRecord] =
+  var objectCount = 0'u64
+  while true:
+    let typeKey = input.readVaruint(index)
+    if typeKey == 0:
+      return
+    if objectCount >= bnbMaxObjects:
+      raise newBonyLoadError(resourceLimitExceeded, ".bnb object stream has too many objects")
+    inc objectCount
+    if typeKey.isKnownTypeKey:
+      result.add BnbObjectRecord(typeKey: typeKey, properties: input.readObjectProperties(index, toc))
+    else:
+      input.skipObjectProperties(index, toc)
+
+
+proc writeEmbeddedAtlas*(output: var seq[byte]; payload: openArray[byte]) =
+  if uint64(payload.len) > bnbMaxEmbeddedAtlasBytes:
+    raise newBonyLoadError(resourceLimitExceeded, ".bnb embedded atlas exceeds maximum length")
+  output.add payload
+
+
+proc readEmbeddedAtlas*(input: openArray[byte]; index: var int; header: BnbHeader): seq[byte] =
+  if index > input.len:
+    raise newBonyLoadError(truncatedInput, ".bnb atlas starts after end of input")
+  let remaining = uint64(input.len - index)
+  if (header.flags and bnbEmbeddedAtlasFlag) == 0:
+    if remaining != 0:
+      raise newBonyLoadError(schemaViolation, "unclaimed trailing bytes after .bnb object stream")
+    return
+  if remaining > bnbMaxEmbeddedAtlasBytes:
+    raise newBonyLoadError(resourceLimitExceeded, ".bnb embedded atlas exceeds maximum length")
+  result = @input[index ..< input.len]
+  index = input.len

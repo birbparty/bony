@@ -202,6 +202,101 @@ spec "bony package":
       bytes.skipPropertyRecord(index, toc) == 900000
       index == bytes.len
 
+  it "reads .bnb type-keyed object streams":
+    let toc = @[
+      BnbTocEntry(propertyKey: 900000, backingTypeCode: 250'u8),
+      BnbTocEntry(propertyKey: 900001, backingTypeCode: 251'u8),
+    ]
+    var bytes: seq[byte]
+    bytes.writeObjectRecord(999999, @[
+      BnbPropertyRecord(propertyKey: 900000, payload: @[1'u8, 2'u8]),
+    ])
+    bytes.writeObjectRecord(2, @[
+      BnbPropertyRecord(propertyKey: 900001, payload: @[9'u8]),
+      BnbPropertyRecord(propertyKey: 900000, payload: @[3'u8, 4'u8]),
+    ])
+    bytes.writeObjectStreamTerminator()
+    var index = 0
+    let skippedTypeKey = bytes.skipObjectRecord(index, toc)
+    let known = bytes.readObjectRecord(index, toc)
+    let terminator = bytes.skipObjectRecord(index, toc)
+
+    then:
+      skippedTypeKey == 999999
+      known.typeKey == 2
+      known.properties.len == 2
+      known.properties[0].propertyKey == 900000
+      known.properties[0].payload == @[3'u8, 4'u8]
+      known.properties[1].propertyKey == 900001
+      known.properties[1].payload == @[9'u8]
+      terminator == 0
+      index == bytes.len
+      isKnownTypeKey(2)
+      not isKnownTypeKey(999999)
+
+    index = 0
+    let stream = bytes.readObjectStream(index, toc)
+
+    then:
+      stream.len == 1
+      stream[0].typeKey == 2
+      stream[0].properties.len == 2
+      index == bytes.len
+      raisesBonyLoadError(proc() =
+        var bad: seq[byte]
+        bad.writeObjectRecord(2, @[
+          BnbPropertyRecord(propertyKey: 900000, payload: @[]),
+          BnbPropertyRecord(propertyKey: 900000, payload: @[]),
+        ])
+      , duplicateKey)
+      raisesBonyLoadError(proc() =
+        var bad: seq[byte]
+        bad.writeObjectRecord(2, @[BnbPropertyRecord(propertyKey: 900000, payload: @[])])
+        var badIndex = 0
+        discard bad.readObjectRecord(badIndex, @[])
+      , schemaViolation)
+      raisesBonyLoadError(proc() =
+        var bad: seq[byte]
+        bad.writeVaruint(2)
+        bad.writePropertyRecord(900000, @[])
+        var badIndex = 0
+        discard bad.readObjectRecord(badIndex, toc)
+      , truncatedInput)
+      raisesBonyLoadError(proc() =
+        var bad: seq[byte]
+        bad.writeVaruint(2)
+        bad.writePropertyRecord(900000, @[])
+        bad.writePropertyRecord(900000, @[])
+        bad.writePropertyTerminator()
+        var badIndex = 0
+        discard bad.readObjectRecord(badIndex, toc)
+      , duplicateKey)
+
+  it "handles .bnb embedded atlas trailer bytes":
+    var bytes: seq[byte]
+    bytes.writeHeader(flags = bnbEmbeddedAtlasFlag)
+    bytes.writeToc(@[])
+    bytes.writeObjectStreamTerminator()
+    bytes.writeEmbeddedAtlas(@[1'u8, 2'u8, 3'u8])
+    var index = 0
+    let header = bytes.readHeader(index)
+    discard bytes.readToc(index)
+    let objects = bytes.readObjectStream(index, @[])
+    let atlas = bytes.readEmbeddedAtlas(index, header)
+
+    then:
+      objects.len == 0
+      atlas == @[1'u8, 2'u8, 3'u8]
+      index == bytes.len
+      raisesBonyLoadError(proc() =
+        var bad = bytes
+        var badIndex = 0
+        let badHeader = bad.readHeader(badIndex)
+        discard bad.readToc(badIndex)
+        discard bad.readObjectStream(badIndex, @[])
+        discard bad.readEmbeddedAtlas(badIndex, BnbHeader(major: badHeader.major, minor: badHeader.minor, flags: 0))
+      , schemaViolation)
+
   it "encodes .bnb string tables in first-seen order":
     var table = initStringTable()
 
