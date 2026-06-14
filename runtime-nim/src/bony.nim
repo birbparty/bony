@@ -5,6 +5,7 @@ import bony/anim/mixer
 import bony/anim/timelines
 import bony/binary/framing
 import bony/binary/semantic
+import bony/constraints/ik
 import bony/deform/deformers
 import bony/deform/keyforms
 import bony/deform/parameter_timelines
@@ -22,6 +23,7 @@ import bony/transform
 export attachments
 export framing
 export semantic
+export ik
 export clipping
 export deformers
 export keyforms

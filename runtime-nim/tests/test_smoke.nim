@@ -28,6 +28,9 @@ proc raisesBonyLoadError(action: proc(); kind: BonyLoadErrorKind): bool =
 proc closeTo(actual, expected: float64): bool =
   abs(actual - expected) <= 1e-9
 
+proc closeWithin(actual, expected, tolerance: float64): bool =
+  abs(actual - expected) <= tolerance
+
 proc transformFixture(childMode: TransformMode; parentScaleX = 2.0; parentScaleY = 3.0): SkeletonData =
   let (inheritRotation, inheritScale, inheritReflection) =
     case childMode
@@ -817,6 +820,86 @@ spec "bony package":
       closeTo(reflectedNoScaleNoReflection[1].d, -1)
       closeTo(degenerateWorlds[1].a, 0)
       closeTo(degenerateWorlds[1].d, 2)
+
+  it "solves one-bone IK with mix":
+    let full = solveOneBoneIk(ikPoint(0.0, 0.0), 10.0, 0.0, ikPoint(0.0, 10.0))
+    let mixed = solveOneBoneIk(ikPoint(0.0, 0.0), 10.0, 0.0, ikPoint(0.0, 10.0), mix = 0.5)
+
+    then:
+      closeTo(full.rotation, 90.0)
+      closeTo(full.endPoint.x, 0.0)
+      closeTo(full.endPoint.y, 10.0)
+      closeTo(mixed.rotation, 45.0)
+      closeTo(mixed.endPoint.x, 7.0710678118654755)
+      closeTo(mixed.endPoint.y, 7.071067811865475)
+      raisesBonyLoadError(proc() =
+        discard solveOneBoneIk(ikPoint(0.0, 0.0), -1.0, 0.0, ikPoint(1.0, 0.0))
+      , schemaViolation)
+      raisesBonyLoadError(proc() =
+        discard solveOneBoneIk(ikPoint(0.0, 0.0), 1.0, 0.0, ikPoint(1.0, 0.0), mix = 2.0)
+      , schemaViolation)
+
+  it "solves analytic two-bone IK cases":
+    let reachable = solveTwoBoneIk(ikPoint(0.0, 0.0), 100.0, 70.0, 0.0, 0.0, ikPoint(80.0, 50.0))
+    let overExtended = solveTwoBoneIk(ikPoint(0.0, 0.0), 100.0, 70.0, 10.0, 20.0, ikPoint(200.0, 0.0))
+    let tooClose = solveTwoBoneIk(ikPoint(0.0, 0.0), 100.0, 70.0, 0.0, 0.0, ikPoint(5.0, 2.0))
+    let mirrored = solveTwoBoneIk(
+      ikPoint(0.0, 0.0),
+      100.0,
+      70.0,
+      0.0,
+      0.0,
+      ikPoint(80.0, 50.0),
+      bendSign = -1.0,
+    )
+
+    then:
+      closeTo(reachable.parentRotation, -10.092678909779805)
+      closeTo(reachable.childRotation, 115.3769335251523)
+      closeTo(reachable.endPoint.x, 80.0)
+      closeTo(reachable.endPoint.y, 50.0)
+      closeTo(overExtended.parentRotation, 0.0)
+      closeTo(overExtended.childRotation, 0.0)
+      closeTo(tooClose.childRotation, 180.0)
+      closeTo(tooClose.endPoint.x, 27.85430072655778)
+      closeTo(tooClose.endPoint.y, 11.141720290623123)
+      closeTo(mirrored.endPoint.x, 80.0)
+      closeTo(mirrored.endPoint.y, 50.0)
+
+  it "solves chain IK with fixed FABRIK settings":
+    let reachable = solveChainIk(
+      @[ikPoint(0.0, 0.0), ikPoint(5.0, 0.0), ikPoint(10.0, 0.0)],
+      @[5.0, 5.0],
+      ikPoint(6.0, 6.0),
+    )
+    let unreachable = solveChainIk(
+      @[ikPoint(0.0, 0.0), ikPoint(5.0, 0.0), ikPoint(10.0, 0.0)],
+      @[5.0, 5.0],
+      ikPoint(20.0, 0.0),
+    )
+    let mixed = solveChainIk(
+      @[ikPoint(0.0, 0.0), ikPoint(5.0, 0.0), ikPoint(10.0, 0.0)],
+      @[5.0, 5.0],
+      ikPoint(6.0, 6.0),
+      mix = 0.5,
+    )
+
+    then:
+      fabrikIterations == 8
+      closeTo(fabrikTolerance, 1e-4)
+      closeWithin(reachable.points[^1].x, 6.0, fabrikTolerance)
+      closeWithin(reachable.points[^1].y, 6.0, fabrikTolerance)
+      reachable.rotations.len == 2
+      closeTo(unreachable.points[^1].x, 10.0)
+      closeTo(unreachable.points[^1].y, 0.0)
+      closeWithin(mixed.points[^1].x, 8.0, fabrikTolerance)
+      closeWithin(mixed.points[^1].y, 3.0, fabrikTolerance)
+      raisesBonyLoadError(proc() =
+        discard solveChainIk(@[ikPoint(0.0, 0.0)], @[], ikPoint(1.0, 0.0))
+      , schemaViolation)
+      raisesBonyLoadError(proc() =
+        discard solveChainIk(@[ikPoint(0.0, 0.0), ikPoint(1.0, 0.0)], @[], ikPoint(1.0, 0.0))
+      , schemaViolation)
 
   it "rejects invalid M2 region data":
     then:
