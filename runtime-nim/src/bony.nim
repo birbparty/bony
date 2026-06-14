@@ -4,11 +4,13 @@ import bony/generated/wire
 import bony/anim/mixer
 import bony/anim/timelines
 import bony/mesh/attachments
+import bony/mesh/skinning
 import bony/model
 import bony/jsonio
 import bony/transform
 
 export attachments
+export skinning
 export mixer
 export timelines
 export jsonio
