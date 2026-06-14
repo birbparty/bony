@@ -9,7 +9,10 @@ type
     duplicateKey,
     unknownRequiredReference,
     orderingViolation,
-    cycleDetected
+    cycleDetected,
+    truncatedInput,
+    malformedVarint,
+    invalidBackingType
 
   BonyLoadError* = object of CatchableError
     kind*: BonyLoadErrorKind

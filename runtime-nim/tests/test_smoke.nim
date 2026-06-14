@@ -77,6 +77,101 @@ spec "bony package":
       bonyPropertyDefaults.len == 14
       bonyRequiredProperties.len == 7
 
+  it "encodes and rejects .bnb varints canonically":
+    var bytes: seq[byte]
+    bytes.writeVaruint(0)
+    bytes.writeVaruint(127)
+    bytes.writeVaruint(128)
+    bytes.writeVaruint(624485)
+    var index = 0
+
+    then:
+      bytes == @[0'u8, 127'u8, 128'u8, 1'u8, 229'u8, 142'u8, 38'u8]
+      bytes.readVaruint(index) == 0
+      bytes.readVaruint(index) == 127
+      bytes.readVaruint(index) == 128
+      bytes.readVaruint(index) == 624485
+
+    bytes.setLen(0)
+    bytes.writeVarint(-1)
+    bytes.writeVarint(1)
+    index = 0
+
+    then:
+      bytes.readVarint(index) == -1
+      bytes.readVarint(index) == 1
+      raisesBonyLoadError(proc() =
+        var badIndex = 0
+        discard readVaruint(@[128'u8, 0'u8], badIndex)
+      , malformedVarint)
+      raisesBonyLoadError(proc() =
+        var badIndex = 0
+        discard readVaruint(@[128'u8], badIndex)
+      , truncatedInput)
+
+  it "encodes .bnb headers and ToC entries":
+    var bytes: seq[byte]
+    bytes.writeHeader(flags = bnbStringTableFlag)
+    bytes.writeToc(@[
+      BnbTocEntry(propertyKey: 1000, backingTypeCode: backingTypeCode("f32")),
+      BnbTocEntry(propertyKey: 1, backingTypeCode: backingTypeCode("string")),
+    ])
+    var index = 0
+    let header = bytes.readHeader(index)
+    let toc = bytes.readToc(index)
+
+    then:
+      bytes[0 .. 3] == @[byte(ord('B')), byte(ord('O')), byte(ord('N')), byte(ord('Y'))]
+      header.major == bnbMajorVersion
+      header.minor == bnbMinorVersion
+      header.flags == bnbStringTableFlag
+      toc.len == 2
+      toc[0].propertyKey == 1
+      toc[1].propertyKey == 1000
+      toc.backingTypeCodeFor(1) == backingTypeCode("string")
+      raisesBonyLoadError(proc() =
+        var bad: seq[byte]
+        bad.writeHeader(flags = 1'u64 shl 8)
+      , schemaViolation)
+      raisesBonyLoadError(proc() =
+        var bad: seq[byte]
+        bad.writeToc(@[
+          BnbTocEntry(propertyKey: 1, backingTypeCode: backingTypeCode("string")),
+          BnbTocEntry(propertyKey: 1, backingTypeCode: backingTypeCode("string")),
+        ])
+      , duplicateKey)
+      raisesBonyLoadError(proc() =
+        var bad: seq[byte]
+        bad.writeToc(@[BnbTocEntry(propertyKey: 1, backingTypeCode: backingTypeCode("f32"))])
+      , invalidBackingType)
+
+  it "reads .bnb length-prefixed property records":
+    let toc = @[
+      BnbTocEntry(propertyKey: 900000, backingTypeCode: 250'u8),
+    ]
+    var bytes: seq[byte]
+    bytes.writePropertyRecord(900000, @[1'u8, 2'u8, 3'u8, 4'u8])
+    bytes.writePropertyTerminator()
+    var index = 0
+    let record = bytes.readPropertyRecord(index, toc)
+    let terminator = bytes.readPropertyRecord(index, toc)
+
+    then:
+      record.propertyKey == 900000
+      record.payload == @[1'u8, 2'u8, 3'u8, 4'u8]
+      terminator.propertyKey == 0
+      terminator.payload.len == 0
+      index == bytes.len
+      raisesBonyLoadError(proc() =
+        var badIndex = 0
+        discard readPropertyRecord(bytes, badIndex, @[])
+      , schemaViolation)
+      raisesBonyLoadError(proc() =
+        var bad = @[1'u8, 4'u8, 1'u8, 2'u8]
+        var badIndex = 0
+        discard readPropertyRecord(bad, badIndex, @[BnbTocEntry(propertyKey: 1, backingTypeCode: backingTypeCode("string"))])
+      , truncatedInput)
+
   it "loads .bony JSON and applies defaults":
     let data = loadBonyJson("""
 {
