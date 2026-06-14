@@ -50,8 +50,16 @@ BLAKE3-256(canonical_bnb_without_header_hash_property)
 ```
 
 The emitted value is the 32-byte digest encoded as lowercase hexadecimal in
-JSON and as raw 32 bytes in `.bnb` once the registry assigns the property
-backing type.
+JSON and as raw 32 bytes in `.bnb`.
+
+Required registry shape:
+
+- Object: header/skeleton metadata object.
+- Property: `header.hash`.
+- Backing type: `bytes`.
+- Binary payload: exactly 32 raw digest bytes, so the surrounding property
+  `byteLength` is exactly `32`.
+- JSON representation: exactly 64 lowercase hexadecimal characters.
 
 Canonical hash computation:
 
@@ -66,13 +74,19 @@ Canonical core `.bnb` emission may omit `header.hash` when no hash property is
 registered yet. Once the registry adds `header.hash`, canonical shipping
 profiles should emit it using the algorithm above.
 
+Canonical writers that include `header.hash` ignore any loaded hash value and
+always emit the recomputed digest. Verification mode controls whether a loaded
+hash mismatch is reported during load/tool validation; it does not control
+canonical writer recomputation.
+
 Load behavior:
 
 - If `header.hash` is absent, loading proceeds normally.
 - If `header.hash` is present, loaders validate its shape: 32 raw bytes in
   `.bnb` or 64 lowercase hex characters in JSON.
-- Loaders may verify the digest, but default runtime loading does not reject a
-  hash mismatch unless verification mode is explicitly enabled.
+- Loaders may verify the digest through an explicit loader/tooling option, but
+  default runtime loading does not reject a hash mismatch unless verification
+  mode is enabled.
 - Verification mode computes the digest using the same
   `canonical_bnb_without_header_hash_property` rule and reports mismatch as a
   typed validation error.
@@ -103,3 +117,10 @@ The M6 hash/bounds-adjacent checks must include:
   `header.hash` omitted.
 - Hash verification mode rejects a digest computed over bytes that include
   `header.hash`.
+- A committed fixture records an independently computed BLAKE3 digest for a
+  canonical `.bnb` with `header.hash` omitted from the digest input.
+- The same fixture proves `.bnb` emits the digest as 32 raw bytes with
+  `byteLength == 32` and JSON emits the digest as 64 lowercase hexadecimal
+  characters.
+- `bnb->json->bnb` recomputes and preserves the canonical digest even when the
+  loaded source hash is stale.
