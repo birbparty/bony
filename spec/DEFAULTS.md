@@ -13,7 +13,8 @@ Default tables define:
 
 - The value synthesized when a known field is absent.
 - Whether canonical JSON and binary writers omit the field when it equals the
-  default.
+  default. Omission is controlled by `omitWhenDefault`; default-valued fields
+  with `omitWhenDefault: false` are still emitted.
 - The equality rule used for default comparison when the backing type needs a
   special rule.
 
@@ -34,8 +35,10 @@ Codegen and CI freshness checks must validate:
 - Every default value is valid for the property's backing type and generated
   JSON schema type.
 - `omitWhenDefault: true` is paired with `applyOnLoad: true`.
-- Any property without a default is required unless its owning feature contract
-  defines a different absence rule.
+- Every registered object property appears exactly once in either
+  `objectDefaults.properties` or `requiredProperties`.
+- Every equality override is one of the closed `equalityModes` ids in
+  `spec/defaults.yml`.
 
 ## Mutation Rules
 
@@ -53,6 +56,8 @@ Forbidden changes:
 - Defining a default whose value cannot be represented by the property's backing
   type.
 - Omitting a field on serialize without applying the same default on load.
+- Leaving a registered object property out of both the default table and the
+  required/no-default table.
 
 ## Canonicalization Relationship
 
@@ -61,7 +66,8 @@ on this source:
 
 - Loaders apply defaults before semantic validation that depends on field
   values.
-- Canonical writers omit fields whose loaded semantic value equals the default.
+- Canonical writers omit fields whose loaded semantic value equals the default
+  only when the default entry sets `omitWhenDefault: true`.
 - F32-backed defaults compare after f32 quantization at the file boundary.
 
 Because the current registry has no concrete object/property entries yet,

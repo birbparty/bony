@@ -19,8 +19,8 @@ sourceOfTruth:
     - backing type
     - object property membership
   schemaOwns:
-    - generated validation surface
-    - generated property order
+    - generated artifact only
+    - no independent source-of-truth role
 
 entrySchemas:
   objectDefaults:
@@ -29,7 +29,7 @@ entrySchemas:
       - properties
       - ownerBead
     fields:
-      object: id of a declared registry object/type
+      object: id of a declared registry object entry
       ownerBead: bead that introduced or last intentionally changed the defaults
       properties: mapping from property id to default entry
   propertyDefault:
@@ -41,17 +41,46 @@ entrySchemas:
       value: canonical YAML representation of the default value
       omitWhenDefault: whether JSON and binary canonical writers omit this value
       applyOnLoad: whether loaders synthesize this value when the field is absent
-      equality: optional override for default equality; otherwise use backing type equality
+      equality: optional id from equalityModes; otherwise infer from backing type
+      doc: human-readable explanation
+  requiredProperty:
+    required:
+      - property
+      - reason
+      - ownerBead
+    fields:
+      property: id of a declared registry property valid for the owning object
+      reason: why absence is invalid or owned outside default application
+      ownerBead: bead that introduced the required/no-default rule
       doc: human-readable explanation
 
 validationRules:
-  - every objectDefaults.object must exist in registry/wire.yml objects or typeKeys
+  - every objectDefaults.object must exist in registry/wire.yml objects
   - every property key in objectDefaults.properties must exist in registry/wire.yml propertyKeys
   - every defaulted property must be valid for the owning object
   - every default value must match the property's registry backing type and JSON schema type
   - omitWhenDefault true requires applyOnLoad true
-  - properties without defaults must be marked required by generated schema unless their owning contract defines another absence rule
+  - every object property must appear exactly once in either objectDefaults.properties or requiredProperties
+  - requiredProperties entries must reference properties valid for the owning object
   - changing an existing default requires the owner bead to update conformance expectations
+
+equalityModes:
+  - id: exactInteger
+    appliesTo: [varuint, varint]
+  - id: storedF32
+    appliesTo: [f32]
+  - id: exactBool
+    appliesTo: [bool]
+  - id: exactString
+    appliesTo: [string]
+  - id: exactColor
+    appliesTo: [color]
+  - id: exactBytes
+    appliesTo: [bytes]
+  - id: arrayElements
+    appliesTo: [composite]
+  - id: objectProperties
+    appliesTo: [composite]
 
 canonicalEquality:
   integers: exact numeric equality after range validation
@@ -64,3 +93,4 @@ canonicalEquality:
   objects: property-by-property equality using this table
 
 objectDefaults: []
+requiredProperties: []
