@@ -24,6 +24,30 @@ type
     boolValue*: bool
     numberValue*: float64
 
+  StateMachineConditionKind* = enum
+    boolEqualsCondition,
+    numberEqualsCondition,
+    numberGreaterCondition,
+    numberGreaterOrEqualCondition,
+    numberLessCondition,
+    numberLessOrEqualCondition,
+    triggerSetCondition
+
+  StateMachineCondition* = object
+    input*: string
+    kind*: StateMachineConditionKind
+    boolValue*: bool
+    numberValue*: float64
+
+  StateMachineTransition* = object
+    fromState*: string
+    toState*: string
+    conditions*: seq[StateMachineCondition]
+
+  MatchedTransition = object
+    layerIndex: int
+    transition: StateMachineTransition
+
   StateMachineState* = object
     name*: string
     clip*: AnimationClip
@@ -33,6 +57,7 @@ type
     name*: string
     states*: seq[StateMachineState]
     initialState*: string
+    transitions*: seq[StateMachineTransition]
 
   StateMachine* = object
     name*: string
@@ -122,6 +147,64 @@ proc defaultValue(input: StateMachineInput): StateMachineInputValue =
     StateMachineInputValue(name: input.name, kind: input.kind)
 
 
+proc stateMachineBoolCondition*(input: string; value = true): StateMachineCondition =
+  validateName(input, "state-machine condition input")
+  StateMachineCondition(input: input, kind: boolEqualsCondition, boolValue: value)
+
+
+proc stateMachineNumberCondition*(
+  input: string;
+  kind: StateMachineConditionKind;
+  value: float64;
+): StateMachineCondition =
+  if kind notin {
+    numberEqualsCondition,
+    numberGreaterCondition,
+    numberGreaterOrEqualCondition,
+    numberLessCondition,
+    numberLessOrEqualCondition,
+  }:
+    raise newBonyLoadError(schemaViolation, "state-machine number condition kind is not numeric")
+  validateName(input, "state-machine condition input")
+  StateMachineCondition(input: input, kind: kind, numberValue: quantizeF32(value, "stateMachine.condition.number"))
+
+
+proc stateMachineTriggerCondition*(input: string): StateMachineCondition =
+  validateName(input, "state-machine condition input")
+  StateMachineCondition(input: input, kind: triggerSetCondition)
+
+
+proc normalizeCondition(condition: StateMachineCondition): StateMachineCondition =
+  validateName(condition.input, "state-machine condition input")
+  result = StateMachineCondition(input: condition.input, kind: condition.kind)
+  case condition.kind
+  of boolEqualsCondition:
+    requireInactiveNumberUnset(condition.numberValue, "stateMachine.condition.number")
+    result.boolValue = condition.boolValue
+  of numberEqualsCondition, numberGreaterCondition, numberGreaterOrEqualCondition, numberLessCondition, numberLessOrEqualCondition:
+    if condition.boolValue:
+      raise newBonyLoadError(schemaViolation, "state-machine number condition must not have a bool value")
+    result.numberValue = quantizeF32(condition.numberValue, "stateMachine.condition.number")
+  of triggerSetCondition:
+    requireInactiveNumberUnset(condition.numberValue, "stateMachine.condition.number")
+    if condition.boolValue:
+      raise newBonyLoadError(schemaViolation, "state-machine trigger condition must not have a bool value")
+
+
+proc stateMachineTransition*(
+  fromState: string;
+  toState: string;
+  conditions: openArray[StateMachineCondition];
+): StateMachineTransition =
+  validateName(fromState, "state-machine transition from")
+  validateName(toState, "state-machine transition to")
+  if conditions.len == 0:
+    raise newBonyLoadError(schemaViolation, "state-machine transition must contain at least one condition")
+  result = StateMachineTransition(fromState: fromState, toState: toState)
+  for condition in conditions:
+    result.conditions.add normalizeCondition(condition)
+
+
 proc stateMachineState*(name: string; clip: AnimationClip; loop = false): StateMachineState =
   result = StateMachineState(name: name, clip: clip, loop: loop)
   validateState(result)
@@ -148,14 +231,29 @@ proc normalizeLayer(layer: StateMachineLayer): StateMachineLayer =
     result.states.add state
   result.initialState = if layer.initialState.len == 0: result.states[0].name else: layer.initialState
   discard result.stateByName(result.initialState)
+  for transition in layer.transitions:
+    validateName(transition.fromState, "state-machine transition from")
+    validateName(transition.toState, "state-machine transition to")
+    discard result.stateByName(transition.fromState)
+    discard result.stateByName(transition.toState)
+    if transition.conditions.len == 0:
+      raise newBonyLoadError(schemaViolation, "state-machine transition must contain at least one condition")
+    var normalized = StateMachineTransition(fromState: transition.fromState, toState: transition.toState)
+    for condition in transition.conditions:
+      normalized.conditions.add normalizeCondition(condition)
+    result.transitions.add normalized
 
 
 proc stateMachineLayer*(
   name: string;
   states: openArray[StateMachineState];
   initialState = "";
+  transitions: openArray[StateMachineTransition] = [];
 ): StateMachineLayer =
-  normalizeLayer(StateMachineLayer(name: name, states: @states, initialState: initialState))
+  normalizeLayer(StateMachineLayer(name: name, states: @states, initialState: initialState, transitions: @transitions))
+
+
+proc inputByName(machine: StateMachine; name: string): StateMachineInput
 
 
 proc normalizeMachine(machine: StateMachine): StateMachine =
@@ -177,6 +275,20 @@ proc normalizeMachine(machine: StateMachine): StateMachine =
       raise newBonyLoadError(duplicateKey, "duplicate state-machine input: " & normalized.name)
     names.incl(normalized.name)
     result.inputs.add normalized
+  for layer in result.layers:
+    for transition in layer.transitions:
+      for condition in transition.conditions:
+        let input = result.inputByName(condition.input)
+        case condition.kind
+        of boolEqualsCondition:
+          if input.kind != boolInput:
+            raise newBonyLoadError(schemaViolation, "state-machine condition input is not bool: " & condition.input)
+        of numberEqualsCondition, numberGreaterCondition, numberGreaterOrEqualCondition, numberLessCondition, numberLessOrEqualCondition:
+          if input.kind != numberInput:
+            raise newBonyLoadError(schemaViolation, "state-machine condition input is not number: " & condition.input)
+        of triggerSetCondition:
+          if input.kind != triggerInput:
+            raise newBonyLoadError(schemaViolation, "state-machine condition input is not trigger: " & condition.input)
 
 
 proc stateMachine*(
@@ -300,11 +412,79 @@ proc resetInputs*(runtime: var StateMachineRuntime) =
     runtime.inputs.add input.defaultValue()
 
 
+proc conditionMatches(runtime: StateMachineRuntime; condition: StateMachineCondition): bool =
+  let input = runtime.machine.inputByName(condition.input)
+  let index = runtime.inputValueIndex(condition.input)
+  if index < 0:
+    raise newBonyLoadError(unknownRequiredReference, "missing state-machine runtime input: " & condition.input)
+  let value = runtime.inputs[index]
+  case condition.kind
+  of boolEqualsCondition:
+    if input.kind != boolInput or value.kind != boolInput:
+      raise newBonyLoadError(schemaViolation, "state-machine condition input is not bool: " & condition.input)
+    value.boolValue == condition.boolValue
+  of numberEqualsCondition:
+    if input.kind != numberInput or value.kind != numberInput:
+      raise newBonyLoadError(schemaViolation, "state-machine condition input is not number: " & condition.input)
+    value.numberValue == condition.numberValue
+  of numberGreaterCondition:
+    if input.kind != numberInput or value.kind != numberInput:
+      raise newBonyLoadError(schemaViolation, "state-machine condition input is not number: " & condition.input)
+    value.numberValue > condition.numberValue
+  of numberGreaterOrEqualCondition:
+    if input.kind != numberInput or value.kind != numberInput:
+      raise newBonyLoadError(schemaViolation, "state-machine condition input is not number: " & condition.input)
+    value.numberValue >= condition.numberValue
+  of numberLessCondition:
+    if input.kind != numberInput or value.kind != numberInput:
+      raise newBonyLoadError(schemaViolation, "state-machine condition input is not number: " & condition.input)
+    value.numberValue < condition.numberValue
+  of numberLessOrEqualCondition:
+    if input.kind != numberInput or value.kind != numberInput:
+      raise newBonyLoadError(schemaViolation, "state-machine condition input is not number: " & condition.input)
+    value.numberValue <= condition.numberValue
+  of triggerSetCondition:
+    if input.kind != triggerInput or value.kind != triggerInput:
+      raise newBonyLoadError(schemaViolation, "state-machine condition input is not trigger: " & condition.input)
+    value.boolValue
+
+
+proc transitionMatches(runtime: StateMachineRuntime; transition: StateMachineTransition): bool =
+  for condition in transition.conditions:
+    if not runtime.conditionMatches(condition):
+      return false
+  true
+
+
+proc applyTransitions(runtime: var StateMachineRuntime) =
+  runtime = normalizedRuntime(runtime)
+  let snapshot = runtime
+  var matches: seq[MatchedTransition]
+  var consumedTriggers = initHashSet[string]()
+  for layerIndex, layer in snapshot.layers:
+    for transition in layer.layer.transitions:
+      if transition.fromState == layer.currentState and snapshot.transitionMatches(transition):
+        matches.add MatchedTransition(layerIndex: layerIndex, transition: transition)
+        for condition in transition.conditions:
+          if condition.kind == triggerSetCondition:
+            consumedTriggers.incl(condition.input)
+        break
+  for match in matches:
+    runtime.layers[match.layerIndex].setState(match.transition.toState)
+  for inputName in consumedTriggers:
+    let index = runtime.inputValueIndex(inputName)
+    if index < 0:
+      raise newBonyLoadError(unknownRequiredReference, "missing state-machine runtime input: " & inputName)
+    runtime.inputs[index].boolValue = false
+
+
 proc update*(runtime: var StateMachineRuntime; dt: float64) =
+  runtime = normalizedRuntime(runtime)
   let step = quantizeStateMachineTime(dt, "stateMachine.dt")
   for layer in runtime.layers.mitems:
     discard quantizeStateMachineTime(layer.time, "stateMachine.layer.time")
     layer.time = quantizeStateMachineTime(layer.time + step, "stateMachine.layer.time")
+  runtime.applyTransitions()
 
 
 proc sampleTime(layer: StateMachineLayerRuntime; state: StateMachineState): float64 =

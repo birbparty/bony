@@ -2156,3 +2156,181 @@ spec "bony package":
         ).evaluate(),
         duplicateKey,
       )
+
+  it "evaluates state-machine transitions and typed conditions":
+    let data = animationFixture()
+    let idle = animationClip(data, "idle", @[boneScalarTimeline("root", rotateTimeline, @[scalarKeyframe(0.0, 0.0)])])
+    let wave = animationClip(data, "wave", @[boneScalarTimeline("root", rotateTimeline, @[scalarKeyframe(0.0, 90.0)])])
+    let machine = stateMachine(
+      "machine",
+      @[
+        stateMachineLayer(
+          "base",
+          @[stateMachineState("idle", idle), stateMachineState("wave", wave)],
+          transitions = @[
+            stateMachineTransition(
+              "idle",
+              "wave",
+              @[
+                stateMachineBoolCondition("armed"),
+                stateMachineNumberCondition("speed", numberGreaterOrEqualCondition, 1.0),
+                stateMachineTriggerCondition("go"),
+              ],
+            ),
+            stateMachineTransition("wave", "idle", @[stateMachineBoolCondition("armed", false)]),
+          ],
+        ),
+      ],
+      @[stateMachineBoolInput("armed"), stateMachineNumberInput("speed"), stateMachineTriggerInput("go")],
+    )
+    var runtime = initStateMachineRuntime(machine)
+    runtime.fireTrigger("go")
+    runtime.update(0.25)
+
+    then:
+      runtime.layers[0].currentState == "idle"
+      closeTo(runtime.layers[0].time, 0.25)
+      runtime.isTriggerSet("go")
+
+    runtime.setBoolInput("armed", true)
+    runtime.setNumberInput("speed", 1.0)
+    runtime.update(0.5)
+    let evaluated = runtime.evaluate()
+
+    then:
+      runtime.layers[0].currentState == "wave"
+      closeTo(runtime.layers[0].time, 0.0)
+      not runtime.isTriggerSet("go")
+      evaluated.layers[0].state == "wave"
+      closeTo(evaluated.pose.scalars[0].value, 90.0)
+
+    runtime.update(0.25)
+    runtime.setBoolInput("armed", false)
+    runtime.update(0.0)
+
+    then:
+      runtime.layers[0].currentState == "idle"
+      closeTo(runtime.layers[0].time, 0.0)
+
+  it "uses first matching transition per state-machine layer":
+    let data = animationFixture()
+    let idle = animationClip(data, "idle")
+    let first = animationClip(data, "first")
+    let second = animationClip(data, "second")
+    let machine = stateMachine(
+      "machine",
+      @[
+        stateMachineLayer(
+          "base",
+          @[stateMachineState("idle", idle), stateMachineState("first", first), stateMachineState("second", second)],
+          transitions = @[
+            stateMachineTransition("idle", "first", @[stateMachineBoolCondition("armed")]),
+            stateMachineTransition("idle", "second", @[stateMachineBoolCondition("armed")]),
+          ],
+        ),
+      ],
+      @[stateMachineBoolInput("armed")],
+    )
+    var runtime = initStateMachineRuntime(machine)
+    runtime.setBoolInput("armed", true)
+    runtime.update(0.0)
+
+    then:
+      runtime.layers[0].currentState == "first"
+
+  it "lets one trigger drive transitions across multiple state-machine layers":
+    let data = animationFixture()
+    let idle = animationClip(data, "idle")
+    let wave = animationClip(data, "wave")
+    let open = animationClip(data, "open")
+    let blink = animationClip(data, "blink")
+    let machine = stateMachine(
+      "machine",
+      @[
+        stateMachineLayer(
+          "base",
+          @[stateMachineState("idle", idle), stateMachineState("wave", wave)],
+          transitions = @[stateMachineTransition("idle", "wave", @[stateMachineTriggerCondition("go")])],
+        ),
+        stateMachineLayer(
+          "eyes",
+          @[stateMachineState("open", open), stateMachineState("blink", blink)],
+          transitions = @[stateMachineTransition("open", "blink", @[stateMachineTriggerCondition("go")])],
+        ),
+      ],
+      @[stateMachineTriggerInput("go")],
+    )
+    var runtime = initStateMachineRuntime(machine)
+    runtime.fireTrigger("go")
+    runtime.update(0.0)
+
+    then:
+      runtime.layers[0].currentState == "wave"
+      runtime.layers[1].currentState == "blink"
+      not runtime.isTriggerSet("go")
+
+  it "rejects invalid state-machine transitions and conditions":
+    let data = animationFixture()
+    let idle = animationClip(data, "idle")
+    let wave = animationClip(data, "wave")
+    let states = @[stateMachineState("idle", idle), stateMachineState("wave", wave)]
+
+    then:
+      raisesBonyLoadError(proc() = discard stateMachineTransition("", "wave", @[stateMachineBoolCondition("armed")]), schemaViolation)
+      raisesBonyLoadError(proc() = discard stateMachineTransition("idle", "wave", @[]), schemaViolation)
+      raisesBonyLoadError(proc() = discard stateMachineNumberCondition("speed", boolEqualsCondition, 1.0), schemaViolation)
+      raisesBonyLoadError(proc() =
+        discard stateMachineLayer(
+          "base",
+          states,
+          transitions = @[stateMachineTransition("missing", "wave", @[stateMachineBoolCondition("armed")])],
+        ),
+        unknownRequiredReference,
+      )
+      raisesBonyLoadError(proc() =
+        discard stateMachine(
+          "machine",
+          @[stateMachineLayer("base", states, transitions = @[stateMachineTransition("idle", "wave", @[stateMachineBoolCondition("missing")])])],
+        ),
+        unknownRequiredReference,
+      )
+      raisesBonyLoadError(proc() =
+        discard stateMachine(
+          "machine",
+          @[stateMachineLayer("base", states, transitions = @[stateMachineTransition("idle", "wave", @[stateMachineBoolCondition("speed")])])],
+          @[stateMachineNumberInput("speed")],
+        ),
+        schemaViolation,
+      )
+      raisesBonyLoadError(proc() =
+        discard stateMachine(
+          "machine",
+          @[stateMachineLayer("base", states, transitions = @[stateMachineTransition("idle", "wave", @[stateMachineNumberCondition("armed", numberGreaterCondition, 0.0)])])],
+          @[stateMachineBoolInput("armed")],
+        ),
+        schemaViolation,
+      )
+      raisesBonyLoadError(proc() =
+        discard stateMachine(
+          "machine",
+          @[stateMachineLayer("base", states, transitions = @[stateMachineTransition("idle", "wave", @[stateMachineTriggerCondition("armed")])])],
+          @[stateMachineBoolInput("armed")],
+        ),
+        schemaViolation,
+      )
+      raisesBonyLoadError(proc() =
+        discard stateMachineTransition(
+          "idle",
+          "wave",
+          @[StateMachineCondition(input: "armed", kind: boolEqualsCondition, numberValue: 1.0)],
+        ),
+        schemaViolation,
+      )
+      raisesBonyLoadError(proc() =
+        discard stateMachineTransition(
+          "idle",
+          "wave",
+          @[StateMachineCondition(input: "go", kind: triggerSetCondition, boolValue: true)],
+        ),
+        schemaViolation,
+      )
