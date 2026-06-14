@@ -1911,6 +1911,7 @@ spec "bony package":
     let blink = animationClip(
       data,
       "blink",
+      @[boneScalarTimeline("root", rotateTimeline, @[scalarKeyframe(0.0, 90.0)])],
       slotTimelines = @[slotColorTimeline("body", alphaTimeline, @[colorKeyframe(0.0, colorRgba(1.0, 1.0, 1.0, 0.25))])],
     )
     let machine = stateMachine(
@@ -1933,6 +1934,10 @@ spec "bony package":
       evaluated.layers[1].layer == "eyes"
       evaluated.layers[1].state == "blink"
       closeTo(evaluated.layers[1].pose.colors[0].color.a, 0.25)
+      evaluated.pose.scalars.len == 1
+      closeTo(evaluated.pose.scalars[0].value, 90.0)
+      evaluated.pose.colors.len == 1
+      closeTo(evaluated.pose.colors[0].color.a, 0.25)
 
   it "switches state-machine layer states and clamps non-looping time":
     let data = animationFixture()
@@ -1978,8 +1983,17 @@ spec "bony package":
       raisesBonyLoadError(proc() = discard StateMachineRuntime(machine: machine, layers: @[]).evaluate(), schemaViolation)
 
     var runtime = initStateMachineRuntime(machine)
+    let extraLayer = stateMachineLayer("base", @[stateMachineState("idle", idle), stateMachineState("wave", animationClip(data, "wave"))])
 
     then:
       raisesBonyLoadError(proc() = runtime.setState("missing", "idle"), unknownRequiredReference)
       raisesBonyLoadError(proc() = runtime.setState("base", "missing"), unknownRequiredReference)
       raisesBonyLoadError(proc() = runtime.update(-0.1), schemaViolation)
+      raisesBonyLoadError(proc() =
+        var direct = StateMachineRuntime(
+          machine: machine,
+          layers: @[StateMachineLayerRuntime(layer: extraLayer, currentState: "idle")],
+        )
+        direct.setState("base", "wave"),
+        unknownRequiredReference,
+      )

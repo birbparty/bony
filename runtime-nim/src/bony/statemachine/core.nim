@@ -1,6 +1,6 @@
 ## M8 state-machine core, ordered layers, and evaluation skeleton.
 
-import std/[math, sets]
+import std/[algorithm, math, sets, tables]
 
 import bony/anim/mixer
 import bony/anim/timelines
@@ -38,6 +38,7 @@ type
 
   EvaluatedStateMachine* = object
     layers*: seq[EvaluatedStateMachineLayer]
+    pose*: MixedPose
 
 
 proc quantizeStateMachineTime(value: float64; context: string): float64 =
@@ -120,6 +121,9 @@ proc currentState*(runtime: StateMachineLayerRuntime): StateMachineState =
   runtime.layer.stateByName(runtime.currentState)
 
 
+proc normalizedRuntime(runtime: StateMachineRuntime): StateMachineRuntime
+
+
 proc setState*(runtime: var StateMachineLayerRuntime; state: string; resetTime = true) =
   discard runtime.layer.stateByName(state)
   runtime.currentState = state
@@ -128,6 +132,7 @@ proc setState*(runtime: var StateMachineLayerRuntime; state: string; resetTime =
 
 
 proc setState*(runtime: var StateMachineRuntime; layer: string; state: string; resetTime = true) =
+  runtime = normalizedRuntime(runtime)
   for item in runtime.layers.mitems:
     if item.layer.name == layer:
       item.setState(state, resetTime)
@@ -166,6 +171,97 @@ proc normalizedRuntime(runtime: StateMachineRuntime): StateMachineRuntime =
     result.layers.add current
 
 
+proc scalarKey(value: MixedScalar): string = value.target & "\0" & $value.kind
+proc vectorKey(value: MixedVector): string = value.target & "\0" & $value.kind
+proc colorKey(value: MixedColor): string = value.target & "\0" & $value.kind
+
+
+proc scalarOrder(a, b: MixedScalar): int =
+  result = cmp(a.target, b.target)
+  if result == 0:
+    result = cmp(ord(a.kind), ord(b.kind))
+
+
+proc vectorOrder(a, b: MixedVector): int =
+  result = cmp(a.target, b.target)
+  if result == 0:
+    result = cmp(ord(a.kind), ord(b.kind))
+
+
+proc attachmentOrder(a, b: MixedAttachment): int = cmp(a.target, b.target)
+proc inheritOrder(a, b: MixedInherit): int = cmp(a.target, b.target)
+
+
+proc colorOrder(a, b: MixedColor): int =
+  result = cmp(a.target, b.target)
+  if result == 0:
+    result = cmp(ord(a.kind), ord(b.kind))
+
+
+proc color2Order(a, b: MixedColor2): int = cmp(a.target, b.target)
+proc sequenceOrder(a, b: MixedSequence): int = cmp(a.target, b.target)
+
+
+proc overlayPose(base: var MixedPose; layer: MixedPose) =
+  var scalars = initTable[string, MixedScalar]()
+  var vectors = initTable[string, MixedVector]()
+  var attachments = initTable[string, MixedAttachment]()
+  var inherits = initTable[string, MixedInherit]()
+  var colors = initTable[string, MixedColor]()
+  var colors2 = initTable[string, MixedColor2]()
+  var sequences = initTable[string, MixedSequence]()
+  for value in base.scalars:
+    scalars[value.scalarKey] = value
+  for value in base.vectors:
+    vectors[value.vectorKey] = value
+  for value in base.attachments:
+    attachments[value.target] = value
+  for value in base.inherits:
+    inherits[value.target] = value
+  for value in base.colors:
+    colors[value.colorKey] = value
+  for value in base.colors2:
+    colors2[value.target] = value
+  for value in base.sequences:
+    sequences[value.target] = value
+  for value in layer.scalars:
+    scalars[value.scalarKey] = value
+  for value in layer.vectors:
+    vectors[value.vectorKey] = value
+  for value in layer.attachments:
+    attachments[value.target] = value
+  for value in layer.inherits:
+    inherits[value.target] = value
+  for value in layer.colors:
+    colors[value.colorKey] = value
+  for value in layer.colors2:
+    colors2[value.target] = value
+  for value in layer.sequences:
+    sequences[value.target] = value
+  base = MixedPose()
+  for value in scalars.values:
+    base.scalars.add value
+  base.scalars.sort(scalarOrder)
+  for value in vectors.values:
+    base.vectors.add value
+  base.vectors.sort(vectorOrder)
+  for value in attachments.values:
+    base.attachments.add value
+  base.attachments.sort(attachmentOrder)
+  for value in inherits.values:
+    base.inherits.add value
+  base.inherits.sort(inheritOrder)
+  for value in colors.values:
+    base.colors.add value
+  base.colors.sort(colorOrder)
+  for value in colors2.values:
+    base.colors2.add value
+  base.colors2.sort(color2Order)
+  for value in sequences.values:
+    base.sequences.add value
+  base.sequences.sort(sequenceOrder)
+
+
 proc evaluate*(runtime: StateMachineRuntime; data: ref SkeletonData = nil): EvaluatedStateMachine =
   let runtime = normalizedRuntime(runtime)
   for layer in runtime.layers:
@@ -175,4 +271,6 @@ proc evaluate*(runtime: StateMachineRuntime; data: ref SkeletonData = nil): Eval
     var animation = animationState(data, 1)
     animation.setAnimation(0, active.clip, loop = active.loop)
     animation.tracks[0].current.time = quantizeF32(time, "stateMachine.sample.time")
-    result.layers.add EvaluatedStateMachineLayer(layer: layer.layer.name, state: state, time: time, pose: animation.sample())
+    let pose = animation.sample()
+    result.layers.add EvaluatedStateMachineLayer(layer: layer.layer.name, state: state, time: time, pose: pose)
+    result.pose.overlayPose(pose)
