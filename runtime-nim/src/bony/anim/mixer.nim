@@ -189,10 +189,12 @@ proc dispatchEvents(
   trackIndex: int;
   entry: TrackEntry;
   fromTime, toTime: float64;
-  weight, threshold: float64;
+  includeFrom = false;
 ) =
-  if toTime <= fromTime or weight < threshold:
+  if toTime < fromTime or (toTime == fromTime and not includeFrom):
     return
+  var fired: seq[tuple[event: DispatchedEvent, order: int]]
+  var order = 0
   if entry.loop and entry.clip.duration > 0:
     let duration = entry.clip.duration
     let firstCycle = int(floor(fromTime / duration))
@@ -202,27 +204,48 @@ proc dispatchEvents(
       for timeline in entry.clip.eventTimelines:
         for key in timeline.keys:
           let absoluteTime = baseTime + key.time
-          if absoluteTime > fromTime and absoluteTime <= toTime:
-            output.add DispatchedEvent(trackIndex: trackIndex, event: key.event, time: absoluteTime)
+          if (absoluteTime > fromTime or (includeFrom and absoluteTime == fromTime)) and absoluteTime <= toTime:
+            fired.add (DispatchedEvent(trackIndex: trackIndex, event: key.event, time: absoluteTime), order)
+          inc order
   else:
     let endTime = min(toTime, entry.clip.duration)
     for timeline in entry.clip.eventTimelines:
       for key in timeline.keys:
-        if key.time > fromTime and key.time <= endTime:
-          output.add DispatchedEvent(trackIndex: trackIndex, event: key.event, time: key.time)
+        if (key.time > fromTime or (includeFrom and key.time == fromTime)) and key.time <= endTime:
+          fired.add (DispatchedEvent(trackIndex: trackIndex, event: key.event, time: key.time), order)
+        inc order
+  fired.sort(proc(a, b: tuple[event: DispatchedEvent, order: int]): int =
+    result = cmp(a.event.time, b.event.time)
+    if result == 0:
+      result = cmp(a.order, b.order)
+  )
+  for item in fired:
+    output.add item.event
 
 
 proc advancePlaying(track: var AnimationTrack; amount: float64; events: var seq[DispatchedEvent]; trackIndex: int) =
   if amount <= 0:
     return
   let startTime = track.current.time
+  let startMixTime = track.current.mixTime
+  let hadPrevious = track.hasPrevious
+  let mixDuration = track.current.mixDuration
   track.current.time = quantizeF32(track.current.time + amount, "track.time")
   if track.hasPrevious:
     track.previous.time = quantizeF32(track.previous.time + amount, "track.previous.time")
     track.current.mixTime = quantizeF32(track.current.mixTime + amount, "track.mixTime")
     if track.current.mixDuration <= 0 or track.current.mixTime >= track.current.mixDuration:
       track.hasPrevious = false
-  events.dispatchEvents(trackIndex, track.current, startTime, track.current.time, track.currentMixWeight, track.eventThreshold)
+  if hadPrevious and mixDuration > 0:
+    let thresholdTime = mixDuration * track.eventThreshold
+    if track.current.mixTime >= thresholdTime:
+      if startMixTime >= thresholdTime:
+        events.dispatchEvents(trackIndex, track.current, startTime, track.current.time)
+      else:
+        let dispatchFrom = quantizeF32(startTime + thresholdTime - startMixTime, "track.eventThresholdTime")
+        events.dispatchEvents(trackIndex, track.current, dispatchFrom, track.current.time, includeFrom = true)
+  else:
+    events.dispatchEvents(trackIndex, track.current, startTime, track.current.time)
 
 
 proc update*(state: var AnimationState; dt: float64) =

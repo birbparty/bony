@@ -651,6 +651,33 @@ spec "bony package":
       state.events.len == 1
       state.events[0].event.name == "second"
 
+  it "dispatches events from multiple timelines chronologically":
+    let data = animationFixture()
+    let clip = animationClip(
+      data,
+      "orderedEvents",
+      eventTimelines = @[
+        eventTimeline(@[
+          eventKeyframe(0.8, eventData("late")),
+          eventKeyframe(0.8, eventData("sameTimeFirst")),
+        ]),
+        eventTimeline(@[
+          eventKeyframe(0.2, eventData("early")),
+          eventKeyframe(0.8, eventData("sameTimeSecond")),
+        ]),
+      ],
+    )
+    var state = animationState(1)
+    state.setAnimation(0, clip)
+    state.update(1.0)
+
+    then:
+      state.events.len == 4
+      state.events[0].event.name == "early"
+      state.events[1].event.name == "late"
+      state.events[2].event.name == "sameTimeFirst"
+      state.events[3].event.name == "sameTimeSecond"
+
   it "dispatches looped events across wrapped time":
     let data = animationFixture()
     let clip = animationClip(
@@ -698,6 +725,31 @@ spec "bony package":
       state.events.len == 0
 
     state.update(0.2)
+
+    then:
+      state.events.len == 1
+      state.events[0].event.name == "hit"
+
+  it "does not dispatch pre-threshold events during a large crossfade update":
+    let data = animationFixture()
+    let idle = animationClip(
+      data,
+      "idle",
+      @[boneScalarTimeline("root", rotateTimeline, @[scalarKeyframe(0.0, 0.0), scalarKeyframe(1.0, 0.0)])],
+    )
+    let attack = animationClip(
+      data,
+      "attack",
+      eventTimelines = @[eventTimeline(@[
+        eventKeyframe(0.2, eventData("tooEarly")),
+        eventKeyframe(0.6, eventData("hit")),
+      ])],
+    )
+    var state = animationState(1)
+    state.setAnimation(0, idle)
+    state.addAnimation(0, attack, delay = 0.1, mixDuration = 1.0)
+    state.tracks[0].eventThreshold = 0.5
+    state.update(0.75)
 
     then:
       state.events.len == 1
