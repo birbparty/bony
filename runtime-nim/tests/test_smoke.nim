@@ -1997,3 +1997,115 @@ spec "bony package":
         direct.setState("base", "wave"),
         unknownRequiredReference,
       )
+
+  it "stores typed state-machine inputs at runtime":
+    let data = animationFixture()
+    let idle = animationClip(data, "idle")
+    let machine = stateMachine(
+      "machine",
+      @[stateMachineLayer("base", @[stateMachineState("idle", idle)])],
+      @[
+        stateMachineBoolInput("armed", defaultValue = true),
+        stateMachineNumberInput("speed", defaultValue = 0.25),
+        stateMachineTriggerInput("jump"),
+      ],
+    )
+    var runtime = initStateMachineRuntime(machine)
+
+    then:
+      runtime.machine.inputs.len == 3
+      runtime.inputs.len == 3
+      runtime.getBoolInput("armed")
+      closeTo(runtime.getNumberInput("speed"), quantizeF32(0.25))
+      not runtime.isTriggerSet("jump")
+
+    runtime.setBoolInput("armed", false)
+    runtime.setNumberInput("speed", 2.5)
+    runtime.fireTrigger("jump")
+
+    then:
+      not runtime.getBoolInput("armed")
+      closeTo(runtime.getNumberInput("speed"), 2.5)
+      runtime.isTriggerSet("jump")
+      runtime.consumeTrigger("jump")
+      not runtime.isTriggerSet("jump")
+
+    runtime.fireTrigger("jump")
+    runtime.resetInputs()
+
+    then:
+      runtime.getBoolInput("armed")
+      closeTo(runtime.getNumberInput("speed"), quantizeF32(0.25))
+      not runtime.isTriggerSet("jump")
+
+  it "rejects invalid state-machine typed inputs":
+    let data = animationFixture()
+    let idle = animationClip(data, "idle")
+    let layer = stateMachineLayer("base", @[stateMachineState("idle", idle)])
+    let machine = stateMachine(
+      "machine",
+      @[layer],
+      @[stateMachineBoolInput("armed"), stateMachineNumberInput("speed"), stateMachineTriggerInput("jump")],
+    )
+
+    then:
+      raisesBonyLoadError(proc() = discard stateMachineBoolInput(""), schemaViolation)
+      raisesBonyLoadError(proc() = discard stateMachineNumberInput("bad", defaultValue = Inf), numericOutOfRange)
+
+    then:
+      raisesBonyLoadError(proc() =
+        discard stateMachine(
+          "machine",
+          @[layer],
+          @[stateMachineBoolInput("dup"), stateMachineTriggerInput("dup")],
+        ),
+        duplicateKey,
+      )
+      raisesBonyLoadError(
+        proc() = discard stateMachine(
+          "machine",
+          @[layer],
+          @[StateMachineInput(name: "jump", kind: triggerInput, defaultBool: true)],
+        ),
+        schemaViolation,
+      )
+
+    var runtime = initStateMachineRuntime(machine)
+
+    then:
+      raisesBonyLoadError(proc() = discard runtime.getBoolInput("missing"), unknownRequiredReference)
+      raisesBonyLoadError(proc() = discard runtime.getBoolInput("speed"), schemaViolation)
+      raisesBonyLoadError(proc() = runtime.setNumberInput("speed", Inf), numericOutOfRange)
+      raisesBonyLoadError(proc() = runtime.fireTrigger("armed"), schemaViolation)
+      raisesBonyLoadError(proc() =
+        discard StateMachineRuntime(
+          machine: machine,
+          layers: runtime.layers,
+          inputs: @[
+            StateMachineInputValue(name: "armed", kind: boolInput),
+            StateMachineInputValue(name: "speed", kind: numberInput, numberValue: Inf),
+            StateMachineInputValue(name: "jump", kind: triggerInput),
+          ],
+        ).evaluate(),
+        numericOutOfRange,
+      )
+      raisesBonyLoadError(proc() =
+        discard StateMachineRuntime(
+          machine: machine,
+          layers: runtime.layers,
+          inputs: @[StateMachineInputValue(name: "armed", kind: boolInput)],
+        ).evaluate(),
+        schemaViolation,
+      )
+      raisesBonyLoadError(proc() =
+        discard StateMachineRuntime(
+          machine: machine,
+          layers: runtime.layers,
+          inputs: @[
+            StateMachineInputValue(name: "armed", kind: boolInput),
+            StateMachineInputValue(name: "speed", kind: boolInput),
+            StateMachineInputValue(name: "jump", kind: triggerInput),
+          ],
+        ).evaluate(),
+        schemaViolation,
+      )
