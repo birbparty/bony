@@ -1,4 +1,4 @@
-import std/strutils
+import std/[math, strutils]
 
 import bddy
 import bony
@@ -30,6 +30,9 @@ proc closeTo(actual, expected: float64): bool =
 
 proc closeWithin(actual, expected, tolerance: float64): bool =
   abs(actual - expected) <= tolerance
+
+proc pointDistance(a, b: IkPoint): float64 =
+  hypot(b.x - a.x, b.y - a.y)
 
 proc transformFixture(childMode: TransformMode; parentScaleX = 2.0; parentScaleY = 3.0): SkeletonData =
   let (inheritRotation, inheritScale, inheritReflection) =
@@ -838,6 +841,9 @@ spec "bony package":
       raisesBonyLoadError(proc() =
         discard solveOneBoneIk(ikPoint(0.0, 0.0), 1.0, 0.0, ikPoint(1.0, 0.0), mix = 2.0)
       , schemaViolation)
+      raisesBonyLoadError(proc() =
+        discard solveOneBoneIk(IkPoint(x: Inf, y: 0.0), 1.0, 0.0, ikPoint(1.0, 0.0))
+      , numericOutOfRange)
 
   it "solves analytic two-bone IK cases":
     let reachable = solveTwoBoneIk(ikPoint(0.0, 0.0), 100.0, 70.0, 0.0, 0.0, ikPoint(80.0, 50.0))
@@ -852,6 +858,7 @@ spec "bony package":
       ikPoint(80.0, 50.0),
       bendSign = -1.0,
     )
+    let partial = solveTwoBoneIk(ikPoint(0.0, 0.0), 100.0, 70.0, 10.0, 20.0, ikPoint(80.0, 50.0), mix = 0.5)
 
     then:
       closeTo(reachable.parentRotation, -10.092678909779805)
@@ -865,6 +872,14 @@ spec "bony package":
       closeTo(tooClose.endPoint.y, 11.141720290623123)
       closeTo(mirrored.endPoint.x, 80.0)
       closeTo(mirrored.endPoint.y, 50.0)
+      closeTo(partial.parentRotation, -0.04633945488990246)
+      closeTo(partial.childRotation, 67.68846676257615)
+      raisesBonyLoadError(proc() =
+        discard solveTwoBoneIk(ikPoint(0.0, 0.0), 100.0, 70.0, 0.0, 0.0, ikPoint(80.0, 50.0), bendSign = Inf)
+      , numericOutOfRange)
+      raisesBonyLoadError(proc() =
+        discard solveTwoBoneIk(ikPoint(0.0, 0.0), 100.0, 70.0, 0.0, 0.0, IkPoint(x: NaN, y: 0.0))
+      , numericOutOfRange)
 
   it "solves chain IK with fixed FABRIK settings":
     let reachable = solveChainIk(
@@ -883,6 +898,11 @@ spec "bony package":
       ikPoint(6.0, 6.0),
       mix = 0.5,
     )
+    let coincident = solveChainIk(
+      @[ikPoint(0.0, 0.0), ikPoint(0.0, 0.0), ikPoint(0.0, 0.0)],
+      @[5.0, 5.0],
+      ikPoint(6.0, 0.0),
+    )
 
     then:
       fabrikIterations == 8
@@ -894,12 +914,20 @@ spec "bony package":
       closeTo(unreachable.points[^1].y, 0.0)
       closeWithin(mixed.points[^1].x, 8.0, fabrikTolerance)
       closeWithin(mixed.points[^1].y, 3.0, fabrikTolerance)
+      closeWithin(coincident.points[^1].x, 6.0, fabrikTolerance)
+      closeWithin(coincident.points[^1].y, 0.0, fabrikTolerance)
+      closeWithin(coincident.points[0].x, 0.0, fabrikTolerance)
+      closeWithin(pointDistance(coincident.points[0], coincident.points[1]), 5.0, fabrikTolerance)
+      closeWithin(pointDistance(coincident.points[1], coincident.points[2]), 5.0, fabrikTolerance)
       raisesBonyLoadError(proc() =
         discard solveChainIk(@[ikPoint(0.0, 0.0)], @[], ikPoint(1.0, 0.0))
       , schemaViolation)
       raisesBonyLoadError(proc() =
         discard solveChainIk(@[ikPoint(0.0, 0.0), ikPoint(1.0, 0.0)], @[], ikPoint(1.0, 0.0))
       , schemaViolation)
+      raisesBonyLoadError(proc() =
+        discard solveChainIk(@[IkPoint(x: NaN, y: 0.0), ikPoint(1.0, 0.0)], @[1.0], ikPoint(1.0, 0.0))
+      , numericOutOfRange)
 
   it "rejects invalid M2 region data":
     then:

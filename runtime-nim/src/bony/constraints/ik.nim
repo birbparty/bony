@@ -26,6 +26,7 @@ type
 
   ChainIkResult* = object
     points*: seq[IkPoint]
+    ## Absolute segment angles in degrees, ordered like `points[0 ..^ 1]`.
     rotations*: seq[float64]
 
 
@@ -51,6 +52,13 @@ proc requireMix(value: float64): float64 =
     raise newBonyLoadError(schemaViolation, "ik.mix must be in [0, 1]")
 
 
+proc requirePoint(point: IkPoint; context: string): IkPoint =
+  IkPoint(
+    x: requireFinite(point.x, context & ".x"),
+    y: requireFinite(point.y, context & ".y"),
+  )
+
+
 proc clampUnit(value: float64): float64 =
   max(-1.0, min(1.0, value))
 
@@ -63,6 +71,16 @@ proc pointDistance(a, b: IkPoint): float64 =
   hypot(b.x - a.x, b.y - a.y)
 
 
+proc direction(fromPoint, toPoint: IkPoint; fallbackAngle: float64): tuple[x, y: float64] =
+  let dx = toPoint.x - fromPoint.x
+  let dy = toPoint.y - fromPoint.y
+  let distance = hypot(dx, dy)
+  if distance > solverEpsilon:
+    (x: dx / distance, y: dy / distance)
+  else:
+    (x: cos(fallbackAngle), y: sin(fallbackAngle))
+
+
 proc solveOneBoneIk*(
   origin: IkPoint;
   length: float64;
@@ -70,15 +88,17 @@ proc solveOneBoneIk*(
   target: IkPoint;
   mix = 1.0;
 ): OneBoneIkResult =
+  let safeOrigin = requirePoint(origin, "ik.origin")
+  let safeTarget = requirePoint(target, "ik.target")
   let storedLength = requireNonNegative(length, "ik.length")
   let storedMix = requireMix(mix)
   let baseRotation = requireFinite(currentRotation, "ik.currentRotation")
-  let targetRotation = radToDeg(arctan2(target.y - origin.y, target.x - origin.x))
+  let targetRotation = radToDeg(arctan2(safeTarget.y - safeOrigin.y, safeTarget.x - safeOrigin.x))
   result.rotation = lerp(baseRotation, targetRotation, storedMix)
   let radians = degToRad(result.rotation)
   result.endPoint = IkPoint(
-    x: origin.x + cos(radians) * storedLength,
-    y: origin.y + sin(radians) * storedLength,
+    x: safeOrigin.x + cos(radians) * storedLength,
+    y: safeOrigin.y + sin(radians) * storedLength,
   )
 
 
@@ -90,19 +110,22 @@ proc solveTwoBoneIk*(
   bendSign = 1.0;
   mix = 1.0;
 ): TwoBoneIkResult =
+  let safeOrigin = requirePoint(origin, "ik.origin")
+  let safeTarget = requirePoint(target, "ik.target")
   let l1 = requireNonNegative(parentLength, "ik.parentLength")
   let l2 = requireNonNegative(childLength, "ik.childLength")
   let storedMix = requireMix(mix)
   let currentParent = requireFinite(parentRotation, "ik.parentRotation")
   let currentChild = requireFinite(childRotation, "ik.childRotation")
+  let safeBendSign = requireFinite(bendSign, "ik.bendSign")
   let sign =
-    if bendSign < 0.0:
+    if safeBendSign < 0.0:
       -1.0
     else:
       1.0
 
-  let tx = target.x - origin.x
-  let ty = target.y - origin.y
+  let tx = safeTarget.x - safeOrigin.x
+  let ty = safeTarget.y - safeOrigin.y
   let d = hypot(tx, ty)
   let denominator = 2.0 * l1 * l2
   let solvedChild =
@@ -120,8 +143,8 @@ proc solveTwoBoneIk*(
   let parentRadians = degToRad(result.parentRotation)
   let childRadians = degToRad(result.parentRotation + result.childRotation)
   result.midPoint = IkPoint(
-    x: origin.x + cos(parentRadians) * l1,
-    y: origin.y + sin(parentRadians) * l1,
+    x: safeOrigin.x + cos(parentRadians) * l1,
+    y: safeOrigin.y + sin(parentRadians) * l1,
   )
   result.endPoint = IkPoint(
     x: result.midPoint.x + cos(childRadians) * l2,
@@ -135,49 +158,80 @@ proc solveChainIk*(points: openArray[IkPoint]; lengths: openArray[float64]; targ
   if lengths.len != points.len - 1:
     raise newBonyLoadError(schemaViolation, "ik chain length count must equal point count minus one")
   let storedMix = requireMix(mix)
+  let safeTarget = requirePoint(target, "ik.target")
+  var safePoints = newSeq[IkPoint](points.len)
+  for index, point in points:
+    safePoints[index] = requirePoint(point, "ik.point[" & $index & "]")
   var totalLength = 0.0
   var solvedLengths = newSeq[float64](lengths.len)
   for index, length in lengths:
     solvedLengths[index] = requireNonNegative(length, "ik.length[" & $index & "]")
     totalLength += solvedLengths[index]
 
-  let root = points[0]
-  result.points = @points
-  if pointDistance(root, target) > totalLength:
-    let angle = arctan2(target.y - root.y, target.x - root.x)
+  let root = safePoints[0]
+  result.points = safePoints
+  let targetAngle = arctan2(safeTarget.y - root.y, safeTarget.x - root.x)
+  let rootToTarget = pointDistance(root, safeTarget)
+  if rootToTarget > totalLength:
+    let angle = targetAngle
     for index in 1 ..< result.points.len:
       result.points[index] = IkPoint(
         x: result.points[index - 1].x + cos(angle) * solvedLengths[index - 1],
         y: result.points[index - 1].y + sin(angle) * solvedLengths[index - 1],
       )
   else:
+    var hasDegenerateSegment = false
+    for index in 0 ..< result.points.len - 1:
+      if solvedLengths[index] > solverEpsilon and pointDistance(result.points[index], result.points[index + 1]) <= solverEpsilon:
+        hasDegenerateSegment = true
+        break
+    if hasDegenerateSegment and rootToTarget > solverEpsilon:
+      let ux = (safeTarget.x - root.x) / rootToTarget
+      let uy = (safeTarget.y - root.y) / rootToTarget
+      let bend = sqrt(max(totalLength * totalLength - rootToTarget * rootToTarget, 0.0)) * 0.5
+      var walked = 0.0
+      for index in 1 ..< result.points.len - 1:
+        walked += solvedLengths[index - 1]
+        let t = walked / totalLength
+        let offset = sin(PI * t) * bend
+        result.points[index] = IkPoint(
+          x: root.x + (safeTarget.x - root.x) * t - uy * offset,
+          y: root.y + (safeTarget.y - root.y) * t + ux * offset,
+        )
+
     for _ in 0 ..< fabrikIterations:
-      result.points[^1] = target
+      result.points[^1] = safeTarget
       for index in countdown(result.points.len - 2, 0):
         let next = result.points[index + 1]
         let current = result.points[index]
-        let distance = max(pointDistance(current, next), solverEpsilon)
-        let ratio = solvedLengths[index] / distance
+        let fallback = if index == 0: targetAngle else: arctan2(
+          result.points[index].y - result.points[index - 1].y,
+          result.points[index].x - result.points[index - 1].x,
+        )
+        let unit = direction(next, current, fallback)
         result.points[index] = IkPoint(
-          x: next.x + (current.x - next.x) * ratio,
-          y: next.y + (current.y - next.y) * ratio,
+          x: next.x + unit.x * solvedLengths[index],
+          y: next.y + unit.y * solvedLengths[index],
         )
 
       result.points[0] = root
       for index in 0 ..< result.points.len - 1:
         let current = result.points[index]
         let next = result.points[index + 1]
-        let distance = max(pointDistance(current, next), solverEpsilon)
-        let ratio = solvedLengths[index] / distance
+        let fallback = if index + 2 < result.points.len: arctan2(
+          result.points[index + 2].y - result.points[index + 1].y,
+          result.points[index + 2].x - result.points[index + 1].x,
+        ) else: targetAngle
+        let unit = direction(current, next, fallback)
         result.points[index + 1] = IkPoint(
-          x: current.x + (next.x - current.x) * ratio,
-          y: current.y + (next.y - current.y) * ratio,
+          x: current.x + unit.x * solvedLengths[index],
+          y: current.y + unit.y * solvedLengths[index],
         )
 
-      if pointDistance(result.points[^1], target) <= fabrikTolerance:
+      if pointDistance(result.points[^1], safeTarget) <= fabrikTolerance:
         break
 
-  for index, original in points:
+  for index, original in safePoints:
     result.points[index] = IkPoint(
       x: lerp(original.x, result.points[index].x, storedMix),
       y: lerp(original.y, result.points[index].y, storedMix),
