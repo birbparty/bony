@@ -641,6 +641,28 @@ spec "bony package":
       pose.scalars.len == 1
       closeTo(pose.scalars[0].value, 18.0)
 
+  it "uses setup pose baselines for replace mixing":
+    var dataValue = skeletonData(
+      skeletonHeader("demo", "0.1.0"),
+      @[boneData("root", "", localTransform(scaleX = 1.0, scaleY = 1.0))],
+    )
+    let data = new SkeletonData
+    data[] = dataValue
+    let scaleUp = animationClip(
+      data[],
+      "scaleUp",
+      @[boneVectorTimeline("root", scaleTimeline, @[vector2Keyframe(0.0, 2.0, 2.0)])],
+    )
+    var state = animationState(data, 1)
+    state.setAnimation(0, scaleUp)
+    state.tracks[0].alpha = 0.5
+    let pose = state.sample()
+
+    then:
+      pose.vectors.len == 1
+      closeTo(pose.vectors[0].x, 1.5)
+      closeTo(pose.vectors[0].y, 1.5)
+
   it "gates discrete attachments by mix threshold":
     let data = animationFixture()
     let idle = animationClip(
@@ -664,3 +686,90 @@ spec "bony package":
     then:
       pose.attachments.len == 1
       pose.attachments[0].attachment == "idle"
+
+  it "keeps queued crossfades frame-step independent":
+    let data = animationFixture()
+    let idle = animationClip(
+      data,
+      "idle",
+      @[boneScalarTimeline("root", rotateTimeline, @[scalarKeyframe(0.0, 0.0), scalarKeyframe(1.0, 10.0)])],
+    )
+    let wave = animationClip(
+      data,
+      "wave",
+      @[boneScalarTimeline("root", rotateTimeline, @[scalarKeyframe(0.0, 100.0), scalarKeyframe(1.0, 120.0)])],
+    )
+    var single = animationState(1)
+    single.setAnimation(0, idle)
+    single.addAnimation(0, wave, delay = 0.5, mixDuration = 1.0)
+    single.update(0.75)
+    let singlePose = single.sample()
+
+    var split = animationState(1)
+    split.setAnimation(0, idle)
+    split.addAnimation(0, wave, delay = 0.5, mixDuration = 1.0)
+    split.update(0.5)
+    split.update(0.25)
+    let splitPose = split.sample()
+
+    then:
+      closeTo(singlePose.scalars[0].value, splitPose.scalars[0].value)
+
+  it "samples every existing timeline kind into mixed poses":
+    let data = animationFixture()
+    let clip = animationClip(
+      data,
+      "allKinds",
+      @[
+        boneInheritTimeline(
+          "root",
+          @[inheritKeyframe(
+            0.0,
+            inheritRotation = false,
+            inheritScale = false,
+            inheritReflection = false,
+            transformMode = onlyTranslation,
+          )],
+        ),
+      ],
+      @[
+        slotColorTimeline("body", rgbaTimeline, @[colorKeyframe(0.0, colorRgba(0.5, 0.25, 0.75, 1.0))]),
+        slotColor2Timeline("body", @[color2Keyframe(0.0, colorRgba2(colorRgba(1.0, 1.0, 1.0, 1.0), 0.1, 0.2, 0.3))]),
+        slotSequenceTimeline("body", @[sequenceKeyframe(0.0, 2'u32, 0.1, sequenceLoop)]),
+      ],
+    )
+    var state = animationState(1)
+    state.setAnimation(0, clip)
+    let pose = state.sample()
+
+    then:
+      pose.inherits.len == 1
+      pose.inherits[0].value.transformMode == onlyTranslation
+      pose.colors.len == 1
+      closeTo(pose.colors[0].color.g, 0.25)
+      pose.colors2.len == 1
+      closeTo(pose.colors2[0].color.darkB, quantizeF32(0.3))
+      pose.sequences.len == 1
+      pose.sequences[0].value.index == 2'u32
+
+  it "returns mixed pose outputs in deterministic order":
+    let data = skeletonData(
+      skeletonHeader("demo", "0.1.0"),
+      @[boneData("b", ""), boneData("a", "")],
+    )
+    let clip = animationClip(
+      data,
+      "ordered",
+      @[
+        boneScalarTimeline("b", rotateTimeline, @[scalarKeyframe(0.0, 2.0)]),
+        boneScalarTimeline("a", rotateTimeline, @[scalarKeyframe(0.0, 1.0)]),
+      ],
+    )
+    var state = animationState(1)
+    state.setAnimation(0, clip)
+    let pose = state.sample()
+
+    then:
+      pose.scalars.len == 2
+      pose.scalars[0].target == "a"
+      pose.scalars[1].target == "b"
