@@ -408,7 +408,7 @@ spec "bony package":
       "root",
       translateTimeline,
       @[
-        vector2Keyframe(0.0, 0.0, 10.0, curveY = steppedCurve),
+        vector2Keyframe(0.0, 0.0, 10.0, curveY = steppedTimelineCurve),
         vector2Keyframe(1.0, 10.0, 20.0),
       ],
     )
@@ -543,3 +543,38 @@ spec "bony package":
           ),
         unknownRequiredReference
       )
+
+  it "evaluates fixed-table bezier curves":
+    let symmetric = bezierTimelineCurve(0.25, 0.0, 0.75, 1.0)
+    let easeIn = bezierTimelineCurve(0.42, 0.0, 1.0, 1.0)
+
+    then:
+      closeTo(symmetric.evaluate(0.0), 0.0)
+      closeTo(symmetric.evaluate(0.5), 0.5)
+      closeTo(symmetric.evaluate(1.0), 1.0)
+      closeTo(symmetric.evaluate(-1.0), 0.0)
+      closeTo(symmetric.evaluate(2.0), 1.0)
+      easeIn.evaluate(0.25) < 0.25
+      raisesBonyLoadError(proc() = discard bezierTimelineCurve(-0.1, 0.0, 1.0, 1.0), schemaViolation)
+      raisesBonyLoadError(proc() = discard bezierTimelineCurve(0.0, 0.0, 1.1, 1.0), schemaViolation)
+
+  it "samples bezier keyframes per component":
+    let timeline = boneVectorTimeline(
+      "root",
+      translateTimeline,
+      @[
+        vector2Keyframe(
+          0.0,
+          0.0,
+          0.0,
+          curveX = bezierTimelineCurve(0.25, 0.0, 0.75, 1.0),
+          curveY = steppedTimelineCurve,
+        ),
+        vector2Keyframe(1.0, 100.0, 100.0),
+      ],
+    )
+    let sampled = timeline.sampleVector(0.5)
+
+    then:
+      closeTo(sampled.x, 50.0)
+      closeTo(sampled.y, 0.0)
