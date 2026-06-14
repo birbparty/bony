@@ -378,6 +378,192 @@ spec "bony package":
       output.contains("\"slots\"")
       output.contains("\"regions\"")
 
+  it "builds unweighted mesh attachments":
+    let data = animationFixture()
+    let mesh = unweightedMeshAttachment(
+      data,
+      "cloth",
+      @[meshUv(0.0, 0.0), meshUv(1.0, 0.0), meshUv(1.0, 1.0), meshUv(0.0, 1.0)],
+      @[0'u16, 1'u16, 2'u16, 2'u16, 3'u16, 0'u16],
+      @[
+        unweightedMeshVertex(-1.0, -1.0),
+        unweightedMeshVertex(1.0, -1.0),
+        unweightedMeshVertex(1.0, 1.0),
+        unweightedMeshVertex(-1.0, 1.0),
+      ],
+      hull = 4'u32,
+      edges = @[0'u16, 1'u16, 1'u16, 2'u16, 2'u16, 3'u16, 3'u16, 0'u16],
+    )
+
+    then:
+      mesh.name == "cloth"
+      mesh.path == "cloth"
+      mesh.weighted == false
+      mesh.uvs.len == 4
+      mesh.vertices.len == 4
+      mesh.triangles.len == 6
+      mesh.hull == 4'u32
+      closeTo(mesh.vertices[2].x, 1.0)
+      closeTo(mesh.vertices[2].y, 1.0)
+
+  it "builds weighted mesh bind data":
+    let data = skeletonData(
+      skeletonHeader("demo", "0.1.0"),
+      @[
+        boneData("root", ""),
+        boneData("child", "root", localTransform(x = 1.0)),
+      ],
+    )
+    let mesh = weightedMeshAttachment(
+      data,
+      "weightedCloth",
+      @[meshUv(0.0, 0.0), meshUv(1.0, 0.0), meshUv(0.5, 1.0)],
+      @[0'u16, 1'u16, 2'u16],
+      @[
+        weightedMeshVertex(@[meshInfluence("root", -1.0, 0.0, 1.0)]),
+        weightedMeshVertex(@[meshInfluence("child", 1.0, 0.0, 1.0)]),
+        weightedMeshVertex(@[
+          meshInfluence("root", 0.0, 1.0, 0.25),
+          meshInfluence("child", 0.0, 1.0, 0.75),
+        ]),
+      ],
+      path = "clothPage",
+      deformAttachment = "weightedCloth",
+    )
+
+    then:
+      mesh.weighted
+      mesh.path == "clothPage"
+      mesh.deformAttachment == "weightedCloth"
+      mesh.vertices[2].influences.len == 2
+      mesh.vertices[2].influences[0].bone == "root"
+      closeTo(mesh.vertices[2].influences[1].weight, 0.75)
+
+  it "rejects invalid mesh attachment data":
+    let data = animationFixture()
+
+    then:
+      raisesBonyLoadError(
+        proc() = discard unweightedMeshAttachment(
+          data,
+          "badUvs",
+          @[meshUv(0.0, 0.0)],
+          @[0'u16, 1'u16, 2'u16],
+          @[unweightedMeshVertex(0.0, 0.0), unweightedMeshVertex(1.0, 0.0), unweightedMeshVertex(0.0, 1.0)],
+        ),
+        schemaViolation,
+      )
+      raisesBonyLoadError(
+        proc() = discard unweightedMeshAttachment(
+          data,
+          "badIndex",
+          @[meshUv(0.0, 0.0), meshUv(1.0, 0.0), meshUv(0.0, 1.0)],
+          @[0'u16, 1'u16, 3'u16],
+          @[unweightedMeshVertex(0.0, 0.0), unweightedMeshVertex(1.0, 0.0), unweightedMeshVertex(0.0, 1.0)],
+        ),
+        unknownRequiredReference,
+      )
+      raisesBonyLoadError(
+        proc() = discard unweightedMeshAttachment(
+          data,
+          "badEdges",
+          @[meshUv(0.0, 0.0), meshUv(1.0, 0.0), meshUv(0.0, 1.0)],
+          @[0'u16, 1'u16, 2'u16],
+          @[unweightedMeshVertex(0.0, 0.0), unweightedMeshVertex(1.0, 0.0), unweightedMeshVertex(0.0, 1.0)],
+          edges = @[0'u16, 1'u16, 2'u16],
+        ),
+        schemaViolation,
+      )
+      raisesBonyLoadError(
+        proc() = discard weightedMeshAttachment(
+          data,
+          "badBone",
+          @[meshUv(0.0, 0.0), meshUv(1.0, 0.0), meshUv(0.0, 1.0)],
+          @[0'u16, 1'u16, 2'u16],
+          @[
+            weightedMeshVertex(@[meshInfluence("missing", 0.0, 0.0, 1.0)]),
+            weightedMeshVertex(@[meshInfluence("root", 1.0, 0.0, 1.0)]),
+            weightedMeshVertex(@[meshInfluence("root", 0.0, 1.0, 1.0)]),
+          ],
+        ),
+        unknownRequiredReference,
+      )
+      raisesBonyLoadError(
+        proc() = discard weightedMeshVertex(@[
+          meshInfluence("root", 0.0, 0.0, 0.25),
+          meshInfluence("root", 1.0, 0.0, 0.25),
+        ]),
+        schemaViolation,
+      )
+      raisesBonyLoadError(
+        proc() = validateMeshAttachment(
+          data,
+          MeshAttachment(
+            name: "directEmptyInfluences",
+            path: "directEmptyInfluences",
+            uvs: @[meshUv(0.0, 0.0), meshUv(1.0, 0.0), meshUv(0.0, 1.0)],
+            triangles: @[0'u16, 1'u16, 2'u16],
+            vertices: @[
+              MeshVertex(weighted: true, influences: @[]),
+              weightedMeshVertex(@[meshInfluence("root", 1.0, 0.0, 1.0)]),
+              weightedMeshVertex(@[meshInfluence("root", 0.0, 1.0, 1.0)]),
+            ],
+            weighted: true,
+            deformAttachment: "directEmptyInfluences",
+          ),
+        ),
+        schemaViolation,
+      )
+      raisesBonyLoadError(
+        proc() = validateMeshAttachment(
+          data,
+          MeshAttachment(
+            name: "directBadWeight",
+            path: "directBadWeight",
+            uvs: @[meshUv(0.0, 0.0), meshUv(1.0, 0.0), meshUv(0.0, 1.0)],
+            triangles: @[0'u16, 1'u16, 2'u16],
+            vertices: @[
+              MeshVertex(weighted: true, influences: @[MeshInfluence(bone: "root", weight: -1.0)]),
+              weightedMeshVertex(@[meshInfluence("root", 1.0, 0.0, 1.0)]),
+              weightedMeshVertex(@[meshInfluence("root", 0.0, 1.0, 1.0)]),
+            ],
+            weighted: true,
+            deformAttachment: "directBadWeight",
+          ),
+        ),
+        schemaViolation,
+      )
+      raisesBonyLoadError(
+        proc() = discard weightedMeshAttachment(
+          data,
+          "linkedUnsupported",
+          @[meshUv(0.0, 0.0), meshUv(1.0, 0.0), meshUv(0.0, 1.0)],
+          @[0'u16, 1'u16, 2'u16],
+          @[
+            weightedMeshVertex(@[meshInfluence("root", 0.0, 0.0, 1.0)]),
+            weightedMeshVertex(@[meshInfluence("root", 1.0, 0.0, 1.0)]),
+            weightedMeshVertex(@[meshInfluence("root", 0.0, 1.0, 1.0)]),
+          ],
+          parentMesh = "baseMesh",
+        ),
+        schemaViolation,
+      )
+      raisesBonyLoadError(
+        proc() = discard weightedMeshAttachment(
+          data,
+          "deformTargetUnsupported",
+          @[meshUv(0.0, 0.0), meshUv(1.0, 0.0), meshUv(0.0, 1.0)],
+          @[0'u16, 1'u16, 2'u16],
+          @[
+            weightedMeshVertex(@[meshInfluence("root", 0.0, 0.0, 1.0)]),
+            weightedMeshVertex(@[meshInfluence("root", 1.0, 0.0, 1.0)]),
+            weightedMeshVertex(@[meshInfluence("root", 0.0, 1.0, 1.0)]),
+          ],
+          deformAttachment = "otherMesh",
+        ),
+        schemaViolation,
+      )
+
   it "builds sorted scalar bone timelines and samples linearly":
     let timeline = boneScalarTimeline(
       "root",
