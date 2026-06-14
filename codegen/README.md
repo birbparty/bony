@@ -7,6 +7,7 @@ Run the generator from the repository root:
 
 ```bash
 python3 codegen/generate.py
+python3 -m unittest discover -s codegen -p 'test_*.py'
 python3 codegen/generate.py --check
 ```
 
@@ -24,4 +25,6 @@ Generated outputs:
 The generator validates registry/default-table consistency before writing any
 outputs. Later feature beads append concrete registry objects and defaults; this
 same generator then emits the matching runtime metadata and schema from those
-source files.
+source files. Runtime outputs include backing type, type key, property key,
+object membership, default-table, required-property, and generated encode/decode
+dispatch surfaces.

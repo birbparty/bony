@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import argparse
 import ast
+import base64
+import binascii
 import json
 import re
 import sys
@@ -35,7 +37,7 @@ def load_yaml_subset(path: Path) -> Any:
     """Parse the small YAML subset used by the checked-in source files."""
     lines: list[Line] = []
     for raw in path.read_text(encoding="utf-8").splitlines():
-        text = raw.split("#", 1)[0].rstrip()
+        text = strip_yaml_comment(raw).rstrip()
         if not text:
             continue
         lines.append(Line(len(text) - len(text.lstrip(" ")), text.lstrip(" ")))
@@ -84,6 +86,8 @@ def parse_map(lines: list[Line], index: int, indent: int) -> tuple[dict[str, Any
     mapping: dict[str, Any] = {}
     while index < len(lines) and lines[index].indent == indent and not lines[index].text.startswith("- "):
         key, rest = split_key_value(lines[index].text)
+        if key in mapping:
+            raise SourceError(f"duplicate mapping key: {key}")
         index += 1
         if rest in ("", ">"):
             if rest == ">":
@@ -114,7 +118,7 @@ def parse_scalar(text: str) -> Any:
     if text == "{}":
         return {}
     if text.startswith("[") and text.endswith("]"):
-        return [parse_scalar(part.strip()) for part in text[1:-1].split(",") if part.strip()]
+        return [parse_scalar(part.strip()) for part in split_inline_list(text[1:-1]) if part.strip()]
     if text in ("true", "false"):
         return text == "true"
     if re.fullmatch(r"-?\d+", text):
@@ -124,6 +128,50 @@ def parse_scalar(text: str) -> Any:
     if (text.startswith('"') and text.endswith('"')) or (text.startswith("'") and text.endswith("'")):
         return ast.literal_eval(text)
     return text
+
+
+def strip_yaml_comment(text: str) -> str:
+    quote: str | None = None
+    escaped = False
+    for index, char in enumerate(text):
+        if quote is not None:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = None
+            continue
+        if char in ("'", '"'):
+            quote = char
+            continue
+        if char == "#":
+            return text[:index]
+    return text
+
+
+def split_inline_list(text: str) -> list[str]:
+    parts: list[str] = []
+    start = 0
+    quote: str | None = None
+    escaped = False
+    for index, char in enumerate(text):
+        if quote is not None:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = None
+            continue
+        if char in ("'", '"'):
+            quote = char
+            continue
+        if char == ",":
+            parts.append(text[start:index])
+            start = index + 1
+    parts.append(text[start:])
+    return parts
 
 
 def require_list(source: dict[str, Any], key: str) -> list[dict[str, Any]]:
@@ -140,6 +188,7 @@ def validate_sources(registry: dict[str, Any], defaults: dict[str, Any]) -> None
         raise SourceError("spec/defaults.yml has unexpected format")
 
     backing_types = {entry["id"] for entry in require_list(registry, "backingTypes")}
+    equality_modes = equality_mode_map(defaults)
     type_keys = require_list(registry, "typeKeys")
     property_keys = require_list(registry, "propertyKeys")
     objects = require_list(registry, "objects")
@@ -198,7 +247,23 @@ def validate_sources(registry: dict[str, Any], defaults: dict[str, Any]) -> None
                 raise SourceError(f"default {object_id}.{property_id} is not valid for object")
             if not isinstance(default, dict):
                 raise SourceError(f"default {object_id}.{property_id} must be a map")
-            if default.get("omitWhenDefault") is True and default.get("applyOnLoad") is not True:
+            value = required(default, "value", f"default {object_id}.{property_id}")
+            omit_when_default = required(default, "omitWhenDefault", f"default {object_id}.{property_id}")
+            apply_on_load = required(default, "applyOnLoad", f"default {object_id}.{property_id}")
+            if not isinstance(omit_when_default, bool):
+                raise SourceError(f"default {object_id}.{property_id}.omitWhenDefault must be bool")
+            if not isinstance(apply_on_load, bool):
+                raise SourceError(f"default {object_id}.{property_id}.applyOnLoad must be bool")
+            backing_type = property_by_id[property_id]["backingType"]
+            validate_default_value(object_id, property_id, backing_type, value)
+            validate_equality_mode(
+                object_id,
+                property_id,
+                backing_type,
+                default.get("equality"),
+                equality_modes,
+            )
+            if omit_when_default is True and apply_on_load is not True:
                 raise SourceError(f"default {object_id}.{property_id} omits without applyOnLoad")
 
     required_by_object: dict[str, set[str]] = {}
@@ -226,6 +291,89 @@ def required(entry: dict[str, Any], key: str, where: str) -> Any:
     if key not in entry:
         raise SourceError(f"{where} missing required field {key}")
     return entry[key]
+
+
+def equality_mode_map(defaults: dict[str, Any]) -> dict[str, set[str]]:
+    modes: dict[str, set[str]] = {}
+    for entry in require_list(defaults, "equalityModes"):
+        mode_id = required(entry, "id", "equalityModes entry")
+        applies_to = required(entry, "appliesTo", f"equalityMode {mode_id}")
+        if mode_id in modes:
+            raise SourceError(f"duplicate equality mode: {mode_id}")
+        if not isinstance(applies_to, list):
+            raise SourceError(f"equalityMode {mode_id}.appliesTo must be a list")
+        modes[mode_id] = set(applies_to)
+    return modes
+
+
+def inferred_equality_mode(backing_type: str) -> str:
+    return {
+        "varuint": "exactInteger",
+        "varint": "exactInteger",
+        "f32": "storedF32",
+        "bool": "exactBool",
+        "string": "exactString",
+        "color": "exactColor",
+        "bytes": "exactBytes",
+    }[backing_type]
+
+
+def validate_equality_mode(
+    object_id: str,
+    property_id: str,
+    backing_type: str,
+    equality: Any,
+    modes: dict[str, set[str]],
+) -> None:
+    mode_id = equality if equality is not None else inferred_equality_mode(backing_type)
+    if not isinstance(mode_id, str) or mode_id not in modes:
+        raise SourceError(f"default {object_id}.{property_id} uses unknown equality mode {mode_id}")
+    applies_to = modes[mode_id]
+    if backing_type not in applies_to and "composite" not in applies_to:
+        raise SourceError(
+            f"default {object_id}.{property_id} equality {mode_id} does not apply to {backing_type}"
+        )
+
+
+def validate_default_value(object_id: str, property_id: str, backing_type: str, value: Any) -> None:
+    where = f"default {object_id}.{property_id}"
+    if backing_type == "varuint":
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            raise SourceError(f"{where} must be a non-negative integer")
+    elif backing_type == "varint":
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise SourceError(f"{where} must be an integer")
+    elif backing_type == "f32":
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            raise SourceError(f"{where} must be numeric")
+    elif backing_type == "bool":
+        if not isinstance(value, bool):
+            raise SourceError(f"{where} must be bool")
+    elif backing_type == "string":
+        if not isinstance(value, str):
+            raise SourceError(f"{where} must be string")
+    elif backing_type == "color":
+        if (
+            not isinstance(value, list)
+            or len(value) != 4
+            or any(
+                not isinstance(channel, int)
+                or isinstance(channel, bool)
+                or channel < 0
+                or channel > 255
+                for channel in value
+            )
+        ):
+            raise SourceError(f"{where} must be four rgba8 integer channels")
+    elif backing_type == "bytes":
+        if not isinstance(value, str):
+            raise SourceError(f"{where} must be a base64 string")
+        try:
+            base64.b64decode(value, validate=True)
+        except (ValueError, binascii.Error) as exc:
+            raise SourceError(f"{where} must be a base64 string") from exc
+    else:
+        raise SourceError(f"{where} has unsupported backing type {backing_type}")
 
 
 def generate_schema(registry: dict[str, Any], defaults: dict[str, Any]) -> str:
@@ -264,9 +412,12 @@ def generate_schema(registry: dict[str, Any], defaults: dict[str, Any]) -> str:
         "description": "Generated from registry/wire.yml and spec/defaults.yml.",
         "type": "object",
         "additionalProperties": False,
-        "oneOf": [{"$ref": f"#/$defs/{entry['id']}"} for entry in type_keys],
         "$defs": definitions,
     }
+    if type_keys:
+        schema["oneOf"] = [{"$ref": f"#/$defs/{entry['id']}"} for entry in type_keys]
+    else:
+        schema["not"] = {}
     return json.dumps(schema, indent=2, sort_keys=True) + "\n"
 
 
@@ -294,6 +445,7 @@ def generate_nim(registry: dict[str, Any], defaults: dict[str, Any]) -> str:
     backing_types = require_list(registry, "backingTypes")
     type_keys = require_list(registry, "typeKeys")
     property_keys = require_list(registry, "propertyKeys")
+    objects = require_list(registry, "objects")
     object_defaults = require_list(defaults, "objectDefaults")
     required_properties = require_list(defaults, "requiredProperties")
     lines = [
@@ -310,9 +462,13 @@ def generate_nim(registry: dict[str, Any], defaults: dict[str, Any]) -> str:
         "    id*: string",
         "    key*: uint64",
         "    backingType*: string",
+        "  BonyObjectSpec* = object",
+        "    typeId*: string",
+        "    properties*: seq[string]",
         "  BonyPropertyDefault* = object",
         "    objectId*: string",
         "    propertyId*: string",
+        "    equality*: string",
         "    value*: string",
         "    omitWhenDefault*: bool",
         "    applyOnLoad*: bool",
@@ -335,12 +491,20 @@ def generate_nim(registry: dict[str, Any], defaults: dict[str, Any]) -> str:
             f'  BonyPropertyKey(id: "{entry["id"]}", key: {entry["key"]}.uint64, '
             f'backingType: "{entry["backingType"]}"),'
         )
+    lines.extend(["]", "let bonyObjectSpecs*: seq[BonyObjectSpec] = @["])
+    for entry in objects:
+        properties = ", ".join(nim_string_literal(property_id) for property_id in entry["properties"])
+        lines.append(f'  BonyObjectSpec(typeId: "{entry["type"]}", properties: @[{properties}]),')
     lines.extend(["]", "const bonyPropertyDefaults* = ["])
     for entry in object_defaults:
         object_id = entry["object"]
         for property_id, default in entry.get("properties", {}).items():
+            equality = default.get("equality") or inferred_equality_mode(
+                property_backing_type(registry, property_id)
+            )
             lines.append(
                 f'  BonyPropertyDefault(objectId: "{object_id}", propertyId: "{property_id}", '
+                f'equality: "{equality}", '
                 f'value: "{json_text(default["value"])}", '
                 f'omitWhenDefault: {generated_bool(default["omitWhenDefault"])}, '
                 f'applyOnLoad: {generated_bool(default["applyOnLoad"])}),'
@@ -351,7 +515,28 @@ def generate_nim(registry: dict[str, Any], defaults: dict[str, Any]) -> str:
             f'  BonyRequiredProperty(objectId: "{entry["object"]}", propertyId: "{entry["property"]}", '
             f'reason: "{escape_string(entry["reason"])}"),'
         )
-    lines.extend(["]", ""])
+    lines.extend(
+        [
+            "]",
+            "",
+            "proc bonyObjectSpec*(typeId: string): BonyObjectSpec =",
+            "  for spec in bonyObjectSpecs:",
+            "    if spec.typeId == typeId:",
+            "      return spec",
+            "  raise newException(ValueError, \"unknown bony object type: \" & typeId)",
+            "",
+            "proc encodeBonyObject*(typeId: string) =",
+            "  discard bonyObjectSpec(typeId)",
+            "  raise newException(CatchableError, "
+            "\"generated encodeBonyObject has no registered fields yet\")",
+            "",
+            "proc decodeBonyObject*(typeId: string) =",
+            "  discard bonyObjectSpec(typeId)",
+            "  raise newException(CatchableError, "
+            "\"generated decodeBonyObject has no registered fields yet\")",
+            "",
+        ]
+    )
     return "\n".join(lines)
 
 
@@ -359,6 +544,7 @@ def generate_dart(registry: dict[str, Any], defaults: dict[str, Any]) -> str:
     backing_types = require_list(registry, "backingTypes")
     type_keys = require_list(registry, "typeKeys")
     property_keys = require_list(registry, "propertyKeys")
+    objects = require_list(registry, "objects")
     object_defaults = require_list(defaults, "objectDefaults")
     required_properties = require_list(defaults, "requiredProperties")
     lines = [
@@ -387,16 +573,24 @@ def generate_dart(registry: dict[str, Any], defaults: dict[str, Any]) -> str:
         "  final String backingType;",
         "}",
         "",
+        "class BonyObjectSpec {",
+        "  const BonyObjectSpec({required this.typeId, required this.properties});",
+        "  final String typeId;",
+        "  final List<String> properties;",
+        "}",
+        "",
         "class BonyPropertyDefault {",
         "  const BonyPropertyDefault({",
         "    required this.objectId,",
         "    required this.propertyId,",
+        "    required this.equality,",
         "    required this.value,",
         "    required this.omitWhenDefault,",
         "    required this.applyOnLoad,",
         "  });",
         "  final String objectId;",
         "  final String propertyId;",
+        "  final String equality;",
         "  final String value;",
         "  final bool omitWhenDefault;",
         "  final bool applyOnLoad;",
@@ -427,13 +621,21 @@ def generate_dart(registry: dict[str, Any], defaults: dict[str, Any]) -> str:
             f"  BonyPropertyKey(id: '{entry['id']}', key: {entry['key']}, "
             f"backingType: '{entry['backingType']}'),"
         )
+    lines.extend(["];", "const List<BonyObjectSpec> bonyObjectSpecs = ["])
+    for entry in objects:
+        properties = ", ".join(dart_string_literal(property_id) for property_id in entry["properties"])
+        lines.append(f"  BonyObjectSpec(typeId: '{entry['type']}', properties: [{properties}]),")
     lines.extend(["];", "const List<BonyPropertyDefault> bonyPropertyDefaults = ["])
     for entry in object_defaults:
         object_id = entry["object"]
         for property_id, default in entry.get("properties", {}).items():
+            equality = default.get("equality") or inferred_equality_mode(
+                property_backing_type(registry, property_id)
+            )
             lines.append(
                 f"  BonyPropertyDefault(objectId: '{object_id}', propertyId: '{property_id}', "
-                f"value: '{json_text(default['value'])}', "
+                f"equality: '{equality}', "
+                f"value: {dart_string_literal(json_text(default['value']))}, "
                 f"omitWhenDefault: {generated_bool(default['omitWhenDefault'])}, "
                 f"applyOnLoad: {generated_bool(default['applyOnLoad'])}),"
             )
@@ -441,10 +643,39 @@ def generate_dart(registry: dict[str, Any], defaults: dict[str, Any]) -> str:
     for entry in required_properties:
         lines.append(
             f"  BonyRequiredProperty(objectId: '{entry['object']}', propertyId: '{entry['property']}', "
-            f"reason: '{escape_string(entry['reason'])}'),"
+            f"reason: {dart_string_literal(entry['reason'])}),"
         )
-    lines.extend(["];", ""])
+    lines.extend(
+        [
+            "];",
+            "",
+            "BonyObjectSpec bonyObjectSpec(String typeId) {",
+            "  return bonyObjectSpecs.firstWhere(",
+            "    (spec) => spec.typeId == typeId,",
+            "    orElse: () => throw ArgumentError.value(typeId, 'typeId', 'unknown bony object type'),",
+            "  );",
+            "}",
+            "",
+            "Never encodeBonyObject(String typeId) {",
+            "  bonyObjectSpec(typeId);",
+            "  throw UnsupportedError('generated encodeBonyObject has no registered fields yet');",
+            "}",
+            "",
+            "Never decodeBonyObject(String typeId) {",
+            "  bonyObjectSpec(typeId);",
+            "  throw UnsupportedError('generated decodeBonyObject has no registered fields yet');",
+            "}",
+            "",
+        ]
+    )
     return "\n".join(lines)
+
+
+def property_backing_type(registry: dict[str, Any], property_id: str) -> str:
+    for entry in require_list(registry, "propertyKeys"):
+        if entry["id"] == property_id:
+            return entry["backingType"]
+    raise SourceError(f"unknown property id {property_id}")
 
 
 def json_text(value: Any) -> str:
@@ -453,6 +684,14 @@ def json_text(value: Any) -> str:
 
 def escape_string(value: str) -> str:
     return value.replace("\\", "\\\\").replace('"', '\\"').replace("'", "\\'")
+
+
+def nim_string_literal(value: str) -> str:
+    return '"' + escape_string(value) + '"'
+
+
+def dart_string_literal(value: str) -> str:
+    return json.dumps(value).replace("$", r"\$")
 
 
 def generated_bool(value: bool) -> str:

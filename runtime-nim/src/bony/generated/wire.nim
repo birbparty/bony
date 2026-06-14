@@ -11,9 +11,13 @@ type
     id*: string
     key*: uint64
     backingType*: string
+  BonyObjectSpec* = object
+    typeId*: string
+    properties*: seq[string]
   BonyPropertyDefault* = object
     objectId*: string
     propertyId*: string
+    equality*: string
     value*: string
     omitWhenDefault*: bool
     applyOnLoad*: bool
@@ -36,7 +40,23 @@ const bonyTypeKeys* = [
 ]
 const bonyPropertyKeys* = [
 ]
+let bonyObjectSpecs*: seq[BonyObjectSpec] = @[
+]
 const bonyPropertyDefaults* = [
 ]
 const bonyRequiredProperties* = [
 ]
+
+proc bonyObjectSpec*(typeId: string): BonyObjectSpec =
+  for spec in bonyObjectSpecs:
+    if spec.typeId == typeId:
+      return spec
+  raise newException(ValueError, "unknown bony object type: " & typeId)
+
+proc encodeBonyObject*(typeId: string) =
+  discard bonyObjectSpec(typeId)
+  raise newException(CatchableError, "generated encodeBonyObject has no registered fields yet")
+
+proc decodeBonyObject*(typeId: string) =
+  discard bonyObjectSpec(typeId)
+  raise newException(CatchableError, "generated decodeBonyObject has no registered fields yet")

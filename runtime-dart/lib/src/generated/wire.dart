@@ -23,16 +23,24 @@ class BonyPropertyKey {
   final String backingType;
 }
 
+class BonyObjectSpec {
+  const BonyObjectSpec({required this.typeId, required this.properties});
+  final String typeId;
+  final List<String> properties;
+}
+
 class BonyPropertyDefault {
   const BonyPropertyDefault({
     required this.objectId,
     required this.propertyId,
+    required this.equality,
     required this.value,
     required this.omitWhenDefault,
     required this.applyOnLoad,
   });
   final String objectId;
   final String propertyId;
+  final String equality;
   final String value;
   final bool omitWhenDefault;
   final bool applyOnLoad;
@@ -63,7 +71,26 @@ const List<BonyTypeKey> bonyTypeKeys = [
 ];
 const List<BonyPropertyKey> bonyPropertyKeys = [
 ];
+const List<BonyObjectSpec> bonyObjectSpecs = [
+];
 const List<BonyPropertyDefault> bonyPropertyDefaults = [
 ];
 const List<BonyRequiredProperty> bonyRequiredProperties = [
 ];
+
+BonyObjectSpec bonyObjectSpec(String typeId) {
+  return bonyObjectSpecs.firstWhere(
+    (spec) => spec.typeId == typeId,
+    orElse: () => throw ArgumentError.value(typeId, 'typeId', 'unknown bony object type'),
+  );
+}
+
+Never encodeBonyObject(String typeId) {
+  bonyObjectSpec(typeId);
+  throw UnsupportedError('generated encodeBonyObject has no registered fields yet');
+}
+
+Never decodeBonyObject(String typeId) {
+  bonyObjectSpec(typeId);
+  throw UnsupportedError('generated decodeBonyObject has no registered fields yet');
+}
