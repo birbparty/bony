@@ -1,4 +1,4 @@
-import std/[math, os, sequtils, strutils]
+import std/[json, math, os, osproc, sequtils, streams, strutils]
 
 import bddy
 import bony
@@ -31,6 +31,13 @@ proc closeTo(actual, expected: float64): bool =
 
 proc closeWithin(actual, expected, tolerance: float64): bool =
   abs(actual - expected) <= tolerance
+
+proc runProcess(binary: string; args: openArray[string]): tuple[output: string; exitCode: int] =
+  let process = startProcess(binary, args = args, options = {poStdErrToStdOut})
+  let output = process.outputStream.readAll()
+  let exitCode = process.waitForExit()
+  process.close()
+  (output, exitCode)
 
 proc pointDistance(a, b: IkPoint): float64 =
   hypot(b.x - a.x, b.y - a.y)
@@ -1568,6 +1575,65 @@ spec "bony package":
       getFileSize(path) > 0
 
     removeFile(path)
+
+  it "runs the CLI harness core commands":
+    let cliPath = "/tmp/bony_cli_harness_smoke"
+    let assetPath = "/tmp/bony_cli_harness_asset.bony"
+    let bnbPath = "/tmp/bony_cli_harness_asset.bnb"
+    let roundTripPath = "/tmp/bony_cli_harness_roundtrip.bony"
+    let goldenPath = "/tmp/bony_cli_harness_golden.json"
+    let framePath = "/tmp/bony_cli_harness_frame.png"
+    for path in [cliPath, assetPath, bnbPath, roundTripPath, goldenPath, framePath]:
+      if fileExists(path):
+        removeFile(path)
+
+    let compileResult = execCmdEx(
+      "nim c --path:src --path:../../bddy/src -o:" & cliPath & " ../cli/bony_cli.nim",
+      options = {poStdErrToStdOut},
+    )
+    let fixture = skeletonData(
+      skeletonHeader("cli-demo", "0.1.0"),
+      @[
+        boneData("root", "", localTransform(x = 2.0, y = 3.0)),
+        boneData("child", "root", localTransform(x = 4.0)),
+      ],
+      @[slotData("body", "child", "bodyRegion")],
+      @[regionAttachment("bodyRegion", 2.0, 4.0)],
+    )
+    writeFile(assetPath, toBonyJson(fixture))
+
+    let jsonToBnb = runProcess(cliPath, ["json-to-bnb", assetPath, bnbPath])
+    let bnbToJson = runProcess(cliPath, ["bnb-to-json", bnbPath, roundTripPath])
+    let golden = runProcess(cliPath, ["golden-gen", bnbPath, goldenPath, "--t", "1.25"])
+    let play = runProcess(cliPath, ["play", assetPath, "--out", framePath, "--width", "8", "--height", "8", "--t", "1.25"])
+    let unsupportedStateMachine = runProcess(
+      cliPath,
+      ["play", assetPath, "--state-machine", "main", "--input-script", assetPath, "--out", framePath],
+    )
+    let goldenJson = parseJson(readFile(goldenPath))
+
+    then:
+      compileResult.exitCode == 0
+      jsonToBnb.exitCode == 0
+      bnbToJson.exitCode == 0
+      golden.exitCode == 0
+      play.exitCode == 0
+      unsupportedStateMachine.exitCode != 0
+      unsupportedStateMachine.output.contains("serialized state machines")
+      fileExists(bnbPath)
+      getFileSize(bnbPath) > 0
+      loadBonyJson(readFile(roundTripPath)).header.name == "cli-demo"
+      goldenJson["format"].getStr() == "bony.numeric-golden.v1"
+      goldenJson["time"].getFloat() == 1.25
+      goldenJson["bones"].len == 2
+      goldenJson["drawBatches"].len == 1
+      goldenJson["drawBatches"][0]["indices"].len == 6
+      fileExists(framePath)
+      getFileSize(framePath) > 0
+
+    for path in [cliPath, assetPath, bnbPath, roundTripPath, goldenPath, framePath]:
+      if fileExists(path):
+        removeFile(path)
 
   it "plans naylib draw batches with color-only blend presets":
     let data = skeletonData(
