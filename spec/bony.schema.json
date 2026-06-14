@@ -26,6 +26,12 @@
       "items": {
         "$ref": "#/$defs/region"
       }
+    },
+    "paths": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/path"
+      }
     }
   },
   "required": [
@@ -475,6 +481,35 @@
         "height",
         "name",
         "width"
+      ]
+    },
+    "path": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "bone": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "order": {
+          "type": "integer",
+          "default": 0
+        }
+      },
+      "required": [
+        "bone",
+        "name",
+        "path",
+        "target"
       ]
     }
   }

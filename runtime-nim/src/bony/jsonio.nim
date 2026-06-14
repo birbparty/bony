@@ -1,6 +1,6 @@
 ## M1 .bony JSON loader/serializer.
 
-import std/[json, sets]
+import std/[json, sets, strutils]
 
 import bony/generated/wire
 import bony/model
@@ -9,6 +9,7 @@ const
   skeletonTypeId = "skeleton"
   boneTypeId = "bone"
   slotTypeId = "slot"
+  pathTypeId = "path"
 
 
 proc defaultFor(objectId, propertyId: string): string =
@@ -29,6 +30,13 @@ proc defaultBool(objectId, propertyId: string): bool =
   for entry in bonyPropertyDefaults:
     if entry.objectId == objectId and entry.propertyId == propertyId:
       return parseJson(entry.value).getBool()
+  raise newBonyLoadError(schemaViolation, "missing generated default for " & objectId & "." & propertyId)
+
+
+proc defaultInt(objectId, propertyId: string): int =
+  for entry in bonyPropertyDefaults:
+    if entry.objectId == objectId and entry.propertyId == propertyId:
+      return entry.value.parseInt()
   raise newBonyLoadError(schemaViolation, "missing generated default for " & objectId & "." & propertyId)
 
 
@@ -134,6 +142,15 @@ proc optionalFloat(node: JsonNode; key: string; defaultValue: float64; context: 
   quantizeF32(value.getFloat(), context & "." & key)
 
 
+proc optionalInt(node: JsonNode; key: string; defaultValue: int; context: string): int =
+  if not node.hasKey(key):
+    return defaultValue
+  let value = node[key]
+  if value.kind != JInt:
+    raise newBonyLoadError(schemaViolation, context & "." & key & " must be an integer")
+  value.getInt()
+
+
 proc requiredFloat(node: JsonNode; key, context: string): float64 =
   if not node.hasKey(key):
     raise newBonyLoadError(schemaViolation, context & "." & key & " is required")
@@ -196,7 +213,7 @@ proc loadBonyJson*(text: string): SkeletonData =
       raise newBonyLoadError(schemaViolation, "invalid JSON: " & exc.msg)
 
   let root = requireObject(parsed, "root")
-  validateKnownKeys(root, ["skeleton", "bones", "slots", "regions"], "root")
+  validateKnownKeys(root, ["skeleton", "bones", "slots", "regions", "paths"], "root")
 
   if not root.hasKey("skeleton"):
     raise newBonyLoadError(schemaViolation, "root.skeleton is required")
@@ -296,7 +313,22 @@ proc loadBonyJson*(text: string): SkeletonData =
         requiredFloat(regionObject, "height", context),
       )
 
-  skeletonData(loadedHeader, loadedBones, loadedSlots, loadedRegions)
+  var loadedPaths: seq[PathConstraintData] = @[]
+  if root.hasKey("paths"):
+    let pathsNode = requireArray(root["paths"], "paths")
+    for index, pathNode in pathsNode.elems:
+      let context = "paths[" & $index & "]"
+      let pathObject = requireObject(pathNode, context)
+      validateKnownKeys(pathObject, ["name", "bone", "target", "path", "order"], context)
+      loadedPaths.add pathConstraintData(
+        requiredString(pathObject, "name", context),
+        requiredString(pathObject, "bone", context),
+        requiredString(pathObject, "target", context),
+        requiredString(pathObject, "path", context),
+        optionalInt(pathObject, "order", defaultInt(pathTypeId, "order"), context),
+      )
+
+  skeletonData(loadedHeader, loadedBones, loadedSlots, loadedRegions, loadedPaths)
 
 
 proc toBonyJson*(data: SkeletonData): string =
@@ -359,4 +391,16 @@ proc toBonyJson*(data: SkeletonData): string =
     regionObject["height"] = newJFloat(region.height)
     regions.add(regionObject)
   root["regions"] = regions
+  if data.paths.len > 0:
+    var paths = newJArray()
+    for path in data.paths:
+      var pathObject = newJObject()
+      pathObject["name"] = newJString(path.name)
+      pathObject["bone"] = newJString(path.bone)
+      pathObject["target"] = newJString(path.target)
+      pathObject["path"] = newJString(path.path)
+      if path.order != defaultInt(pathTypeId, "order"):
+        pathObject["order"] = newJInt(path.order)
+      paths.add(pathObject)
+    root["paths"] = paths
   pretty(root) & "\n"

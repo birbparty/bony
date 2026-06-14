@@ -1,6 +1,6 @@
 ## M6 semantic .bnb encoder/decoder for the current SkeletonData model.
 
-import std/[json, tables]
+import std/[json, strutils, tables]
 
 import bony/binary/framing
 import bony/generated/wire
@@ -11,6 +11,7 @@ const
   boneTypeKey = 2'u64
   slotTypeKey = 1000'u64
   regionTypeKey = 1001'u64
+  pathTypeKey = 4000'u64
 
   nameKey = 1'u64
   versionKey = 2'u64
@@ -30,6 +31,9 @@ const
   attachmentKey = 1013'u64
   widthKey = 1014'u64
   heightKey = 1015'u64
+  targetKey = 4000'u64
+  pathKey = 4001'u64
+  orderKey = 4002'u64
 
 
 proc defaultString(objectId, propertyId: string): string =
@@ -50,6 +54,13 @@ proc defaultBool(objectId, propertyId: string): bool =
   for entry in bonyPropertyDefaults:
     if entry.objectId == objectId and entry.propertyId == propertyId:
       return parseJson(entry.value).getBool()
+  raise newBonyLoadError(schemaViolation, "missing generated default for " & objectId & "." & propertyId)
+
+
+proc defaultInt(objectId, propertyId: string): int =
+  for entry in bonyPropertyDefaults:
+    if entry.objectId == objectId and entry.propertyId == propertyId:
+      return entry.value.parseInt()
   raise newBonyLoadError(schemaViolation, "missing generated default for " & objectId & "." & propertyId)
 
 
@@ -108,6 +119,20 @@ proc readBoolPayload(payload: openArray[byte]; context: string): bool =
   of 1'u8: true
   else:
     raise newBonyLoadError(schemaViolation, ".bnb " & context & " bool payload must be 0 or 1")
+
+
+proc writeVarintPayload(value: int): seq[byte] =
+  result.writeVarint(int64(value))
+
+
+proc readVarintPayload(payload: openArray[byte]; context: string): int =
+  var index = 0
+  let decoded = payload.readVarint(index)
+  if index != payload.len:
+    raise newBonyLoadError(schemaViolation, ".bnb " & context & " varint payload has trailing bytes")
+  if decoded < int64(low(int)) or decoded > int64(high(int)):
+    raise newBonyLoadError(numericOutOfRange, ".bnb " & context & " varint payload is out of range")
+  int(decoded)
 
 
 proc writeStringPayloadBytes(table: var BnbStringTable; value: string): seq[byte] =
@@ -187,6 +212,17 @@ proc readOptionalBoolProperty(
   readBoolPayload(properties[propertyKey], context)
 
 
+proc readOptionalIntProperty(
+  properties: Table[uint64, seq[byte]];
+  propertyKey: uint64;
+  defaultValue: int;
+  context: string;
+): int =
+  if propertyKey notin properties:
+    return defaultValue
+  readVarintPayload(properties[propertyKey], context)
+
+
 proc addStringIfNeeded(
   properties: var seq[BnbPropertyRecord];
   toc: var Table[uint64, uint8];
@@ -221,6 +257,18 @@ proc addBoolIfNeeded(
 ) =
   if value != defaultValue:
     properties.addProperty(toc, propertyKey, writeBoolPayload(value))
+
+
+proc addIntIfNeeded(
+  properties: var seq[BnbPropertyRecord];
+  toc: var Table[uint64, uint8];
+  propertyKey: uint64;
+  value: int;
+  defaultValue: int;
+  required = false;
+) =
+  if required or value != defaultValue:
+    properties.addProperty(toc, propertyKey, writeVarintPayload(value))
 
 
 proc tocEntries(toc: Table[uint64, uint8]): seq[BnbTocEntry] =
@@ -285,6 +333,15 @@ proc buildObjectRecords(data: SkeletonData; table: var BnbStringTable; toc: var 
     properties.addFloatIfNeeded(toc, heightKey, region.height, 0.0, required = true)
     result.add BnbObjectRecord(typeKey: regionTypeKey, properties: properties)
 
+  for path in data.paths:
+    var properties: seq[BnbPropertyRecord]
+    properties.addStringIfNeeded(toc, table, nameKey, path.name, "", required = true)
+    properties.addStringIfNeeded(toc, table, boneKey, path.bone, "", required = true)
+    properties.addStringIfNeeded(toc, table, targetKey, path.target, "", required = true)
+    properties.addStringIfNeeded(toc, table, pathKey, path.path, "", required = true)
+    properties.addIntIfNeeded(toc, orderKey, path.order, defaultInt("path", "order"))
+    result.add BnbObjectRecord(typeKey: pathTypeKey, properties: properties)
+
 
 proc writeBonyBnb*(output: var seq[byte]; data: SkeletonData; embeddedAtlas: openArray[byte] = []) =
   var table = initStringTable()
@@ -314,6 +371,7 @@ proc decodeSkeletonObjects(objects: openArray[BnbObjectRecord]; strings: BnbStri
   var bones: seq[BoneData]
   var slots: seq[SlotData]
   var regions: seq[RegionAttachment]
+  var paths: seq[PathConstraintData]
 
   for record in objects:
     case record.typeKey
@@ -390,12 +448,21 @@ proc decodeSkeletonObjects(objects: openArray[BnbObjectRecord]; strings: BnbStri
         properties.readFloatProperty(widthKey, "region.width"),
         properties.readFloatProperty(heightKey, "region.height"),
       )
+    of pathTypeKey:
+      let properties = record.propertyMap([nameKey, boneKey, targetKey, pathKey, orderKey])
+      paths.add pathConstraintData(
+        properties.readStringProperty(strings, nameKey, "path.name"),
+        properties.readStringProperty(strings, boneKey, "path.bone"),
+        properties.readStringProperty(strings, targetKey, "path.target"),
+        properties.readStringProperty(strings, pathKey, "path.path"),
+        properties.readOptionalIntProperty(orderKey, defaultInt("path", "order"), "path.order"),
+      )
     else:
       discard
 
   if not hasSkeleton:
     raise newBonyLoadError(schemaViolation, ".bnb skeleton object is required")
-  skeletonData(headerValue, bones, slots, regions)
+  skeletonData(headerValue, bones, slots, regions, paths)
 
 
 proc loadBonyBnb*(input: openArray[byte]): SkeletonData =

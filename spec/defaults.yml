@@ -165,6 +165,14 @@ objectDefaults:
   - object: region
     ownerBead: bony-v1p
     properties: {}
+  - object: path
+    ownerBead: bony-8gs
+    properties:
+      order:
+        value: 0
+        omitWhenDefault: true
+        applyOnLoad: true
+        doc: Constraint order defaults to the first world-transform slot.
 
 requiredProperties:
   - object: skeleton
@@ -195,3 +203,19 @@ requiredProperties:
     property: height
     reason: Region attachments need dimensions for draw-batch quads.
     ownerBead: bony-v1p
+  - object: path
+    property: name
+    reason: Path constraints are referenced by stable unique names.
+    ownerBead: bony-8gs
+  - object: path
+    property: bone
+    reason: A path constraint must identify the constrained bone.
+    ownerBead: bony-8gs
+  - object: path
+    property: target
+    reason: A path constraint must identify its target bone.
+    ownerBead: bony-8gs
+  - object: path
+    property: path
+    reason: A path constraint must identify the path attachment it samples.
+    ownerBead: bony-8gs

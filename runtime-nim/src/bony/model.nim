@@ -1,6 +1,6 @@
 ## Immutable M1 SkeletonData model plus per-instance runtime shell.
 
-import std/[math, sets]
+import std/[algorithm, math, sets]
 
 type
   BonyLoadErrorKind* = enum
@@ -29,6 +29,12 @@ type
     noScale,
     noScaleOrReflection
 
+  ConstraintKind* = enum
+    ckIk,
+    ckTransform,
+    ckPath,
+    ckPhysics
+
   LocalTransform* = object
     x: float64
     y: float64
@@ -56,6 +62,18 @@ type
     name: string
     width: float64
     height: float64
+
+  PathConstraintData* = object
+    name: string
+    bone: string
+    target: string
+    path: string
+    order: int
+
+  ConstraintOrderEntry* = object
+    kind*: ConstraintKind
+    order*: int
+    sourceIndex*: int
 
   DrawVertex* = object
     x*: float64
@@ -91,6 +109,7 @@ type
     bones: seq[BoneData]
     slots: seq[SlotData]
     regions: seq[RegionAttachment]
+    paths: seq[PathConstraintData]
 
   SkeletonInstance* = object
     data: ref SkeletonData
@@ -158,6 +177,10 @@ proc regionAttachment*(name: string; width, height: float64): RegionAttachment =
   )
 
 
+proc pathConstraintData*(name, bone, target, path: string; order = 0): PathConstraintData =
+  PathConstraintData(name: name, bone: bone, target: target, path: path, order: order)
+
+
 proc name*(header: SkeletonHeader): string = header.name
 
 
@@ -191,6 +214,13 @@ proc width*(region: RegionAttachment): float64 = region.width
 proc height*(region: RegionAttachment): float64 = region.height
 
 
+proc name*(path: PathConstraintData): string = path.name
+proc bone*(path: PathConstraintData): string = path.bone
+proc target*(path: PathConstraintData): string = path.target
+proc path*(path: PathConstraintData): string = path.path
+proc order*(path: PathConstraintData): int = path.order
+
+
 proc x*(local: LocalTransform): float64 = local.x
 proc y*(local: LocalTransform): float64 = local.y
 proc rotation*(local: LocalTransform): float64 = local.rotation
@@ -216,6 +246,9 @@ proc slots*(data: SkeletonData): seq[SlotData] = data.slots
 proc regions*(data: SkeletonData): seq[RegionAttachment] = data.regions
 
 
+proc paths*(data: SkeletonData): seq[PathConstraintData] = data.paths
+
+
 proc data*(instance: SkeletonInstance): ref SkeletonData = instance.data
 
 
@@ -239,6 +272,7 @@ proc validateSkeletonData*(
   bones: openArray[BoneData];
   slots: openArray[SlotData] = [];
   regions: openArray[RegionAttachment] = [];
+  paths: openArray[PathConstraintData] = [];
 ) =
   if header.name.len == 0:
     raise newBonyLoadError(schemaViolation, "skeleton.name must not be empty")
@@ -292,22 +326,58 @@ proc validateSkeletonData*(
       raise newBonyLoadError(unknownRequiredReference, "unknown slot attachment: " & slot.attachment)
     allSlotNames.incl(slot.name)
 
+  var allPathNames = initHashSet[string]()
+  for index, path in paths:
+    let context = "paths[" & $index & "]"
+    if path.name.len == 0:
+      raise newBonyLoadError(schemaViolation, context & ".name must not be empty")
+    if path.name in allPathNames:
+      raise newBonyLoadError(duplicateKey, "duplicate path constraint name: " & path.name)
+    if path.bone notin allNames:
+      raise newBonyLoadError(unknownRequiredReference, "unknown path constraint bone: " & path.bone)
+    if path.target notin allNames:
+      raise newBonyLoadError(unknownRequiredReference, "unknown path constraint target: " & path.target)
+    if path.path notin allRegionNames:
+      raise newBonyLoadError(unknownRequiredReference, "unknown path constraint path: " & path.path)
+    allPathNames.incl(path.name)
+
 
 proc skeletonData*(
   header: SkeletonHeader;
   bones: openArray[BoneData];
   slots: openArray[SlotData] = [];
   regions: openArray[RegionAttachment] = [];
+  paths: openArray[PathConstraintData] = [];
 ): SkeletonData =
-  validateSkeletonData(header, bones, slots, regions)
+  validateSkeletonData(header, bones, slots, regions, paths)
   result.header = header
   result.bones = @bones
   result.slots = @slots
   result.regions = @regions
+  result.paths = @paths
 
 
 proc validateSkeletonData*(data: SkeletonData) =
-  validateSkeletonData(data.header, data.bones, data.slots, data.regions)
+  validateSkeletonData(data.header, data.bones, data.slots, data.regions, data.paths)
+
+
+proc constraintOrderEntry*(kind: ConstraintKind; order, sourceIndex: int): ConstraintOrderEntry =
+  if sourceIndex < 0:
+    raise newBonyLoadError(schemaViolation, "constraint sourceIndex must be non-negative")
+  ConstraintOrderEntry(kind: kind, order: order, sourceIndex: sourceIndex)
+
+
+proc canonicalConstraintOrder*(entries: openArray[ConstraintOrderEntry]): seq[ConstraintOrderEntry] =
+  result = @entries
+  result.sort(proc(left, right: ConstraintOrderEntry): int =
+    result = cmp(left.order, right.order)
+    if result != 0:
+      return
+    result = cmp(ord(left.kind), ord(right.kind))
+    if result != 0:
+      return
+    result = cmp(left.sourceIndex, right.sourceIndex)
+  )
 
 
 proc newSkeletonInstance*(data: ref SkeletonData): SkeletonInstance =

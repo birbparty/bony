@@ -41,6 +41,7 @@ const bonyTypeKeys* = [
   BonyTypeKey(id: "bone", key: 2.uint64),
   BonyTypeKey(id: "slot", key: 1000.uint64),
   BonyTypeKey(id: "region", key: 1001.uint64),
+  BonyTypeKey(id: "path", key: 4000.uint64),
 ]
 const bonyPropertyKeys* = [
   BonyPropertyKey(id: "name", key: 1.uint64, backingType: "string"),
@@ -62,12 +63,16 @@ const bonyPropertyKeys* = [
   BonyPropertyKey(id: "attachment", key: 1013.uint64, backingType: "string"),
   BonyPropertyKey(id: "width", key: 1014.uint64, backingType: "f32"),
   BonyPropertyKey(id: "height", key: 1015.uint64, backingType: "f32"),
+  BonyPropertyKey(id: "target", key: 4000.uint64, backingType: "string"),
+  BonyPropertyKey(id: "path", key: 4001.uint64, backingType: "string"),
+  BonyPropertyKey(id: "order", key: 4002.uint64, backingType: "varint"),
 ]
 let bonyObjectSpecs*: seq[BonyObjectSpec] = @[
   BonyObjectSpec(typeId: "skeleton", properties: @["name", "version"]),
   BonyObjectSpec(typeId: "bone", properties: @["name", "parent", "x", "y", "rotation", "scaleX", "scaleY", "shearX", "shearY", "inheritRotation", "inheritScale", "inheritReflection", "transformMode"]),
   BonyObjectSpec(typeId: "slot", properties: @["name", "bone", "attachment"]),
   BonyObjectSpec(typeId: "region", properties: @["name", "width", "height"]),
+  BonyObjectSpec(typeId: "path", properties: @["name", "bone", "target", "path", "order"]),
 ]
 const bonyPropertyDefaults* = [
   BonyPropertyDefault(objectId: "skeleton", propertyId: "version", equality: "exactString", value: "\"0.1.0\"", omitWhenDefault: true, applyOnLoad: true),
@@ -84,6 +89,7 @@ const bonyPropertyDefaults* = [
   BonyPropertyDefault(objectId: "bone", propertyId: "inheritReflection", equality: "exactBool", value: "true", omitWhenDefault: true, applyOnLoad: true),
   BonyPropertyDefault(objectId: "bone", propertyId: "transformMode", equality: "exactString", value: "\"normal\"", omitWhenDefault: true, applyOnLoad: true),
   BonyPropertyDefault(objectId: "slot", propertyId: "attachment", equality: "exactString", value: "\"\"", omitWhenDefault: true, applyOnLoad: true),
+  BonyPropertyDefault(objectId: "path", propertyId: "order", equality: "exactInteger", value: "0", omitWhenDefault: true, applyOnLoad: true),
 ]
 const bonyRequiredProperties* = [
   BonyRequiredProperty(objectId: "skeleton", propertyId: "name", reason: "Skeleton metadata needs a stable name for diagnostics and tooling."),
@@ -93,6 +99,10 @@ const bonyRequiredProperties* = [
   BonyRequiredProperty(objectId: "region", propertyId: "name", reason: "Region attachments are referenced by slot attachment names."),
   BonyRequiredProperty(objectId: "region", propertyId: "width", reason: "Region attachments need dimensions for draw-batch quads."),
   BonyRequiredProperty(objectId: "region", propertyId: "height", reason: "Region attachments need dimensions for draw-batch quads."),
+  BonyRequiredProperty(objectId: "path", propertyId: "name", reason: "Path constraints are referenced by stable unique names."),
+  BonyRequiredProperty(objectId: "path", propertyId: "bone", reason: "A path constraint must identify the constrained bone."),
+  BonyRequiredProperty(objectId: "path", propertyId: "target", reason: "A path constraint must identify its target bone."),
+  BonyRequiredProperty(objectId: "path", propertyId: "path", reason: "A path constraint must identify the path attachment it samples."),
 ]
 
 proc bonyObjectSpec*(typeId: string): BonyObjectSpec =

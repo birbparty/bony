@@ -223,6 +223,12 @@ typeKeys:
     milestone: M2
     ownerBead: bony-v1p
     doc: Rectangular region attachment record for backend-neutral drawing.
+  - id: path
+    key: 4000
+    status: active
+    milestone: M5
+    ownerBead: bony-8gs
+    doc: Path constraint record participating in the world-transform constraint pass.
 
 propertyKeys:
   - id: name
@@ -358,6 +364,27 @@ propertyKeys:
     milestone: M2
     ownerBead: bony-v1p
     doc: Region attachment height in skeleton units.
+  - id: target
+    key: 4000
+    backingType: string
+    status: active
+    milestone: M5
+    ownerBead: bony-8gs
+    doc: Target bone name used by a constraint.
+  - id: path
+    key: 4001
+    backingType: string
+    status: active
+    milestone: M5
+    ownerBead: bony-8gs
+    doc: Path attachment name referenced by a path constraint.
+  - id: order
+    key: 4002
+    backingType: varint
+    status: active
+    milestone: M5
+    ownerBead: bony-8gs
+    doc: Signed global constraint order value.
 
 objects:
   - type: skeleton
@@ -393,3 +420,11 @@ objects:
       - width
       - height
     doc: Rectangular region attachment used by the M2 draw-batch surface.
+  - type: path
+    properties:
+      - name
+      - bone
+      - target
+      - path
+      - order
+    doc: Path constraint record loaded in source order.

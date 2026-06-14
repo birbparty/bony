@@ -1,4 +1,4 @@
-import std/[math, strutils]
+import std/[math, sequtils, strutils]
 
 import bddy
 import bony
@@ -78,10 +78,10 @@ spec "bony package":
       bonyRegistryVersion == 1
       bonyBackingTypes.len == 7
       bonyBackingTypes[0].id == "varuint"
-      bonyTypeKeys.len == 4
-      bonyPropertyKeys.len == 19
-      bonyPropertyDefaults.len == 14
-      bonyRequiredProperties.len == 7
+      bonyTypeKeys.len == 5
+      bonyPropertyKeys.len == 22
+      bonyPropertyDefaults.len == 15
+      bonyRequiredProperties.len == 11
 
   it "encodes and rejects .bnb varints canonically":
     var bytes: seq[byte]
@@ -713,6 +713,7 @@ spec "bony package":
     then:
       data.slots.len == 0
       data.regions.len == 0
+      data.paths.len == 0
 
   it "requires non-empty names":
     then:
@@ -734,6 +735,75 @@ spec "bony package":
     then:
       raisesBonyLoadError("""{"skeleton":{"name":7},"bones":[],"slots":[],"regions":[]}""", schemaViolation)
       raisesBonyLoadError("""{"skeleton":{"name":"demo"},"bones":[],"slots":[],"regions":[],"extra":true}""", schemaViolation)
+
+  it "loads, validates, orders, and round trips path constraints":
+    let data = loadBonyJson("""
+{
+  "skeleton": {
+    "name": "demo"
+  },
+  "bones": [
+    {
+      "name": "root"
+    },
+    {
+      "name": "target"
+    }
+  ],
+  "regions": [
+    {
+      "name": "curve",
+      "width": 1,
+      "height": 1
+    }
+  ],
+  "paths": [
+    {
+      "name": "follow",
+      "bone": "root",
+      "target": "target",
+      "path": "curve",
+      "order": 7
+    }
+  ]
+}
+""")
+    let decoded = loadBonyBnb(toBonyBnb(data))
+    let ordered = canonicalConstraintOrder(@[
+      constraintOrderEntry(ckPath, 3, 0),
+      constraintOrderEntry(ckTransform, 3, 0),
+      constraintOrderEntry(ckIk, 3, 0),
+      constraintOrderEntry(ckPhysics, 1, 0),
+      constraintOrderEntry(ckPath, 3, 2),
+      constraintOrderEntry(ckPath, 3, 1),
+    ])
+
+    then:
+      data.paths.len == 1
+      data.paths[0].name == "follow"
+      data.paths[0].bone == "root"
+      data.paths[0].target == "target"
+      data.paths[0].path == "curve"
+      data.paths[0].order == 7
+      decoded.paths[0].order == 7
+      toBonyJson(decoded).contains("\"paths\"")
+      ordered.mapIt(it.kind) == @[ckPhysics, ckIk, ckTransform, ckPath, ckPath, ckPath]
+      ordered.mapIt(it.sourceIndex) == @[0, 0, 0, 0, 1, 2]
+      raisesBonyLoadError(
+        """{"skeleton":{"name":"demo"},"bones":[{"name":"root"}],"regions":[{"name":"curve","width":1,"height":1}],"paths":[{"name":"bad","bone":"missing","target":"root","path":"curve"}]}""",
+        unknownRequiredReference
+      )
+      raisesBonyLoadError(
+        """{"skeleton":{"name":"demo"},"bones":[{"name":"root"}],"regions":[{"name":"curve","width":1,"height":1}],"paths":[{"name":"bad","bone":"root","target":"missing","path":"curve"}]}""",
+        unknownRequiredReference
+      )
+      raisesBonyLoadError(
+        """{"skeleton":{"name":"demo"},"bones":[{"name":"root"}],"regions":[{"name":"curve","width":1,"height":1}],"paths":[{"name":"bad","bone":"root","target":"root","path":"missing"}]}""",
+        unknownRequiredReference
+      )
+      raisesBonyLoadError(proc() =
+        discard constraintOrderEntry(ckPath, 0, -1)
+      , schemaViolation)
 
   it "stores f32-backed numeric fields at f32 precision":
     let data = loadBonyJson("""{"skeleton":{"name":"demo"},"bones":[{"name":"root","x":0.1000000001}]}""")

@@ -10,9 +10,9 @@ void main() {
     expect(bonyRegistryVersion, 1);
     expect(bonyBackingTypes, hasLength(7));
     expect(bonyBackingTypes.first.id, 'varuint');
-    expect(bonyTypeKeys, hasLength(4));
-    expect(bonyPropertyKeys, hasLength(19));
-    expect(bonyPropertyDefaults, hasLength(14));
-    expect(bonyRequiredProperties, hasLength(7));
+    expect(bonyTypeKeys, hasLength(5));
+    expect(bonyPropertyKeys, hasLength(22));
+    expect(bonyPropertyDefaults, hasLength(15));
+    expect(bonyRequiredProperties, hasLength(11));
   });
 }
