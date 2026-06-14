@@ -1569,6 +1569,131 @@ spec "bony package":
 
     removeFile(path)
 
+  it "plans naylib draw batches with color-only blend presets":
+    let data = skeletonData(
+      skeletonHeader("demo", "0.1.0"),
+      @[boneData("root", "")],
+      @[slotData("body", "root", "bodyRegion")],
+      @[regionAttachment("bodyRegion", 2.0, 2.0)]
+    )
+    var batches = buildDrawBatches(data)
+    batches[0].texturePage = "atlas"
+    let plan = buildNaylibRenderPlan(
+      batches,
+      naylibRenderOptions(texturePages = @[naylibTexturePage("atlas", 7'u32, premultipliedAlpha)])
+    )
+
+    then:
+      plan.len == 3
+      plan[0].kind == nropShader
+      plan[0].shader == nskOneColor
+      plan[1].kind == nropBlendPreset
+      plan[1].blendPreset == nbpAlphaPremultiply
+      plan[2].kind == nropDrawTriangles
+      plan[2].textureId == 7'u32
+      plan[2].triangleCount == 2
+      plan[2].usesStencil == false
+
+  it "plans naylib alpha-observed custom blend factors":
+    let batch = DrawBatch(
+      texturePage: "atlas",
+      blendMode: "normal",
+      vertices: @[
+        DrawVertex(x: 0.0, y: 0.0, r: 1.0, g: 1.0, b: 1.0, a: 1.0),
+        DrawVertex(x: 1.0, y: 0.0, r: 1.0, g: 1.0, b: 1.0, a: 1.0),
+        DrawVertex(x: 0.0, y: 1.0, r: 1.0, g: 1.0, b: 1.0, a: 1.0),
+      ],
+      indices: @[0'u16, 1'u16, 2'u16],
+    )
+    let plan = buildNaylibRenderPlan(
+      @[batch],
+      naylibRenderOptions(texturePages = @[naylibTexturePage("atlas", 9'u32)], alphaObserved = true)
+    )
+
+    then:
+      plan[1].kind == nropBlendSeparate
+      plan[1].blendSeparate.srcRgb == nbfSrcAlpha
+      plan[1].blendSeparate.dstRgb == nbfOneMinusSrcAlpha
+      plan[1].blendSeparate.srcAlpha == nbfOne
+      plan[1].blendSeparate.dstAlpha == nbfOneMinusSrcAlpha
+
+  it "plans naylib additive and multiply custom paths":
+    let batch = DrawBatch(
+      blendMode: "additive",
+      vertices: @[
+        DrawVertex(x: 0.0, y: 0.0, r: 1.0, g: 1.0, b: 1.0, a: 1.0),
+        DrawVertex(x: 1.0, y: 0.0, r: 1.0, g: 1.0, b: 1.0, a: 1.0),
+        DrawVertex(x: 0.0, y: 1.0, r: 1.0, g: 1.0, b: 1.0, a: 1.0),
+      ],
+      indices: @[0'u16, 1'u16, 2'u16],
+    )
+    let additive = buildNaylibRenderPlan(@[batch], naylibRenderOptions())
+    var multiplyBatch = batch
+    multiplyBatch.blendMode = "multiply"
+    let multiply = buildNaylibRenderPlan(@[multiplyBatch], naylibRenderOptions(alphaObserved = true))
+
+    then:
+      additive[1].kind == nropBlendSeparate
+      additive[1].blendSeparate.srcRgb == nbfSrcAlpha
+      additive[1].blendSeparate.dstRgb == nbfOne
+      additive[1].blendSeparate.srcAlpha == nbfOne
+      additive[1].blendSeparate.dstAlpha == nbfOne
+      multiply[1].kind == nropShader
+      multiply[1].shader == nskMultiplyPremultiply
+      multiply[2].kind == nropBlendSeparate
+      multiply[2].blendSeparate.srcRgb == nbfDstColor
+
+  it "plans naylib tint-black and geometry-side clipping":
+    let batch = NaylibDrawBatch(
+      texturePage: "atlas",
+      blendMode: "normal",
+      clipId: "clip-a",
+      vertices: @[
+        NaylibVertex(x: 0.0, y: 0.0, r: 1.0, g: 1.0, b: 1.0, a: 1.0, darkR: 0.25),
+        NaylibVertex(x: 1.0, y: 0.0, r: 1.0, g: 1.0, b: 1.0, a: 1.0, darkR: 0.25),
+        NaylibVertex(x: 0.0, y: 1.0, r: 1.0, g: 1.0, b: 1.0, a: 1.0, darkR: 0.25),
+      ],
+      indices: @[0'u16, 1'u16, 2'u16],
+    )
+    let plan = buildNaylibRenderPlan(
+      @[batch],
+      naylibRenderOptions(texturePages = @[naylibTexturePage("atlas", 11'u32)])
+    )
+
+    then:
+      plan[0].kind == nropShader
+      plan[0].shader == nskTintBlack
+      plan[2].kind == nropDrawTriangles
+      plan[2].clipId == "clip-a"
+      plan[2].usesStencil == false
+
+  it "rejects invalid naylib adapter input":
+    let badBlend = DrawBatch(blendMode: "bogus")
+    let missingPage = DrawBatch(
+      texturePage: "missing",
+      blendMode: "normal",
+      vertices: @[
+        DrawVertex(x: 0.0, y: 0.0, r: 1.0, g: 1.0, b: 1.0, a: 1.0),
+        DrawVertex(x: 1.0, y: 0.0, r: 1.0, g: 1.0, b: 1.0, a: 1.0),
+        DrawVertex(x: 0.0, y: 1.0, r: 1.0, g: 1.0, b: 1.0, a: 1.0),
+      ],
+      indices: @[0'u16, 1'u16, 2'u16],
+    )
+
+    then:
+      raisesBonyLoadError(proc() = discard buildNaylibRenderPlan(@[badBlend]), schemaViolation)
+      raisesBonyLoadError(proc() = discard buildNaylibRenderPlan(@[missingPage]), unknownRequiredReference)
+      raisesBonyLoadError(
+        proc() = discard buildNaylibRenderPlan(
+          newSeq[DrawBatch](),
+          naylibRenderOptions(texturePages = @[
+            naylibTexturePage("atlas", 1'u32),
+            naylibTexturePage("atlas", 2'u32),
+          ]),
+        ),
+        duplicateKey,
+      )
+
   it "serializes M2 region and slot data":
     let data = skeletonData(
       skeletonHeader("demo", "0.1.0"),

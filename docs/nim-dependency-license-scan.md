@@ -10,9 +10,10 @@ Scan date: 2026-06-14
 ## Decision
 
 The named Nim dependency candidates are acceptable for use in this repository.
-`runtime-nim/bony.nimble` pins `pixie == 6.1.0`; this scan authorizes that
-version and the resolved transitive versions below. Bumping `pixie` or adding a
-new Nim dependency requires updating this scan first.
+`runtime-nim/bony.nimble` pins `pixie == 6.1.0` and `naylib == 26.08.0`; this
+scan authorizes those versions and the resolved transitive versions below.
+Bumping either package or adding a new Nim dependency requires updating this
+scan first.
 
 - `vmath`: MIT.
 - `chroma`: MIT.
@@ -36,7 +37,7 @@ found in the named candidates.
 | `jsony` | `https://github.com/treeform/jsony` | `jsony.nimble` declares `license = "MIT"` | `LICENSE` is MIT | Accept |
 | `flatty` | `https://github.com/treeform/flatty` | `flatty.nimble` declares `license = "MIT"` | `LICENSE` is MIT | Accept |
 | `binny` | `https://github.com/treeform/flatty` | Not a separate Nimble package; `flatty` README says it ships `binny` | `flatty` `LICENSE` is MIT | Accept as part of `flatty` |
-| `naylib` | `https://github.com/planetis-m/naylib` | `naylib.nimble` declares `license = "MIT"` | `LICENSE` is MIT | Accept |
+| `naylib` 26.08.0 | `https://github.com/planetis-m/naylib` | `naylib.nimble` declares `license = "MIT"` | `LICENSE` is MIT | Accept |
 | `raylib` | `https://github.com/raysan5/raylib` | Native dependency of `naylib` | `LICENSE` permits commercial use, modification, and redistribution with notice conditions | Accept |
 
 Primary source URLs checked:
