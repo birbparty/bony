@@ -4,6 +4,7 @@ import bony/generated/wire
 import bony/anim/mixer
 import bony/anim/timelines
 import bony/deform/deformers
+import bony/deform/keyforms
 import bony/deform/parameters
 import bony/mesh/attachments
 import bony/mesh/clipping
@@ -17,6 +18,7 @@ import bony/transform
 export attachments
 export clipping
 export deformers
+export keyforms
 export parameters
 export deform
 export sequences

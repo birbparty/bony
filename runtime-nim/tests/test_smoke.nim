@@ -1149,6 +1149,83 @@ spec "bony package":
       raisesBonyLoadError(proc() = state.applyParameterSample(ParameterSample(name: "p", value: Inf)), numericOutOfRange)
       raisesBonyLoadError(proc() = state.applyParameterSample(ParameterSample(name: "missing", value: 0.0)), unknownRequiredReference)
 
+  it "samples one-dimensional keyform blends":
+    let angle = parameterAxis("AngleX", minValue = -30.0, maxValue = 30.0, defaultValue = 0.0)
+    let blend = keyformBlend(
+      @[angle],
+      @[
+        keyform(@[parameterSample(angle, -30.0)], @[0.0, 10.0]),
+        keyform(@[parameterSample(angle, 30.0)], @[60.0, 70.0]),
+      ],
+    )
+    let values = sampleKeyformValues(blend, @[parameterSample(angle, 0.0)])
+
+    then:
+      closeTo(values[0], 30.0)
+      closeTo(values[1], 40.0)
+
+  it "samples two-dimensional keyform blends":
+    let x = parameterAxis("AngleX", minValue = -1.0, maxValue = 1.0, defaultValue = 0.0)
+    let y = parameterAxis("AngleY", minValue = -1.0, maxValue = 1.0, defaultValue = 0.0)
+    let blend = keyformBlend(
+      @[x, y],
+      @[
+        keyform(@[parameterSample(x, -1.0), parameterSample(y, -1.0)], @[0.0]),
+        keyform(@[parameterSample(x, 1.0), parameterSample(y, -1.0)], @[10.0]),
+        keyform(@[parameterSample(x, -1.0), parameterSample(y, 1.0)], @[20.0]),
+        keyform(@[parameterSample(x, 1.0), parameterSample(y, 1.0)], @[30.0]),
+      ],
+    )
+    let values = sampleKeyformValues(blend, @[parameterSample(x, 0.0), parameterSample(y, 0.0)])
+
+    then:
+      values.len == 1
+      closeTo(values[0], 15.0)
+
+  it "samples n-dimensional keyform point blends":
+    let x = parameterAxis("x", minValue = 0.0, maxValue = 1.0, defaultValue = 0.0)
+    let y = parameterAxis("y", minValue = 0.0, maxValue = 1.0, defaultValue = 0.0)
+    let z = parameterAxis("z", minValue = 0.0, maxValue = 1.0, defaultValue = 0.0)
+    var forms: seq[Keyform]
+    for xi in 0 .. 1:
+      for yi in 0 .. 1:
+        for zi in 0 .. 1:
+          let point = deformerPoint(float64(xi), float64(yi * 2 + zi * 4))
+          forms.add pointKeyform(@[parameterSample(x, float64(xi)), parameterSample(y, float64(yi)), parameterSample(z, float64(zi))], @[point])
+    let blend = keyformBlend(@[x, y, z], forms)
+    let points = sampleKeyformPoints(blend, @[parameterSample(x, 0.5), parameterSample(y, 0.5), parameterSample(z, 0.5)])
+
+    then:
+      points.len == 1
+      closeTo(points[0].x, 0.5)
+      closeTo(points[0].y, 3.0)
+
+  it "rejects invalid keyform blends":
+    let x = parameterAxis("x", minValue = 0.0, maxValue = 1.0, defaultValue = 0.0)
+    let y = parameterAxis("y", minValue = 0.0, maxValue = 1.0, defaultValue = 0.0)
+
+    then:
+      raisesBonyLoadError(proc() = discard keyform(@[], @[0.0]), schemaViolation)
+      raisesBonyLoadError(proc() = discard keyform(@[parameterSample(x, 0.0)], @[]), schemaViolation)
+      raisesBonyLoadError(proc() = discard keyformBlend(@[], @[keyform(@[parameterSample(x, 0.0)], @[0.0])]), schemaViolation)
+      raisesBonyLoadError(proc() = discard keyformBlend(@[x], @[]), schemaViolation)
+      raisesBonyLoadError(proc() = discard keyformBlend(@[x], @[keyform(@[parameterSample(x, 0.0)], @[0.0]), keyform(@[parameterSample(x, 1.0)], @[0.0, 1.0])]), schemaViolation)
+      raisesBonyLoadError(proc() = discard keyformBlend(@[x], @[keyform(@[parameterSample(x, 0.0)], @[0.0]), keyform(@[parameterSample(x, 0.0)], @[1.0])]), duplicateKey)
+      raisesBonyLoadError(proc() = discard keyformBlend(@[x, y], @[keyform(@[parameterSample(x, 0.0)], @[0.0])]), schemaViolation)
+      raisesBonyLoadError(
+        proc() = discard sampleKeyformValues(
+          keyformBlend(@[x, y], @[
+            keyform(@[parameterSample(x, 0.0), parameterSample(y, 0.0)], @[0.0]),
+            keyform(@[parameterSample(x, 1.0), parameterSample(y, 0.0)], @[10.0]),
+            keyform(@[parameterSample(x, 0.0), parameterSample(y, 1.0)], @[20.0]),
+          ]),
+          @[parameterSample(x, 0.5), parameterSample(y, 0.5)],
+        ),
+        unknownRequiredReference,
+      )
+      raisesBonyLoadError(proc() = discard sampleKeyformValues(keyformBlend(@[x], @[keyform(@[parameterSample(x, 0.0)], @[0.0])]), @[ParameterSample(name: "x", value: Inf)]), numericOutOfRange)
+      raisesBonyLoadError(proc() = discard blendedPoints(@[0.0]), schemaViolation)
+
   it "builds sorted scalar bone timelines and samples linearly":
     let timeline = boneScalarTimeline(
       "root",
