@@ -57,17 +57,20 @@ loading work must make this metadata explicit before it emits real page data.
 
 ## Canonical Blend Modes
 
-The adapter must accept these `DrawBatch.blendMode` values:
+The adapter must accept these `DrawBatch.blendMode` values. `S` is straight
+source RGB after texture decoding and tinting, `Sa` is source alpha, `D` is
+destination RGB, and `Da` is destination alpha.
 
-| Bony `blendMode` | Source-over formula, straight source color `S` and alpha `Sa` | Straight page raylib mode | PMA page raylib mode |
+| Bony `blendMode` | Required RGB result | Straight page implementation | PMA page implementation |
 | --- | --- | --- | --- |
-| `normal` | `S * Sa + D * (1 - Sa)` | `BLEND_ALPHA` | `BLEND_ALPHA_PREMULTIPLY` |
-| `additive` | `S * Sa + D` | `BLEND_ADDITIVE` | custom factors `ONE, ONE` |
-| `multiply` | `D * (S * Sa + (1 - Sa))` | `BLEND_MULTIPLIED` if the shader emits straight source color | custom shader/blend path |
-| `screen` | `1 - (1 - D) * (1 - S * Sa)` | custom shader/blend path | custom shader/blend path |
+| `normal` | `S * Sa + D * (1 - Sa)` | custom separate factors; `BLEND_ALPHA` is color-equivalent only | `BLEND_ALPHA_PREMULTIPLY` if alpha is not observed, otherwise custom separate factors |
+| `additive` | `S * Sa + D` | custom separate factors; `BLEND_ADDITIVE` is color-equivalent only | custom factors `ONE, ONE` with separate alpha |
+| `multiply` | `D * (S * Sa + (1 - Sa))` | `BLEND_MULTIPLIED` only if the shader emits `S * Sa` as source RGB and alpha is not observed, otherwise custom separate factors | custom shader/blend path |
+| `screen` | `D + (S * Sa) * (1 - D)` | custom shader/blend path | custom shader/blend path |
 
-`D` is the framebuffer destination color. Alpha-channel write behavior must be
-consistent for offscreen tests:
+Alpha-channel write behavior is observable in offscreen tests and render
+textures, so the adapter must use separate alpha factors whenever the target
+alpha channel matters:
 
 ```text
 outAlpha = Sa + Da * (1 - Sa)        # normal, multiply, screen
@@ -76,8 +79,10 @@ outAlpha = min(1, Sa + Da)           # additive
 
 Raylib's predefined `BlendMode` enum includes `BLEND_ALPHA` as the default
 straight-alpha mode and `BLEND_ALPHA_PREMULTIPLY` for premultiplied textures.
-The adapter must use the PMA path for premultiplied pages; drawing a PMA page
-through `BLEND_ALPHA` double-multiplies RGB and is a contract violation.
+Those predefined modes are acceptable only when their RGB result is correct and
+the destination alpha channel is not part of the test or output contract.
+Drawing a PMA page through `BLEND_ALPHA` double-multiplies RGB and is always a
+contract violation.
 
 If naylib exposes raylib custom blend factors, the adapter may use them
 directly. Otherwise it must route unsupported combinations through an internal
@@ -88,8 +93,8 @@ They must not silently fall back to `normal`.
 
 ## Color And Two-Color Tint
 
-`DrawVertex.r/g/b/a` is the light color. When no dark color is present, the
-adapter uses:
+`DrawVertex.r/g/b/a` is the light color. The current M2 `DrawBatch` shape does
+not carry dark color, so it maps to an implicit all-zero dark color:
 
 ```text
 dark = (0, 0, 0)
@@ -98,8 +103,20 @@ dark = (0, 0, 0)
 The naylib adapter must support two-color tint-black before it is considered
 complete. Raylib's default texture drawing path has one vertex color and no
 built-in tint-black operation, so the adapter must use a custom shader path for
-all batches that carry a non-zero dark color or for any future batch schema that
-declares tint-black support.
+all batches that carry a non-zero dark color.
+
+The adapter-facing vertex layout must have a dark RGB carrier before the
+adapter bead is complete. The carrier is either:
+
+- `DrawVertex.darkR/darkG/darkB`, if the renderer-neutral batch schema is
+  extended before the adapter lands; or
+- an adapter-local `RaylibDrawVertex.darkR/darkG/darkB` field populated from
+  importer/runtime tint data before submission to the shader.
+
+The default conversion from today's `DrawBatch` to the adapter vertex layout
+sets every dark component to `0`. Any non-zero tint-black path must preserve
+dark RGB per vertex; a uniform dark color is insufficient because different
+slots or vertices can carry different tint data.
 
 The shader contract is defined in normalized linear arithmetic over sampled
 texture color `T`:
@@ -120,21 +137,21 @@ lightAlpha = vertex light alpha
 dark = vertex dark RGB
 
 tintedRgb = C * light + (1 - C) * dark
-sourceAlpha = Ta * lightAlpha
+fragmentAlpha = Ta * lightAlpha
 ```
 
 For a straight-alpha blend path, the fragment source is:
 
 ```text
 sourceRgb = tintedRgb
-sourceAlpha = sourceAlpha
+sourceAlpha = fragmentAlpha
 ```
 
 For a premultiplied-alpha blend path, the fragment source is:
 
 ```text
-sourceRgb = tintedRgb * sourceAlpha
-sourceAlpha = sourceAlpha
+sourceRgb = tintedRgb * fragmentAlpha
+sourceAlpha = fragmentAlpha
 ```
 
 The adapter must choose one representation and matching blend state per page.
@@ -153,7 +170,7 @@ The adapter draws indexed triangles. It must preserve:
 - Triangle order within `indices`.
 - Vertex UVs exactly after f64-to-f32 boundary conversion.
 - Per-vertex light color.
-- Per-vertex dark color when the future batch representation carries it.
+- Per-vertex dark color in the adapter-facing vertex layout.
 
 The adapter may combine adjacent batches only when all render state is
 identical: texture page, page alpha mode, blend mode, shader variant, clip
@@ -187,12 +204,22 @@ that representative `DrawBatch` inputs issue the expected raylib operations.
 
 Minimum smoke cases:
 
-- `normal` straight page selects `BLEND_ALPHA`.
-- `normal` PMA page selects `BLEND_ALPHA_PREMULTIPLY`.
+- `normal` straight page may select `BLEND_ALPHA` only for a color-only target.
+- `normal` PMA page may select `BLEND_ALPHA_PREMULTIPLY` only for a color-only
+  target.
+- `normal` and `additive` straight pages use custom separate alpha factors when
+  rendering to an alpha-observed offscreen target.
+- `additive` straight page produces the required RGB and alpha equations.
 - `additive` PMA page selects custom `ONE, ONE` factors or records the
   equivalent custom operation through the seam.
+- `multiply` straight page emits source RGB as `S * Sa` before any
+  `BLEND_MULTIPLIED` color-equivalent path, or records the equivalent custom
+  operation through the seam.
+- `screen` straight and PMA pages use the custom shader/blend path.
 - Non-zero dark color selects the tint-black shader path.
 - A pre-clipped triangle batch is submitted without stencil/clip-stack calls.
+- A batch with non-empty `clipId` is still submitted without stencil/clip-stack
+  calls.
 - Unknown blend mode fails explicitly.
 
 The smoke test proves adapter state mapping and call sequencing. It is not a
