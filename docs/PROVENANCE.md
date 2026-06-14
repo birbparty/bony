@@ -37,6 +37,28 @@ avoided. Capability discussion must stay at the behavior level and must not
 copy source, generated data definitions, exact wire keys, field layout, or
 documentation prose.
 
+## Capability Context Introduced
+
+### DragonBones `_ske.json` Wire Format (2026-06-14)
+
+- **Reason needed**: DragonBones importer design spike (`bony-22s`) requires
+  defining the input contract for the `_ske.json` JSON format.
+- **Classification**: capability context — field names, structural nesting, and
+  numeric semantics of the public wire format. Not runtime source, not
+  documentation prose, not generated schema.
+- **What is recorded**: field names (`skX`, `skY`, `scX`, `scY`, `x`, `y`,
+  `tweenEasing`, `curve`, `displayIndex`, `blendMode`, `frameRate`, `duration`),
+  object nesting hierarchy (armature / bone / slot / skin / animation /
+  keyframe), and the two-angle skew parameterization that defines the input
+  coordinate representation.
+- **Cleanroom compliance**: confirmed. Field names are accepted at the parser
+  boundary only; they must not appear in bony runtime objects, generated schema,
+  or conformance asset JSON. The design note in `docs/dragonbones-importer-
+  design.md` owns the parser contract and all internal bony representations
+  use bony-native naming.
+- **CI enforcement**: not required — enforced by code review and the
+  import-boundary rule in `docs/CLEANROOM.md`.
+
 ## Source Introduction Rule
 
 When a new external dependency, reference, algorithm paper, or importer input
