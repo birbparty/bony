@@ -135,6 +135,22 @@ spec "bony package":
       , schemaViolation)
       raisesBonyLoadError(proc() =
         var bad: seq[byte]
+        bad.add bnbFingerprint
+        bad.writeVaruint(packedVersion(bnbMajorVersion + 1, 0))
+        bad.writeVaruint(0)
+        var badIndex = 0
+        discard bad.readHeader(badIndex)
+      , schemaViolation)
+      raisesBonyLoadError(proc() =
+        var bad: seq[byte]
+        bad.add bnbFingerprint
+        bad.writeVaruint(packedVersion())
+        bad.writeVaruint(1'u64 shl 8)
+        var badIndex = 0
+        discard bad.readHeader(badIndex)
+      , schemaViolation)
+      raisesBonyLoadError(proc() =
+        var bad: seq[byte]
         bad.writeToc(@[
           BnbTocEntry(propertyKey: 1, backingTypeCode: backingTypeCode("string")),
           BnbTocEntry(propertyKey: 1, backingTypeCode: backingTypeCode("string")),
@@ -154,13 +170,12 @@ spec "bony package":
     bytes.writePropertyTerminator()
     var index = 0
     let record = bytes.readPropertyRecord(index, toc)
-    let terminator = bytes.readPropertyRecord(index, toc)
+    let terminator = bytes.skipPropertyRecord(index, toc)
 
     then:
       record.propertyKey == 900000
       record.payload == @[1'u8, 2'u8, 3'u8, 4'u8]
-      terminator.propertyKey == 0
-      terminator.payload.len == 0
+      terminator == 0
       index == bytes.len
       raisesBonyLoadError(proc() =
         var badIndex = 0
@@ -171,6 +186,21 @@ spec "bony package":
         var badIndex = 0
         discard readPropertyRecord(bad, badIndex, @[BnbTocEntry(propertyKey: 1, backingTypeCode: backingTypeCode("string"))])
       , truncatedInput)
+      raisesBonyLoadError(proc() =
+        var bad: seq[byte]
+        bad.writeVaruint(900000)
+        bad.writeVaruint(bnbMaxPropertyPayloadBytes + 1)
+        var badIndex = 0
+        discard skipPropertyRecord(bad, badIndex, toc)
+      , schemaViolation)
+
+    bytes.setLen(0)
+    bytes.writePropertyRecord(900000, @[5'u8, 6'u8, 7'u8])
+    index = 0
+
+    then:
+      bytes.skipPropertyRecord(index, toc) == 900000
+      index == bytes.len
 
   it "loads .bony JSON and applies defaults":
     let data = loadBonyJson("""

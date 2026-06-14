@@ -9,8 +9,10 @@ const
   bnbFingerprint* = [byte(ord('B')), byte(ord('O')), byte(ord('N')), byte(ord('Y'))]
   bnbMajorVersion* = 0'u64
   bnbMinorVersion* = 1'u64
+  bnbEmbeddedAtlasFlag* = 1'u64
   bnbStringTableFlag* = 1'u64 shl 1
-  bnbKnownFlags* = bnbStringTableFlag or 1'u64
+  bnbKnownFlags* = bnbStringTableFlag or bnbEmbeddedAtlasFlag
+  bnbMaxPropertyPayloadBytes* = 67108864'u64
   maxVaruintBytes = 10
   maxTocEntries = 65536'u64
 
@@ -117,6 +119,8 @@ proc readHeader*(input: openArray[byte]; index: var int): BnbHeader =
       raise newBonyLoadError(schemaViolation, "invalid .bnb fingerprint")
     inc index
   let version = unpackVersion(input.readVaruint(index))
+  if version.major != bnbMajorVersion:
+    raise newBonyLoadError(schemaViolation, "unsupported .bnb major version: " & $version.major)
   let flags = input.readVaruint(index)
   if (flags and not bnbKnownFlags) != 0:
     raise newBonyLoadError(schemaViolation, "unknown .bnb header flags")
@@ -191,8 +195,23 @@ proc readPropertyRecord*(input: openArray[byte]; index: var int; toc: openArray[
     return
   discard toc.backingTypeCodeFor(result.propertyKey)
   let byteLength = input.readVaruint(index)
+  if byteLength > bnbMaxPropertyPayloadBytes:
+    raise newBonyLoadError(schemaViolation, ".bnb property payload exceeds maximum length")
   if byteLength > uint64(input.len - index):
     raise newBonyLoadError(truncatedInput, ".bnb property payload exceeds remaining input")
   let payloadEnd = index + int(byteLength)
   result.payload = @input[index ..< payloadEnd]
   index = payloadEnd
+
+
+proc skipPropertyRecord*(input: openArray[byte]; index: var int; toc: openArray[BnbTocEntry]): uint64 =
+  result = input.readVaruint(index)
+  if result == 0:
+    return
+  discard toc.backingTypeCodeFor(result)
+  let byteLength = input.readVaruint(index)
+  if byteLength > bnbMaxPropertyPayloadBytes:
+    raise newBonyLoadError(schemaViolation, ".bnb property payload exceeds maximum length")
+  if byteLength > uint64(input.len - index):
+    raise newBonyLoadError(truncatedInput, ".bnb property payload exceeds remaining input")
+  index += int(byteLength)
