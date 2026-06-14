@@ -1,4 +1,4 @@
-## M3 bone and slot timeline data structures.
+## M3 bone, slot, and event timeline data structures.
 
 import std/[math, sets]
 
@@ -96,6 +96,22 @@ type
     delay*: float64
     mode*: SequenceMode
 
+  EventData* = object
+    name*: string
+    intValue*: int32
+    floatValue*: float64
+    stringValue*: string
+    audioPath*: string
+    volume*: float64
+    balance*: float64
+
+  EventKeyframe* = object
+    time*: float64
+    event*: EventData
+
+  EventTimeline* = object
+    keys: seq[EventKeyframe]
+
   SampledSequence* = object
     time*: float64
     baseIndex*: uint32
@@ -123,6 +139,7 @@ type
     duration: float64
     boneTimelines: seq[BoneTimeline]
     slotTimelines: seq[SlotTimeline]
+    eventTimelines: seq[EventTimeline]
 
 const
   linearTimelineCurve* = TimelineCurve(kind: linearCurve)
@@ -160,10 +177,17 @@ proc name*(clip: AnimationClip): string = clip.name
 proc duration*(clip: AnimationClip): float64 = clip.duration
 proc boneTimelines*(clip: AnimationClip): seq[BoneTimeline] = clip.boneTimelines
 proc slotTimelines*(clip: AnimationClip): seq[SlotTimeline] = clip.slotTimelines
+proc eventTimelines*(clip: AnimationClip): seq[EventTimeline] = clip.eventTimelines
+proc keys*(timeline: EventTimeline): seq[EventKeyframe] = timeline.keys
 
 proc validateTimelineTarget(target, context: string) =
   if target.len == 0:
     raise newBonyLoadError(schemaViolation, context & " target must not be empty")
+
+
+proc validateEventName(name, context: string) =
+  if name.len == 0:
+    raise newBonyLoadError(schemaViolation, context & " event name must not be empty")
 
 
 proc quantizeTime(value: float64; context: string): float64 =
@@ -196,9 +220,29 @@ proc ensureSorted[T](keys: openArray[T]; context: string) =
       raise newBonyLoadError(schemaViolation, context & " keyframe times must be strictly increasing")
 
 
+proc ensureEventSorted(keys: openArray[EventKeyframe]; context: string) =
+  for index in 1 ..< keys.len:
+    if keys[index - 1].time > keys[index].time:
+      raise newBonyLoadError(schemaViolation, context & " event times must be non-decreasing")
+
+
 proc requireKeys(count: int; context: string) =
   if count == 0:
     raise newBonyLoadError(schemaViolation, context & " must contain at least one keyframe")
+
+
+proc validateEventData(event: EventData; context: string) =
+  validateEventName(event.name, context)
+  discard quantizeF32(event.floatValue, context & ".float")
+  discard quantizeF32(event.volume, context & ".volume")
+  discard quantizeF32(event.balance, context & ".balance")
+
+
+proc validateEventTimeline(timeline: EventTimeline; context: string) =
+  requireKeys(timeline.keys.len, context)
+  ensureEventSorted(timeline.keys, context)
+  for key in timeline.keys:
+    validateEventData(key.event, context)
 
 
 proc validateBoneTimeline(timeline: BoneTimeline; context: string) =
@@ -268,6 +312,11 @@ proc lastTime(timeline: SlotTimeline): float64 =
     timeline.color2Keys[^1].time
   of sequenceTimeline:
     timeline.sequenceKeys[^1].time
+
+
+proc lastTime(timeline: EventTimeline): float64 =
+  validateEventTimeline(timeline, "event timeline")
+  timeline.keys[^1].time
 
 
 proc colorRgba*(r, g, b, a: float64): ColorRgba =
@@ -388,6 +437,59 @@ proc sequenceKeyframe*(
   SequenceKeyframe(time: quantizeTime(time, "key.time"), index: index, delay: storedDelay, mode: mode)
 
 
+proc eventData*(
+  name: string;
+  intValue: int32 = 0;
+  floatValue = 0.0;
+  stringValue = "";
+  audioPath = "";
+  volume = 1.0;
+  balance = 0.0;
+): EventData =
+  result = EventData(
+    name: name,
+    intValue: intValue,
+    floatValue: quantizeF32(floatValue, "event.float"),
+    stringValue: stringValue,
+    audioPath: audioPath,
+    volume: quantizeF32(volume, "event.volume"),
+    balance: quantizeF32(balance, "event.balance"),
+  )
+  validateEventData(result, "event")
+
+
+proc eventKeyframe*(
+  time: float64;
+  event: EventData;
+  intValue: int32;
+  floatValue: float64;
+  stringValue: string;
+): EventKeyframe =
+  var fired = event
+  fired.intValue = intValue
+  fired.floatValue = quantizeF32(floatValue, "event.float")
+  fired.stringValue = stringValue
+  validateEventData(fired, "event")
+  EventKeyframe(time: quantizeTime(time, "key.time"), event: fired)
+
+
+proc eventKeyframe*(
+  time: float64;
+  event: EventData;
+  intValue: int32;
+  floatValue: float64;
+): EventKeyframe =
+  eventKeyframe(time, event, intValue, floatValue, event.stringValue)
+
+
+proc eventKeyframe*(time: float64; event: EventData; stringValue: string): EventKeyframe =
+  eventKeyframe(time, event, event.intValue, event.floatValue, stringValue)
+
+
+proc eventKeyframe*(time: float64; event: EventData): EventKeyframe =
+  eventKeyframe(time, event, event.intValue, event.floatValue, event.stringValue)
+
+
 proc boneScalarTimeline*(
   target: string;
   kind: BoneTimelineKind;
@@ -466,11 +568,19 @@ proc slotSequenceTimeline*(target: string; keys: openArray[SequenceKeyframe]): S
   validateSlotTimeline(result, "slot timeline")
 
 
+proc eventTimeline*(keys: openArray[EventKeyframe]): EventTimeline =
+  requireKeys(keys.len, "event timeline")
+  ensureEventSorted(keys, "event timeline")
+  result = EventTimeline(keys: @keys)
+  validateEventTimeline(result, "event timeline")
+
+
 proc animationClip*(
   data: SkeletonData;
   name: string;
   boneTimelines: openArray[BoneTimeline] = [];
   slotTimelines: openArray[SlotTimeline] = [];
+  eventTimelines: openArray[EventTimeline] = [];
 ): AnimationClip =
   if name.len == 0:
     raise newBonyLoadError(schemaViolation, "animation name must not be empty")
@@ -500,12 +610,16 @@ proc animationClip*(
         if key.attachment.len > 0 and key.attachment notin regionNames:
           raise newBonyLoadError(unknownRequiredReference, "unknown timeline attachment: " & key.attachment)
     duration = max(duration, timeline.lastTime)
+  for timeline in eventTimelines:
+    validateEventTimeline(timeline, "event timeline")
+    duration = max(duration, timeline.lastTime)
 
   AnimationClip(
     name: name,
     duration: duration,
     boneTimelines: @boneTimelines,
     slotTimelines: @slotTimelines,
+    eventTimelines: @eventTimelines,
   )
 
 

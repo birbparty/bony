@@ -591,6 +591,118 @@ spec "bony package":
       closeTo(sampled.x, 50.0)
       closeTo(sampled.y, 0.0)
 
+  it "builds event timelines with per-fire overrides":
+    let data = animationFixture()
+    let footstep = eventData(
+      "footstep",
+      intValue = 1'i32,
+      floatValue = 0.5,
+      stringValue = "left",
+      audioPath = "step.wav",
+      volume = 0.8,
+      balance = -0.25,
+    )
+    let clip = animationClip(
+      data,
+      "walk",
+      eventTimelines = @[eventTimeline(@[
+        eventKeyframe(0.25, footstep, 2'i32, 0.75, "right"),
+        eventKeyframe(0.5, footstep),
+      ])],
+    )
+    let keys = clip.eventTimelines[0].keys
+
+    then:
+      closeTo(clip.duration, 0.5)
+      keys.len == 2
+      keys[0].event.name == "footstep"
+      keys[0].event.intValue == 2'i32
+      closeTo(keys[0].event.floatValue, 0.75)
+      keys[0].event.stringValue == "right"
+      keys[0].event.audioPath == "step.wav"
+      closeTo(keys[0].event.volume, quantizeF32(0.8))
+      closeTo(keys[0].event.balance, quantizeF32(-0.25))
+      keys[1].event.intValue == 1'i32
+      raisesBonyLoadError(proc() = discard eventTimeline(@[eventKeyframe(1.0, footstep), eventKeyframe(0.5, footstep)]), schemaViolation)
+
+  it "dispatches animation events advanced by update":
+    let data = animationFixture()
+    let clip = animationClip(
+      data,
+      "events",
+      eventTimelines = @[eventTimeline(@[
+        eventKeyframe(0.25, eventData("first")),
+        eventKeyframe(0.5, eventData("second")),
+      ])],
+    )
+    var state = animationState(1)
+    state.setAnimation(0, clip)
+    state.update(0.3)
+
+    then:
+      state.events.len == 1
+      state.events[0].trackIndex == 0
+      state.events[0].event.name == "first"
+      closeTo(state.events[0].time, 0.25)
+
+    state.update(0.3)
+
+    then:
+      state.events.len == 1
+      state.events[0].event.name == "second"
+
+  it "dispatches looped events across wrapped time":
+    let data = animationFixture()
+    let clip = animationClip(
+      data,
+      "loop",
+      eventTimelines = @[eventTimeline(@[
+        eventKeyframe(0.25, eventData("tap")),
+        eventKeyframe(0.75, eventData("end")),
+      ])],
+    )
+    var state = animationState(1)
+    state.setAnimation(0, clip, loop = true)
+    state.update(1.0)
+
+    then:
+      state.events.len == 3
+      state.events[0].event.name == "tap"
+      state.events[1].event.name == "end"
+      state.events[2].event.name == "tap"
+      closeTo(state.events[2].time, 1.0)
+
+  it "gates incoming events by mix threshold during crossfade":
+    let data = animationFixture()
+    let idle = animationClip(
+      data,
+      "idle",
+      @[boneScalarTimeline("root", rotateTimeline, @[scalarKeyframe(0.0, 0.0), scalarKeyframe(1.0, 0.0)])],
+    )
+    let attack = animationClip(
+      data,
+      "attack",
+      eventTimelines = @[eventTimeline(@[
+        eventKeyframe(0.2, eventData("tooEarly")),
+        eventKeyframe(0.6, eventData("hit")),
+      ])],
+    )
+    var state = animationState(1)
+    state.setAnimation(0, idle)
+    state.addAnimation(0, attack, delay = 0.1, mixDuration = 1.0)
+    state.tracks[0].eventThreshold = 0.5
+    state.update(0.1)
+    state.update(0.4)
+
+    then:
+      state.events.len == 0
+
+    state.update(0.2)
+
+    then:
+      state.events.len == 1
+      state.events[0].event.name == "hit"
+
   it "mixes queued animation tracks with crossfade":
     let data = animationFixture()
     let idle = animationClip(

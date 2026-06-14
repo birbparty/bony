@@ -43,6 +43,11 @@ type
     target*: string
     value*: SequenceKeyframe
 
+  DispatchedEvent* = object
+    trackIndex*: int
+    event*: EventData
+    time*: float64
+
   MixedPose* = object
     scalars*: seq[MixedScalar]
     vectors*: seq[MixedVector]
@@ -76,6 +81,7 @@ type
   AnimationState* = object
     tracks*: seq[AnimationTrack]
     data*: ref SkeletonData
+    events*: seq[DispatchedEvent]
 
 proc clamp01(value: float64): float64 =
   min(1.0, max(0.0, value))
@@ -171,22 +177,61 @@ proc addAnimation*(
   state.tracks[trackIndex].queue.add trackEntry(clip, loop, delay, mixDuration, blend)
 
 
-proc advancePlaying(track: var AnimationTrack; amount: float64) =
+proc currentMixWeight(track: AnimationTrack): float64 =
+  if track.hasPrevious and track.current.mixDuration > 0:
+    clamp01(track.current.mixTime / track.current.mixDuration)
+  else:
+    1.0
+
+
+proc dispatchEvents(
+  output: var seq[DispatchedEvent];
+  trackIndex: int;
+  entry: TrackEntry;
+  fromTime, toTime: float64;
+  weight, threshold: float64;
+) =
+  if toTime <= fromTime or weight < threshold:
+    return
+  if entry.loop and entry.clip.duration > 0:
+    let duration = entry.clip.duration
+    let firstCycle = int(floor(fromTime / duration))
+    let lastCycle = int(floor(toTime / duration))
+    for cycle in firstCycle .. lastCycle:
+      let baseTime = float64(cycle) * duration
+      for timeline in entry.clip.eventTimelines:
+        for key in timeline.keys:
+          let absoluteTime = baseTime + key.time
+          if absoluteTime > fromTime and absoluteTime <= toTime:
+            output.add DispatchedEvent(trackIndex: trackIndex, event: key.event, time: absoluteTime)
+  else:
+    let endTime = min(toTime, entry.clip.duration)
+    for timeline in entry.clip.eventTimelines:
+      for key in timeline.keys:
+        if key.time > fromTime and key.time <= endTime:
+          output.add DispatchedEvent(trackIndex: trackIndex, event: key.event, time: key.time)
+
+
+proc advancePlaying(track: var AnimationTrack; amount: float64; events: var seq[DispatchedEvent]; trackIndex: int) =
   if amount <= 0:
     return
+  let startTime = track.current.time
   track.current.time = quantizeF32(track.current.time + amount, "track.time")
   if track.hasPrevious:
     track.previous.time = quantizeF32(track.previous.time + amount, "track.previous.time")
     track.current.mixTime = quantizeF32(track.current.mixTime + amount, "track.mixTime")
     if track.current.mixDuration <= 0 or track.current.mixTime >= track.current.mixDuration:
       track.hasPrevious = false
+  events.dispatchEvents(trackIndex, track.current, startTime, track.current.time, track.currentMixWeight, track.eventThreshold)
 
 
 proc update*(state: var AnimationState; dt: float64) =
   let step = quantizeF32(dt, "animation.dt")
   if step < 0:
     raise newBonyLoadError(schemaViolation, "animation.dt must be non-negative")
-  for track in state.tracks.mitems:
+  state.events.setLen(0)
+  for trackIndex in 0 ..< state.tracks.len:
+    var track = state.tracks[trackIndex]
     if not track.hasCurrent:
       continue
     let scaled = step * track.timeScale
@@ -196,7 +241,7 @@ proc update*(state: var AnimationState; dt: float64) =
     while remaining > 0 and track.hasCurrent:
       if track.queue.len > 0 and track.current.time + remaining >= track.queue[0].delay:
         let beforeSwitch = max(0.0, track.queue[0].delay - track.current.time)
-        track.advancePlaying(beforeSwitch)
+        track.advancePlaying(beforeSwitch, state.events, trackIndex)
         remaining = quantizeF32(remaining - beforeSwitch, "track.remaining")
         var next = track.queue[0]
         track.queue.delete(0)
@@ -207,10 +252,10 @@ proc update*(state: var AnimationState; dt: float64) =
           track.hasPrevious = false
         track.current = next
         track.hasCurrent = true
-        track.advancePlaying(remaining)
+        track.advancePlaying(remaining, state.events, trackIndex)
         remaining = 0
       else:
-        track.advancePlaying(remaining)
+        track.advancePlaying(remaining, state.events, trackIndex)
         remaining = 0
     if remaining == 0 and track.queue.len > 0 and track.current.time >= track.queue[0].delay:
       var next = track.queue[0]
@@ -222,6 +267,7 @@ proc update*(state: var AnimationState; dt: float64) =
         track.hasPrevious = false
       track.current = next
       track.hasCurrent = true
+    state.tracks[trackIndex] = track
 
 
 proc scalarKey(target: string; kind: BoneTimelineKind): string = target & "\0" & $kind
@@ -404,11 +450,7 @@ proc sample*(state: AnimationState): MixedPose =
   for track in state.tracks:
     if not track.hasCurrent:
       continue
-    let mixWeight =
-      if track.hasPrevious and track.current.mixDuration > 0:
-        clamp01(track.current.mixTime / track.current.mixDuration)
-      else:
-        1.0
+    let mixWeight = track.currentMixWeight
     if track.hasPrevious:
       applyEntry(state.data, scalars, vectors, attachments, inherits, colors, colors2, sequences, track.previous, track, 1.0 - mixWeight)
     applyEntry(state.data, scalars, vectors, attachments, inherits, colors, colors2, sequences, track.current, track, mixWeight)
