@@ -48,6 +48,25 @@ type
     layerIndex: int
     transition: StateMachineTransition
 
+  StateMachineListenerKind* = enum
+    stateEnterListener,
+    stateExitListener,
+    transitionListener
+
+  StateMachineListener* = object
+    name*: string
+    kind*: StateMachineListenerKind
+    layer*: string
+    fromState*: string
+    toState*: string
+
+  StateMachineListenerEvent* = object
+    listener*: string
+    kind*: StateMachineListenerKind
+    layer*: string
+    fromState*: string
+    toState*: string
+
   StateMachineState* = object
     name*: string
     clip*: AnimationClip
@@ -63,6 +82,7 @@ type
     name*: string
     layers*: seq[StateMachineLayer]
     inputs*: seq[StateMachineInput]
+    listeners*: seq[StateMachineListener]
 
   StateMachineLayerRuntime* = object
     layer*: StateMachineLayer
@@ -73,6 +93,7 @@ type
     machine*: StateMachine
     layers*: seq[StateMachineLayerRuntime]
     inputs*: seq[StateMachineInputValue]
+    events*: seq[StateMachineListenerEvent]
 
   EvaluatedStateMachineLayer* = object
     layer*: string
@@ -205,6 +226,34 @@ proc stateMachineTransition*(
     result.conditions.add normalizeCondition(condition)
 
 
+proc stateMachineStateEnterListener*(name, layer, state: string): StateMachineListener =
+  result = StateMachineListener(name: name, kind: stateEnterListener, layer: layer, toState: state)
+  validateName(result.name, "state-machine listener")
+  validateName(result.layer, "state-machine listener layer")
+  validateName(result.toState, "state-machine listener state")
+
+
+proc stateMachineStateExitListener*(name, layer, state: string): StateMachineListener =
+  result = StateMachineListener(name: name, kind: stateExitListener, layer: layer, fromState: state)
+  validateName(result.name, "state-machine listener")
+  validateName(result.layer, "state-machine listener layer")
+  validateName(result.fromState, "state-machine listener state")
+
+
+proc stateMachineTransitionListener*(name, layer, fromState, toState: string): StateMachineListener =
+  result = StateMachineListener(
+    name: name,
+    kind: transitionListener,
+    layer: layer,
+    fromState: fromState,
+    toState: toState,
+  )
+  validateName(result.name, "state-machine listener")
+  validateName(result.layer, "state-machine listener layer")
+  validateName(result.fromState, "state-machine listener from")
+  validateName(result.toState, "state-machine listener to")
+
+
 proc stateMachineState*(name: string; clip: AnimationClip; loop = false): StateMachineState =
   result = StateMachineState(name: name, clip: clip, loop: loop)
   validateState(result)
@@ -256,6 +305,49 @@ proc stateMachineLayer*(
 proc inputByName(machine: StateMachine; name: string): StateMachineInput
 
 
+proc layerByName(machine: StateMachine; name: string): StateMachineLayer =
+  for layer in machine.layers:
+    if layer.name == name:
+      return layer
+  raise newBonyLoadError(unknownRequiredReference, "unknown state-machine layer: " & name)
+
+
+proc hasTransition(layer: StateMachineLayer; fromState, toState: string): bool =
+  for transition in layer.transitions:
+    if transition.fromState == fromState and transition.toState == toState:
+      return true
+  false
+
+
+proc normalizeListener(machine: StateMachine; listener: StateMachineListener): StateMachineListener =
+  validateName(listener.name, "state-machine listener")
+  validateName(listener.layer, "state-machine listener layer")
+  let layer = machine.layerByName(listener.layer)
+  result = StateMachineListener(name: listener.name, kind: listener.kind, layer: listener.layer)
+  case listener.kind
+  of stateEnterListener:
+    if listener.fromState.len != 0:
+      raise newBonyLoadError(schemaViolation, "state-machine enter listener must not have a from state")
+    validateName(listener.toState, "state-machine listener state")
+    discard layer.stateByName(listener.toState)
+    result.toState = listener.toState
+  of stateExitListener:
+    validateName(listener.fromState, "state-machine listener state")
+    if listener.toState.len != 0:
+      raise newBonyLoadError(schemaViolation, "state-machine exit listener must not have a to state")
+    discard layer.stateByName(listener.fromState)
+    result.fromState = listener.fromState
+  of transitionListener:
+    validateName(listener.fromState, "state-machine listener from")
+    validateName(listener.toState, "state-machine listener to")
+    discard layer.stateByName(listener.fromState)
+    discard layer.stateByName(listener.toState)
+    if not layer.hasTransition(listener.fromState, listener.toState):
+      raise newBonyLoadError(unknownRequiredReference, "unknown state-machine transition listener target")
+    result.fromState = listener.fromState
+    result.toState = listener.toState
+
+
 proc normalizeMachine(machine: StateMachine): StateMachine =
   validateName(machine.name, "state machine")
   if machine.layers.len == 0:
@@ -289,14 +381,22 @@ proc normalizeMachine(machine: StateMachine): StateMachine =
         of triggerSetCondition:
           if input.kind != triggerInput:
             raise newBonyLoadError(schemaViolation, "state-machine condition input is not trigger: " & condition.input)
+  names.clear()
+  for listener in machine.listeners:
+    let normalized = result.normalizeListener(listener)
+    if normalized.name in names:
+      raise newBonyLoadError(duplicateKey, "duplicate state-machine listener: " & normalized.name)
+    names.incl(normalized.name)
+    result.listeners.add normalized
 
 
 proc stateMachine*(
   name: string;
   layers: openArray[StateMachineLayer];
   inputs: openArray[StateMachineInput] = [];
+  listeners: openArray[StateMachineListener] = [];
 ): StateMachine =
-  normalizeMachine(StateMachine(name: name, layers: @layers, inputs: @inputs))
+  normalizeMachine(StateMachine(name: name, layers: @layers, inputs: @inputs, listeners: @listeners))
 
 
 proc initStateMachineRuntime*(machine: StateMachine): StateMachineRuntime =
@@ -456,6 +556,35 @@ proc transitionMatches(runtime: StateMachineRuntime; transition: StateMachineTra
   true
 
 
+proc addListenerEvents(
+  runtime: var StateMachineRuntime;
+  kind: StateMachineListenerKind;
+  layer: string;
+  fromState: string;
+  toState: string;
+) =
+  for listener in runtime.machine.listeners:
+    if listener.kind != kind or listener.layer != layer:
+      continue
+    case kind
+    of stateEnterListener:
+      if listener.toState != toState:
+        continue
+    of stateExitListener:
+      if listener.fromState != fromState:
+        continue
+    of transitionListener:
+      if listener.fromState != fromState or listener.toState != toState:
+        continue
+    runtime.events.add StateMachineListenerEvent(
+      listener: listener.name,
+      kind: kind,
+      layer: layer,
+      fromState: fromState,
+      toState: toState,
+    )
+
+
 proc applyTransitions(runtime: var StateMachineRuntime) =
   runtime = normalizedRuntime(runtime)
   let snapshot = runtime
@@ -470,7 +599,11 @@ proc applyTransitions(runtime: var StateMachineRuntime) =
             consumedTriggers.incl(condition.input)
         break
   for match in matches:
+    let layerName = runtime.layers[match.layerIndex].layer.name
+    runtime.addListenerEvents(stateExitListener, layerName, match.transition.fromState, match.transition.toState)
+    runtime.addListenerEvents(transitionListener, layerName, match.transition.fromState, match.transition.toState)
     runtime.layers[match.layerIndex].setState(match.transition.toState)
+    runtime.addListenerEvents(stateEnterListener, layerName, match.transition.fromState, match.transition.toState)
   for inputName in consumedTriggers:
     let index = runtime.inputValueIndex(inputName)
     if index < 0:
@@ -480,6 +613,7 @@ proc applyTransitions(runtime: var StateMachineRuntime) =
 
 proc update*(runtime: var StateMachineRuntime; dt: float64) =
   runtime = normalizedRuntime(runtime)
+  runtime.events.setLen(0)
   let step = quantizeStateMachineTime(dt, "stateMachine.dt")
   for layer in runtime.layers.mitems:
     discard quantizeStateMachineTime(layer.time, "stateMachine.layer.time")
@@ -496,6 +630,7 @@ proc sampleTime(layer: StateMachineLayerRuntime; state: StateMachineState): floa
 
 proc normalizedRuntime(runtime: StateMachineRuntime): StateMachineRuntime =
   result.machine = normalizeMachine(runtime.machine)
+  result.events = runtime.events
   if runtime.layers.len != result.machine.layers.len:
     raise newBonyLoadError(schemaViolation, "state-machine runtime layer count must match machine")
   for index, layer in runtime.layers:
