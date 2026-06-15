@@ -3,6 +3,7 @@
 // Ports the Nim reference implementation in runtime-nim/src/bony/transform.nim.
 
 import 'dart:math' as math;
+import 'deform.dart';
 import 'model.dart';
 
 const double _basisEpsilon = 1e-12;
@@ -126,7 +127,8 @@ DrawVertex _vertex(Affine2 world, double lx, double ly, double u, double v) {
   );
 }
 
-/// Build draw batches for the setup pose.
+/// Build draw batches for the setup pose, with M7 deformers applied at
+/// default parameter values (mirroring the Nim CLI golden-gen pipeline).
 ///
 /// Each slot with a non-empty attachment that resolves to a region becomes one
 /// [DrawBatch] with 4 vertices and 6 indices (two triangles).
@@ -140,7 +142,7 @@ List<DrawBatch> buildDrawBatches(SkeletonData data) {
     for (final r in data.regions) r.name: r,
   };
 
-  final result = <DrawBatch>[];
+  final baseBatches = <DrawBatch>[];
   for (final slot in data.slots) {
     if (slot.attachment.isEmpty) continue;
     final region = regionMap[slot.attachment];
@@ -149,7 +151,7 @@ List<DrawBatch> buildDrawBatches(SkeletonData data) {
     final world = worlds[boneIndex[slot.bone]!];
     final hw = region.width * 0.5;
     final hh = region.height * 0.5;
-    result.add(DrawBatch(
+    baseBatches.add(DrawBatch(
       slot: slot.name,
       bone: slot.bone,
       attachment: slot.attachment,
@@ -166,5 +168,43 @@ List<DrawBatch> buildDrawBatches(SkeletonData data) {
       indices: [0, 1, 2, 2, 3, 0],
     ));
   }
-  return result;
+
+  if (data.deformers.isEmpty) return baseBatches;
+
+  // Sample each parameter at its default value.
+  final samples = data.parameters
+      .map((p) => ParameterSample(name: p.name, value: p.defaultValue))
+      .toList();
+  final efDefs = effectiveDeformers(data.deformers, samples);
+  if (efDefs.isEmpty) return baseBatches;
+
+  // Apply deformers per batch — each batch uses its own vertices as setup.
+  return baseBatches.map((batch) {
+    final verts = batch.vertices;
+    final positions = verts.map((v) => (x: v.x, y: v.y)).toList();
+    final deformed = applyDeformers(positions, efDefs);
+    return DrawBatch(
+      slot: batch.slot,
+      bone: batch.bone,
+      attachment: batch.attachment,
+      blendMode: batch.blendMode,
+      texturePage: batch.texturePage,
+      clipId: batch.clipId,
+      world: batch.world,
+      vertices: [
+        for (var i = 0; i < verts.length; i++)
+          DrawVertex(
+            x: deformed[i].x,
+            y: deformed[i].y,
+            u: verts[i].u,
+            v: verts[i].v,
+            r: verts[i].r,
+            g: verts[i].g,
+            b: verts[i].b,
+            a: verts[i].a,
+          ),
+      ],
+      indices: batch.indices,
+    );
+  }).toList();
 }

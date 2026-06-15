@@ -137,6 +137,108 @@ List<AnimationClip> _parseAnimations(List<dynamic> anims) {
   return result;
 }
 
+ParameterAxis _parseParameter(Map<String, dynamic> j) {
+  return ParameterAxis(
+    name: _required<String>(j['name'], 'parameter.name'),
+    minValue: _required<num>(j['min'], 'parameter.min').toDouble(),
+    maxValue: _required<num>(j['max'], 'parameter.max').toDouble(),
+    defaultValue: (j['default'] as num?)?.toDouble() ?? 0.0,
+  );
+}
+
+DeformerRecord _parseDeformer(
+  Map<String, dynamic> j,
+  Map<String, ParameterAxis> paramsByName,
+) {
+  final id = _required<String>(j['id'], 'deformer.id');
+  final parent = (j['parent'] as String?) ?? '';
+  final order = (j['order'] as num?)?.toInt() ?? 0;
+  final kindStr = _required<String>(j['kind'], 'deformer.kind');
+
+  DeformerData deformerData;
+  if (kindStr == 'warp') {
+    final wj = _required<Map<String, dynamic>>(j['warp'], 'deformer.warp');
+    final rows = (_required<num>(wj['rows'], 'warp.rows')).toInt();
+    final cols = (_required<num>(wj['cols'], 'warp.cols')).toInt();
+    final cpRaw = _required<List<dynamic>>(wj['controlPoints'], 'warp.controlPoints');
+    final controlPoints = cpRaw.map((p) {
+      final pm = p as Map<String, dynamic>;
+      return DeformerPoint(
+        x: _required<num>(pm['x'], 'warp.controlPoint.x').toDouble(),
+        y: _required<num>(pm['y'], 'warp.controlPoint.y').toDouble(),
+      );
+    }).toList();
+    deformerData = DeformerData(
+      id: id,
+      parent: parent,
+      order: order,
+      kind: DeformerKind.warp,
+      warp: WarpLattice(
+        rows: rows,
+        cols: cols,
+        minX: _required<num>(wj['minX'], 'warp.minX').toDouble(),
+        minY: _required<num>(wj['minY'], 'warp.minY').toDouble(),
+        maxX: _required<num>(wj['maxX'], 'warp.maxX').toDouble(),
+        maxY: _required<num>(wj['maxY'], 'warp.maxY').toDouble(),
+        controlPoints: controlPoints,
+      ),
+    );
+  } else if (kindStr == 'rotation') {
+    final rj = _required<Map<String, dynamic>>(j['rotation'], 'deformer.rotation');
+    deformerData = DeformerData(
+      id: id,
+      parent: parent,
+      order: order,
+      kind: DeformerKind.rotation,
+      rotation: RotationDeformerData(
+        pivotX: _required<num>(rj['pivotX'], 'rotation.pivotX').toDouble(),
+        pivotY: _required<num>(rj['pivotY'], 'rotation.pivotY').toDouble(),
+        angleDegrees: _required<num>(rj['angleDegrees'], 'rotation.angleDegrees').toDouble(),
+        scaleX: (rj['scaleX'] as num?)?.toDouble() ?? 1.0,
+        scaleY: (rj['scaleY'] as num?)?.toDouble() ?? 1.0,
+        opacity: (rj['opacity'] as num?)?.toDouble() ?? 1.0,
+      ),
+    );
+  } else {
+    throw FormatException('deformer.kind unknown: $kindStr');
+  }
+
+  final kbj = j['keyformBlend'] as Map<String, dynamic>?;
+  if (kbj == null) {
+    return DeformerRecord(deformer: deformerData, keyformBlend: const KeyformBlend());
+  }
+
+  final axisNames = _required<List<dynamic>>(kbj['axes'], 'keyformBlend.axes');
+  final axes = axisNames.map((n) {
+    final name = n as String;
+    final axis = paramsByName[name];
+    if (axis == null) throw FormatException('keyformBlend references unknown parameter: $name');
+    return axis;
+  }).toList();
+
+  final kfList = _required<List<dynamic>>(kbj['keyforms'], 'keyformBlend.keyforms');
+  final keyforms = kfList.map((kf) {
+    final kfm = kf as Map<String, dynamic>;
+    final coordMap = _required<Map<String, dynamic>>(kfm['coordinates'], 'keyform.coordinates');
+    final coordinates = axes.map((a) {
+      final v = coordMap[a.name];
+      if (v == null) throw FormatException('keyform missing coordinate: ${a.name}');
+      return ParameterSample(name: a.name, value: (v as num).toDouble());
+    }).toList();
+    final vals = _required<List<dynamic>>(kfm['values'], 'keyform.values');
+    return Keyform(
+      coordinates: coordinates,
+      values: vals.map((v) => (v as num).toDouble()).toList(),
+    );
+  }).toList();
+
+  final valueCount = keyforms.isEmpty ? 0 : keyforms[0].values.length;
+  return DeformerRecord(
+    deformer: deformerData,
+    keyformBlend: KeyformBlend(axes: axes, valueCount: valueCount, keyforms: keyforms),
+  );
+}
+
 PathAttachment _parsePathAttachment(Map<String, dynamic> j) {
   return PathAttachment(
     name: _required<String>(j['name'], 'pathAttachment.name'),
@@ -263,6 +365,13 @@ const int _bnbSlot = 1000;
 const int _bnbRegion = 1001;
 const int _bnbPath = 4000;
 const int _bnbPathAttachment = 4001;
+// M7 type keys.
+const int _bnbParameter = 6000;
+const int _bnbDeformer = 6001;
+const int _bnbWarpLattice = 6002;
+const int _bnbRotationDeformer = 6003;
+const int _bnbKeyformBlend = 6004;
+const int _bnbKeyform = 6005;
 
 // .bnb property keys.
 const int _bkName = 1;
@@ -294,10 +403,36 @@ const int _bkP2x = 4007;
 const int _bkP2y = 4008;
 const int _bkP3x = 4009;
 const int _bkP3y = 4010;
+// M7 property keys.
+const int _bkParamMin = 6000;
+const int _bkParamMax = 6001;
+const int _bkParamDefault = 6002;
+const int _bkDefId = 6010;
+const int _bkDefOrder = 6011;
+const int _bkDefKind = 6012;
+const int _bkWarpRows = 6020;
+const int _bkWarpCols = 6021;
+const int _bkWarpMinX = 6022;
+const int _bkWarpMinY = 6023;
+const int _bkWarpMaxX = 6024;
+const int _bkWarpMaxY = 6025;
+const int _bkWarpControlPoints = 6026;
+const int _bkRotPivotX = 6030;
+const int _bkRotPivotY = 6031;
+const int _bkRotAngle = 6032;
+const int _bkRotScaleX = 6033;
+const int _bkRotScaleY = 6034;
+const int _bkRotOpacity = 6035;
+const int _bkBlendValueCount = 6040;
+const int _bkBlendAxes = 6041;
+const int _bkBlendCoords = 6042;
+const int _bkBlendValues = 6043;
 
 // Type keys we recognize; everything else is skipped for forward compat.
 const _bnbKnownTypes = {
-  _bnbSkeleton, _bnbBone, _bnbSlot, _bnbRegion, _bnbPath, _bnbPathAttachment
+  _bnbSkeleton, _bnbBone, _bnbSlot, _bnbRegion, _bnbPath, _bnbPathAttachment,
+  _bnbParameter, _bnbDeformer, _bnbWarpLattice, _bnbRotationDeformer,
+  _bnbKeyformBlend, _bnbKeyform,
 };
 
 // Mutable cursor over a binary buffer.
@@ -480,6 +615,69 @@ int _bVarint(_BnbObj obj, int key, {int def = 0}) {
   return v;
 }
 
+int _bVaruint(_BnbObj obj, int key, {int def = 0}) {
+  final payload = obj.props[key];
+  if (payload == null) return def;
+  final c = _BnbCur(payload);
+  final v = c.readVaruint();
+  _bCheckExhausted(c, 'varuint');
+  return v;
+}
+
+// Parse warpControlPoints payload: varuint count, then count*(f32 x, f32 y) pairs.
+List<DeformerPoint> _bControlPoints(_BnbObj obj, List<String> strings) {
+  final payload = obj.props[_bkWarpControlPoints];
+  if (payload == null) throw const FormatException('.bnb warpLattice.controlPoints is required');
+  final c = _BnbCur(payload);
+  final count = c.readVaruint();
+  final pts = <DeformerPoint>[];
+  for (var i = 0; i < count; i++) {
+    final x = c.readF32();
+    final y = c.readF32();
+    pts.add(DeformerPoint(x: x, y: y));
+  }
+  _bCheckExhausted(c, 'warpControlPoints');
+  return pts;
+}
+
+// Parse blendAxes payload: varuint count, then count*varuint (string indices).
+List<ParameterAxis> _bBlendAxes(
+  _BnbObj obj,
+  List<String> strings,
+  Map<String, ParameterAxis> paramsByName,
+) {
+  final payload = obj.props[_bkBlendAxes];
+  if (payload == null) throw const FormatException('.bnb keyformBlend.axes is required');
+  final c = _BnbCur(payload);
+  final count = c.readVaruint();
+  final axes = <ParameterAxis>[];
+  for (var i = 0; i < count; i++) {
+    final name = c.readStr(strings);
+    final axis = paramsByName[name];
+    if (axis == null) {
+      throw FormatException('.bnb keyformBlend references unknown parameter: $name');
+    }
+    axes.add(axis);
+  }
+  _bCheckExhausted(c, 'blendAxes');
+  return axes;
+}
+
+// Parse a flat array of n f32 values from a property payload.
+List<double> _bF32Array(_BnbObj obj, int key, int count, String ctx) {
+  final payload = obj.props[key];
+  if (payload == null) throw FormatException('.bnb required property missing: $ctx');
+  if (payload.length != count * 4) {
+    throw FormatException('.bnb $ctx payload length mismatch: expected ${count * 4}, got ${payload.length}');
+  }
+  final c = _BnbCur(payload);
+  final result = <double>[];
+  for (var i = 0; i < count; i++) {
+    result.add(c.readF32());
+  }
+  return result;
+}
+
 SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
   SkeletonHeader? header;
   final bones = <BoneData>[];
@@ -487,16 +685,74 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
   final regions = <RegionAttachment>[];
   final paths = <PathConstraintData>[];
   final pathAttachments = <PathAttachment>[];
+  final parameters = <ParameterAxis>[];
+  final deformers = <DeformerRecord>[];
+
+  // M7 deformer state machine — mirrors Nim semantic.nim decodeSkeletonObjects.
+  var deformerPending = false;
+  var pendingId = '';
+  var pendingParent = '';
+  var pendingOrder = 0;
+  var pendingKind = DeformerKind.warp;
+  WarpLattice? pendingWarp;
+  RotationDeformerData? pendingRotation;
+  var geometryReady = false;
+  var blendPending = false;
+  var pendingBlendValueCount = 0;
+  var pendingBlendAxes = <ParameterAxis>[];
+  var pendingKeyforms = <Keyform>[];
+
+  void flushPending() {
+    if (!deformerPending) return;
+    if (!geometryReady) {
+      throw const FormatException('.bnb deformer header has no following geometry record');
+    }
+    final DeformerData deformerData;
+    if (pendingKind == DeformerKind.warp) {
+      deformerData = DeformerData(
+        id: pendingId,
+        parent: pendingParent,
+        order: pendingOrder,
+        kind: DeformerKind.warp,
+        warp: pendingWarp!,
+      );
+    } else {
+      deformerData = DeformerData(
+        id: pendingId,
+        parent: pendingParent,
+        order: pendingOrder,
+        kind: DeformerKind.rotation,
+        rotation: pendingRotation!,
+      );
+    }
+    final blend = blendPending && pendingBlendAxes.isNotEmpty
+        ? KeyformBlend(
+            axes: pendingBlendAxes,
+            valueCount: pendingBlendValueCount,
+            keyforms: pendingKeyforms,
+          )
+        : const KeyformBlend();
+    deformers.add(DeformerRecord(deformer: deformerData, keyformBlend: blend));
+    deformerPending = false;
+    geometryReady = false;
+    blendPending = false;
+    pendingBlendAxes = [];
+    pendingKeyforms = [];
+  }
+
+  final paramsByName = <String, ParameterAxis>{};
 
   for (final obj in objects) {
     switch (obj.typeKey) {
       case _bnbSkeleton:
+        flushPending();
         if (header != null) throw const FormatException('.bnb: multiple skeleton objects');
         header = SkeletonHeader(
           name: _bStr(obj, _bkName, strings, 'skeleton.name'),
           version: _bStr(obj, _bkVersion, strings, 'skeleton.version', def: '0.1.0'),
         );
       case _bnbBone:
+        flushPending();
         bones.add(BoneData(
           name: _bStr(obj, _bkName, strings, 'bone.name'),
           parent: _bStr(obj, _bkParent, strings, 'bone.parent', def: ''),
@@ -513,18 +769,21 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
           transformMode: _bStr(obj, _bkTransformMode, strings, 'bone.transformMode', def: 'normal'),
         ));
       case _bnbSlot:
+        flushPending();
         slots.add(SlotData(
           name: _bStr(obj, _bkName, strings, 'slot.name'),
           bone: _bStr(obj, _bkBone, strings, 'slot.bone'),
           attachment: _bStr(obj, _bkAttachment, strings, 'slot.attachment', def: ''),
         ));
       case _bnbRegion:
+        flushPending();
         regions.add(RegionAttachment(
           name: _bStr(obj, _bkName, strings, 'region.name'),
           width: _bF32(obj, _bkWidth, 'region.width'),
           height: _bF32(obj, _bkHeight, 'region.height'),
         ));
       case _bnbPath:
+        flushPending();
         paths.add(PathConstraintData(
           name: _bStr(obj, _bkName, strings, 'path.name'),
           bone: _bStr(obj, _bkBone, strings, 'path.bone'),
@@ -533,6 +792,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
           order: _bVarint(obj, _bkOrder, def: 0),
         ));
       case _bnbPathAttachment:
+        flushPending();
         pathAttachments.add(PathAttachment(
           name: _bStr(obj, _bkName, strings, 'pathAttachment.name'),
           p0x: _bF64(obj, _bkP0x, 'pathAttachment.p0x'),
@@ -544,8 +804,90 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
           p3x: _bF64(obj, _bkP3x, 'pathAttachment.p3x'),
           p3y: _bF64(obj, _bkP3y, 'pathAttachment.p3y'),
         ));
+      // --- M7 objects ---
+      case _bnbParameter:
+        flushPending();
+        final name = _bStr(obj, _bkName, strings, 'parameter.name');
+        final min = _bF32(obj, _bkParamMin, 'parameter.min');
+        final max = _bF32(obj, _bkParamMax, 'parameter.max');
+        final def = obj.props.containsKey(_bkParamDefault)
+            ? _bF32(obj, _bkParamDefault, 'parameter.default')
+            : 0.0;
+        final axis = ParameterAxis(
+          name: name,
+          minValue: min,
+          maxValue: max,
+          defaultValue: def,
+        );
+        parameters.add(axis);
+        paramsByName[name] = axis;
+      case _bnbDeformer:
+        flushPending();
+        pendingId = _bStr(obj, _bkDefId, strings, 'deformer.id');
+        pendingParent = _bStr(obj, _bkParent, strings, 'deformer.parent', def: '');
+        pendingOrder = _bVaruint(obj, _bkDefOrder, def: 0);
+        final kindStr = _bStr(obj, _bkDefKind, strings, 'deformer.kind');
+        if (kindStr == 'warp') {
+          pendingKind = DeformerKind.warp;
+        } else if (kindStr == 'rotation') {
+          pendingKind = DeformerKind.rotation;
+        } else {
+          throw FormatException('.bnb deformer.kind must be warp or rotation: $kindStr');
+        }
+        deformerPending = true;
+        geometryReady = false;
+        blendPending = false;
+        pendingBlendAxes = [];
+        pendingKeyforms = [];
+      case _bnbWarpLattice:
+        if (!deformerPending || pendingKind != DeformerKind.warp) {
+          throw const FormatException('.bnb warpLattice without preceding warp deformer');
+        }
+        pendingWarp = WarpLattice(
+          rows: _bVaruint(obj, _bkWarpRows, def: 2),
+          cols: _bVaruint(obj, _bkWarpCols, def: 2),
+          minX: _bF32(obj, _bkWarpMinX, 'warpLattice.minX'),
+          minY: _bF32(obj, _bkWarpMinY, 'warpLattice.minY'),
+          maxX: _bF32(obj, _bkWarpMaxX, 'warpLattice.maxX'),
+          maxY: _bF32(obj, _bkWarpMaxY, 'warpLattice.maxY'),
+          controlPoints: _bControlPoints(obj, strings),
+        );
+        geometryReady = true;
+      case _bnbRotationDeformer:
+        if (!deformerPending || pendingKind != DeformerKind.rotation) {
+          throw const FormatException('.bnb rotationDeformer without preceding rotation deformer');
+        }
+        pendingRotation = RotationDeformerData(
+          pivotX: _bF32(obj, _bkRotPivotX, 'rotationDeformer.pivotX'),
+          pivotY: _bF32(obj, _bkRotPivotY, 'rotationDeformer.pivotY'),
+          angleDegrees: _bF32(obj, _bkRotAngle, 'rotationDeformer.angleDegrees'),
+          scaleX: _bF32(obj, _bkRotScaleX, 'rotationDeformer.scaleX', def: 1.0),
+          scaleY: _bF32(obj, _bkRotScaleY, 'rotationDeformer.scaleY', def: 1.0),
+          opacity: _bF32(obj, _bkRotOpacity, 'rotationDeformer.opacity', def: 1.0),
+        );
+        geometryReady = true;
+      case _bnbKeyformBlend:
+        if (!deformerPending || !geometryReady) {
+          throw const FormatException('.bnb keyformBlend without preceding deformer geometry');
+        }
+        pendingBlendValueCount = _bVaruint(obj, _bkBlendValueCount, def: 0);
+        pendingBlendAxes = _bBlendAxes(obj, strings, paramsByName);
+        pendingKeyforms = [];
+        blendPending = true;
+      case _bnbKeyform:
+        if (!blendPending) {
+          throw const FormatException('.bnb keyform without preceding keyformBlend');
+        }
+        final coordVals = _bF32Array(obj, _bkBlendCoords, pendingBlendAxes.length, 'keyform.coordinates');
+        final values = _bF32Array(obj, _bkBlendValues, pendingBlendValueCount, 'keyform.values');
+        final coordinates = [
+          for (var i = 0; i < pendingBlendAxes.length; i++)
+            ParameterSample(name: pendingBlendAxes[i].name, value: coordVals[i]),
+        ];
+        pendingKeyforms.add(Keyform(coordinates: coordinates, values: values));
     }
   }
+  flushPending();
 
   if (header == null) throw const FormatException('.bnb: missing skeleton object');
   return SkeletonData(
@@ -555,6 +897,8 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
     regions: regions,
     paths: paths,
     pathAttachments: pathAttachments,
+    parameters: parameters,
+    deformers: deformers,
   );
 }
 
@@ -647,6 +991,23 @@ SkeletonData loadBonyJson(String jsonText) {
       ? _parseAnimations(animsRaw)
       : const <AnimationClip>[];
 
+  final paramsRaw = root['parameters'];
+  final parameters = paramsRaw is List<dynamic>
+      ? paramsRaw
+          .map((p) => _parseParameter(p as Map<String, dynamic>))
+          .toList()
+      : const <ParameterAxis>[];
+
+  final paramsByName = <String, ParameterAxis>{
+    for (final p in parameters) p.name: p,
+  };
+  final deformersRaw = root['deformers'];
+  final deformers = deformersRaw is List<dynamic>
+      ? deformersRaw
+          .map((d) => _parseDeformer(d as Map<String, dynamic>, paramsByName))
+          .toList()
+      : const <DeformerRecord>[];
+
   final data = SkeletonData(
     header: header,
     bones: bones,
@@ -655,6 +1016,8 @@ SkeletonData loadBonyJson(String jsonText) {
     paths: paths,
     pathAttachments: pathAttachments,
     animations: animations,
+    parameters: parameters,
+    deformers: deformers,
   );
   _validate(data);
   return data;
