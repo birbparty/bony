@@ -89,8 +89,8 @@ proc main() =
   for name in ["m1_rig", "m2_rig", "m3_rig", "m4_rig", "m5_rig"]:
     let jsonPath = assetsDir / name & ".bony"
     let bnbPath  = assetsDir / "bnb" / name & ".bnb"
-    if not fileExists(jsonPath):
-      echo &"  [skip] {name}: {jsonPath} not found"
+    if not fileExists(jsonPath) or not fileExists(bnbPath):
+      echo &"  [skip] {name}: asset pair not found"
       continue
     rigs.add RigAsset(
       name:     name,

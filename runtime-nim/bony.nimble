@@ -16,4 +16,4 @@ task test, "Run the Nim smoke tests":
   exec "nim c -r tests/test_smoke.nim"
 
 task bench, "Run the non-gating perf harness (always exits 0)":
-  exec "nim c -r --path:src bench_perf.nim"
+  exec "nim c -r bench_perf.nim"
