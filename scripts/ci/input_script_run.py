@@ -40,7 +40,7 @@ except ImportError:
     )
     sys.exit(2)
 
-from _golden_compare import TOLERANCE, compare_goldens
+from _golden_compare import compare_goldens
 
 
 def _format_t(t):
@@ -52,8 +52,6 @@ def _format_t(t):
         return str(int(t))
     s = f"{t:.10g}"
     return s.rstrip("0").rstrip(".")
-
-    return errors
 
 
 def run_sample(bony_bin, asset_path, t, golden_path, actual_path, label):
