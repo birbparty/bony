@@ -235,6 +235,12 @@ def main():
 
             for i, sample in enumerate(script["samples"]):
                 t = sample["t"]
+                inputs = sample.get("inputs") or {}
+                if inputs:
+                    print(
+                        f"warning: {script_name}[{i}]: non-empty inputs are reserved "
+                        f"(state-machine support not yet available); inputs will be ignored"
+                    )
                 t_suffix = _format_t(t)
                 golden_path = os.path.join(args.goldens, f"{asset_stem}_t{t_suffix}.json")
                 actual_path = os.path.join(tmpdir, f"{asset_stem}_sample{i}_actual.json")

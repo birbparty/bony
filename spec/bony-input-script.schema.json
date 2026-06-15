@@ -29,11 +29,11 @@
           "t": {
             "type": "number",
             "minimum": 0.0,
-            "description": "Time in seconds at which to sample the skeleton. Passed as --t to golden-gen."
+            "description": "Time in seconds at which to sample the skeleton. Passed as --t to golden-gen. Currently only t=0.0 (setup pose) is executable; non-zero values require an animation clip, which is not yet part of the format."
           },
           "inputs": {
             "type": "object",
-            "description": "Named state-machine inputs at this sample. Keys are input names; values are booleans, numbers, or strings. Empty object ({}) means no inputs (setup pose evaluation only).",
+            "description": "Named state-machine inputs at this sample. Keys are input names; values are booleans, numbers, or strings. Empty object ({}) means no inputs (setup pose evaluation only). Currently reserved: the consumer harness cannot forward inputs until state-machine support lands (M8).",
             "additionalProperties": {
               "oneOf": [
                 {"type": "boolean"},
