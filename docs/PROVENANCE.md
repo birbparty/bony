@@ -59,6 +59,31 @@ documentation prose.
 - **CI enforcement**: not required — enforced by code review and the
   import-boundary rule in `docs/CLEANROOM.md`.
 
+### DragonBones Animation Format Validation (2026-06-14)
+
+- **Reason needed**: Iteration 47 (`bony-kdn`) corrected the animation section
+  of the design spike after examining real `_ske.json` files. The observed
+  per-channel structure (separate `translateFrame`, `rotateFrame`, `scaleFrame`
+  arrays; terminator frame; additive/multiplicative semantics) differs from the
+  original assumption.
+- **Classification**: capability context — structural field nesting and per-frame
+  semantics of the public wire format, derived from user-supplied sample data.
+- **What is recorded**: per-channel frame array names and field sets for
+  `rotateFrame`, `translateFrame`, `scaleFrame`, `colorFrame`, `displayFrame`;
+  terminator-frame convention; `clockwise` field; extra ignored keys at top-level
+  (`compatibleVersion`, `isGlobal`, `textureAtlas`) and armature level (`aabb`,
+  `defaultActions`, `ik`, `canvas`) and animation level (`fadeInTime`,
+  `playTimes`, `blendType`, `type`, `frame`, `ffd`). The §Observed Field Set in
+  `docs/dragonbones-importer-design.md` is the canonical record.
+- **Source**: user-supplied `_ske.json` files from the local DragonBonesJS clone
+  at `~/git/DragonBonesJS/Pixi/Demos/resource/` (not committed to bony).
+- **Cleanroom compliance**: confirmed. Keys for objects the importer parses are
+  recorded as input contract; keys for objects bony ignores at Tier 1 are
+  enumerated for completeness only and must not appear in bony runtime objects,
+  generated schema, or conformance asset JSON.
+- **CI enforcement**: not required — enforced by code review and the
+  import-boundary rule in `docs/CLEANROOM.md`.
+
 ## Source Introduction Rule
 
 When a new external dependency, reference, algorithm paper, or importer input
