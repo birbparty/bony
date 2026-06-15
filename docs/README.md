@@ -3,9 +3,16 @@
 This directory contains architecture contracts, design spikes, governance
 documents, and QA checklists for the bony project.
 
-**Contract documents** (`*-contract.md`, `*-canonicalization.md`, `*-semantics.md`)
-are binding specifications — runtime implementations, the conformance harness,
-and tooling must follow them. Design spikes and governance docs are informational.
+Documents listed under **Contracts** sections are binding specifications —
+runtime implementations, the conformance harness, and tooling must follow them.
+Design spikes and governance docs are informational.
+
+> This index reflects the binding status of each document. It does not define
+> that status — a doc's binding status is determined by its content and the bead
+> that introduced it, not by its position in this index.
+
+The `docs/prompts/` and `docs/spikes/` subdirectories hold exploratory material
+(AI prompts, numeric spike scripts) and are intentionally not catalogued here.
 
 ---
 
@@ -54,7 +61,7 @@ the milestone-to-key-range table.
 
 ---
 
-## Design Spikes
+## Importer Design Notes
 
 Informational notes on importer targets. Clean-room designs from bony spec and
 public capability-level knowledge only — no runtime source from third parties.
