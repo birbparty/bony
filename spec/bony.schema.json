@@ -48,7 +48,31 @@
     "deformers": {
       "type": "array",
       "items": {
-        "$ref": "#/$defs/deformerRecord"
+        "$ref": "#/$defs/deformer"
+      }
+    },
+    "warpLattices": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/warpLattice"
+      }
+    },
+    "rotationDeformers": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/rotationDeformer"
+      }
+    },
+    "keyformBlends": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/keyformBlend"
+      }
+    },
+    "keyforms": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/keyform"
       }
     }
   },
@@ -583,198 +607,153 @@
           "type": "string",
           "minLength": 1
         },
-        "min": {
+        "parameterMin": {
           "type": "number"
         },
-        "max": {
+        "parameterMax": {
           "type": "number"
         },
-        "default": {
+        "parameterDefault": {
           "type": "number",
           "default": 0.0
         }
       },
       "required": [
         "name",
-        "min",
-        "max"
+        "parameterMax",
+        "parameterMin"
       ]
     },
-    "deformerRecord": {
+    "deformer": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "id": {
-          "type": "string",
-          "minLength": 1
+        "deformerId": {
+          "type": "string"
         },
         "parent": {
           "type": "string",
           "default": ""
         },
-        "order": {
+        "deformerOrder": {
           "type": "integer",
           "minimum": 0,
           "default": 0
         },
-        "kind": {
-          "type": "string",
-          "enum": ["warp", "rotation"]
-        },
-        "warp": {
-          "$ref": "#/$defs/warpLattice"
-        },
-        "rotation": {
-          "$ref": "#/$defs/rotationDeformer"
-        },
-        "keyformBlend": {
-          "$ref": "#/$defs/keyformBlend"
+        "deformerKind": {
+          "type": "string"
         }
       },
       "required": [
-        "id",
-        "kind"
+        "deformerId",
+        "deformerKind"
       ]
     },
     "warpLattice": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "rows": {
+        "warpRows": {
           "type": "integer",
-          "minimum": 2,
+          "minimum": 0,
           "default": 2
         },
-        "cols": {
+        "warpCols": {
           "type": "integer",
-          "minimum": 2,
+          "minimum": 0,
           "default": 2
         },
-        "minX": {
+        "warpMinX": {
           "type": "number"
         },
-        "minY": {
+        "warpMinY": {
           "type": "number"
         },
-        "maxX": {
+        "warpMaxX": {
           "type": "number"
         },
-        "maxY": {
+        "warpMaxY": {
           "type": "number"
         },
-        "controlPoints": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/deformerPoint"
-          }
+        "warpControlPoints": {
+          "type": "string",
+          "contentEncoding": "base64"
         }
       },
       "required": [
-        "minX",
-        "minY",
-        "maxX",
-        "maxY",
-        "controlPoints"
+        "warpControlPoints",
+        "warpMaxX",
+        "warpMaxY",
+        "warpMinX",
+        "warpMinY"
       ]
     },
     "rotationDeformer": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "pivotX": {
+        "rotationPivotX": {
           "type": "number"
         },
-        "pivotY": {
+        "rotationPivotY": {
           "type": "number"
         },
-        "angleDegrees": {
+        "rotationAngleDegrees": {
           "type": "number"
         },
-        "scaleX": {
+        "rotationScaleX": {
           "type": "number",
-          "exclusiveMinimum": 0,
           "default": 1.0
         },
-        "scaleY": {
+        "rotationScaleY": {
           "type": "number",
-          "exclusiveMinimum": 0,
           "default": 1.0
         },
-        "opacity": {
+        "rotationOpacity": {
           "type": "number",
-          "minimum": 0.0,
-          "maximum": 1.0,
           "default": 1.0
         }
       },
       "required": [
-        "pivotX",
-        "pivotY",
-        "angleDegrees"
-      ]
-    },
-    "deformerPoint": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "x": {
-          "type": "number"
-        },
-        "y": {
-          "type": "number"
-        }
-      },
-      "required": [
-        "x",
-        "y"
+        "rotationAngleDegrees",
+        "rotationPivotX",
+        "rotationPivotY"
       ]
     },
     "keyformBlend": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "axes": {
-          "type": "array",
-          "minItems": 1,
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
+        "blendValueCount": {
+          "type": "integer",
+          "minimum": 0
         },
-        "keyforms": {
-          "type": "array",
-          "minItems": 1,
-          "items": {
-            "$ref": "#/$defs/keyform"
-          }
+        "blendAxes": {
+          "type": "string",
+          "contentEncoding": "base64"
         }
       },
       "required": [
-        "axes",
-        "keyforms"
+        "blendAxes",
+        "blendValueCount"
       ]
     },
     "keyform": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "coordinates": {
-          "type": "object",
-          "additionalProperties": {
-            "type": "number"
-          }
+        "blendCoordinates": {
+          "type": "string",
+          "contentEncoding": "base64"
         },
-        "values": {
-          "type": "array",
-          "minItems": 1,
-          "items": {
-            "type": "number"
-          }
+        "blendValues": {
+          "type": "string",
+          "contentEncoding": "base64"
         }
       },
       "required": [
-        "coordinates",
-        "values"
+        "blendCoordinates",
+        "blendValues"
       ]
     }
   }

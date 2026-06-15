@@ -178,6 +178,64 @@ objectDefaults:
   - object: pathAttachment
     ownerBead: bony-8gs
     properties: {}
+  - object: parameter
+    ownerBead: bony-rmg
+    properties:
+      parameterDefault:
+        value: 0.0
+        omitWhenDefault: true
+        applyOnLoad: true
+        doc: Parameter default value; 0.0 is omitted from the BNB stream.
+  - object: deformer
+    ownerBead: bony-rmg
+    properties:
+      parent:
+        value: ""
+        omitWhenDefault: true
+        applyOnLoad: true
+        doc: Empty string denotes a root deformer with no parent.
+      deformerOrder:
+        value: 0
+        omitWhenDefault: true
+        applyOnLoad: true
+        doc: Global draw order defaults to 0.
+  - object: warpLattice
+    ownerBead: bony-rmg
+    properties:
+      warpRows:
+        value: 2
+        omitWhenDefault: true
+        applyOnLoad: true
+        doc: Warp lattice row count defaults to 2.
+      warpCols:
+        value: 2
+        omitWhenDefault: true
+        applyOnLoad: true
+        doc: Warp lattice column count defaults to 2.
+  - object: rotationDeformer
+    ownerBead: bony-rmg
+    properties:
+      rotationScaleX:
+        value: 1.0
+        omitWhenDefault: true
+        applyOnLoad: true
+        doc: Rotation scale X defaults to 1.0.
+      rotationScaleY:
+        value: 1.0
+        omitWhenDefault: true
+        applyOnLoad: true
+        doc: Rotation scale Y defaults to 1.0.
+      rotationOpacity:
+        value: 1.0
+        omitWhenDefault: true
+        applyOnLoad: true
+        doc: Rotation opacity defaults to 1.0 (fully opaque).
+  - object: keyformBlend
+    ownerBead: bony-rmg
+    properties: {}
+  - object: keyform
+    ownerBead: bony-rmg
+    properties: {}
 
 requiredProperties:
   - object: skeleton
@@ -260,3 +318,71 @@ requiredProperties:
     property: p3y
     reason: Cubic path attachments need a second endpoint y coordinate.
     ownerBead: bony-8gs
+  - object: parameter
+    property: name
+    reason: Parameters are looked up by stable name at runtime.
+    ownerBead: bony-rmg
+  - object: parameter
+    property: parameterMin
+    reason: Parameter axis needs a minimum bound for clamping and blending.
+    ownerBead: bony-rmg
+  - object: parameter
+    property: parameterMax
+    reason: Parameter axis needs a maximum bound for clamping and blending.
+    ownerBead: bony-rmg
+  - object: deformer
+    property: deformerId
+    reason: Deformers are referenced by stable unique id.
+    ownerBead: bony-rmg
+  - object: deformer
+    property: deformerKind
+    reason: Deformer kind discriminant is required to select the correct geometry record.
+    ownerBead: bony-rmg
+  - object: warpLattice
+    property: warpMinX
+    reason: Warp lattice needs bounding-box for UV coordinate computation.
+    ownerBead: bony-rmg
+  - object: warpLattice
+    property: warpMinY
+    reason: Warp lattice needs bounding-box for UV coordinate computation.
+    ownerBead: bony-rmg
+  - object: warpLattice
+    property: warpMaxX
+    reason: Warp lattice needs bounding-box for UV coordinate computation.
+    ownerBead: bony-rmg
+  - object: warpLattice
+    property: warpMaxY
+    reason: Warp lattice needs bounding-box for UV coordinate computation.
+    ownerBead: bony-rmg
+  - object: warpLattice
+    property: warpControlPoints
+    reason: Warp lattice needs its control point array for deformation.
+    ownerBead: bony-rmg
+  - object: rotationDeformer
+    property: rotationPivotX
+    reason: Rotation deformer needs a pivot point for transform computation.
+    ownerBead: bony-rmg
+  - object: rotationDeformer
+    property: rotationPivotY
+    reason: Rotation deformer needs a pivot point for transform computation.
+    ownerBead: bony-rmg
+  - object: rotationDeformer
+    property: rotationAngleDegrees
+    reason: Rotation deformer needs an angle for transform computation.
+    ownerBead: bony-rmg
+  - object: keyformBlend
+    property: blendValueCount
+    reason: Keyform blend needs a value count to parse each keyform's packed values.
+    ownerBead: bony-rmg
+  - object: keyformBlend
+    property: blendAxes
+    reason: Keyform blend needs axis references to resolve parameter coordinates.
+    ownerBead: bony-rmg
+  - object: keyform
+    property: blendCoordinates
+    reason: Keyform needs packed coordinate values for multilinear interpolation.
+    ownerBead: bony-rmg
+  - object: keyform
+    property: blendValues
+    reason: Keyform needs packed deformed values for blending.
+    ownerBead: bony-rmg
