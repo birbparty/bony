@@ -5043,3 +5043,283 @@ spec "bony package":
       raisesBonyLoadError(proc() =
         discard loadBonyBnb(buildDoubleDeformerHeader())
       , schemaViolation)
+
+  it "loads M8 animations from JSON":
+    let data = loadBonyJson("""
+      {
+        "skeleton": {"name": "anim-test"},
+        "bones": [{"name": "root"}],
+        "slots": [],
+        "animations": [
+          {
+            "name": "idle",
+            "boneTimelines": [
+              {
+                "bone": "root",
+                "property": "rotate",
+                "keyframes": [
+                  {"t": 0.0, "value": 0.0},
+                  {"t": 1.0, "value": 10.0}
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    """)
+    then:
+      data.header.name == "anim-test"
+      data.bones.len == 1
+
+  it "loads M8 state machine from JSON":
+    let machines = loadBonyJsonStateMachines("""
+      {
+        "skeleton": {"name": "sm-test"},
+        "bones": [{"name": "root"}],
+        "slots": [],
+        "animations": [
+          {"name": "idle", "boneTimelines": [{"bone": "root", "property": "rotate", "keyframes": [{"t": 0.0, "value": 0.0}]}]},
+          {"name": "wave", "boneTimelines": [{"bone": "root", "property": "rotate", "keyframes": [{"t": 0.0, "value": 90.0}]}]}
+        ],
+        "stateMachines": [
+          {
+            "name": "gesture",
+            "inputs": [
+              {"name": "wave", "kind": "bool"},
+              {"name": "speed", "kind": "number", "default": 0.5},
+              {"name": "jump", "kind": "trigger"}
+            ],
+            "layers": [
+              {
+                "name": "body",
+                "states": [
+                  {"name": "idle", "kind": "clip", "clip": "idle", "loop": true},
+                  {"name": "wave", "kind": "clip", "clip": "wave"}
+                ],
+                "initialState": "idle",
+                "transitions": [
+                  {
+                    "fromState": "idle",
+                    "toState": "wave",
+                    "conditions": [{"input": "wave", "kind": "boolEquals", "value": true}]
+                  }
+                ]
+              }
+            ],
+            "listeners": [
+              {"name": "wave_enter", "kind": "stateEnter", "layer": "body", "toState": "wave"},
+              {"name": "idle_exit", "kind": "stateExit", "layer": "body", "fromState": "idle"},
+              {"name": "idle_to_wave", "kind": "transition", "layer": "body", "fromState": "idle", "toState": "wave"}
+            ]
+          }
+        ]
+      }
+    """)
+    then:
+      machines.len == 1
+      machines[0].name == "gesture"
+      machines[0].inputs.len == 3
+      machines[0].inputs[0].name == "wave"
+      machines[0].inputs[0].kind == boolInput
+      machines[0].inputs[1].name == "speed"
+      machines[0].inputs[1].kind == numberInput
+      machines[0].inputs[2].name == "jump"
+      machines[0].inputs[2].kind == triggerInput
+      machines[0].layers.len == 1
+      machines[0].layers[0].name == "body"
+      machines[0].layers[0].states.len == 2
+      machines[0].layers[0].initialState == "idle"
+      machines[0].layers[0].transitions.len == 1
+      machines[0].listeners.len == 3
+
+  it "loads M8 blend1d state from JSON":
+    let machines = loadBonyJsonStateMachines("""
+      {
+        "skeleton": {"name": "blend-test"},
+        "bones": [{"name": "root"}],
+        "slots": [],
+        "animations": [
+          {"name": "walk", "boneTimelines": [{"bone": "root", "property": "rotate", "keyframes": [{"t": 0.0, "value": 5.0}]}]},
+          {"name": "run",  "boneTimelines": [{"bone": "root", "property": "rotate", "keyframes": [{"t": 0.0, "value": 15.0}]}]}
+        ],
+        "stateMachines": [
+          {
+            "name": "move",
+            "inputs": [{"name": "speed", "kind": "number", "default": 0.0}],
+            "layers": [
+              {
+                "name": "body",
+                "states": [
+                  {
+                    "name": "locomotion",
+                    "kind": "blend1d",
+                    "blendInput": "speed",
+                    "blendClips": [
+                      {"clip": "walk", "value": 0.5, "loop": true},
+                      {"clip": "run",  "value": 1.0, "loop": true}
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    """)
+    then:
+      machines.len == 1
+      machines[0].layers[0].states[0].kind == blend1DState
+      machines[0].layers[0].states[0].blendClips.len == 2
+
+  it "loads m8_rig.bony conformance asset":
+    let data = loadBonyJson(readFile("../conformance/assets/m8_rig.bony"))
+    let machines = loadBonyJsonStateMachines(readFile("../conformance/assets/m8_rig.bony"))
+    then:
+      data.header.name == "m8-rig"
+      data.bones.len == 2
+      data.slots.len == 1
+      data.regions.len == 2
+      machines.len == 1
+      machines[0].name == "gesture"
+      machines[0].inputs.len == 3
+      machines[0].layers.len == 2
+      machines[0].layers[0].name == "body"
+      machines[0].layers[0].states.len == 2
+      machines[0].layers[1].name == "face"
+      machines[0].listeners.len == 3
+
+  it "rejects M8 state machine with unknown clip reference":
+    const badClipJson = """
+      {
+        "skeleton": {"name": "bad-clip"},
+        "bones": [{"name": "root"}],
+        "slots": [],
+        "animations": [],
+        "stateMachines": [
+          {
+            "name": "test",
+            "layers": [
+              {
+                "name": "body",
+                "states": [
+                  {"name": "idle", "kind": "clip", "clip": "nonexistent"}
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    """
+    then:
+      raisesBonyLoadError(proc() =
+        discard loadBonyJsonStateMachines(badClipJson)
+      , unknownRequiredReference)
+
+  it "rejects M8 animation with unknown bone reference":
+    then:
+      raisesBonyLoadError("""
+        {
+          "skeleton": {"name": "bad-bone"},
+          "bones": [{"name": "root"}],
+          "slots": [],
+          "animations": [
+            {
+              "name": "anim",
+              "boneTimelines": [
+                {
+                  "bone": "nonexistent_bone",
+                  "property": "rotate",
+                  "keyframes": [{"t": 0.0, "value": 0.0}]
+                }
+              ]
+            }
+          ]
+        }
+      """, unknownRequiredReference)
+
+  it "rejects M8 state machine kind with invalid value":
+    const badKindJson = """
+      {
+        "skeleton": {"name": "bad-kind"},
+        "bones": [{"name": "root"}],
+        "slots": [],
+        "animations": [
+          {"name": "idle", "boneTimelines": [{"bone": "root", "property": "rotate", "keyframes": [{"t": 0.0, "value": 0.0}]}]}
+        ],
+        "stateMachines": [
+          {
+            "name": "test",
+            "layers": [
+              {
+                "name": "body",
+                "states": [
+                  {"name": "idle", "kind": "badkind", "clip": "idle"}
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    """
+    then:
+      raisesBonyLoadError(proc() =
+        discard loadBonyJsonStateMachines(badKindJson)
+      , schemaViolation)
+
+  it "rejects M8 animation keyframe curve with non-string type":
+    then:
+      raisesBonyLoadError("""
+        {
+          "skeleton": {"name": "bad-curve"},
+          "bones": [{"name": "root"}],
+          "slots": [],
+          "animations": [
+            {
+              "name": "anim",
+              "boneTimelines": [
+                {
+                  "bone": "root",
+                  "property": "rotate",
+                  "keyframes": [{"t": 0.0, "value": 0.0, "curve": 42}]
+                }
+              ]
+            }
+          ]
+        }
+      """, schemaViolation)
+
+  it "rejects duplicate M8 state machine names":
+    const dupMachineJson = """
+      {
+        "skeleton": {"name": "dup-machine"},
+        "bones": [{"name": "root"}],
+        "slots": [],
+        "animations": [
+          {"name": "idle", "boneTimelines": [{"bone": "root", "property": "rotate", "keyframes": [{"t": 0.0, "value": 0.0}]}]}
+        ],
+        "stateMachines": [
+          {
+            "name": "gesture",
+            "layers": [
+              {
+                "name": "body",
+                "states": [{"name": "idle", "kind": "clip", "clip": "idle"}]
+              }
+            ]
+          },
+          {
+            "name": "gesture",
+            "layers": [
+              {
+                "name": "body",
+                "states": [{"name": "idle", "kind": "clip", "clip": "idle"}]
+              }
+            ]
+          }
+        ]
+      }
+    """
+    then:
+      raisesBonyLoadError(proc() =
+        discard loadBonyJsonStateMachines(dupMachineJson)
+      , duplicateKey)
