@@ -4,4 +4,5 @@ library;
 export 'src/generated/wire.dart';
 export 'src/loader.dart';
 export 'src/model.dart';
+export 'src/transform.dart';
 export 'src/version.dart';
