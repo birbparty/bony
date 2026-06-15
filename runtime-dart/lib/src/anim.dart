@@ -91,6 +91,29 @@ class _MixedScalar {
   double value;
 }
 
+/// A snapshot of sampled animation channel values, ready to apply to a skeleton.
+///
+/// **Scope (M3/M8 Dart port — scalar channels only)**
+///
+/// This Dart implementation is intentionally limited to bone-transform scalars.
+/// The Nim reference runtime (`anim/mixer.nim`) additionally tracks:
+///
+/// - `vectors`     — translate X+Y pairs (`MixedVector`)
+/// - `attachments` — slot attachment changes (`MixedAttachment`)
+/// - `inherits`    — bone inherit-mode keyframes (`MixedInherit`)
+/// - `colors`      — slot RGBA colour (`MixedColor`)
+/// - `colors2`     — slot two-colour (`MixedColor2`)
+/// - `sequences`   — slot sequence frame index (`MixedSequence`)
+///
+/// These channels are omitted here because:
+/// 1. The Dart model (`model.dart`) does not yet define [SlotTimeline],
+///    `ColorTimeline`, `InheritTimeline`, or `SequenceTimeline` types.
+/// 2. The current conformance asset (`m8_rig.bony`) is scalar-only, so all
+///    existing tests pass without the missing channels.
+///
+/// Extending [MixedPose] to full parity requires first adding the missing
+/// timeline types to the data model and loader — see the follow-up task
+/// `bony-m3x` (Dart: port non-scalar timeline channels to full Nim parity).
 class MixedPose {
   const MixedPose({required this.scalars});
   final List<({String bone, BoneTimelineKind kind, double value})> scalars;
