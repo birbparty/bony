@@ -4,6 +4,7 @@
 
 import 'dart:convert';
 import 'dart:typed_data' show Uint8List, ByteData, Endian;
+import 'deform.dart' show quantizeF32;
 import 'model.dart';
 
 // Throw FormatException with a clear message if the value is null or the
@@ -1001,7 +1002,7 @@ StateMachineData _parseStateMachine(Map<String, dynamic> j) {
         return StateMachineInput(
           name: iname,
           kind: StateMachineInputKind.number,
-          defaultNumber: (m['default'] as num?)?.toDouble() ?? 0.0,
+          defaultNumber: quantizeF32((m['default'] as num?)?.toDouble() ?? 0.0),
         );
       case 'trigger':
         return StateMachineInput(name: iname, kind: StateMachineInputKind.trigger);
@@ -1034,7 +1035,7 @@ StateMachineData _parseStateMachine(Map<String, dynamic> j) {
           final bcm = bc as Map<String, dynamic>;
           return StateMachineBlendClip(
             clipName: _required<String>(bcm['clip'], 'blendClip.clip'),
-            value: _required<num>(bcm['value'], 'blendClip.value').toDouble(),
+            value: quantizeF32(_required<num>(bcm['value'], 'blendClip.value').toDouble()),
             loop: (bcm['loop'] as bool?) ?? false,
           );
         }).toList()
@@ -1074,31 +1075,31 @@ StateMachineData _parseStateMachine(Map<String, dynamic> j) {
             return StateMachineCondition(
               input: cinput,
               kind: StateMachineConditionKind.numberEquals,
-              numberValue: _required<num>(cm['value'], 'condition.value').toDouble(),
+              numberValue: quantizeF32(_required<num>(cm['value'], 'condition.value').toDouble()),
             );
           case 'numberGreater':
             return StateMachineCondition(
               input: cinput,
               kind: StateMachineConditionKind.numberGreater,
-              numberValue: _required<num>(cm['value'], 'condition.value').toDouble(),
+              numberValue: quantizeF32(_required<num>(cm['value'], 'condition.value').toDouble()),
             );
           case 'numberGreaterOrEqual':
             return StateMachineCondition(
               input: cinput,
               kind: StateMachineConditionKind.numberGreaterOrEqual,
-              numberValue: _required<num>(cm['value'], 'condition.value').toDouble(),
+              numberValue: quantizeF32(_required<num>(cm['value'], 'condition.value').toDouble()),
             );
           case 'numberLess':
             return StateMachineCondition(
               input: cinput,
               kind: StateMachineConditionKind.numberLess,
-              numberValue: _required<num>(cm['value'], 'condition.value').toDouble(),
+              numberValue: quantizeF32(_required<num>(cm['value'], 'condition.value').toDouble()),
             );
           case 'numberLessOrEqual':
             return StateMachineCondition(
               input: cinput,
               kind: StateMachineConditionKind.numberLessOrEqual,
-              numberValue: _required<num>(cm['value'], 'condition.value').toDouble(),
+              numberValue: quantizeF32(_required<num>(cm['value'], 'condition.value').toDouble()),
             );
           case 'triggerSet':
             return StateMachineCondition(

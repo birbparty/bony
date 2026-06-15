@@ -141,7 +141,7 @@ void main() {
     test('setNumberInput speed=0.7', () {
       final rt = initStateMachineRuntime(sm);
       rt.setNumberInput('speed', 0.7);
-      expect(rt.getNumberInput('speed'), 0.7);
+      expect(rt.getNumberInput('speed'), closeTo(0.7, 1e-6));
     });
 
     test('fireTrigger consumes after transition', () {
