@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bony.local/spec/bony-auto-weights-output.schema.json",
+  "title": "bony auto-weights output",
+  "description": "Output of 'bony auto-weights'. Per-vertex weighted influences ready for use as MeshInfluence data in bony skinned mesh attachments.",
+  "type": "object",
+  "required": ["format", "vertices"],
+  "additionalProperties": false,
+  "properties": {
+    "format": {
+      "type": "string",
+      "const": "bony.auto-weights-output.v1"
+    },
+    "vertices": {
+      "type": "array",
+      "description": "One entry per input vertex, in the same order.",
+      "items": {
+        "type": "object",
+        "required": ["influences"],
+        "additionalProperties": false,
+        "properties": {
+          "influences": {
+            "type": "array",
+            "minItems": 1,
+            "description": "Bone influences sorted by weight descending. Weights sum to 1.0.",
+            "items": {
+              "type": "object",
+              "required": ["bone", "bindX", "bindY", "weight"],
+              "additionalProperties": false,
+              "properties": {
+                "bone": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Bone name."
+                },
+                "bindX": {
+                  "type": "number",
+                  "description": "Vertex X offset from bone world position at bind pose (worldVertexX - boneWorldX)."
+                },
+                "bindY": {
+                  "type": "number",
+                  "description": "Vertex Y offset from bone world position at bind pose (worldVertexY - boneWorldY)."
+                },
+                "weight": {
+                  "type": "number",
+                  "minimum": 0.0,
+                  "maximum": 1.0,
+                  "description": "Normalized skin weight (0..1). All influences for a vertex sum to 1.0."
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
