@@ -144,6 +144,28 @@ proc loadInputSkeleton(path: string): SkeletonData =
     loadBonyJson(readFile(path))
 
 
+proc applyViewportTransform(batches: seq[DrawBatch]; width, height: int): seq[DrawBatch] =
+  # Translate world-space vertices to pixel space for `bony play` image output.
+  # Transform: screen_x = world_x + width/2; screen_y = height/2 - world_y.
+  # This places the skeleton origin at the viewport centre and flips y (world is
+  # y-up; pixels are y-down). Rigs with geometry within ±width/2 and ±height/2
+  # of the origin will be visible; larger or off-centre rigs may still clip.
+  # For odd dimensions, width/2 and height/2 are 0.5-fractional (e.g. 127.5 for
+  # width=255), which is harmless — vertices land at half-pixel offsets and the
+  # rasterizer rounds to the nearest integer via the normal fill rule.
+  #
+  # INVARIANT: only `vertices` are rewritten to screen space; `batch.world` and
+  # `clipId` remain in world space and must not be mixed with the transformed
+  # vertices by any future consumer.
+  let cx = float64(width) * 0.5
+  let cy = float64(height) * 0.5
+  result = batches
+  for i in 0 ..< result.len:
+    for j in 0 ..< result[i].vertices.len:
+      result[i].vertices[j].x = result[i].vertices[j].x + cx
+      result[i].vertices[j].y = cy - result[i].vertices[j].y
+
+
 proc validateKeys(node: JsonNode; allowed: openArray[string]; target: string) =
   if node.kind != JObject:
     raiseLottie("schemaViolation", target, "object", "expected object")
@@ -1299,7 +1321,8 @@ proc renderSetupPose(args: seq[string]) =
   rejectStateMachineArgs(stateMachine, inputScript)
   requireSetupPoseTime(time)
   let data = loadInputSkeleton(inputPath)
-  let image = renderSoftware(buildDrawBatches(data), width, height)
+  let batches = applyViewportTransform(buildDrawBatches(data), width, height)
+  let image = renderSoftware(batches, width, height)
   image.writeFile(outputPath)
 
 

@@ -1613,6 +1613,57 @@ spec "bony package":
 
     removeFile(path)
 
+  it "viewport transform maps world origin to screen centre and flips y":
+    # Pin the math used by `applyViewportTransform` (cli/bony_cli.nim) so a
+    # future y-flip sign regression cannot hide behind a regenerated golden.
+    # Inlined here because the proc lives in the CLI module, not the library.
+    # Mapping: screen_x = world_x + cx;  screen_y = cy - world_y
+    let w = 256
+    let h = 256
+    let cx = float64(w) * 0.5  # 128.0
+    let cy = float64(h) * 0.5  # 128.0
+
+    # Rig A: root at world (0, 0) with a 4×4 region.
+    # After transform the region covers screen x=[126,130], y=[126,130].
+    let rigA = skeletonData(
+      skeletonHeader("vp-test-origin", "0.1.0"),
+      @[boneData("root", "", localTransform())],
+      @[slotData("body", "root", "sq")],
+      @[regionAttachment("sq", 4.0, 4.0)],
+    )
+    var batchesA = buildDrawBatches(rigA)
+    for i in 0 ..< batchesA.len:
+      for j in 0 ..< batchesA[i].vertices.len:
+        batchesA[i].vertices[j].x += cx
+        batchesA[i].vertices[j].y = cy - batchesA[i].vertices[j].y
+    let imgA = renderSoftware(batchesA, w, h)
+
+    # Rig B: child bone at world (0, -60) — same geometry as m8 head.
+    # After transform the region centre lands at screen (128, 188).
+    let rigB = skeletonData(
+      skeletonHeader("vp-test-neg-y", "0.1.0"),
+      @[
+        boneData("root", "", localTransform()),
+        boneData("head", "root", localTransform(y = -60.0)),
+      ],
+      @[slotData("body", "head", "sq")],
+      @[regionAttachment("sq", 4.0, 4.0)],
+    )
+    var batchesB = buildDrawBatches(rigB)
+    for i in 0 ..< batchesB.len:
+      for j in 0 ..< batchesB[i].vertices.len:
+        batchesB[i].vertices[j].x += cx
+        batchesB[i].vertices[j].y = cy - batchesB[i].vertices[j].y
+    let imgB = renderSoftware(batchesB, w, h)
+
+    then:
+      # World (0, 0) → screen (128, 128): visible in rig A
+      imgA[128, 128].a == 255
+      # World (0, -60) → screen (128, 188): visible in rig B
+      imgB[128, 188].a == 255
+      # World (0, +60) → screen (128, 68): empty in rig B (bone is at y=-60, not +60)
+      imgB[128, 68].a == 0
+
   it "runs the CLI harness core commands":
     let cliPath = "/tmp/bony_cli_harness_smoke"
     let assetPath = "/tmp/bony_cli_harness_asset.bony"
