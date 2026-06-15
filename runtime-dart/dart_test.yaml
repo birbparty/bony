@@ -1,0 +1,5 @@
+# dart_test.yaml — configure `dart test` to skip Flutter-specific test files.
+# Flutter tests (under test/flutter/) require `flutter test` to run because they
+# depend on dart:ui and the Flutter test harness.
+exclude:
+  - test/flutter/**
