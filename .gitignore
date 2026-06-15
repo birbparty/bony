@@ -4,6 +4,8 @@ htmldocs/
 runtime-dart/.dart_tool/
 runtime-nim/tests/test_smoke
 runtime-nim/tests/*.exe
+scripts/gen_compat_fixture
+scripts/*.exe
 
 # Beads / Dolt files (added by bd init)
 .dolt/
