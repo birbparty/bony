@@ -204,6 +204,7 @@ def main():
             for asset_path in bnb_files:
                 stem = os.path.splitext(os.path.basename(asset_path))[0]
                 golden_path = os.path.join(args.goldens_dir, f"{stem}_t0.json")
+                # _bnb_ infix avoids tmpdir collision with same-stem .bony output
                 actual_path = os.path.join(tmpdir, f"{stem}_bnb_actual.json")
                 label = f"{stem}.bnb"
                 outcome = run_golden_check(bony_bin, asset_path, golden_path, actual_path, label)
