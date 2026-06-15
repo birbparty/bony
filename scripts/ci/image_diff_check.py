@@ -82,6 +82,12 @@ def run_image_check(bony_bin, asset_path, golden_path, actual_path, label, width
         actual = Image.open(actual_path).convert("RGBA")
         golden = Image.open(golden_path).convert("RGBA")
 
+        # Guard: an all-transparent golden would pass any actual render vacuously.
+        golden_extrema = golden.getextrema()
+        if golden_extrema[3][1] == 0:
+            print(f"FAIL {label}: committed golden is all-transparent (alpha channel max=0)")
+            return "fail"
+
         if actual.size != golden.size:
             print(
                 f"FAIL {label}: size mismatch actual={actual.size} golden={golden.size}"
