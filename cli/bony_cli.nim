@@ -1,6 +1,6 @@
 ## Headless bony CLI harness core.
 
-import std/[json, math, os, parseutils, sets, sequtils, strutils, tables]
+import std/[json, math, os, parseutils, sets, strutils, tables]
 
 import bony
 import pixie
@@ -676,7 +676,12 @@ proc parseDbDisplay(node: JsonNode; index: int; slotName: string): DbDisplay =
   if node.hasKey("transform"):
     if node["transform"].kind != JObject:
       raiseDb("schemaViolation", target, "transform", "expected transform object")
-    result.transform = parseDbTransform(node["transform"], target & ".transform")
+    let t = parseDbTransform(node["transform"], target & ".transform")
+    if t.x != 0.0 or t.y != 0.0 or t.skX != 0.0 or t.skY != 0.0 or
+       t.scX != 1.0 or t.scY != 1.0:
+      raiseDb("unsupportedFeature", target, "displayTransform",
+        "non-identity display transform not supported in Tier 1")
+    result.transform = t
   else:
     result.transform = DbTransform(scX: 1.0, scY: 1.0)
 
@@ -774,25 +779,22 @@ proc validateAndSortBones(bones: seq[DbBoneEntry]; armatureName: string): seq[Db
       current = parentMap.getOrDefault(current, "")
 
   # Topological sort: emit bones in parent-before-child order for bony.
-  var nameToEntry = initTable[string, DbBoneEntry]()
-  for bone in bones:
-    nameToEntry[bone.name] = bone
-  var result: seq[DbBoneEntry] = @[]
+  var ordered: seq[DbBoneEntry] = @[]
   var emitted = initHashSet[string]()
-  var pending = bones.toSeq()
+  var pending = bones
   while pending.len > 0:
     let before = pending.len
     var next: seq[DbBoneEntry] = @[]
     for bone in pending:
       if bone.parent.len == 0 or bone.parent in emitted:
-        result.add(bone)
+        ordered.add(bone)
         emitted.incl(bone.name)
       else:
         next.add(bone)
     pending = next
     if pending.len == before:
       raiseDb("cycleDetected", armatureName, "parent", "bone ordering cycle detected")
-  result
+  ordered
 
 
 proc parseDbArmature(node: JsonNode; index: int): DbArmature =
@@ -935,23 +937,18 @@ proc resolveImageDims(displayName, assetsDir: string): tuple[w, h: float64] =
 proc armatureToSkeletonData(
   armature: DbArmature;
   assetsDir: string;
-  setupOnly: bool;
 ): SkeletonData =
   var bones: seq[BoneData] = @[]
   var slots: seq[SlotData] = @[]
   var regions: seq[RegionAttachment] = @[]
   var regionNames = initHashSet[string]()
+  var regionDims = initTable[string, tuple[w, h: float64]]()
 
   # Build bones in topological order (already sorted by validateAndSortBones).
   for bone in armature.bones:
     bones.add boneData(bone.name, bone.parent, dbTransformToLocal(bone.transform))
 
-  # Collect bone names for slot parent validation.
-  var boneNames = initHashSet[string]()
-  for bone in armature.bones:
-    boneNames.incl(bone.name)
-
-  # Find default skin (name == "" or first skin).
+  # Find default skin (empty name preferred, else first skin).
   var defaultSkin: DbSkin
   var hasSkin = false
   for skin in armature.skins:
@@ -972,11 +969,11 @@ proc armatureToSkeletonData(
     var attachmentName = ""
     if skinSlotMap.hasKey(dbSlot.name):
       let skinEntry = skinSlotMap[dbSlot.name]
-      let di = dbSlot.displayIndex
-      if di >= skinEntry.displays.len:
-        raiseDb("schemaViolation", dbSlot.name, "displayIndex",
-          "displayIndex " & $di & " out of range (display count: " & $skinEntry.displays.len & ")")
       if skinEntry.displays.len > 0:
+        let di = dbSlot.displayIndex
+        if di >= skinEntry.displays.len:
+          raiseDb("schemaViolation", dbSlot.name, "displayIndex",
+            "displayIndex " & $di & " out of range (display count: " & $skinEntry.displays.len & ")")
         let display = skinEntry.displays[di]
         attachmentName = display.name
         if attachmentName notin regionNames:
@@ -986,10 +983,17 @@ proc armatureToSkeletonData(
               "--assets-dir required to resolve image: " & display.name)
           else:
             (w, h) = resolveImageDims(display.name, assetsDir)
-          # Apply display transform via skew decomposition for attachment pivot.
-          # Region attachment name must be unique; reuse if already added.
           regions.add regionAttachment(display.name, w, h)
           regionNames.incl(display.name)
+          regionDims[display.name] = (w, h)
+        else:
+          let prev = regionDims[display.name]
+          var w, h: float64
+          if assetsDir.len > 0:
+            (w, h) = resolveImageDims(display.name, assetsDir)
+          if assetsDir.len > 0 and (w, h) != prev:
+            raiseDb("schemaViolation", display.name, "regionDims",
+              "display name reused with conflicting dimensions: " & display.name)
     slots.add slotData(dbSlot.name, dbSlot.parent, attachmentName)
 
   let headerName = armature.name & " (DragonBones import)"
@@ -1034,7 +1038,7 @@ proc importDragonbones(args: seq[string]) =
   let armature = parseDbSkeleton(text)
   if setupOnly and armature.hasAnimation:
     stderr.writeLine("bony: --setup-only: animation suppressed for " & armature.name)
-  let data = armatureToSkeletonData(armature, assetsDir, setupOnly)
+  let data = armatureToSkeletonData(armature, assetsDir)
   writeFile(outputPath, toBonyJson(data))
 
 

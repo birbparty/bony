@@ -1813,8 +1813,9 @@ spec "bony package":
     let dbRoundTripPath = "/tmp/bony_cli_harness_db_roundtrip.bony"
     let dbRejectMeshPath = "/tmp/bony_cli_harness_db_reject_mesh.json"
     let dbRejectBadParentPath = "/tmp/bony_cli_harness_db_reject_parent.json"
+    let dbRejectDisplayXformPath = "/tmp/bony_cli_harness_db_reject_disp_xform.json"
     for path in [cliPath, skePath, dbOutPath, dbBnbPath, dbRoundTripPath,
-                 dbRejectMeshPath, dbRejectBadParentPath]:
+                 dbRejectMeshPath, dbRejectBadParentPath, dbRejectDisplayXformPath]:
       if fileExists(path):
         removeFile(path)
 
@@ -1896,6 +1897,31 @@ spec "bony package":
       ["import-dragonbones", dbRejectBadParentPath, "/tmp/bony_cli_harness_db_bad.bony", "--setup-only"],
     )
 
+    # Reject: non-identity display transform (unsupportedFeature).
+    writeFile(dbRejectDisplayXformPath, """{
+  "version": "5.6.300.1",
+  "name": "db_disp_xform",
+  "armature": [
+    {
+      "type": "Armature",
+      "frameRate": 24,
+      "name": "xform_arm",
+      "bone": [{"name": "root"}],
+      "slot": [{"name": "slot1", "parent": "root"}],
+      "skin": [{"name": "", "slot": [
+        {"name": "slot1", "display": [
+          {"name": "img", "type": "image", "transform": {"x": 10, "y": 5}}
+        ]}
+      ]}]
+    }
+  ]
+}
+""")
+    let rejectedDisplayXform = runProcess(
+      cliPath,
+      ["import-dragonbones", dbRejectDisplayXformPath, "/tmp/bony_cli_harness_db_bad.bony", "--setup-only"],
+    )
+
     then:
       compileResult.exitCode == 0
       importDb.exitCode == 0
@@ -1922,9 +1948,13 @@ spec "bony package":
       rejectedBadParent.output.contains("invalidReference")
       not rejectedMesh.output.contains("Traceback")
       not rejectedBadParent.output.contains("Traceback")
+      rejectedDisplayXform.exitCode != 0
+      rejectedDisplayXform.output.contains("unsupportedFeature")
+      rejectedDisplayXform.output.contains("capability=displayTransform")
+      not rejectedDisplayXform.output.contains("Traceback")
 
     for path in [cliPath, skePath, dbOutPath, dbBnbPath, dbRoundTripPath,
-                 dbRejectMeshPath, dbRejectBadParentPath,
+                 dbRejectMeshPath, dbRejectBadParentPath, dbRejectDisplayXformPath,
                  "/tmp/bony_cli_harness_db_bad.bony"]:
       if fileExists(path):
         removeFile(path)
