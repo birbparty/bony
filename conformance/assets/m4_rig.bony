@@ -1,0 +1,27 @@
+{
+  "skeleton": {
+    "name": "m4-rig",
+    "version": "1.0.0"
+  },
+  "bones": [
+    {"name": "root"},
+    {"name": "upper_arm", "parent": "root", "x": -20, "y": -10, "rotation": -15},
+    {"name": "lower_arm", "parent": "upper_arm", "y": -50, "rotation": 10}
+  ],
+  "slots": [
+    {"name": "body_slot", "bone": "root", "attachment": "body"},
+    {"name": "upper_arm_slot", "bone": "upper_arm", "attachment": "upper_arm"},
+    {"name": "lower_arm_slot", "bone": "lower_arm", "attachment": "lower_arm"},
+    {"name": "fx_slot", "bone": "root", "attachment": "fx_frame_0"}
+  ],
+  "regions": [
+    {"name": "body", "width": 60, "height": 100},
+    {"name": "upper_arm", "width": 20, "height": 50},
+    {"name": "lower_arm", "width": 18, "height": 45},
+    {"name": "fx_frame_0", "width": 40, "height": 40},
+    {"name": "fx_frame_1", "width": 40, "height": 40},
+    {"name": "fx_frame_2", "width": 40, "height": 40},
+    {"name": "fx_frame_3", "width": 40, "height": 40},
+    {"name": "fx_frame_4", "width": 40, "height": 40}
+  ]
+}
