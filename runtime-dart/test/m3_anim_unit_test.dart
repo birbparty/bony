@@ -245,5 +245,68 @@ void main() {
       final walk = data.animations.firstWhere((c) => c.name == 'walk');
       _expectClose(walk.duration, 0.5, 'walk.duration');
     });
+
+    test('bezier keyframe loads with correct curve kind', () {
+      final data = loadBonyJson('{"skeleton":{"name":"bz"},"bones":[{"name":"root"}],'
+          '"animations":[{"name":"a","boneTimelines":[{"bone":"root","property":"rotate",'
+          '"keyframes":[{"t":0.0,"value":0.0},'
+          '{"t":1.0,"value":90.0,"curve":"bezier",'
+          '"c1x":0.25,"c1y":0.0,"c2x":0.75,"c2y":1.0}]}]}]}');
+      final kf = data.animations[0].boneTimelines[0].keys[1];
+      expect(kf.curve.kind, TimelineCurveKind.bezier);
+      _expectClose(kf.curve.c1x, quantizeF32(0.25), 'c1x');
+      _expectClose(kf.curve.c1y, quantizeF32(0.0), 'c1y');
+      _expectClose(kf.curve.c2x, quantizeF32(0.75), 'c2x');
+      _expectClose(kf.curve.c2y, quantizeF32(1.0), 'c2y');
+    });
+
+    test('bezier keyframe evaluates correctly at midpoint', () {
+      // Symmetric ease-in-out: c1=(0.25,0), c2=(0.75,1) should be close to
+      // linear at t=0.5 (the curve is symmetric, so output ≈ 0.5).
+      final data = loadBonyJson('{"skeleton":{"name":"bz"},"bones":[{"name":"root"}],'
+          '"animations":[{"name":"a","boneTimelines":[{"bone":"root","property":"rotate",'
+          '"keyframes":[{"t":0.0,"value":0.0},'
+          '{"t":1.0,"value":100.0,"curve":"bezier",'
+          '"c1x":0.25,"c1y":0.0,"c2x":0.75,"c2y":1.0}]}]}]}');
+      final anim = AnimationState(data);
+      anim.setAnimation(0, data.animations[0]);
+      anim.tracks[0].current!.time = 0.5;
+      final pose = anim.sample();
+      // Output should be close to 50 (near-linear for symmetric ease).
+      expect(pose.scalars.first.value, closeTo(50.0, 5.0));
+    });
+
+    test('bezier keyframe rejects missing c1x', () {
+      expect(
+        () => loadBonyJson('{"skeleton":{"name":"bz"},"bones":[{"name":"root"}],'
+            '"animations":[{"name":"a","boneTimelines":[{"bone":"root","property":"rotate",'
+            '"keyframes":[{"t":0.0,"value":0.0},'
+            '{"t":1.0,"value":90.0,"curve":"bezier",'
+            '"c1y":0.0,"c2x":0.75,"c2y":1.0}]}]}]}'),
+        throwsFormatException,
+      );
+    });
+
+    test('bezier keyframe rejects c1x out of range', () {
+      expect(
+        () => loadBonyJson('{"skeleton":{"name":"bz"},"bones":[{"name":"root"}],'
+            '"animations":[{"name":"a","boneTimelines":[{"bone":"root","property":"rotate",'
+            '"keyframes":[{"t":0.0,"value":0.0},'
+            '{"t":1.0,"value":90.0,"curve":"bezier",'
+            '"c1x":-0.1,"c1y":0.0,"c2x":0.75,"c2y":1.0}]}]}]}'),
+        throwsFormatException,
+      );
+    });
+
+    test('bezier keyframe rejects c2x out of range', () {
+      expect(
+        () => loadBonyJson('{"skeleton":{"name":"bz"},"bones":[{"name":"root"}],'
+            '"animations":[{"name":"a","boneTimelines":[{"bone":"root","property":"rotate",'
+            '"keyframes":[{"t":0.0,"value":0.0},'
+            '{"t":1.0,"value":90.0,"curve":"bezier",'
+            '"c1x":0.25,"c1y":0.0,"c2x":1.1,"c2y":1.0}]}]}]}'),
+        throwsFormatException,
+      );
+    });
   });
 }

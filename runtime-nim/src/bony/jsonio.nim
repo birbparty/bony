@@ -613,22 +613,28 @@ proc parseBonyAnimations(root: JsonNode; data: SkeletonData): Table[string, Anim
         for kfIndex, kfNode in kfListNode.elems:
           let kfCtx = btCtx & ".keyframes[" & $kfIndex & "]"
           let kfObj = requireObject(kfNode, kfCtx)
-          validateKnownKeys(kfObj, ["t", "value", "curve"], kfCtx)
+          validateKnownKeys(kfObj, ["t", "value", "curve", "c1x", "c1y", "c2x", "c2y"], kfCtx)
           let kfTime = requiredF64(kfObj, "t", kfCtx)
           let kfValue = requiredFloat(kfObj, "value", kfCtx)
-          let curveKind =
+          let curve =
             if kfObj.hasKey("curve"):
               if kfObj["curve"].kind != JString:
                 raise newBonyLoadError(schemaViolation, kfCtx & ".curve must be a string")
               let cs = kfObj["curve"].getStr()
               case cs
-              of "linear": linearCurve
-              of "stepped": steppedCurve
+              of "linear": linearTimelineCurve
+              of "stepped": steppedTimelineCurve
+              of "bezier":
+                let c1x = requiredF64(kfObj, "c1x", kfCtx)
+                let c1y = requiredF64(kfObj, "c1y", kfCtx)
+                let c2x = requiredF64(kfObj, "c2x", kfCtx)
+                let c2y = requiredF64(kfObj, "c2y", kfCtx)
+                bezierTimelineCurve(c1x, c1y, c2x, c2y)
               else:
                 raise newBonyLoadError(schemaViolation, kfCtx & ".curve unknown: " & cs)
             else:
-              linearCurve
-          scalarKeys.add scalarKeyframe(kfTime, kfValue, curveKind)
+              linearTimelineCurve
+          scalarKeys.add scalarKeyframe(kfTime, kfValue, curve)
         boneTimelines.add boneScalarTimeline(bone, tlKind, scalarKeys)
     result[animName] = animationClip(data, animName, boneTimelines)
 

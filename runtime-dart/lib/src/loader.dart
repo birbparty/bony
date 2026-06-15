@@ -92,11 +92,30 @@ ScalarKeyframe _parseKeyframe(Map<String, dynamic> j, String ctx) {
   final value = (j['value'] as num?)?.toDouble();
   if (value == null) throw FormatException('missing required field: $ctx.value');
   final curveStr = j['curve'] as String?;
-  final curve = curveStr == null || curveStr == 'linear'
-      ? TimelineCurve.linear
-      : curveStr == 'stepped'
-          ? TimelineCurve.stepped
-          : throw FormatException('$ctx.curve unknown: $curveStr');
+  final TimelineCurve curve;
+  if (curveStr == null || curveStr == 'linear') {
+    curve = TimelineCurve.linear;
+  } else if (curveStr == 'stepped') {
+    curve = TimelineCurve.stepped;
+  } else if (curveStr == 'bezier') {
+    final c1x = (j['c1x'] as num?)?.toDouble();
+    final c1y = (j['c1y'] as num?)?.toDouble();
+    final c2x = (j['c2x'] as num?)?.toDouble();
+    final c2y = (j['c2y'] as num?)?.toDouble();
+    if (c1x == null) throw FormatException('missing required field: $ctx.c1x');
+    if (c1y == null) throw FormatException('missing required field: $ctx.c1y');
+    if (c2x == null) throw FormatException('missing required field: $ctx.c2x');
+    if (c2y == null) throw FormatException('missing required field: $ctx.c2y');
+    final qc1x = quantizeF32(c1x);
+    final qc1y = quantizeF32(c1y);
+    final qc2x = quantizeF32(c2x);
+    final qc2y = quantizeF32(c2y);
+    if (qc1x < 0.0 || qc1x > 1.0) throw FormatException('$ctx.c1x must be in 0..1');
+    if (qc2x < 0.0 || qc2x > 1.0) throw FormatException('$ctx.c2x must be in 0..1');
+    curve = TimelineCurve.bezier(qc1x, qc1y, qc2x, qc2y);
+  } else {
+    throw FormatException('$ctx.curve unknown: $curveStr');
+  }
   return ScalarKeyframe(time: t, value: value, curve: curve);
 }
 

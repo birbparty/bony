@@ -5323,3 +5323,82 @@ spec "bony package":
       raisesBonyLoadError(proc() =
         discard loadBonyJsonStateMachines(dupMachineJson)
       , duplicateKey)
+
+  it "loads a bezier keyframe from JSON":
+    const bezierJson = """
+      {
+        "skeleton": {"name": "bezier-test"},
+        "bones": [{"name": "root"}],
+        "slots": [],
+        "animations": [
+          {
+            "name": "anim",
+            "boneTimelines": [
+              {
+                "bone": "root",
+                "property": "rotate",
+                "keyframes": [
+                  {"t": 0.0, "value": 0.0},
+                  {"t": 1.0, "value": 90.0, "curve": "bezier",
+                   "c1x": 0.25, "c1y": 0.0, "c2x": 0.75, "c2y": 1.0}
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    """
+    let data = loadBonyJson(bezierJson)
+    then:
+      data.header.name == "bezier-test"
+      data.bones.len == 1
+
+  it "rejects bezier keyframe with missing c1x":
+    then:
+      raisesBonyLoadError("""
+        {
+          "skeleton": {"name": "bad-bezier"},
+          "bones": [{"name": "root"}],
+          "slots": [],
+          "animations": [
+            {
+              "name": "anim",
+              "boneTimelines": [
+                {
+                  "bone": "root",
+                  "property": "rotate",
+                  "keyframes": [{"t": 0.0, "value": 0.0},
+                    {"t": 1.0, "value": 90.0, "curve": "bezier",
+                     "c1y": 0.0, "c2x": 0.75, "c2y": 1.0}]
+                }
+              ]
+            }
+          ]
+        }
+      """, schemaViolation)
+
+  it "rejects bezier keyframe with c1x out of range":
+    then:
+      raisesBonyLoadError(proc() =
+        discard loadBonyJson("""
+          {
+            "skeleton": {"name": "bad-bezier"},
+            "bones": [{"name": "root"}],
+            "slots": [],
+            "animations": [
+              {
+                "name": "anim",
+                "boneTimelines": [
+                  {
+                    "bone": "root",
+                    "property": "rotate",
+                    "keyframes": [{"t": 0.0, "value": 0.0},
+                      {"t": 1.0, "value": 90.0, "curve": "bezier",
+                       "c1x": -0.1, "c1y": 0.0, "c2x": 0.75, "c2y": 1.0}]
+                  }
+                ]
+              }
+            ]
+          }
+        """)
+      , schemaViolation)
