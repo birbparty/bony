@@ -332,10 +332,15 @@ void main() {
     });
 
     test('rejects unknown toState in stateEnter listener', () {
-      expect(
-        () => loadBonyJson(base.replaceFirst('"toState":"move"', '"toState":"missing"')),
-        throwsFormatException,
-      );
+      // Use a self-contained fixture so replaceFirst can't accidentally hit
+      // the transition's toState (which also appears in `base`).
+      final json =
+          '{"skeleton":{"name":"xref"},"bones":[{"name":"root"}],'
+          '"animations":[{"name":"idle","boneTimelines":[]}],'
+          '"stateMachines":[{"name":"m","inputs":[],'
+          '"layers":[{"name":"body","states":[{"name":"idle","kind":"clip","clip":"idle"}],"transitions":[]}],'
+          '"listeners":[{"name":"ev","kind":"stateEnter","layer":"body","toState":"missing"}]}]}';
+      expect(() => loadBonyJson(json), throwsFormatException);
     });
 
     test('rejects unknown fromState in stateExit listener', () {
