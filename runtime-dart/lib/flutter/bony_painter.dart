@@ -14,6 +14,8 @@ BlendMode _toFlutterBlend(String blendMode) {
     case 'screen':
       return BlendMode.screen;
     default:
+      assert(blendMode == 'normal',
+          'Unknown bony blendMode "$blendMode" — falling back to srcOver');
       return BlendMode.srcOver;
   }
 }
@@ -27,6 +29,14 @@ BlendMode _toFlutterBlend(String blendMode) {
 ///
 /// The painter does not manage texture loading — callers own the [ui.Image]
 /// lifecycle and must supply them via [textures].
+///
+/// **Repaint contract**: [shouldRepaint] uses reference equality on [batches]
+/// and [textures]. Callers must supply a new list or map instance each frame;
+/// in-place mutation of an existing list will not trigger a repaint.
+///
+/// **Index range**: each [DrawBatch.indices] value must fit in a [Uint16List]
+/// (i.e. be in [0, 65535]). Meshes with more than 65 536 vertices must be
+/// split before being passed to [BonyPainter].
 class BonyPainter extends CustomPainter {
   const BonyPainter({
     required this.batches,
@@ -47,6 +57,12 @@ class BonyPainter extends CustomPainter {
     final verts = batch.vertices;
     if (verts.isEmpty || batch.indices.isEmpty) return;
 
+    assert(
+      verts.length <= 0xFFFF,
+      'BonyPainter: batch "${batch.slot}" has ${verts.length} vertices '
+      '(max 65535 for Uint16List indices). Split the mesh before rendering.',
+    );
+
     final positions = Float32List(verts.length * 2);
     final colors = Int32List(verts.length);
     final texCoords = Float32List(verts.length * 2);
@@ -66,7 +82,9 @@ class BonyPainter extends CustomPainter {
     }
 
     final indices = Uint16List.fromList(batch.indices);
-    final image = textures[batch.texturePage];
+    // Empty texturePage means untextured; look up only a non-empty key.
+    final image =
+        batch.texturePage.isEmpty ? null : textures[batch.texturePage];
     final canvasBlend = _toFlutterBlend(batch.blendMode);
 
     if (image != null) {
@@ -84,18 +102,22 @@ class BonyPainter extends CustomPainter {
         TileMode.clamp,
         mat,
       );
-      final paint = Paint()
-        ..shader = shader
-        ..blendMode = canvasBlend;
-      final vertices = ui.Vertices.raw(
-        ui.VertexMode.triangles,
-        positions,
-        textureCoordinates: texCoords,
-        colors: colors,
-        indices: indices,
-      );
-      // BlendMode.modulate: fragment = texture_pixel × vertex_color.
-      canvas.drawVertices(vertices, BlendMode.modulate, paint);
+      try {
+        final paint = Paint()
+          ..shader = shader
+          ..blendMode = canvasBlend;
+        final vertices = ui.Vertices.raw(
+          ui.VertexMode.triangles,
+          positions,
+          textureCoordinates: texCoords,
+          colors: colors,
+          indices: indices,
+        );
+        // BlendMode.modulate: fragment = texture_pixel × vertex_color.
+        canvas.drawVertices(vertices, BlendMode.modulate, paint);
+      } finally {
+        shader.dispose();
+      }
     } else {
       // Untextured path: vertex-coloured fill only.
       final paint = Paint()..blendMode = canvasBlend;
@@ -117,6 +139,9 @@ class BonyPainter extends CustomPainter {
 }
 
 /// Convenience [Widget] that wraps [BonyPainter] in a [CustomPaint].
+///
+/// Repaints whenever [batches] or [textures] changes by reference. Pass a new
+/// list or map each frame — in-place mutation does not trigger repaints.
 class BonyWidget extends StatelessWidget {
   const BonyWidget({
     super.key,
@@ -126,6 +151,8 @@ class BonyWidget extends StatelessWidget {
   });
 
   final List<DrawBatch> batches;
+
+  /// Optional texture atlas pages keyed by [DrawBatch.texturePage].
   final Map<String, ui.Image> textures;
 
   /// Hint size for the [CustomPaint]; defaults to [Size.infinite] so the widget

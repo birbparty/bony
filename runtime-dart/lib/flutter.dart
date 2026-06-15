@@ -1,8 +1,7 @@
 /// bony Flutter render integration — [CustomPainter] and [Widget] wrappers.
 ///
-/// Import this library instead of (or in addition to) `package:bony/bony.dart`
-/// when targeting Flutter. The core `bony.dart` library has no Flutter
-/// dependency and can be used in pure-Dart environments.
+/// Import this library alongside `package:bony/bony.dart` to obtain the Flutter
+/// rendering layer. This package requires the Flutter SDK.
 library;
 
 export 'flutter/bony_painter.dart';

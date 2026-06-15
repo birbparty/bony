@@ -1,5 +1,16 @@
-# dart_test.yaml — configure `dart test` to skip Flutter-specific test files.
-# Flutter tests (under test/flutter/) require `flutter test` to run because they
-# depend on dart:ui and the Flutter test harness.
-exclude:
-  - test/flutter/**
+# dart_test.yaml — restrict `dart test` to pure-Dart tests.
+# test/flutter/ uses dart:ui / flutter_test and must be run with `flutter test`.
+# `exclude:` is NOT a valid key in this config (it is silently ignored by the
+# test package), so we enumerate the pure-Dart paths explicitly instead.
+paths:
+  - test/m1_loader_test.dart
+  - test/m2_transform_test.dart
+  - test/m3_anim_unit_test.dart
+  - test/m3_draw_order_test.dart
+  - test/m4_draw_order_test.dart
+  - test/m5_constraint_test.dart
+  - test/m6_bnb_loader_test.dart
+  - test/m7_deformers_test.dart
+  - test/m8_statemachine_test.dart
+  - test/m10_conformance_test.dart
+  - test/version_test.dart
