@@ -1,0 +1,25 @@
+{
+  "skeleton": {
+    "name": "m1-rig",
+    "version": "1.0.0"
+  },
+  "bones": [
+    {"name": "root"},
+    {"name": "torso", "parent": "root", "y": -50},
+    {"name": "head", "parent": "torso", "y": -80, "rotation": 15},
+    {"name": "arm_r", "parent": "torso", "x": -45, "y": -20, "rotation": -30, "inheritScale": false, "transformMode": "noScale"},
+    {"name": "arm_l", "parent": "torso", "x": 45, "y": -20, "rotation": 30, "inheritRotation": false, "inheritScale": false, "inheritReflection": false, "transformMode": "onlyTranslation"}
+  ],
+  "slots": [
+    {"name": "arm_l_slot", "bone": "arm_l", "attachment": "arm_l"},
+    {"name": "arm_r_slot", "bone": "arm_r", "attachment": "arm_r"},
+    {"name": "torso_slot", "bone": "torso", "attachment": "torso"},
+    {"name": "head_slot", "bone": "head", "attachment": "head"}
+  ],
+  "regions": [
+    {"name": "arm_l", "width": 30, "height": 80},
+    {"name": "arm_r", "width": 30, "height": 80},
+    {"name": "torso", "width": 80, "height": 120},
+    {"name": "head", "width": 60, "height": 60}
+  ]
+}

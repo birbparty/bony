@@ -1,0 +1,33 @@
+{
+  "skeleton": {
+    "name": "m2-rig",
+    "version": "1.0.0"
+  },
+  "bones": [
+    {"name": "root", "x": 100, "y": -50, "rotation": 45, "scaleX": 2, "scaleY": 2},
+    {"name": "child_normal", "parent": "root", "x": 30, "y": 0},
+    {"name": "child_no_scale", "parent": "root", "x": 0, "y": 40, "rotation": 20, "inheritScale": false, "transformMode": "noScale"},
+    {"name": "child_only_translation", "parent": "root", "x": -20, "y": -10, "inheritRotation": false, "inheritScale": false, "inheritReflection": false, "transformMode": "onlyTranslation"},
+    {"name": "child_no_rotation", "parent": "root", "x": 10, "y": -30, "rotation": -15, "inheritRotation": false, "inheritReflection": false, "transformMode": "noRotationOrReflection"},
+    {"name": "child_no_scale_or_refl", "parent": "root", "x": -10, "y": 20, "rotation": 10, "inheritScale": false, "inheritReflection": false, "transformMode": "noScaleOrReflection"},
+    {"name": "grandchild", "parent": "child_normal", "y": -20, "rotation": -45}
+  ],
+  "slots": [
+    {"name": "root_slot", "bone": "root", "attachment": "origin_marker"},
+    {"name": "child_normal_slot", "bone": "child_normal", "attachment": "normal_region"},
+    {"name": "child_no_scale_slot", "bone": "child_no_scale", "attachment": "no_scale_region"},
+    {"name": "child_translation_slot", "bone": "child_only_translation", "attachment": "translation_region"},
+    {"name": "child_no_rotation_slot", "bone": "child_no_rotation", "attachment": "no_rotation_region"},
+    {"name": "child_no_scale_refl_slot", "bone": "child_no_scale_or_refl", "attachment": "no_scale_refl_region"},
+    {"name": "grandchild_slot", "bone": "grandchild", "attachment": "grandchild_region"}
+  ],
+  "regions": [
+    {"name": "origin_marker", "width": 10, "height": 10},
+    {"name": "normal_region", "width": 40, "height": 40},
+    {"name": "no_scale_region", "width": 40, "height": 40},
+    {"name": "translation_region", "width": 40, "height": 40},
+    {"name": "no_rotation_region", "width": 40, "height": 40},
+    {"name": "no_scale_refl_region", "width": 40, "height": 40},
+    {"name": "grandchild_region", "width": 40, "height": 40}
+  ]
+}
