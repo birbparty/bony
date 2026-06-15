@@ -1110,6 +1110,7 @@ proc applyDeformersToDrawBatches(batches: seq[DrawBatch]; deforms: seq[Deformer]
     for v in batch.vertices:
       skinned.add SkinnedMeshVertex(x: v.x, y: v.y, u: v.u, v: v.v)
     let deformed = applyDeformers(skinned, deforms)
+    doAssert deformed.len == batch.vertices.len, "applyDeformers must preserve vertex count"
     for vertIndex, dv in deformed:
       result[batchIndex].vertices[vertIndex].x = dv.x
       result[batchIndex].vertices[vertIndex].y = dv.y
