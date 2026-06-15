@@ -1,6 +1,6 @@
 ## Headless bony CLI harness core.
 
-import std/[json, math, os, parseutils, sets, strutils, tables]
+import std/[json, math, os, parseutils, sets, sequtils, strutils, tables]
 
 import bony
 import pixie
@@ -10,6 +10,7 @@ proc usage(): string =
   "usage: bony json-to-bnb <input.bony> <output.bnb>\n" &
     "       bony bnb-to-json <input.bnb> <output.bony>\n" &
     "       bony import-lottie <input.json> <output.bony> --assets-dir images [--setup-only] [--origin center|top-left]\n" &
+    "       bony import-dragonbones <input_ske.json> <output.bony> [--assets-dir images] [--setup-only] [--allow-multiple-armatures]\n" &
     "       bony golden-gen <input.bony|input.bnb> <output.json> [--t seconds]\n" &
     "       bony play <input.bony|input.bnb> --out frame.png [--t seconds] [--width px] [--height px]\n" &
     "       bony play <input> --state-machine <name> --input-script <script.json> --out frame.png"
@@ -509,6 +510,534 @@ proc importLottie(args: seq[string]) =
   writeFile(outputPath, toBonyJson(data))
 
 
+
+# ===== DragonBones Importer =====
+# Clean-room implementation per docs/dragonbones-importer-design.md.
+# DragonBones field names (skX, skY, scX, scY, etc.) are used only at the
+# parser boundary and must not appear in bony runtime objects.
+
+type
+  DbDiagnostic = object of CatchableError
+    dbCode*: string
+    dbTarget*: string
+    dbCapability*: string
+
+  DbTransform = object
+    x: float64
+    y: float64
+    skX: float64  # degrees; DragonBones two-angle bone parameterization
+    skY: float64  # degrees
+    scX: float64
+    scY: float64
+
+  DbDisplayKind = enum
+    dbkImage, dbkMesh, dbkBoundingBox, dbkUnsupported
+
+  DbDisplay = object
+    name: string
+    kind: DbDisplayKind
+    transform: DbTransform
+
+  DbSkinSlotEntry = object
+    slotName: string
+    displays: seq[DbDisplay]
+
+  DbSkin = object
+    name: string
+    slotEntries: seq[DbSkinSlotEntry]
+
+  DbBoneEntry = object
+    name: string
+    parent: string
+    transform: DbTransform
+
+  DbSlotEntry = object
+    name: string
+    parent: string
+    displayIndex: int
+    blendMode: string
+
+  DbArmature = object
+    name: string
+    frameRate: int
+    bones: seq[DbBoneEntry]
+    slots: seq[DbSlotEntry]
+    skins: seq[DbSkin]
+    hasAnimation: bool
+
+
+proc newDbDiagnostic(code, target, capability, message: string): ref DbDiagnostic =
+  new(result)
+  result.dbCode = code
+  result.dbTarget = target
+  result.dbCapability = capability
+  result.msg = message
+
+
+proc raiseDb(code, target, capability, message: string) =
+  raise newDbDiagnostic(code, target, capability, message)
+
+
+proc dbMessage(exc: ref DbDiagnostic): string =
+  result = exc.dbCode
+  if exc.dbTarget.len > 0:
+    result.add " target=" & exc.dbTarget
+  if exc.dbCapability.len > 0:
+    result.add " capability=" & exc.dbCapability
+  if exc.msg.len > 0:
+    result.add " " & exc.msg
+
+
+proc dbOptFloat(node: JsonNode; key: string; defaultVal: float64; target: string): float64 =
+  if not node.hasKey(key):
+    return defaultVal
+  let v = node[key]
+  if v.kind notin {JInt, JFloat}:
+    raiseDb("schemaViolation", target, key, "expected number for " & key)
+  let f = v.getFloat()
+  if classify(f) in {fcNan, fcInf, fcNegInf}:
+    raiseDb("schemaViolation", target, key, key & " must be finite")
+  f
+
+
+proc dbRequireString(node: JsonNode; key, target: string): string =
+  if not node.hasKey(key):
+    raiseDb("schemaViolation", target, key, "missing required field: " & key)
+  if node[key].kind != JString:
+    raiseDb("schemaViolation", target, key, "expected string for " & key)
+  let s = node[key].getStr()
+  if s.len == 0:
+    raiseDb("schemaViolation", target, key, "required field must be non-empty: " & key)
+  s
+
+
+proc dbOptString(node: JsonNode; key, defaultVal, target: string): string =
+  if not node.hasKey(key):
+    return defaultVal
+  if node[key].kind != JString:
+    raiseDb("schemaViolation", target, key, "expected string for " & key)
+  node[key].getStr()
+
+
+proc dbRequirePositiveInt(node: JsonNode; key, target: string): int =
+  if not node.hasKey(key):
+    raiseDb("schemaViolation", target, key, "missing required field: " & key)
+  if node[key].kind != JInt:
+    raiseDb("schemaViolation", target, key, "expected integer for " & key)
+  let v = node[key].getInt()
+  if v <= 0:
+    raiseDb("schemaViolation", target, key, key & " must be positive")
+  v
+
+
+proc dbOptInt(node: JsonNode; key: string; defaultVal: int; target: string): int =
+  if not node.hasKey(key):
+    return defaultVal
+  if node[key].kind != JInt:
+    raiseDb("schemaViolation", target, key, "expected integer for " & key)
+  node[key].getInt()
+
+
+proc parseDbTransform(node: JsonNode; target: string): DbTransform =
+  if node.kind != JObject:
+    raiseDb("schemaViolation", target, "transform", "expected object for TransformObject")
+  for key in node.keys:
+    if key notin ["x", "y", "skX", "skY", "scX", "scY"]:
+      raiseDb("schemaViolation", target, key, "unknown key in TransformObject: " & key)
+  result.x = dbOptFloat(node, "x", 0.0, target)
+  result.y = dbOptFloat(node, "y", 0.0, target)
+  result.skX = dbOptFloat(node, "skX", 0.0, target)
+  result.skY = dbOptFloat(node, "skY", 0.0, target)
+  result.scX = dbOptFloat(node, "scX", 1.0, target)
+  result.scY = dbOptFloat(node, "scY", 1.0, target)
+  if result.scX == 0.0:
+    raiseDb("schemaViolation", target, "scX", "scX must not be zero")
+  if result.scY == 0.0:
+    raiseDb("schemaViolation", target, "scY", "scY must not be zero")
+  if result.scX < 0.0 or result.scY < 0.0:
+    raiseDb("unsupportedFeature", target, "negativeScale", "negative scale not supported in Tier 1")
+
+
+proc parseDbDisplay(node: JsonNode; index: int; slotName: string): DbDisplay =
+  let target = "skin.slot[" & slotName & "].display[" & $index & "]"
+  if node.kind != JObject:
+    raiseDb("schemaViolation", target, "object", "expected display object")
+  result.name = dbRequireString(node, "name", target)
+  let typStr = dbOptString(node, "type", "image", target)
+  case typStr
+  of "image":
+    result.kind = dbkImage
+  of "mesh":
+    raiseDb("unsupportedFeature", target, "mesh", "mesh displays not supported in Tier 1")
+  of "boundingBox":
+    raiseDb("unsupportedFeature", target, "boundingBox", "bounding-box displays not supported in Tier 1")
+  else:
+    raiseDb("unsupportedFeature", target, typStr, "display type not supported in Tier 1: " & typStr)
+  if node.hasKey("transform"):
+    if node["transform"].kind != JObject:
+      raiseDb("schemaViolation", target, "transform", "expected transform object")
+    result.transform = parseDbTransform(node["transform"], target & ".transform")
+  else:
+    result.transform = DbTransform(scX: 1.0, scY: 1.0)
+
+
+proc parseDbSkinSlotEntry(node: JsonNode; index: int; skinName: string): DbSkinSlotEntry =
+  let target = "skin[" & skinName & "].slot[" & $index & "]"
+  if node.kind != JObject:
+    raiseDb("schemaViolation", target, "object", "expected skin slot object")
+  result.slotName = dbRequireString(node, "name", target)
+  if node.hasKey("display"):
+    if node["display"].kind != JArray:
+      raiseDb("schemaViolation", target, "display", "expected display array")
+    for di, disp in node["display"].elems:
+      result.displays.add parseDbDisplay(disp, di, result.slotName)
+
+
+proc parseDbSkin(node: JsonNode; index: int): DbSkin =
+  let target = "skin[" & $index & "]"
+  if node.kind != JObject:
+    raiseDb("schemaViolation", target, "object", "expected skin object")
+  result.name = dbOptString(node, "name", "", target)
+  if node.hasKey("slot"):
+    if node["slot"].kind != JArray:
+      raiseDb("schemaViolation", target, "slot", "expected slot array")
+    for si, slotNode in node["slot"].elems:
+      result.slotEntries.add parseDbSkinSlotEntry(slotNode, si, result.name)
+
+
+proc parseDbSlot(node: JsonNode; index: int): DbSlotEntry =
+  let target = "slot[" & $index & "]"
+  if node.kind != JObject:
+    raiseDb("schemaViolation", target, "object", "expected slot object")
+  result.name = dbRequireString(node, "name", target)
+  result.parent = dbRequireString(node, "parent", target)
+  let di = dbOptInt(node, "displayIndex", 0, target)
+  if di < 0:
+    raiseDb("unsupportedFeature", target, "displayIndex",
+      "displayIndex -1 (hidden slot) not supported in Tier 1")
+  result.displayIndex = di
+  let blendMode = dbOptString(node, "blendMode", "normal", target)
+  if blendMode != "normal":
+    raiseDb("unsupportedFeature", target, "blendMode",
+      "blend mode not supported in Tier 1: " & blendMode)
+  result.blendMode = blendMode
+
+
+proc parseDbBone(node: JsonNode; index: int): DbBoneEntry =
+  let target = "bone[" & $index & "]"
+  if node.kind != JObject:
+    raiseDb("schemaViolation", target, "object", "expected bone object")
+  result.name = dbRequireString(node, "name", target)
+  result.parent = dbOptString(node, "parent", "", target)
+  if node.hasKey("transform"):
+    if node["transform"].kind != JObject:
+      raiseDb("schemaViolation", target, "transform", "expected transform object")
+    result.transform = parseDbTransform(node["transform"], target & ".transform")
+  else:
+    result.transform = DbTransform(scX: 1.0, scY: 1.0)
+
+
+proc validateAndSortBones(bones: seq[DbBoneEntry]; armatureName: string): seq[DbBoneEntry] =
+  # Two-pass validation: collect all names, then validate parents.
+  var allNames = initHashSet[string]()
+  for bone in bones:
+    if bone.name in allNames:
+      raiseDb("schemaViolation", armatureName, "bone.name", "duplicate bone name: " & bone.name)
+    allNames.incl(bone.name)
+
+  for bone in bones:
+    if bone.parent.len > 0 and bone.parent notin allNames:
+      raiseDb("invalidReference", bone.name, "parent", "unknown parent bone: " & bone.parent)
+
+  # Count roots (bones with no parent).
+  var roots: seq[string] = @[]
+  for bone in bones:
+    if bone.parent.len == 0:
+      roots.add(bone.name)
+  if roots.len == 0:
+    raiseDb("schemaViolation", armatureName, "root", "armature must have exactly one root bone")
+  if roots.len > 1:
+    raiseDb("schemaViolation", armatureName, "root",
+      "armature has multiple root bones: " & roots.join(", "))
+
+  # Cycle check via path-following.
+  var parentMap = initTable[string, string]()
+  for bone in bones:
+    parentMap[bone.name] = bone.parent
+  for bone in bones:
+    var seen = initHashSet[string]()
+    var current = bone.name
+    while current.len > 0:
+      if current in seen:
+        raiseDb("cycleDetected", bone.name, "parent", "bone parent chain contains a cycle")
+      seen.incl(current)
+      current = parentMap.getOrDefault(current, "")
+
+  # Topological sort: emit bones in parent-before-child order for bony.
+  var nameToEntry = initTable[string, DbBoneEntry]()
+  for bone in bones:
+    nameToEntry[bone.name] = bone
+  var result: seq[DbBoneEntry] = @[]
+  var emitted = initHashSet[string]()
+  var pending = bones.toSeq()
+  while pending.len > 0:
+    let before = pending.len
+    var next: seq[DbBoneEntry] = @[]
+    for bone in pending:
+      if bone.parent.len == 0 or bone.parent in emitted:
+        result.add(bone)
+        emitted.incl(bone.name)
+      else:
+        next.add(bone)
+    pending = next
+    if pending.len == before:
+      raiseDb("cycleDetected", armatureName, "parent", "bone ordering cycle detected")
+  result
+
+
+proc parseDbArmature(node: JsonNode; index: int): DbArmature =
+  let target = "armature[" & $index & "]"
+  if node.kind != JObject:
+    raiseDb("schemaViolation", target, "object", "expected armature object")
+  result.name = dbRequireString(node, "name", target)
+  result.frameRate = dbRequirePositiveInt(node, "frameRate", target)
+  let typStr = dbRequireString(node, "type", target)
+  if typStr != "Armature":
+    raiseDb("unsupportedFeature", target, "type",
+      "armature type not supported: " & typStr & " (only \"Armature\" is supported)")
+  if not node.hasKey("bone"):
+    raiseDb("schemaViolation", target, "bone", "missing required field: bone")
+  if node["bone"].kind != JArray:
+    raiseDb("schemaViolation", target, "bone", "expected bone array")
+
+  var rawBones: seq[DbBoneEntry] = @[]
+  for bi, boneNode in node["bone"].elems:
+    rawBones.add parseDbBone(boneNode, bi)
+  if rawBones.len == 0:
+    raiseDb("schemaViolation", target, "bone", "armature must have at least one bone")
+  result.bones = validateAndSortBones(rawBones, result.name)
+
+  if node.hasKey("slot") and node["slot"].kind == JArray:
+    for si, slotNode in node["slot"].elems:
+      let slotEntry = parseDbSlot(slotNode, si)
+      # Validate slot parent references a bone.
+      var found = false
+      for bone in result.bones:
+        if bone.name == slotEntry.parent:
+          found = true
+          break
+      if not found:
+        raiseDb("invalidReference", slotEntry.name, "parent",
+          "slot parent bone not found: " & slotEntry.parent)
+      result.slots.add slotEntry
+
+  if node.hasKey("skin") and node["skin"].kind == JArray:
+    for ski, skinNode in node["skin"].elems:
+      let skin = parseDbSkin(skinNode, ski)
+      result.skins.add skin
+
+  result.hasAnimation = node.hasKey("animation") and
+    node["animation"].kind == JArray and
+    node["animation"].elems.len > 0
+
+
+proc parseDbSkeleton(text: string): DbArmature =
+  # Returns the first armature; caller handles multi-armature policy.
+  var root: JsonNode
+  try:
+    root = parseJson(text)
+  except JsonParsingError as exc:
+    raiseDb("schemaViolation", "skeleton", "json", "invalid JSON: " & exc.msg)
+  if root.kind != JObject:
+    raiseDb("schemaViolation", "skeleton", "object", "expected top-level object")
+  if not root.hasKey("version"):
+    raiseDb("schemaViolation", "skeleton", "version", "missing required field: version")
+  if root["version"].kind != JString:
+    raiseDb("schemaViolation", "skeleton", "version", "version must be a string")
+  let version = root["version"].getStr()
+  if not version.startsWith("5."):
+    raiseDb("unsupportedVersion", "skeleton", "version",
+      "unsupported DragonBones version: " & version & " (only 5.x is supported)")
+  if not root.hasKey("armature"):
+    raiseDb("schemaViolation", "skeleton", "armature", "missing required field: armature")
+  if root["armature"].kind != JArray:
+    raiseDb("schemaViolation", "skeleton", "armature", "armature must be an array")
+  let armatures = root["armature"].elems
+  if armatures.len == 0:
+    raiseDb("schemaViolation", "skeleton", "armature", "armature array must not be empty")
+  # Return first armature; caller emits multipleArmatures diagnostic if needed.
+  result = parseDbArmature(armatures[0], 0)
+
+
+proc countArmatures(text: string): int =
+  var root: JsonNode
+  try:
+    root = parseJson(text)
+  except JsonParsingError:
+    return 0
+  if root.kind != JObject or not root.hasKey("armature"):
+    return 0
+  if root["armature"].kind != JArray:
+    return 0
+  root["armature"].elems.len
+
+
+proc extraArmatureNames(text: string): seq[string] =
+  var root: JsonNode
+  try:
+    root = parseJson(text)
+  except JsonParsingError:
+    return @[]
+  if root.kind != JObject or not root.hasKey("armature"):
+    return @[]
+  if root["armature"].kind != JArray:
+    return @[]
+  let elems = root["armature"].elems
+  if elems.len <= 1:
+    return @[]
+  for i in 1 ..< elems.len:
+    let n = elems[i]
+    if n.kind == JObject and n.hasKey("name") and n["name"].kind == JString:
+      result.add(n["name"].getStr())
+    else:
+      result.add("armature[" & $i & "]")
+
+
+proc dbTransformToLocal(t: DbTransform): LocalTransform =
+  # Skew decomposition per docs/dragonbones-importer-design.md §Skew Decomposition.
+  # rotation = -skY, shearX = 0 (canonical), shearY = skY - skX
+  # x unchanged; y negated (Y-down → Y-up coordinate flip)
+  let rotation = -t.skY       # degrees
+  let shearY = t.skY - t.skX  # degrees
+  localTransform(
+    x = t.x,
+    y = -t.y,
+    rotation = rotation,
+    scaleX = t.scX,
+    scaleY = t.scY,
+    shearX = 0.0,
+    shearY = shearY,
+  )
+
+
+proc resolveImageDims(displayName, assetsDir: string): tuple[w, h: float64] =
+  let ext = if '.' in displayName: "" else: ".png"
+  let path = assetsDir / displayName & ext
+  if not fileExists(path):
+    raiseDb("missingAsset", displayName, "assetPath", "image not found under --assets-dir: " & path)
+  try:
+    let img = decodeImage(readFile(path))
+    result = (float64(img.width), float64(img.height))
+  except PixieError:
+    raiseDb("missingAsset", displayName, "assetPath", "could not decode image: " & path)
+
+
+proc armatureToSkeletonData(
+  armature: DbArmature;
+  assetsDir: string;
+  setupOnly: bool;
+): SkeletonData =
+  var bones: seq[BoneData] = @[]
+  var slots: seq[SlotData] = @[]
+  var regions: seq[RegionAttachment] = @[]
+  var regionNames = initHashSet[string]()
+
+  # Build bones in topological order (already sorted by validateAndSortBones).
+  for bone in armature.bones:
+    bones.add boneData(bone.name, bone.parent, dbTransformToLocal(bone.transform))
+
+  # Collect bone names for slot parent validation.
+  var boneNames = initHashSet[string]()
+  for bone in armature.bones:
+    boneNames.incl(bone.name)
+
+  # Find default skin (name == "" or first skin).
+  var defaultSkin: DbSkin
+  var hasSkin = false
+  for skin in armature.skins:
+    if skin.name == "" or (not hasSkin):
+      defaultSkin = skin
+      hasSkin = true
+      if skin.name == "":
+        break
+
+  # Build slot/attachment lookup from skin.
+  var skinSlotMap = initTable[string, DbSkinSlotEntry]()
+  if hasSkin:
+    for slotEntry in defaultSkin.slotEntries:
+      skinSlotMap[slotEntry.slotName] = slotEntry
+
+  # Build slots in draw order (as declared).
+  for dbSlot in armature.slots:
+    var attachmentName = ""
+    if skinSlotMap.hasKey(dbSlot.name):
+      let skinEntry = skinSlotMap[dbSlot.name]
+      let di = dbSlot.displayIndex
+      if di >= skinEntry.displays.len:
+        raiseDb("schemaViolation", dbSlot.name, "displayIndex",
+          "displayIndex " & $di & " out of range (display count: " & $skinEntry.displays.len & ")")
+      if skinEntry.displays.len > 0:
+        let display = skinEntry.displays[di]
+        attachmentName = display.name
+        if attachmentName notin regionNames:
+          var w, h: float64
+          if assetsDir.len == 0:
+            raiseDb("missingAsset", display.name, "assetPath",
+              "--assets-dir required to resolve image: " & display.name)
+          else:
+            (w, h) = resolveImageDims(display.name, assetsDir)
+          # Apply display transform via skew decomposition for attachment pivot.
+          # Region attachment name must be unique; reuse if already added.
+          regions.add regionAttachment(display.name, w, h)
+          regionNames.incl(display.name)
+    slots.add slotData(dbSlot.name, dbSlot.parent, attachmentName)
+
+  let headerName = armature.name & " (DragonBones import)"
+  skeletonData(skeletonHeader(headerName, "5.x"), bones, slots, regions)
+
+
+proc importDragonbones(args: seq[string]) =
+  if args.len < 2:
+    quit(usage(), QuitFailure)
+  let inputPath = args[0]
+  let outputPath = args[1]
+  var assetsDir = ""
+  var setupOnly = false
+  var allowMultipleArmatures = false
+  var index = 2
+  while index < args.len:
+    case args[index]
+    of "--assets-dir":
+      if index + 1 >= args.len:
+        quit(usage(), QuitFailure)
+      assetsDir = args[index + 1]
+      index += 2
+    of "--setup-only":
+      setupOnly = true
+      index += 1
+    of "--allow-multiple-armatures":
+      allowMultipleArmatures = true
+      index += 1
+    else:
+      quit(usage(), QuitFailure)
+
+  let text = readFile(inputPath)
+  let armatureCount = countArmatures(text)
+  if armatureCount > 1:
+    let extra = extraArmatureNames(text)
+    let msg = "bony: multipleArmatures ignored=" & extra.join(",")
+    if not allowMultipleArmatures:
+      quit(msg, QuitFailure)
+    else:
+      stderr.writeLine(msg)
+
+  let armature = parseDbSkeleton(text)
+  if setupOnly and armature.hasAnimation:
+    stderr.writeLine("bony: --setup-only: animation suppressed for " & armature.name)
+  let data = armatureToSkeletonData(armature, assetsDir, setupOnly)
+  writeFile(outputPath, toBonyJson(data))
+
+
 proc affineJson(world: Affine2): JsonNode =
   result = newJObject()
   result["a"] = newJFloat(world.a)
@@ -692,12 +1221,16 @@ proc main() =
       writeFile(args[2], toBonyJson(loadKnownBonyBnb(readBytes(args[1]))))
     of "import-lottie":
       importLottie(args[1 .. ^1])
+    of "import-dragonbones":
+      importDragonbones(args[1 .. ^1])
     of "golden-gen":
       writeNumericGolden(args[1 .. ^1])
     of "play":
       renderSetupPose(args[1 .. ^1])
     else:
       quit(usage(), QuitFailure)
+  except DbDiagnostic as exc:
+    quit("bony: " & exc.dbMessage, QuitFailure)
   except LottieDiagnostic as exc:
     quit("bony: " & exc.lottieMessage, QuitFailure)
   except BonyLoadError as exc:
