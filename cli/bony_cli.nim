@@ -144,6 +144,20 @@ proc loadInputSkeleton(path: string): SkeletonData =
     loadBonyJson(readFile(path))
 
 
+proc applyViewportTransform(batches: seq[DrawBatch]; width, height: int): seq[DrawBatch] =
+  # Map world space (y-up, origin at skeleton root) to screen space (y-down,
+  # origin at image top-left) by centering the viewport at (width/2, height/2)
+  # and flipping the y-axis. This ensures skeletons positioned at negative y
+  # world coordinates (common in Spine rigs) remain visible.
+  let cx = float64(width) * 0.5
+  let cy = float64(height) * 0.5
+  result = batches
+  for i in 0 ..< result.len:
+    for j in 0 ..< result[i].vertices.len:
+      result[i].vertices[j].x = result[i].vertices[j].x + cx
+      result[i].vertices[j].y = cy - result[i].vertices[j].y
+
+
 proc validateKeys(node: JsonNode; allowed: openArray[string]; target: string) =
   if node.kind != JObject:
     raiseLottie("schemaViolation", target, "object", "expected object")
@@ -1299,7 +1313,8 @@ proc renderSetupPose(args: seq[string]) =
   rejectStateMachineArgs(stateMachine, inputScript)
   requireSetupPoseTime(time)
   let data = loadInputSkeleton(inputPath)
-  let image = renderSoftware(buildDrawBatches(data), width, height)
+  let batches = applyViewportTransform(buildDrawBatches(data), width, height)
+  let image = renderSoftware(batches, width, height)
   image.writeFile(outputPath)
 
 
