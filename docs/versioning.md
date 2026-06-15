@@ -1,0 +1,74 @@
+# Versioning
+
+This document records the versioning relationship between the four independently
+versionable artifacts in this monorepo:
+
+1. **On-disk binary format** (`.bnb` header `major.minor`)
+2. **Nim runtime package** (`runtime-nim/bony.nimble`)
+3. **Dart runtime package** (`runtime-dart/pubspec.yaml`)
+4. **Spec document** (this spec + JSON Schema in `spec/`)
+
+## Version axes
+
+### Binary format (major.minor)
+
+The `.bnb` header encodes the format version as a single varuint packed as
+`(major << 16) | minor`. Current constants: `bnbMajorVersion = 0`, `bnbMinorVersion = 1`.
+
+Compatibility contract:
+- **Same major** — a reader MUST accept and load the file. Unknown object types
+  and unknown property keys are skipped via the ToC (see
+  `docs/binary-toc-skip-semantics.md`). This enables non-breaking extension
+  within a major version.
+- **Different major** — a reader MUST reject the file with `schemaViolation`.
+  A major-version bump signals a breaking change that invalidates the skip-safe
+  assumption.
+
+Minor increments within a major version are forward-compatible: a 0.2 reader can
+load a 0.1 file, and a 0.1 reader can load a 0.2 file (skipping the new content).
+
+### Nim and Dart package versions (semver)
+
+Both package versions track the binary format version: `major.minor.patch` where
+`major` and `minor` match the binary format, and `patch` is reserved for
+runtime-only bug fixes that don't touch the wire format.
+
+Current: `0.1.0` in both packages.
+
+### Spec document version
+
+The spec document version is a human-facing label that tracks the format version.
+It is recorded as `major.minor` (no patch suffix). The JSON Schema header
+(`spec/bony.schema.json`) says "Generated from registry/wire.yml and
+spec/defaults.yml" — the schema itself has no independent version; it is always
+regenerated fresh from those sources.
+
+## What v1.0 ships as
+
+| Artifact | v1.0 value |
+|---|---|
+| Binary format | major=1, minor=0 → varuint `0x00010000` |
+| Nim package | `1.0.0` |
+| Dart package | `1.0.0` |
+| Spec document | `1.0` |
+
+The binary format bump from 0.x to 1.0 is a **breaking change**: 0.x readers
+will reject 1.0 files (major mismatch), and 1.0 readers will reject 0.x files.
+The cut to 1.0 is gated on the format being stable enough to commit to backwards
+compatibility within the 1.x major.
+
+## Key registry rules
+
+The property key registry (`registry/wire.yml`) is **append-only**:
+
+- Key 0 is the reserved object-stream terminator. It MUST NOT be assigned to any
+  object type or property.
+- Retired keys (removed features) MUST NOT be reused. A retired key should be
+  recorded in the registry with a `status: retired` annotation so future authors
+  know to skip it.
+- New keys are always allocated at the end of the existing range; no gaps or
+  renumbering.
+
+These rules ensure that a reader encountering an unknown key can safely skip it
+via the ToC payload-length record without misinterpreting retired data as a new
+extension.
