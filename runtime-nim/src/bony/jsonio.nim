@@ -4,6 +4,8 @@ import std/[json, math, sets, strutils, tables]
 
 import bony/generated/wire
 import bony/model
+import bony/deform/deformers
+import bony/deform/keyforms
 
 const
   skeletonTypeId = "skeleton"
@@ -478,40 +480,32 @@ proc loadBonyJson*(text: string): SkeletonData =
             x: requiredFloat(cpObject, "x", cpContext),
             y: requiredFloat(cpObject, "y", cpContext),
           )
-        deformer = Deformer(
-          id: defId,
-          parent: defParent,
-          order: defOrder,
-          kind: warpDeformerKind,
-          warp: WarpLattice(
-            rows: uint32(optionalInt(warpObject, "rows", 2, context & ".warp")),
-            cols: uint32(optionalInt(warpObject, "cols", 2, context & ".warp")),
-            minX: requiredFloat(warpObject, "minX", context & ".warp"),
-            minY: requiredFloat(warpObject, "minY", context & ".warp"),
-            maxX: requiredFloat(warpObject, "maxX", context & ".warp"),
-            maxY: requiredFloat(warpObject, "maxY", context & ".warp"),
-            controlPoints: controlPoints,
-          ),
+        let lattice = WarpLattice(
+          rows: uint32(optionalInt(warpObject, "rows", 2, context & ".warp")),
+          cols: uint32(optionalInt(warpObject, "cols", 2, context & ".warp")),
+          minX: requiredFloat(warpObject, "minX", context & ".warp"),
+          minY: requiredFloat(warpObject, "minY", context & ".warp"),
+          maxX: requiredFloat(warpObject, "maxX", context & ".warp"),
+          maxY: requiredFloat(warpObject, "maxY", context & ".warp"),
+          controlPoints: controlPoints,
         )
+        validateWarpLattice(lattice)
+        deformer = Deformer(id: defId, parent: defParent, order: defOrder, kind: warpDeformerKind, warp: lattice)
       elif defKind == "rotation":
         if not defObject.hasKey("rotation"):
           raise newBonyLoadError(schemaViolation, context & ".rotation is required for kind=rotation")
         let rotObject = requireObject(defObject["rotation"], context & ".rotation")
         validateKnownKeys(rotObject, ["pivotX", "pivotY", "angleDegrees", "scaleX", "scaleY", "opacity"], context & ".rotation")
-        deformer = Deformer(
-          id: defId,
-          parent: defParent,
-          order: defOrder,
-          kind: rotationDeformerKind,
-          rotation: RotationDeformer(
-            pivotX: requiredFloat(rotObject, "pivotX", context & ".rotation"),
-            pivotY: requiredFloat(rotObject, "pivotY", context & ".rotation"),
-            angleDegrees: requiredFloat(rotObject, "angleDegrees", context & ".rotation"),
-            scaleX: optionalFloat(rotObject, "scaleX", 1.0, context & ".rotation"),
-            scaleY: optionalFloat(rotObject, "scaleY", 1.0, context & ".rotation"),
-            opacity: optionalFloat(rotObject, "opacity", 1.0, context & ".rotation"),
-          ),
+        let rotation = RotationDeformer(
+          pivotX: requiredFloat(rotObject, "pivotX", context & ".rotation"),
+          pivotY: requiredFloat(rotObject, "pivotY", context & ".rotation"),
+          angleDegrees: requiredFloat(rotObject, "angleDegrees", context & ".rotation"),
+          scaleX: optionalFloat(rotObject, "scaleX", 1.0, context & ".rotation"),
+          scaleY: optionalFloat(rotObject, "scaleY", 1.0, context & ".rotation"),
+          opacity: optionalFloat(rotObject, "opacity", 1.0, context & ".rotation"),
         )
+        validateRotationDeformer(rotation)
+        deformer = Deformer(id: defId, parent: defParent, order: defOrder, kind: rotationDeformerKind, rotation: rotation)
       else:
         raise newBonyLoadError(schemaViolation, context & ".kind must be 'warp' or 'rotation'")
 
@@ -562,8 +556,7 @@ proc loadBonyJson*(text: string): SkeletonData =
               raise newBonyLoadError(schemaViolation, kfContext & ".values[" & $valIndex & "] must be numeric")
             kfValues.add quantizeF32(valNode.getFloat(), kfContext & ".values[" & $valIndex & "]")
           blendKeyforms.add Keyform(coordinates: coordinates, values: kfValues)
-        let valueCount = if blendKeyforms.len > 0: blendKeyforms[0].values.len else: 0
-        blend = KeyformBlend(axes: blendAxes, valueCount: valueCount, keyforms: blendKeyforms)
+        blend = keyformBlend(blendAxes, blendKeyforms)
 
       loadedDeformers.add DeformerRecord(deformer: deformer, keyformBlend: blend)
 

@@ -4704,3 +4704,131 @@ spec "bony package":
           ]
         }
       """, unknownRequiredReference)
+
+  it "rejects M7 warp deformer with wrong control-point count":
+    then:
+      raisesBonyLoadError("""
+        {
+          "skeleton": {"name": "bad-warp-count"},
+          "bones": [{"name": "root"}],
+          "deformers": [
+            {
+              "id": "w1", "order": 0, "kind": "warp",
+              "warp": {
+                "rows": 2, "cols": 2,
+                "minX": -10, "minY": -10, "maxX": 10, "maxY": 10,
+                "controlPoints": [{"x": 0, "y": 0}, {"x": 1, "y": 0}, {"x": 0, "y": 1}]
+              }
+            }
+          ]
+        }
+      """, schemaViolation)
+
+  it "rejects M7 warp deformer with degenerate bounds":
+    then:
+      raisesBonyLoadError("""
+        {
+          "skeleton": {"name": "degen-warp"},
+          "bones": [{"name": "root"}],
+          "deformers": [
+            {
+              "id": "w1", "order": 0, "kind": "warp",
+              "warp": {
+                "rows": 2, "cols": 2,
+                "minX": 0, "minY": -10, "maxX": 0, "maxY": 10,
+                "controlPoints": [
+                  {"x": 0, "y": -10}, {"x": 0, "y": -10},
+                  {"x": 0, "y": 10},  {"x": 0, "y": 10}
+                ]
+              }
+            }
+          ]
+        }
+      """, schemaViolation)
+
+  it "rejects M7 rotation deformer with zero scaleX":
+    then:
+      raisesBonyLoadError("""
+        {
+          "skeleton": {"name": "bad-scale"},
+          "bones": [{"name": "root"}],
+          "deformers": [
+            {
+              "id": "r1", "order": 0, "kind": "rotation",
+              "rotation": {"pivotX": 0, "pivotY": 0, "angleDegrees": 0, "scaleX": 0}
+            }
+          ]
+        }
+      """, schemaViolation)
+
+  it "rejects M7 rotation deformer with opacity out of range":
+    then:
+      raisesBonyLoadError("""
+        {
+          "skeleton": {"name": "bad-opacity"},
+          "bones": [{"name": "root"}],
+          "deformers": [
+            {
+              "id": "r1", "order": 0, "kind": "rotation",
+              "rotation": {"pivotX": 0, "pivotY": 0, "angleDegrees": 0, "opacity": 2.0}
+            }
+          ]
+        }
+      """, schemaViolation)
+
+  it "rejects M7 deformer with parent order not earlier than child order":
+    then:
+      raisesBonyLoadError("""
+        {
+          "skeleton": {"name": "bad-order"},
+          "bones": [{"name": "root"}],
+          "deformers": [
+            {"id": "child", "parent": "parent", "order": 0, "kind": "rotation",
+             "rotation": {"pivotX": 0, "pivotY": 0, "angleDegrees": 0}},
+            {"id": "parent", "parent": "", "order": 1, "kind": "rotation",
+             "rotation": {"pivotX": 0, "pivotY": 0, "angleDegrees": 0}}
+          ]
+        }
+      """, orderingViolation)
+
+  it "rejects M7 keyformBlend with mismatched value counts":
+    then:
+      raisesBonyLoadError("""
+        {
+          "skeleton": {"name": "bad-kf-count"},
+          "bones": [{"name": "root"}],
+          "parameters": [{"name": "X", "min": 0.0, "max": 1.0}],
+          "deformers": [
+            {
+              "id": "d1", "order": 0, "kind": "rotation",
+              "rotation": {"pivotX": 0, "pivotY": 0, "angleDegrees": 0},
+              "keyformBlend": {
+                "axes": ["X"],
+                "keyforms": [
+                  {"coordinates": {"X": 0.0}, "values": [0.0, 1.0]},
+                  {"coordinates": {"X": 1.0}, "values": [0.0]}
+                ]
+              }
+            }
+          ]
+        }
+      """, schemaViolation)
+
+  it "rejects M7 keyformBlend with empty axes":
+    then:
+      raisesBonyLoadError("""
+        {
+          "skeleton": {"name": "empty-axes"},
+          "bones": [{"name": "root"}],
+          "deformers": [
+            {
+              "id": "d1", "order": 0, "kind": "rotation",
+              "rotation": {"pivotX": 0, "pivotY": 0, "angleDegrees": 0},
+              "keyformBlend": {
+                "axes": [],
+                "keyforms": [{"coordinates": {}, "values": [0.0]}]
+              }
+            }
+          ]
+        }
+      """, schemaViolation)

@@ -692,10 +692,12 @@
         },
         "scaleX": {
           "type": "number",
+          "exclusiveMinimum": 0,
           "default": 1.0
         },
         "scaleY": {
           "type": "number",
+          "exclusiveMinimum": 0,
           "default": 1.0
         },
         "opacity": {

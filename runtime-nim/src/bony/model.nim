@@ -509,6 +509,7 @@ proc validateSkeletonData*(
   var deformerIds = initHashSet[string]()
   var deformerOrders = initHashSet[uint32]()
   var deformerParentById = initTable[string, string]()
+  var deformerOrderById = initTable[string, uint32]()
   for index, rec in deformers:
     let context = "deformers[" & $index & "]"
     if rec.deformer.id.len == 0:
@@ -520,6 +521,7 @@ proc validateSkeletonData*(
     deformerIds.incl(rec.deformer.id)
     deformerOrders.incl(rec.deformer.order)
     deformerParentById[rec.deformer.id] = rec.deformer.parent
+    deformerOrderById[rec.deformer.id] = rec.deformer.order
 
   for rec in deformers:
     let parent = rec.deformer.parent
@@ -530,6 +532,11 @@ proc validateSkeletonData*(
   var dfVisited = initHashSet[string]()
   for rec in deformers:
     checkDeformerAcyclic(rec.deformer.id, deformerParentById, dfVisiting, dfVisited)
+
+  for rec in deformers:
+    let parent = rec.deformer.parent
+    if parent.len > 0 and deformerOrderById[parent] >= rec.deformer.order:
+      raise newBonyLoadError(orderingViolation, "deformer parent must have an earlier global order")
 
 
 proc skeletonData*(
