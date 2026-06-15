@@ -352,6 +352,40 @@ void _validate(SkeletonData data) {
       }
     }
   }
+
+  // M7 deformer validation.
+  final deformerIds = <String>{};
+  final deformerOrders = <int>{};
+  for (var di = 0; di < data.deformers.length; di++) {
+    final rec = data.deformers[di];
+    final def = rec.deformer;
+    final ctx = 'deformers[$di](${def.id})';
+    if (def.id.isEmpty) throw FormatException('$ctx.id must not be empty');
+    if (!deformerIds.add(def.id)) {
+      throw FormatException('duplicate deformer id: ${def.id}');
+    }
+    if (!deformerOrders.add(def.order)) {
+      throw FormatException('duplicate deformer order: ${def.order}');
+    }
+    if (def.parent.isNotEmpty && !deformerIds.contains(def.parent)) {
+      throw FormatException('$ctx: parent deformer not found or not ordered before child: ${def.parent}');
+    }
+    if (def.kind == DeformerKind.warp) {
+      final w = def.warp!;
+      if (w.rows < 2) throw FormatException('$ctx warp.rows must be >= 2, got ${w.rows}');
+      if (w.cols < 2) throw FormatException('$ctx warp.cols must be >= 2, got ${w.cols}');
+      final expectedPts = w.rows * w.cols;
+      if (w.controlPoints.length != expectedPts) {
+        throw FormatException('$ctx warp.controlPoints: expected $expectedPts, got ${w.controlPoints.length}');
+      }
+      if (w.maxX <= w.minX) {
+        throw FormatException('$ctx warp bounds: maxX (${w.maxX}) must be > minX (${w.minX})');
+      }
+      if (w.maxY <= w.minY) {
+        throw FormatException('$ctx warp bounds: maxY (${w.maxY}) must be > minY (${w.minY})');
+      }
+    }
+  }
 }
 
 // ===========================================================================

@@ -209,8 +209,11 @@ List<double> sampleKeyformValues(
   for (final kf in blend.keyforms) {
     for (var ai = 0; ai < blend.axes.length; ai++) {
       final axisName = blend.axes[ai].name;
-      final coord =
-          kf.coordinates.firstWhere((s) => s.name == axisName).value;
+      final coordSample = kf.coordinates.where((s) => s.name == axisName).firstOrNull;
+      if (coordSample == null) {
+        throw FormatException('keyform missing coordinate for axis "$axisName"');
+      }
+      final coord = coordSample.value;
       if (!valuesByAxis[ai].contains(coord)) valuesByAxis[ai].add(coord);
     }
   }
@@ -221,10 +224,11 @@ List<double> sampleKeyformValues(
   // Build keyform table: coordinate-key → Keyform.
   final keyformTable = <String, Keyform>{};
   for (final kf in blend.keyforms) {
-    final coords = blend.axes
-        .map((a) =>
-            kf.coordinates.firstWhere((s) => s.name == a.name).value)
-        .toList();
+    final coords = blend.axes.map((a) {
+      final s = kf.coordinates.where((s) => s.name == a.name).firstOrNull;
+      if (s == null) throw FormatException('keyform missing coordinate for axis "${a.name}"');
+      return s.value;
+    }).toList();
     keyformTable[_coordinateKey(blend.axes, coords)] = kf;
   }
 
@@ -235,7 +239,11 @@ List<double> sampleKeyformValues(
 
   for (var ai = 0; ai < blend.axes.length; ai++) {
     final axisName = blend.axes[ai].name;
-    final value = samples.firstWhere((s) => s.name == axisName).value;
+    final sample = samples.where((s) => s.name == axisName).firstOrNull;
+    if (sample == null) {
+      throw FormatException('keyformBlend: missing sample for axis "$axisName"');
+    }
+    final value = sample.value;
     final br = _bracket(valuesByAxis[ai], value);
     lows[ai] = br.low;
     if (br.low != br.high) {
@@ -246,6 +254,13 @@ List<double> sampleKeyformValues(
         t: br.t,
       ));
     }
+  }
+
+  const maxVaryingAxes = 20;
+  if (activeAxes.length > maxVaryingAxes) {
+    throw FormatException(
+      'keyformBlend: too many varying axes (${activeAxes.length} > $maxVaryingAxes)',
+    );
   }
 
   final result = List<double>.filled(blend.valueCount, 0.0);
@@ -350,9 +365,18 @@ List<({double x, double y})> applyDeformers(
   final effectiveById = <String, DeformerData>{};
 
   for (final deformer in ordered) {
-    final effective = deformer.parent.isEmpty
-        ? deformer
-        : _transformFrame(deformer, effectiveById[deformer.parent]!);
+    final DeformerData effective;
+    if (deformer.parent.isEmpty) {
+      effective = deformer;
+    } else {
+      final parentEffective = effectiveById[deformer.parent];
+      if (parentEffective == null) {
+        throw FormatException(
+          'applyDeformers: parent "${deformer.parent}" not found for deformer "${deformer.id}"',
+        );
+      }
+      effective = _transformFrame(deformer, parentEffective);
+    }
 
     if (effective.kind == DeformerKind.warp) {
       final ew = effective.warp!;
