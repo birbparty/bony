@@ -66,7 +66,7 @@ void main() {
       final tl = BoneTimeline(
         bone: 'root',
         kind: BoneTimelineKind.rotate,
-        keys: [const ScalarKeyframe(time: 0.0, value: 45.0)],
+        scalarKeys: [const ScalarKeyframe(time: 0.0, value: 45.0)],
       );
       _expectClose(sampleBoneTimeline(tl, 0.0), 45.0, 'single-key t=0');
       _expectClose(sampleBoneTimeline(tl, 1.0), 45.0, 'single-key t=1');
@@ -76,7 +76,7 @@ void main() {
       final tl = BoneTimeline(
         bone: 'root',
         kind: BoneTimelineKind.rotate,
-        keys: [
+        scalarKeys: [
           const ScalarKeyframe(time: 0.0, value: 0.0),
           const ScalarKeyframe(time: 1.0, value: 90.0),
         ],
@@ -90,7 +90,7 @@ void main() {
       final tl = BoneTimeline(
         bone: 'root',
         kind: BoneTimelineKind.rotate,
-        keys: [
+        scalarKeys: [
           const ScalarKeyframe(time: 0.0, value: 0.0, curve: TimelineCurve.stepped),
           const ScalarKeyframe(time: 1.0, value: 90.0),
         ],
@@ -103,7 +103,7 @@ void main() {
       final tl = BoneTimeline(
         bone: 'root',
         kind: BoneTimelineKind.rotate,
-        keys: [
+        scalarKeys: [
           const ScalarKeyframe(time: 0.0, value: 0.0),
           const ScalarKeyframe(time: 1.0, value: 90.0),
         ],
@@ -115,7 +115,7 @@ void main() {
       final tl = BoneTimeline(
         bone: 'root',
         kind: BoneTimelineKind.rotate,
-        keys: [
+        scalarKeys: [
           const ScalarKeyframe(time: 0.5, value: 30.0),
           const ScalarKeyframe(time: 1.0, value: 90.0),
         ],
@@ -232,9 +232,9 @@ void main() {
       expect(idle.boneTimelines, hasLength(1));
       expect(idle.boneTimelines.first.bone, 'root');
       expect(idle.boneTimelines.first.kind, BoneTimelineKind.rotate);
-      expect(idle.boneTimelines.first.keys, hasLength(2));
-      _expectClose(idle.boneTimelines.first.keys.first.value, 0.0, 'idle key[0].value');
-      _expectClose(idle.boneTimelines.first.keys.last.value, 10.0, 'idle key[1].value');
+      expect(idle.boneTimelines.first.scalarKeys, hasLength(2));
+      _expectClose(idle.boneTimelines.first.scalarKeys.first.value, 0.0, 'idle key[0].value');
+      _expectClose(idle.boneTimelines.first.scalarKeys.last.value, 10.0, 'idle key[1].value');
     });
 
     test('animation duration computed from last keyframe time', () {
@@ -253,7 +253,7 @@ void main() {
           '"keyframes":[{"t":0.0,"value":0.0},'
           '{"t":1.0,"value":90.0,"curve":"bezier",'
           '"c1x":0.25,"c1y":0.0,"c2x":0.75,"c2y":1.0}]}]}]}');
-      final kf = data.animations[0].boneTimelines[0].keys[1];
+      final kf = data.animations[0].boneTimelines[0].scalarKeys[1];
       expect(kf.curve.kind, TimelineCurveKind.bezier);
       _expectClose(kf.curve.c1x, quantizeF32(0.25), 'c1x');
       _expectClose(kf.curve.c1y, quantizeF32(0.0), 'c1y');

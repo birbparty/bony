@@ -81,23 +81,43 @@ BoneTimelineKind _parseBoneTimelineKind(String prop, String ctx) {
       return BoneTimelineKind.shearX;
     case 'shearY':
       return BoneTimelineKind.shearY;
+    case 'translate':
+      return BoneTimelineKind.translate;
+    case 'scale':
+      return BoneTimelineKind.scale;
+    case 'shear':
+      return BoneTimelineKind.shear;
+    case 'inherit':
+      return BoneTimelineKind.inherit;
     default:
       throw FormatException('$ctx.property unknown: $prop');
   }
 }
 
-ScalarKeyframe _parseKeyframe(Map<String, dynamic> j, String ctx) {
-  final t = (j['t'] as num?)?.toDouble();
-  if (t == null) throw FormatException('missing required field: $ctx.t');
-  final value = (j['value'] as num?)?.toDouble();
-  if (value == null) throw FormatException('missing required field: $ctx.value');
+SlotTimelineKind _parseSlotTimelineKind(String prop, String ctx) {
+  switch (prop) {
+    case 'attachment':
+      return SlotTimelineKind.attachment;
+    case 'rgba':
+      return SlotTimelineKind.rgba;
+    case 'rgb':
+      return SlotTimelineKind.rgb;
+    case 'alpha':
+      return SlotTimelineKind.alpha;
+    case 'rgba2':
+      return SlotTimelineKind.rgba2;
+    case 'sequence':
+      return SlotTimelineKind.sequence;
+    default:
+      throw FormatException('$ctx.property unknown: $prop');
+  }
+}
+
+TimelineCurve _parseCurve(Map<String, dynamic> j, String ctx) {
   final curveStr = j['curve'] as String?;
-  final TimelineCurve curve;
-  if (curveStr == null || curveStr == 'linear') {
-    curve = TimelineCurve.linear;
-  } else if (curveStr == 'stepped') {
-    curve = TimelineCurve.stepped;
-  } else if (curveStr == 'bezier') {
+  if (curveStr == null || curveStr == 'linear') return TimelineCurve.linear;
+  if (curveStr == 'stepped') return TimelineCurve.stepped;
+  if (curveStr == 'bezier') {
     final c1x = (j['c1x'] as num?)?.toDouble();
     final c1y = (j['c1y'] as num?)?.toDouble();
     final c2x = (j['c2x'] as num?)?.toDouble();
@@ -110,19 +130,121 @@ ScalarKeyframe _parseKeyframe(Map<String, dynamic> j, String ctx) {
     final qc1y = quantizeF32(c1y);
     final qc2x = quantizeF32(c2x);
     final qc2y = quantizeF32(c2y);
-    // All four must be finite — f32 overflow (e.g. double.maxFinite → ±Inf)
-    // is rejected by Nim's quantizeF32, so we must match.
     if (!qc1x.isFinite) throw FormatException('$ctx.c1x must be a finite f32 value');
     if (!qc1y.isFinite) throw FormatException('$ctx.c1y must be a finite f32 value');
     if (!qc2x.isFinite) throw FormatException('$ctx.c2x must be a finite f32 value');
     if (!qc2y.isFinite) throw FormatException('$ctx.c2y must be a finite f32 value');
     if (qc1x < 0.0 || qc1x > 1.0) throw FormatException('$ctx.c1x must be in 0..1');
     if (qc2x < 0.0 || qc2x > 1.0) throw FormatException('$ctx.c2x must be in 0..1');
-    curve = TimelineCurve.bezier(qc1x, qc1y, qc2x, qc2y);
-  } else {
-    throw FormatException('$ctx.curve unknown: $curveStr');
+    return TimelineCurve.bezier(qc1x, qc1y, qc2x, qc2y);
   }
-  return ScalarKeyframe(time: t, value: value, curve: curve);
+  throw FormatException('$ctx.curve unknown: $curveStr');
+}
+
+ScalarKeyframe _parseKeyframe(Map<String, dynamic> j, String ctx) {
+  final t = (j['t'] as num?)?.toDouble();
+  if (t == null) throw FormatException('missing required field: $ctx.t');
+  final value = (j['value'] as num?)?.toDouble();
+  if (value == null) throw FormatException('missing required field: $ctx.value');
+  return ScalarKeyframe(time: t, value: value, curve: _parseCurve(j, ctx));
+}
+
+Vector2Keyframe _parseVector2Keyframe(Map<String, dynamic> j, String ctx) {
+  final t = (j['t'] as num?)?.toDouble();
+  if (t == null) throw FormatException('missing required field: $ctx.t');
+  final x = (j['x'] as num?)?.toDouble() ?? 0.0;
+  final y = (j['y'] as num?)?.toDouble() ?? 0.0;
+  // Vector keyframes may carry separate curves for x and y.
+  final curveXStr = j['curveX'] as String? ?? j['curve'] as String?;
+  final curveYStr = j['curveY'] as String? ?? j['curve'] as String?;
+  final jx = curveXStr != null ? {...j, 'curve': curveXStr} : j;
+  final jy = curveYStr != null ? {...j, 'curve': curveYStr} : j;
+  return Vector2Keyframe(
+    time: t,
+    x: x,
+    y: y,
+    curveX: _parseCurve(jx, ctx),
+    curveY: _parseCurve(jy, ctx),
+  );
+}
+
+InheritKeyframe _parseInheritKeyframe(Map<String, dynamic> j, String ctx) {
+  final t = (j['t'] as num?)?.toDouble();
+  if (t == null) throw FormatException('missing required field: $ctx.t');
+  final ir = (j['inheritRotation'] as bool?) ?? true;
+  final is_ = (j['inheritScale'] as bool?) ?? true;
+  final irf = (j['inheritReflection'] as bool?) ?? true;
+  final tm = (j['transformMode'] as String?) ?? 'normal';
+  return InheritKeyframe(
+    time: t,
+    inheritRotation: ir,
+    inheritScale: is_,
+    inheritReflection: irf,
+    transformMode: tm,
+  );
+}
+
+AttachmentKeyframe _parseAttachmentKeyframe(Map<String, dynamic> j, String ctx) {
+  final t = (j['t'] as num?)?.toDouble();
+  if (t == null) throw FormatException('missing required field: $ctx.t');
+  return AttachmentKeyframe(time: t, attachment: (j['attachment'] as String?) ?? '');
+}
+
+ColorRgba _parseColorRgba(Map<String, dynamic> j, String ctx) {
+  return ColorRgba(
+    r: (j['r'] as num?)?.toDouble() ?? 1.0,
+    g: (j['g'] as num?)?.toDouble() ?? 1.0,
+    b: (j['b'] as num?)?.toDouble() ?? 1.0,
+    a: (j['a'] as num?)?.toDouble() ?? 1.0,
+  );
+}
+
+ColorKeyframe _parseColorKeyframe(Map<String, dynamic> j, String ctx) {
+  final t = (j['t'] as num?)?.toDouble();
+  if (t == null) throw FormatException('missing required field: $ctx.t');
+  return ColorKeyframe(time: t, color: _parseColorRgba(j, ctx), curve: _parseCurve(j, ctx));
+}
+
+Color2Keyframe _parseColor2Keyframe(Map<String, dynamic> j, String ctx) {
+  final t = (j['t'] as num?)?.toDouble();
+  if (t == null) throw FormatException('missing required field: $ctx.t');
+  final light = _parseColorRgba(j, ctx);
+  final darkR = (j['dr'] as num?)?.toDouble() ?? 0.0;
+  final darkG = (j['dg'] as num?)?.toDouble() ?? 0.0;
+  final darkB = (j['db'] as num?)?.toDouble() ?? 0.0;
+  return Color2Keyframe(
+    time: t,
+    color: ColorRgba2(light: light, darkR: darkR, darkG: darkG, darkB: darkB),
+    curve: _parseCurve(j, ctx),
+  );
+}
+
+SequenceMode _parseSequenceMode(String? s) {
+  switch (s) {
+    case 'once': return SequenceMode.once;
+    case 'loop': return SequenceMode.loop;
+    case 'pingpong': return SequenceMode.pingpong;
+    case 'reverse': return SequenceMode.reverse;
+    case 'hold': return SequenceMode.hold;
+    default: return SequenceMode.once;
+  }
+}
+
+SequenceKeyframe _parseSequenceKeyframe(Map<String, dynamic> j, String ctx) {
+  final t = (j['t'] as num?)?.toDouble();
+  if (t == null) throw FormatException('missing required field: $ctx.t');
+  final index = (j['index'] as num?)?.toInt() ?? 0;
+  final delay = (j['delay'] as num?)?.toDouble() ?? 0.0;
+  final mode = _parseSequenceMode(j['mode'] as String?);
+  return SequenceKeyframe(time: t, index: index, delay: delay, mode: mode);
+}
+
+void _ensureStrictlyIncreasing(List<double> times, String ctx) {
+  for (var i = 1; i < times.length; i++) {
+    if (times[i] <= times[i - 1]) {
+      throw FormatException('$ctx.keyframes: times must be strictly increasing');
+    }
+  }
 }
 
 List<AnimationClip> _parseAnimations(List<dynamic> anims) {
@@ -145,20 +267,91 @@ List<AnimationClip> _parseAnimations(List<dynamic> anims) {
       final kind = _parseBoneTimelineKind(prop, btCtx);
       final kfList = _required<List<dynamic>>(bt['keyframes'], '$btCtx.keyframes');
       if (kfList.isEmpty) throw FormatException('$btCtx.keyframes must not be empty');
-      final keys = <ScalarKeyframe>[];
-      for (var ki = 0; ki < kfList.length; ki++) {
-        keys.add(_parseKeyframe(kfList[ki] as Map<String, dynamic>, '$btCtx.keyframes[$ki]'));
+
+      late BoneTimeline tl;
+      switch (kind) {
+        case BoneTimelineKind.translate:
+        case BoneTimelineKind.scale:
+        case BoneTimelineKind.shear:
+          final keys = <Vector2Keyframe>[];
+          for (var ki = 0; ki < kfList.length; ki++) {
+            keys.add(_parseVector2Keyframe(kfList[ki] as Map<String, dynamic>, '$btCtx.keyframes[$ki]'));
+          }
+          _ensureStrictlyIncreasing(keys.map((k) => k.time).toList(), btCtx);
+          tl = BoneTimeline(bone: bone, kind: kind, vectorKeys: keys);
+          if (keys.last.time > duration) duration = keys.last.time;
+        case BoneTimelineKind.inherit:
+          final keys = <InheritKeyframe>[];
+          for (var ki = 0; ki < kfList.length; ki++) {
+            keys.add(_parseInheritKeyframe(kfList[ki] as Map<String, dynamic>, '$btCtx.keyframes[$ki]'));
+          }
+          _ensureStrictlyIncreasing(keys.map((k) => k.time).toList(), btCtx);
+          tl = BoneTimeline(bone: bone, kind: kind, inheritKeys: keys);
+          if (keys.last.time > duration) duration = keys.last.time;
+        default:
+          final keys = <ScalarKeyframe>[];
+          for (var ki = 0; ki < kfList.length; ki++) {
+            keys.add(_parseKeyframe(kfList[ki] as Map<String, dynamic>, '$btCtx.keyframes[$ki]'));
+          }
+          _ensureStrictlyIncreasing(keys.map((k) => k.time).toList(), btCtx);
+          tl = BoneTimeline(bone: bone, kind: kind, scalarKeys: keys);
+          if (keys.last.time > duration) duration = keys.last.time;
       }
-      // Validate strictly increasing times.
-      for (var ki = 1; ki < keys.length; ki++) {
-        if (keys[ki].time <= keys[ki - 1].time) {
-          throw FormatException('$btCtx.keyframes: times must be strictly increasing');
-        }
-      }
-      boneTimelines.add(BoneTimeline(bone: bone, kind: kind, keys: keys));
-      if (keys.last.time > duration) duration = keys.last.time;
+      boneTimelines.add(tl);
     }
-    result.add(AnimationClip(name: name, duration: duration, boneTimelines: boneTimelines));
+
+    final slotTimelines = <SlotTimeline>[];
+    final stList = anim['slotTimelines'] as List<dynamic>? ?? const [];
+    for (var si = 0; si < stList.length; si++) {
+      final st = stList[si] as Map<String, dynamic>;
+      final stCtx = '$ctx.slotTimelines[$si]';
+      final slot = _required<String>(st['slot'], '$stCtx.slot');
+      final prop = _required<String>(st['property'], '$stCtx.property');
+      final kind = _parseSlotTimelineKind(prop, stCtx);
+      final kfList = _required<List<dynamic>>(st['keyframes'], '$stCtx.keyframes');
+      if (kfList.isEmpty) throw FormatException('$stCtx.keyframes must not be empty');
+
+      late SlotTimeline tl;
+      switch (kind) {
+        case SlotTimelineKind.attachment:
+          final keys = <AttachmentKeyframe>[];
+          for (var ki = 0; ki < kfList.length; ki++) {
+            keys.add(_parseAttachmentKeyframe(kfList[ki] as Map<String, dynamic>, '$stCtx.keyframes[$ki]'));
+          }
+          _ensureStrictlyIncreasing(keys.map((k) => k.time).toList(), stCtx);
+          tl = SlotTimeline(slot: slot, kind: kind, attachmentKeys: keys);
+          if (keys.last.time > duration) duration = keys.last.time;
+        case SlotTimelineKind.rgba:
+        case SlotTimelineKind.rgb:
+        case SlotTimelineKind.alpha:
+          final keys = <ColorKeyframe>[];
+          for (var ki = 0; ki < kfList.length; ki++) {
+            keys.add(_parseColorKeyframe(kfList[ki] as Map<String, dynamic>, '$stCtx.keyframes[$ki]'));
+          }
+          _ensureStrictlyIncreasing(keys.map((k) => k.time).toList(), stCtx);
+          tl = SlotTimeline(slot: slot, kind: kind, colorKeys: keys);
+          if (keys.last.time > duration) duration = keys.last.time;
+        case SlotTimelineKind.rgba2:
+          final keys = <Color2Keyframe>[];
+          for (var ki = 0; ki < kfList.length; ki++) {
+            keys.add(_parseColor2Keyframe(kfList[ki] as Map<String, dynamic>, '$stCtx.keyframes[$ki]'));
+          }
+          _ensureStrictlyIncreasing(keys.map((k) => k.time).toList(), stCtx);
+          tl = SlotTimeline(slot: slot, kind: kind, color2Keys: keys);
+          if (keys.last.time > duration) duration = keys.last.time;
+        case SlotTimelineKind.sequence:
+          final keys = <SequenceKeyframe>[];
+          for (var ki = 0; ki < kfList.length; ki++) {
+            keys.add(_parseSequenceKeyframe(kfList[ki] as Map<String, dynamic>, '$stCtx.keyframes[$ki]'));
+          }
+          _ensureStrictlyIncreasing(keys.map((k) => k.time).toList(), stCtx);
+          tl = SlotTimeline(slot: slot, kind: kind, sequenceKeys: keys);
+          if (keys.last.time > duration) duration = keys.last.time;
+      }
+      slotTimelines.add(tl);
+    }
+
+    result.add(AnimationClip(name: name, duration: duration, boneTimelines: boneTimelines, slotTimelines: slotTimelines));
   }
   return result;
 }
@@ -375,6 +568,12 @@ void _validate(SkeletonData data) {
       final tl = anim.boneTimelines[bi];
       if (!boneNames.contains(tl.bone)) {
         throw FormatException('$ctx.boneTimelines[$bi]: unknown bone: ${tl.bone}');
+      }
+    }
+    for (var si = 0; si < anim.slotTimelines.length; si++) {
+      final tl = anim.slotTimelines[si];
+      if (!slotNames.contains(tl.slot)) {
+        throw FormatException('$ctx.slotTimelines[$si]: unknown slot: ${tl.slot}');
       }
     }
   }
