@@ -100,6 +100,11 @@ jobs:
       - name: Schema, registry, and defaults validation
         run: python3 -m unittest discover -s codegen -p 'test_*.py'
 
+      - name: Asset schema validation
+        run: |
+          pip3 install --quiet 'jsonschema>=4.18.0,<5'
+          python3 scripts/ci/schema_validate_assets.py
+
       - name: Dart dependencies
         working-directory: runtime-dart
         run: dart pub get
@@ -116,11 +121,6 @@ jobs:
         run: |
           nim c --path:runtime-nim/src --path:~/git/bddy/src \
             -o:/tmp/bony_bin cli/bony_cli.nim
-
-      - name: Asset schema validation
-        run: |
-          pip3 install --quiet jsonschema
-          python3 scripts/ci/schema_validate_assets.py
 
       - name: Nim conformance golden gate
         run: python3 scripts/ci/conformance_run.py --bony-bin /tmp/bony_bin

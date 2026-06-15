@@ -2,7 +2,7 @@
 """JSON Schema validation gate for conformance assets.
 
 Validates every .bony file in conformance/assets/ against the generated
-spec/bony.schema.json. Requires: pip install jsonschema>=4.18.0
+spec/bony.schema.json. Requires: pip install 'jsonschema>=4.18.0,<5'
 
 Usage:
   python3 scripts/ci/schema_validate_assets.py [--schema spec/bony.schema.json] [--assets conformance/assets]
@@ -65,6 +65,7 @@ def main():
 
     if failed:
         sys.exit(1)
+    sys.exit(0)
 
 
 if __name__ == "__main__":
