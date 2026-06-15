@@ -4458,3 +4458,377 @@ spec "bony package":
         ),
         schemaViolation,
       )
+
+  it "loads M7 parameters from JSON":
+    let data = loadBonyJson("""
+      {
+        "skeleton": {"name": "m7-params"},
+        "bones": [{"name": "root"}],
+        "parameters": [
+          {"name": "AngleX", "min": -30.0, "max": 30.0},
+          {"name": "EyeOpen", "min": 0.0, "max": 1.0, "default": 1.0}
+        ]
+      }
+    """)
+
+    then:
+      data.parameters.len == 2
+      data.parameters[0].name == "AngleX"
+      closeTo(data.parameters[0].minValue, -30.0)
+      closeTo(data.parameters[0].maxValue, 30.0)
+      closeTo(data.parameters[0].defaultValue, 0.0)
+      data.parameters[1].name == "EyeOpen"
+      closeTo(data.parameters[1].defaultValue, 1.0)
+
+  it "loads M7 warp deformer from JSON":
+    let data = loadBonyJson("""
+      {
+        "skeleton": {"name": "m7-warp"},
+        "bones": [{"name": "root"}],
+        "deformers": [
+          {
+            "id": "warp_face",
+            "order": 0,
+            "kind": "warp",
+            "warp": {
+              "rows": 2,
+              "cols": 2,
+              "minX": -100,
+              "minY": -100,
+              "maxX": 100,
+              "maxY": 100,
+              "controlPoints": [
+                {"x": -100, "y": -100},
+                {"x": 100, "y": -100},
+                {"x": -100, "y": 100},
+                {"x": 100, "y": 100}
+              ]
+            }
+          }
+        ]
+      }
+    """)
+
+    then:
+      data.deformers.len == 1
+      data.deformers[0].deformer.id == "warp_face"
+      data.deformers[0].deformer.kind == warpDeformerKind
+      data.deformers[0].deformer.warp.rows == 2'u32
+      data.deformers[0].deformer.warp.cols == 2'u32
+      data.deformers[0].deformer.warp.controlPoints.len == 4
+
+  it "loads M7 rotation deformer from JSON":
+    let data = loadBonyJson("""
+      {
+        "skeleton": {"name": "m7-rot"},
+        "bones": [{"name": "root"}],
+        "deformers": [
+          {
+            "id": "rot_head",
+            "order": 0,
+            "kind": "rotation",
+            "rotation": {
+              "pivotX": 10.0,
+              "pivotY": 20.0,
+              "angleDegrees": 45.0
+            }
+          }
+        ]
+      }
+    """)
+
+    then:
+      data.deformers.len == 1
+      data.deformers[0].deformer.id == "rot_head"
+      data.deformers[0].deformer.kind == rotationDeformerKind
+      closeTo(data.deformers[0].deformer.rotation.angleDegrees, 45.0)
+      closeTo(data.deformers[0].deformer.rotation.scaleX, 1.0)
+      closeTo(data.deformers[0].deformer.rotation.opacity, 1.0)
+
+  it "loads M7 deformer with keyformBlend from JSON":
+    let data = loadBonyJson("""
+      {
+        "skeleton": {"name": "m7-kf"},
+        "bones": [{"name": "root"}],
+        "parameters": [
+          {"name": "AngleX", "min": -30.0, "max": 30.0}
+        ],
+        "deformers": [
+          {
+            "id": "warp_face",
+            "order": 0,
+            "kind": "warp",
+            "warp": {
+              "rows": 2, "cols": 2,
+              "minX": -10, "minY": -10, "maxX": 10, "maxY": 10,
+              "controlPoints": [
+                {"x": -10, "y": -10}, {"x": 10, "y": -10},
+                {"x": -10, "y": 10},  {"x": 10, "y": 10}
+              ]
+            },
+            "keyformBlend": {
+              "axes": ["AngleX"],
+              "keyforms": [
+                {"coordinates": {"AngleX": -30.0}, "values": [-11.0, -11.0, 11.0, -11.0, -11.0, 11.0, 11.0, 11.0]},
+                {"coordinates": {"AngleX": 30.0},  "values": [-9.0, -9.0, 9.0, -9.0, -9.0, 9.0, 9.0, 9.0]}
+              ]
+            }
+          }
+        ]
+      }
+    """)
+
+    then:
+      data.deformers[0].keyformBlend.axes.len == 1
+      data.deformers[0].keyformBlend.axes[0].name == "AngleX"
+      data.deformers[0].keyformBlend.keyforms.len == 2
+
+  it "round-trips M7 parameters through toBonyJson":
+    let original = skeletonData(
+      skeletonHeader("m7-rt", "0.1.0"),
+      @[boneData("root", "")],
+      parameters = @[
+        ParameterAxis(name: "AngleX", minValue: -30.0, maxValue: 30.0, defaultValue: 0.0),
+        ParameterAxis(name: "EyeOpen", minValue: 0.0, maxValue: 1.0, defaultValue: 1.0),
+      ],
+    )
+    let loaded = loadBonyJson(toBonyJson(original))
+
+    then:
+      loaded.parameters.len == 2
+      loaded.parameters[0].name == "AngleX"
+      loaded.parameters[1].name == "EyeOpen"
+      closeTo(loaded.parameters[1].defaultValue, 1.0)
+
+  it "round-trips M7 deformers through toBonyJson":
+    let original = skeletonData(
+      skeletonHeader("m7-def-rt", "0.1.0"),
+      @[boneData("root", "")],
+      deformers = @[
+        DeformerRecord(
+          deformer: Deformer(
+            id: "warp_a", parent: "", order: 0'u32,
+            kind: warpDeformerKind,
+            warp: WarpLattice(
+              rows: 2'u32, cols: 2'u32,
+              minX: -5.0, minY: -5.0, maxX: 5.0, maxY: 5.0,
+              controlPoints: @[
+                DeformerPoint(x: -5.0, y: -5.0),
+                DeformerPoint(x: 5.0,  y: -5.0),
+                DeformerPoint(x: -5.0, y: 5.0),
+                DeformerPoint(x: 5.0,  y: 5.0),
+              ],
+            ),
+          ),
+          keyformBlend: KeyformBlend(),
+        ),
+      ],
+    )
+    let loaded = loadBonyJson(toBonyJson(original))
+
+    then:
+      loaded.deformers.len == 1
+      loaded.deformers[0].deformer.id == "warp_a"
+      loaded.deformers[0].deformer.kind == warpDeformerKind
+      loaded.deformers[0].deformer.warp.controlPoints.len == 4
+
+  it "rejects duplicate M7 parameter names":
+    then:
+      raisesBonyLoadError("""
+        {
+          "skeleton": {"name": "dup-params"},
+          "bones": [{"name": "root"}],
+          "parameters": [
+            {"name": "X", "min": 0.0, "max": 1.0},
+            {"name": "X", "min": 0.0, "max": 1.0}
+          ]
+        }
+      """, duplicateKey)
+
+  it "rejects duplicate M7 deformer ids":
+    then:
+      raisesBonyLoadError("""
+        {
+          "skeleton": {"name": "dup-defs"},
+          "bones": [{"name": "root"}],
+          "deformers": [
+            {"id": "d1", "order": 0, "kind": "rotation", "rotation": {"pivotX": 0, "pivotY": 0, "angleDegrees": 0}},
+            {"id": "d1", "order": 1, "kind": "rotation", "rotation": {"pivotX": 0, "pivotY": 0, "angleDegrees": 0}}
+          ]
+        }
+      """, duplicateKey)
+
+  it "rejects unknown M7 deformer parent":
+    then:
+      raisesBonyLoadError("""
+        {
+          "skeleton": {"name": "unk-parent"},
+          "bones": [{"name": "root"}],
+          "deformers": [
+            {"id": "d1", "parent": "ghost", "order": 0, "kind": "rotation",
+             "rotation": {"pivotX": 0, "pivotY": 0, "angleDegrees": 0}}
+          ]
+        }
+      """, unknownRequiredReference)
+
+  it "rejects M7 deformer tree cycle":
+    then:
+      raisesBonyLoadError("""
+        {
+          "skeleton": {"name": "cycle-defs"},
+          "bones": [{"name": "root"}],
+          "deformers": [
+            {"id": "a", "parent": "b", "order": 0, "kind": "rotation",
+             "rotation": {"pivotX": 0, "pivotY": 0, "angleDegrees": 0}},
+            {"id": "b", "parent": "a", "order": 1, "kind": "rotation",
+             "rotation": {"pivotX": 0, "pivotY": 0, "angleDegrees": 0}}
+          ]
+        }
+      """, cycleDetected)
+
+  it "rejects M7 keyformBlend with unknown parameter axis":
+    then:
+      raisesBonyLoadError("""
+        {
+          "skeleton": {"name": "unk-axis"},
+          "bones": [{"name": "root"}],
+          "deformers": [
+            {
+              "id": "d1", "order": 0, "kind": "rotation",
+              "rotation": {"pivotX": 0, "pivotY": 0, "angleDegrees": 0},
+              "keyformBlend": {
+                "axes": ["Ghost"],
+                "keyforms": [{"coordinates": {"Ghost": 0.0}, "values": [0.0]}]
+              }
+            }
+          ]
+        }
+      """, unknownRequiredReference)
+
+  it "rejects M7 warp deformer with wrong control-point count":
+    then:
+      raisesBonyLoadError("""
+        {
+          "skeleton": {"name": "bad-warp-count"},
+          "bones": [{"name": "root"}],
+          "deformers": [
+            {
+              "id": "w1", "order": 0, "kind": "warp",
+              "warp": {
+                "rows": 2, "cols": 2,
+                "minX": -10, "minY": -10, "maxX": 10, "maxY": 10,
+                "controlPoints": [{"x": 0, "y": 0}, {"x": 1, "y": 0}, {"x": 0, "y": 1}]
+              }
+            }
+          ]
+        }
+      """, schemaViolation)
+
+  it "rejects M7 warp deformer with degenerate bounds":
+    then:
+      raisesBonyLoadError("""
+        {
+          "skeleton": {"name": "degen-warp"},
+          "bones": [{"name": "root"}],
+          "deformers": [
+            {
+              "id": "w1", "order": 0, "kind": "warp",
+              "warp": {
+                "rows": 2, "cols": 2,
+                "minX": 0, "minY": -10, "maxX": 0, "maxY": 10,
+                "controlPoints": [
+                  {"x": 0, "y": -10}, {"x": 0, "y": -10},
+                  {"x": 0, "y": 10},  {"x": 0, "y": 10}
+                ]
+              }
+            }
+          ]
+        }
+      """, schemaViolation)
+
+  it "rejects M7 rotation deformer with zero scaleX":
+    then:
+      raisesBonyLoadError("""
+        {
+          "skeleton": {"name": "bad-scale"},
+          "bones": [{"name": "root"}],
+          "deformers": [
+            {
+              "id": "r1", "order": 0, "kind": "rotation",
+              "rotation": {"pivotX": 0, "pivotY": 0, "angleDegrees": 0, "scaleX": 0}
+            }
+          ]
+        }
+      """, schemaViolation)
+
+  it "rejects M7 rotation deformer with opacity out of range":
+    then:
+      raisesBonyLoadError("""
+        {
+          "skeleton": {"name": "bad-opacity"},
+          "bones": [{"name": "root"}],
+          "deformers": [
+            {
+              "id": "r1", "order": 0, "kind": "rotation",
+              "rotation": {"pivotX": 0, "pivotY": 0, "angleDegrees": 0, "opacity": 2.0}
+            }
+          ]
+        }
+      """, schemaViolation)
+
+  it "rejects M7 deformer with parent order not earlier than child order":
+    then:
+      raisesBonyLoadError("""
+        {
+          "skeleton": {"name": "bad-order"},
+          "bones": [{"name": "root"}],
+          "deformers": [
+            {"id": "child", "parent": "parent", "order": 0, "kind": "rotation",
+             "rotation": {"pivotX": 0, "pivotY": 0, "angleDegrees": 0}},
+            {"id": "parent", "parent": "", "order": 1, "kind": "rotation",
+             "rotation": {"pivotX": 0, "pivotY": 0, "angleDegrees": 0}}
+          ]
+        }
+      """, orderingViolation)
+
+  it "rejects M7 keyformBlend with mismatched value counts":
+    then:
+      raisesBonyLoadError("""
+        {
+          "skeleton": {"name": "bad-kf-count"},
+          "bones": [{"name": "root"}],
+          "parameters": [{"name": "X", "min": 0.0, "max": 1.0}],
+          "deformers": [
+            {
+              "id": "d1", "order": 0, "kind": "rotation",
+              "rotation": {"pivotX": 0, "pivotY": 0, "angleDegrees": 0},
+              "keyformBlend": {
+                "axes": ["X"],
+                "keyforms": [
+                  {"coordinates": {"X": 0.0}, "values": [0.0, 1.0]},
+                  {"coordinates": {"X": 1.0}, "values": [0.0]}
+                ]
+              }
+            }
+          ]
+        }
+      """, schemaViolation)
+
+  it "rejects M7 keyformBlend with empty axes":
+    then:
+      raisesBonyLoadError("""
+        {
+          "skeleton": {"name": "empty-axes"},
+          "bones": [{"name": "root"}],
+          "deformers": [
+            {
+              "id": "d1", "order": 0, "kind": "rotation",
+              "rotation": {"pivotX": 0, "pivotY": 0, "angleDegrees": 0},
+              "keyformBlend": {
+                "axes": [],
+                "keyforms": [{"coordinates": {}, "values": [0.0]}]
+              }
+            }
+          ]
+        }
+      """, schemaViolation)

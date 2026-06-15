@@ -1,9 +1,11 @@
 ## M1 .bony JSON loader/serializer.
 
-import std/[json, math, sets, strutils]
+import std/[json, math, sets, strutils, tables]
 
 import bony/generated/wire
 import bony/model
+import bony/deform/deformers
+import bony/deform/keyforms
 
 const
   skeletonTypeId = "skeleton"
@@ -209,7 +211,7 @@ proc validateKnownKeys(node: JsonNode; allowed: openArray[string]; context: stri
         found = true
         break
     if not found:
-      raise newBonyLoadError(schemaViolation, context & "." & key & " is not a known M1 field")
+      raise newBonyLoadError(schemaViolation, context & "." & key & " is not a recognized field")
 
 
 proc addIndent(output: var string; level: int) =
@@ -295,7 +297,7 @@ proc loadBonyJson*(text: string): SkeletonData =
       raise newBonyLoadError(schemaViolation, "invalid JSON: " & exc.msg)
 
   let root = requireObject(parsed, "root")
-  validateKnownKeys(root, ["skeleton", "bones", "slots", "regions", "pathAttachments", "paths"], "root")
+  validateKnownKeys(root, ["skeleton", "bones", "slots", "regions", "pathAttachments", "paths", "parameters", "deformers"], "root")
 
   if not root.hasKey("skeleton"):
     raise newBonyLoadError(schemaViolation, "root.skeleton is required")
@@ -429,7 +431,136 @@ proc loadBonyJson*(text: string): SkeletonData =
         optionalInt(pathObject, "order", defaultInt(pathTypeId, "order"), context),
       )
 
-  skeletonData(loadedHeader, loadedBones, loadedSlots, loadedRegions, loadedPathAttachments, loadedPaths)
+  var loadedParameters: seq[ParameterAxis] = @[]
+  if root.hasKey("parameters"):
+    let parametersNode = requireArray(root["parameters"], "parameters")
+    for index, paramNode in parametersNode.elems:
+      let context = "parameters[" & $index & "]"
+      let paramObject = requireObject(paramNode, context)
+      validateKnownKeys(paramObject, ["name", "min", "max", "default"], context)
+      loadedParameters.add ParameterAxis(
+        name: requiredString(paramObject, "name", context),
+        minValue: requiredFloat(paramObject, "min", context),
+        maxValue: requiredFloat(paramObject, "max", context),
+        defaultValue: optionalFloat(paramObject, "default", 0.0, context),
+      )
+
+  var loadedDeformers: seq[DeformerRecord] = @[]
+  if root.hasKey("deformers"):
+    var paramsByName = initTable[string, ParameterAxis]()
+    for param in loadedParameters:
+      paramsByName[param.name] = param
+
+    let deformersNode = requireArray(root["deformers"], "deformers")
+    for index, defNode in deformersNode.elems:
+      let context = "deformers[" & $index & "]"
+      let defObject = requireObject(defNode, context)
+      validateKnownKeys(defObject, ["id", "parent", "order", "kind", "warp", "rotation", "keyformBlend"], context)
+
+      let defId = requiredString(defObject, "id", context)
+      let defParent = optionalString(defObject, "parent", "", context)
+      let defOrder = uint32(optionalInt(defObject, "order", 0, context))
+      let defKind = requiredString(defObject, "kind", context)
+
+      var deformer: Deformer
+      if defKind == "warp":
+        if not defObject.hasKey("warp"):
+          raise newBonyLoadError(schemaViolation, context & ".warp is required for kind=warp")
+        let warpObject = requireObject(defObject["warp"], context & ".warp")
+        validateKnownKeys(warpObject, ["rows", "cols", "minX", "minY", "maxX", "maxY", "controlPoints"], context & ".warp")
+        if not warpObject.hasKey("controlPoints"):
+          raise newBonyLoadError(schemaViolation, context & ".warp.controlPoints is required")
+        let cpArrayNode = requireArray(warpObject["controlPoints"], context & ".warp.controlPoints")
+        var controlPoints: seq[DeformerPoint]
+        for cpIndex, cpNode in cpArrayNode.elems:
+          let cpContext = context & ".warp.controlPoints[" & $cpIndex & "]"
+          let cpObject = requireObject(cpNode, cpContext)
+          validateKnownKeys(cpObject, ["x", "y"], cpContext)
+          controlPoints.add DeformerPoint(
+            x: requiredFloat(cpObject, "x", cpContext),
+            y: requiredFloat(cpObject, "y", cpContext),
+          )
+        let lattice = WarpLattice(
+          rows: uint32(optionalInt(warpObject, "rows", 2, context & ".warp")),
+          cols: uint32(optionalInt(warpObject, "cols", 2, context & ".warp")),
+          minX: requiredFloat(warpObject, "minX", context & ".warp"),
+          minY: requiredFloat(warpObject, "minY", context & ".warp"),
+          maxX: requiredFloat(warpObject, "maxX", context & ".warp"),
+          maxY: requiredFloat(warpObject, "maxY", context & ".warp"),
+          controlPoints: controlPoints,
+        )
+        validateWarpLattice(lattice)
+        deformer = Deformer(id: defId, parent: defParent, order: defOrder, kind: warpDeformerKind, warp: lattice)
+      elif defKind == "rotation":
+        if not defObject.hasKey("rotation"):
+          raise newBonyLoadError(schemaViolation, context & ".rotation is required for kind=rotation")
+        let rotObject = requireObject(defObject["rotation"], context & ".rotation")
+        validateKnownKeys(rotObject, ["pivotX", "pivotY", "angleDegrees", "scaleX", "scaleY", "opacity"], context & ".rotation")
+        let rotation = RotationDeformer(
+          pivotX: requiredFloat(rotObject, "pivotX", context & ".rotation"),
+          pivotY: requiredFloat(rotObject, "pivotY", context & ".rotation"),
+          angleDegrees: requiredFloat(rotObject, "angleDegrees", context & ".rotation"),
+          scaleX: optionalFloat(rotObject, "scaleX", 1.0, context & ".rotation"),
+          scaleY: optionalFloat(rotObject, "scaleY", 1.0, context & ".rotation"),
+          opacity: optionalFloat(rotObject, "opacity", 1.0, context & ".rotation"),
+        )
+        validateRotationDeformer(rotation)
+        deformer = Deformer(id: defId, parent: defParent, order: defOrder, kind: rotationDeformerKind, rotation: rotation)
+      else:
+        raise newBonyLoadError(schemaViolation, context & ".kind must be 'warp' or 'rotation'")
+
+      var blend = KeyformBlend()
+      if defObject.hasKey("keyformBlend"):
+        let blendObject = requireObject(defObject["keyformBlend"], context & ".keyformBlend")
+        validateKnownKeys(blendObject, ["axes", "keyforms"], context & ".keyformBlend")
+        if not blendObject.hasKey("axes"):
+          raise newBonyLoadError(schemaViolation, context & ".keyformBlend.axes is required")
+        if not blendObject.hasKey("keyforms"):
+          raise newBonyLoadError(schemaViolation, context & ".keyformBlend.keyforms is required")
+        let axesNode = requireArray(blendObject["axes"], context & ".keyformBlend.axes")
+        var blendAxes: seq[ParameterAxis]
+        for axisIndex, axisNameNode in axesNode.elems:
+          let axisCtx = context & ".keyformBlend.axes[" & $axisIndex & "]"
+          if axisNameNode.kind != JString:
+            raise newBonyLoadError(schemaViolation, axisCtx & " must be a string")
+          let axisName = axisNameNode.getStr()
+          if axisName notin paramsByName:
+            raise newBonyLoadError(unknownRequiredReference, "unknown parameter '" & axisName & "' in " & axisCtx)
+          blendAxes.add paramsByName[axisName]
+        let keyformsNode = requireArray(blendObject["keyforms"], context & ".keyformBlend.keyforms")
+        var blendKeyforms: seq[Keyform]
+        for kfIndex, kfNode in keyformsNode.elems:
+          let kfContext = context & ".keyformBlend.keyforms[" & $kfIndex & "]"
+          let kfObject = requireObject(kfNode, kfContext)
+          validateKnownKeys(kfObject, ["coordinates", "values"], kfContext)
+          if not kfObject.hasKey("coordinates"):
+            raise newBonyLoadError(schemaViolation, kfContext & ".coordinates is required")
+          if not kfObject.hasKey("values"):
+            raise newBonyLoadError(schemaViolation, kfContext & ".values is required")
+          let coordsNode = requireObject(kfObject["coordinates"], kfContext & ".coordinates")
+          var coordinates: seq[ParameterSample]
+          for axis in blendAxes:
+            if not coordsNode.hasKey(axis.name):
+              raise newBonyLoadError(schemaViolation, kfContext & ".coordinates missing axis: " & axis.name)
+            let coordVal = coordsNode[axis.name]
+            if coordVal.kind notin {JInt, JFloat}:
+              raise newBonyLoadError(schemaViolation, kfContext & ".coordinates." & axis.name & " must be numeric")
+            coordinates.add ParameterSample(
+              name: axis.name,
+              value: quantizeF32(coordVal.getFloat(), kfContext & ".coordinates." & axis.name),
+            )
+          let valuesNode = requireArray(kfObject["values"], kfContext & ".values")
+          var kfValues: seq[float64]
+          for valIndex, valNode in valuesNode.elems:
+            if valNode.kind notin {JInt, JFloat}:
+              raise newBonyLoadError(schemaViolation, kfContext & ".values[" & $valIndex & "] must be numeric")
+            kfValues.add quantizeF32(valNode.getFloat(), kfContext & ".values[" & $valIndex & "]")
+          blendKeyforms.add Keyform(coordinates: coordinates, values: kfValues)
+        blend = keyformBlend(blendAxes, blendKeyforms)
+
+      loadedDeformers.add DeformerRecord(deformer: deformer, keyformBlend: blend)
+
+  skeletonData(loadedHeader, loadedBones, loadedSlots, loadedRegions, loadedPathAttachments, loadedPaths, loadedParameters, loadedDeformers)
 
 
 proc toBonyJson*(data: SkeletonData): string =
@@ -572,6 +703,134 @@ proc toBonyJson*(data: SkeletonData): string =
       result.addNumberField("p2y", pathAttachment.p2y, 3, first)
       result.addNumberField("p3x", pathAttachment.p3x, 3, first)
       result.addNumberField("p3y", pathAttachment.p3y, 3, first)
+      result.add "\n"
+      result.addIndent(2)
+      result.add "}"
+    result.add "\n"
+    result.addIndent(1)
+    result.add "]"
+
+  if data.parameters.len > 0:
+    result.add ",\n"
+    result.addIndent(1)
+    result.add "\"parameters\": [\n"
+    for index, param in data.parameters:
+      if index > 0:
+        result.add ",\n"
+      result.addIndent(2)
+      result.add "{\n"
+      first = true
+      result.addStringField("name", param.name, 3, first)
+      result.addNumberField("min", param.minValue, 3, first)
+      result.addNumberField("max", param.maxValue, 3, first)
+      if param.defaultValue != 0.0:
+        result.addNumberField("default", param.defaultValue, 3, first)
+      result.add "\n"
+      result.addIndent(2)
+      result.add "}"
+    result.add "\n"
+    result.addIndent(1)
+    result.add "]"
+
+  if data.deformers.len > 0:
+    result.add ",\n"
+    result.addIndent(1)
+    result.add "\"deformers\": [\n"
+    for index, rec in data.deformers:
+      if index > 0:
+        result.add ",\n"
+      result.addIndent(2)
+      result.add "{\n"
+      first = true
+      result.addStringField("id", rec.deformer.id, 3, first)
+      if rec.deformer.parent.len > 0:
+        result.addStringField("parent", rec.deformer.parent, 3, first)
+      result.addIntField("order", int(rec.deformer.order), 3, first)
+      case rec.deformer.kind
+      of warpDeformerKind:
+        result.addStringField("kind", "warp", 3, first)
+        result.addFieldPrefix("warp", 3, first)
+        result.add "{\n"
+        var wfirst = true
+        let warp = rec.deformer.warp
+        result.addIntField("rows", int(warp.rows), 4, wfirst)
+        result.addIntField("cols", int(warp.cols), 4, wfirst)
+        result.addNumberField("minX", warp.minX, 4, wfirst)
+        result.addNumberField("minY", warp.minY, 4, wfirst)
+        result.addNumberField("maxX", warp.maxX, 4, wfirst)
+        result.addNumberField("maxY", warp.maxY, 4, wfirst)
+        result.addFieldPrefix("controlPoints", 4, wfirst)
+        result.add "["
+        for cpIndex, cp in warp.controlPoints:
+          if cpIndex > 0:
+            result.add ", "
+          result.add "{\"x\": "
+          result.add canonicalNumber(cp.x)
+          result.add ", \"y\": "
+          result.add canonicalNumber(cp.y)
+          result.add "}"
+        result.add "]\n"
+        result.addIndent(3)
+        result.add "}"
+      of rotationDeformerKind:
+        result.addStringField("kind", "rotation", 3, first)
+        result.addFieldPrefix("rotation", 3, first)
+        result.add "{\n"
+        var rfirst = true
+        let rot = rec.deformer.rotation
+        result.addNumberField("pivotX", rot.pivotX, 4, rfirst)
+        result.addNumberField("pivotY", rot.pivotY, 4, rfirst)
+        result.addNumberField("angleDegrees", rot.angleDegrees, 4, rfirst)
+        if rot.scaleX != 1.0:
+          result.addNumberField("scaleX", rot.scaleX, 4, rfirst)
+        if rot.scaleY != 1.0:
+          result.addNumberField("scaleY", rot.scaleY, 4, rfirst)
+        if rot.opacity != 1.0:
+          result.addNumberField("opacity", rot.opacity, 4, rfirst)
+        result.add "\n"
+        result.addIndent(3)
+        result.add "}"
+      if rec.keyformBlend.axes.len > 0 and rec.keyformBlend.keyforms.len > 0:
+        result.add ",\n"
+        result.addIndent(3)
+        result.add "\"keyformBlend\": {\n"
+        result.addIndent(4)
+        result.add "\"axes\": ["
+        for axisIndex, axis in rec.keyformBlend.axes:
+          if axisIndex > 0:
+            result.add ", "
+          result.addJsonString(axis.name)
+        result.add "],\n"
+        result.addIndent(4)
+        result.add "\"keyforms\": [\n"
+        for kfIndex, kf in rec.keyformBlend.keyforms:
+          if kfIndex > 0:
+            result.add ",\n"
+          result.addIndent(5)
+          result.add "{\n"
+          result.addIndent(6)
+          result.add "\"coordinates\": {"
+          for coordIndex, coord in kf.coordinates:
+            if coordIndex > 0:
+              result.add ", "
+            result.addJsonString(coord.name)
+            result.add ": "
+            result.add canonicalNumber(coord.value)
+          result.add "},\n"
+          result.addIndent(6)
+          result.add "\"values\": ["
+          for valIndex, val in kf.values:
+            if valIndex > 0:
+              result.add ", "
+            result.add canonicalNumber(val)
+          result.add "]\n"
+          result.addIndent(5)
+          result.add "}"
+        result.add "\n"
+        result.addIndent(4)
+        result.add "]\n"
+        result.addIndent(3)
+        result.add "}"
       result.add "\n"
       result.addIndent(2)
       result.add "}"

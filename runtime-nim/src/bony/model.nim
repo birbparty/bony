@@ -1,6 +1,6 @@
 ## Immutable M1 SkeletonData model plus per-instance runtime shell.
 
-import std/[algorithm, math, sets]
+import std/[algorithm, math, sets, tables]
 
 type
   BonyLoadErrorKind* = enum
@@ -81,6 +81,64 @@ type
     path: string
     order: int
 
+  ParameterAxis* = object
+    name*: string
+    minValue*: float64
+    maxValue*: float64
+    defaultValue*: float64
+
+  ParameterSample* = object
+    name*: string
+    value*: float64
+
+  DeformerPoint* = object
+    x*: float64
+    y*: float64
+
+  WarpLattice* = object
+    rows*: uint32
+    cols*: uint32
+    minX*: float64
+    minY*: float64
+    maxX*: float64
+    maxY*: float64
+    controlPoints*: seq[DeformerPoint]
+
+  RotationDeformer* = object
+    pivotX*: float64
+    pivotY*: float64
+    angleDegrees*: float64
+    scaleX*: float64
+    scaleY*: float64
+    opacity*: float64
+
+  DeformerKind* = enum
+    warpDeformerKind,
+    rotationDeformerKind
+
+  Deformer* = object
+    id*: string
+    parent*: string
+    order*: uint32
+    case kind*: DeformerKind
+    of warpDeformerKind:
+      warp*: WarpLattice
+    of rotationDeformerKind:
+      rotation*: RotationDeformer
+
+  Keyform* = object
+    coordinates*: seq[ParameterSample]
+    values*: seq[float64]
+
+  KeyformBlend* = object
+    axes*: seq[ParameterAxis]
+    valueCount*: int
+    keyforms*: seq[Keyform]
+
+  DeformerRecord* = object
+    deformer*: Deformer
+    keyformBlend*: KeyformBlend
+
   ConstraintOrderEntry* = object
     kind*: ConstraintKind
     order*: int
@@ -122,6 +180,8 @@ type
     regions: seq[RegionAttachment]
     pathAttachments: seq[PathAttachmentData]
     paths: seq[PathConstraintData]
+    parameters: seq[ParameterAxis]
+    deformers: seq[DeformerRecord]
 
   SkeletonInstance* = object
     data: ref SkeletonData
@@ -298,6 +358,12 @@ proc pathAttachments*(data: SkeletonData): seq[PathAttachmentData] = data.pathAt
 proc paths*(data: SkeletonData): seq[PathConstraintData] = data.paths
 
 
+proc parameters*(data: SkeletonData): seq[ParameterAxis] = data.parameters
+
+
+proc deformers*(data: SkeletonData): seq[DeformerRecord] = data.deformers
+
+
 proc data*(instance: SkeletonInstance): ref SkeletonData = instance.data
 
 
@@ -316,6 +382,23 @@ proc modeForFlags*(inheritRotation, inheritScale, inheritReflection: bool): Tran
     raise newBonyLoadError(schemaViolation, "invalid transform inherit flag triple")
 
 
+proc checkDeformerAcyclic(
+  id: string;
+  parentById: Table[string, string];
+  visiting, visited: var HashSet[string];
+) =
+  if id in visited:
+    return
+  if id in visiting:
+    raise newBonyLoadError(cycleDetected, "deformer tree cycle detected")
+  visiting.incl(id)
+  let parent = parentById[id]
+  if parent.len > 0:
+    checkDeformerAcyclic(parent, parentById, visiting, visited)
+  visiting.excl(id)
+  visited.incl(id)
+
+
 proc validateSkeletonData*(
   header: SkeletonHeader;
   bones: openArray[BoneData];
@@ -323,6 +406,8 @@ proc validateSkeletonData*(
   regions: openArray[RegionAttachment] = [];
   pathAttachments: openArray[PathAttachmentData] = [];
   paths: openArray[PathConstraintData] = [];
+  parameters: openArray[ParameterAxis] = [];
+  deformers: openArray[DeformerRecord] = [];
 ) =
   if header.name.len == 0:
     raise newBonyLoadError(schemaViolation, "skeleton.name must not be empty")
@@ -408,6 +493,51 @@ proc validateSkeletonData*(
       raise newBonyLoadError(unknownRequiredReference, "unknown path constraint path: " & path.path)
     allPathNames.incl(path.name)
 
+  var paramNames = initHashSet[string]()
+  for index, param in parameters:
+    let context = "parameters[" & $index & "]"
+    if param.name.len == 0:
+      raise newBonyLoadError(schemaViolation, context & ".name must not be empty")
+    if param.name in paramNames:
+      raise newBonyLoadError(duplicateKey, "duplicate parameter name: " & param.name)
+    paramNames.incl(param.name)
+    if param.minValue >= param.maxValue:
+      raise newBonyLoadError(schemaViolation, context & ": min must be less than max")
+    if param.defaultValue < param.minValue or param.defaultValue > param.maxValue:
+      raise newBonyLoadError(schemaViolation, context & ": default must be within min..max")
+
+  var deformerIds = initHashSet[string]()
+  var deformerOrders = initHashSet[uint32]()
+  var deformerParentById = initTable[string, string]()
+  var deformerOrderById = initTable[string, uint32]()
+  for index, rec in deformers:
+    let context = "deformers[" & $index & "]"
+    if rec.deformer.id.len == 0:
+      raise newBonyLoadError(schemaViolation, context & ".id must not be empty")
+    if rec.deformer.id in deformerIds:
+      raise newBonyLoadError(duplicateKey, "duplicate deformer id: " & rec.deformer.id)
+    if rec.deformer.order in deformerOrders:
+      raise newBonyLoadError(schemaViolation, context & ": deformer order values must be unique")
+    deformerIds.incl(rec.deformer.id)
+    deformerOrders.incl(rec.deformer.order)
+    deformerParentById[rec.deformer.id] = rec.deformer.parent
+    deformerOrderById[rec.deformer.id] = rec.deformer.order
+
+  for rec in deformers:
+    let parent = rec.deformer.parent
+    if parent.len > 0 and parent notin deformerIds:
+      raise newBonyLoadError(unknownRequiredReference, "unknown deformer parent: " & parent)
+
+  var dfVisiting = initHashSet[string]()
+  var dfVisited = initHashSet[string]()
+  for rec in deformers:
+    checkDeformerAcyclic(rec.deformer.id, deformerParentById, dfVisiting, dfVisited)
+
+  for rec in deformers:
+    let parent = rec.deformer.parent
+    if parent.len > 0 and deformerOrderById[parent] >= rec.deformer.order:
+      raise newBonyLoadError(orderingViolation, "deformer parent must have an earlier global order")
+
 
 proc skeletonData*(
   header: SkeletonHeader;
@@ -416,18 +546,25 @@ proc skeletonData*(
   regions: openArray[RegionAttachment] = [];
   pathAttachments: openArray[PathAttachmentData] = [];
   paths: openArray[PathConstraintData] = [];
+  parameters: openArray[ParameterAxis] = [];
+  deformers: openArray[DeformerRecord] = [];
 ): SkeletonData =
-  validateSkeletonData(header, bones, slots, regions, pathAttachments, paths)
+  validateSkeletonData(header, bones, slots, regions, pathAttachments, paths, parameters, deformers)
   result.header = header
   result.bones = @bones
   result.slots = @slots
   result.regions = @regions
   result.pathAttachments = @pathAttachments
   result.paths = @paths
+  result.parameters = @parameters
+  result.deformers = @deformers
 
 
 proc validateSkeletonData*(data: SkeletonData) =
-  validateSkeletonData(data.header, data.bones, data.slots, data.regions, data.pathAttachments, data.paths)
+  validateSkeletonData(
+    data.header, data.bones, data.slots, data.regions, data.pathAttachments, data.paths,
+    data.parameters, data.deformers,
+  )
 
 
 proc constraintOrderEntry*(kind: ConstraintKind; order, sourceIndex: int): ConstraintOrderEntry =
