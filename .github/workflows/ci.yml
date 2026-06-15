@@ -112,5 +112,15 @@ jobs:
         working-directory: runtime-dart
         run: dart analyze
 
+      - name: Build bony CLI
+        run: |
+          nim c --path:runtime-nim/src --path:~/git/bddy/src \
+            -o:/tmp/bony_bin cli/bony_cli.nim
+
+      - name: Nim conformance golden gate
+        run: python3 scripts/ci/conformance_run.py --bony-bin /tmp/bony_bin
+
+      # TODO(bony-5p2): add Dart conformance golden gate once Dart M1 loader lands
+
       - name: Whitespace check
         run: git diff --check
