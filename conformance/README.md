@@ -48,6 +48,7 @@ and do not need to be reproduced by Dart or other runtimes.
 | m3_rig | `m3_rig_play.png` |
 | m4_rig | `m4_rig_play.png` |
 | m5_rig | `m5_rig_play.png` |
+| m6 | n/a (binary-only fixture — no .bony source) |
 | m7_rig | pending (gated on pixie rasterizer — bony-gzz) |
 | m8_rig | pending (gated on pixie rasterizer — bony-vou) |
 
@@ -141,7 +142,7 @@ python3 scripts/ci/image_diff_check.py  --bony-bin /tmp/bony_bin
 1. Create the rig: `conformance/assets/mN_rig.bony`
 2. Generate the binary golden: `bony json-to-bnb conformance/assets/mN_rig.bony conformance/assets/bnb/mN_rig.bnb`
 3. Generate the numeric golden: `bony golden-gen conformance/assets/mN_rig.bony conformance/goldens/mN_rig_t0.json --t 0.0`
-4. Create the input script: `conformance/scripts/mN_sample.json`
+4. Create the input script: `conformance/scripts/mN_sample.json` (must conform to `spec/bony-input-script.schema.json`; see an existing sample as a template)
 5. Commit all four files and verify all gates pass.
 6. Image golden (Nim-only): `bony play conformance/assets/mN_rig.bony conformance/goldens/mN_rig_play.png`
 

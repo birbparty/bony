@@ -36,7 +36,7 @@ GATES = [
 _SETUP_ERROR = 2
 
 
-def run_gate(gate_name, script_path, bony_bin):
+def run_gate(script_path, bony_bin):
     """Run one gate script and return (exit_code, stdout+stderr text)."""
     result = subprocess.run(
         [sys.executable, script_path, "--bony-bin", bony_bin],
@@ -72,20 +72,26 @@ def main():
             continue
 
         if not os.path.isfile(script_path):
-            results.append((gate_name, "SKIP", f"script not found: {script_path}"))
+            print(f"\n{'='*60}")
+            print(f"  Gate: {gate_name}")
+            print(f"{'='*60}")
+            print(f"FAIL {gate_name}: gate script not found: {script_path}")
+            results.append((gate_name, "FAIL", f"script not found: {script_path}"))
             continue
 
         print(f"\n{'='*60}")
         print(f"  Gate: {gate_name}")
         print(f"{'='*60}")
 
-        rc, output = run_gate(gate_name, script_path, bony_bin)
+        rc, output = run_gate(script_path, bony_bin)
         if output:
             print(output.rstrip())
 
         if rc == 0:
             status = "PASS"
-        elif rc == _SETUP_ERROR and deps_hint:
+        elif rc == _SETUP_ERROR and deps_hint and "not installed" in output:
+            # Dep-gated scripts print "not installed" only on ImportError.
+            # Any other exit-2 (vacuously green, missing assets) is a real failure.
             status = "SKIP"
             print(f"  (skipped — missing dependency; install with: {deps_hint})")
         else:
