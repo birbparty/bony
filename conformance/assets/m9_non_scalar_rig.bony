@@ -79,9 +79,9 @@
             },
             {
               "t": 1.0,
-              "inheritRotation": false,
+              "inheritRotation": true,
               "inheritScale": false,
-              "inheritReflection": false,
+              "inheritReflection": true,
               "transformMode": "noScale"
             }
           ]

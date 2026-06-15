@@ -575,6 +575,25 @@ proc loadBonyJson*(text: string): SkeletonData =
   discard parseBonyStateMachines(root, result, loadedAnimClips)
 
 
+proc parseCurveFromNode(kfObj: JsonNode; curveKey, kfCtx: string): TimelineCurve =
+  if not kfObj.hasKey(curveKey):
+    return linearTimelineCurve
+  if kfObj[curveKey].kind != JString:
+    raise newBonyLoadError(schemaViolation, kfCtx & "." & curveKey & " must be a string")
+  let cs = kfObj[curveKey].getStr()
+  case cs
+  of "linear": linearTimelineCurve
+  of "stepped": steppedTimelineCurve
+  of "bezier":
+    let c1x = requiredF64(kfObj, "c1x", kfCtx)
+    let c1y = requiredF64(kfObj, "c1y", kfCtx)
+    let c2x = requiredF64(kfObj, "c2x", kfCtx)
+    let c2y = requiredF64(kfObj, "c2y", kfCtx)
+    bezierTimelineCurve(c1x, c1y, c2x, c2y)
+  else:
+    raise newBonyLoadError(schemaViolation, kfCtx & "." & curveKey & " unknown: " & cs)
+
+
 proc parseBonyAnimations(root: JsonNode; data: SkeletonData): Table[string, AnimationClip] =
   if not root.hasKey("animations"):
     return initTable[string, AnimationClip]()
@@ -582,7 +601,7 @@ proc parseBonyAnimations(root: JsonNode; data: SkeletonData): Table[string, Anim
   for animIndex, animNode in animsNode.elems:
     let ctx = "animations[" & $animIndex & "]"
     let aObj = requireObject(animNode, ctx)
-    validateKnownKeys(aObj, ["name", "boneTimelines"], ctx)
+    validateKnownKeys(aObj, ["name", "boneTimelines", "slotTimelines"], ctx)
     let animName = requiredString(aObj, "name", ctx)
     if animName.len == 0:
       raise newBonyLoadError(schemaViolation, ctx & ".name must not be empty")
@@ -594,49 +613,150 @@ proc parseBonyAnimations(root: JsonNode; data: SkeletonData): Table[string, Anim
       for btIndex, btNode in btListNode.elems:
         let btCtx = ctx & ".boneTimelines[" & $btIndex & "]"
         let btObj = requireObject(btNode, btCtx)
-        validateKnownKeys(btObj, ["bone", "property", "keyframes"], btCtx)
         let bone = requiredString(btObj, "bone", btCtx)
         let propStr = requiredString(btObj, "property", btCtx)
-        let tlKind =
-          case propStr
-          of "rotate": rotateTimeline
-          of "translateX": translateXTimeline
-          of "translateY": translateYTimeline
-          of "scaleX": scaleXTimeline
-          of "scaleY": scaleYTimeline
-          of "shearX": shearXTimeline
-          of "shearY": shearYTimeline
-          else:
-            raise newBonyLoadError(schemaViolation, btCtx & ".property unknown: " & propStr)
+        validateKnownKeys(btObj, ["bone", "property", "keyframes"], btCtx)
+        if not btObj.hasKey("keyframes"):
+          raise newBonyLoadError(schemaViolation, btCtx & ".keyframes is required")
         let kfListNode = requireArray(btObj["keyframes"], btCtx & ".keyframes")
-        var scalarKeys: seq[ScalarKeyframe] = @[]
-        for kfIndex, kfNode in kfListNode.elems:
-          let kfCtx = btCtx & ".keyframes[" & $kfIndex & "]"
-          let kfObj = requireObject(kfNode, kfCtx)
-          validateKnownKeys(kfObj, ["t", "value", "curve", "c1x", "c1y", "c2x", "c2y"], kfCtx)
-          let kfTime = requiredF64(kfObj, "t", kfCtx)
-          let kfValue = requiredFloat(kfObj, "value", kfCtx)
-          let curve =
-            if kfObj.hasKey("curve"):
-              if kfObj["curve"].kind != JString:
-                raise newBonyLoadError(schemaViolation, kfCtx & ".curve must be a string")
-              let cs = kfObj["curve"].getStr()
-              case cs
-              of "linear": linearTimelineCurve
-              of "stepped": steppedTimelineCurve
-              of "bezier":
-                let c1x = requiredF64(kfObj, "c1x", kfCtx)
-                let c1y = requiredF64(kfObj, "c1y", kfCtx)
-                let c2x = requiredF64(kfObj, "c2x", kfCtx)
-                let c2y = requiredF64(kfObj, "c2y", kfCtx)
-                bezierTimelineCurve(c1x, c1y, c2x, c2y)
+        case propStr
+        of "rotate", "translateX", "translateY", "scaleX", "scaleY", "shearX", "shearY":
+          let tlKind =
+            case propStr
+            of "rotate": rotateTimeline
+            of "translateX": translateXTimeline
+            of "translateY": translateYTimeline
+            of "scaleX": scaleXTimeline
+            of "scaleY": scaleYTimeline
+            of "shearX": shearXTimeline
+            else: shearYTimeline
+          var scalarKeys: seq[ScalarKeyframe] = @[]
+          for kfIndex, kfNode in kfListNode.elems:
+            let kfCtx = btCtx & ".keyframes[" & $kfIndex & "]"
+            let kfObj = requireObject(kfNode, kfCtx)
+            validateKnownKeys(kfObj, ["t", "value", "curve", "c1x", "c1y", "c2x", "c2y"], kfCtx)
+            let kfTime = requiredF64(kfObj, "t", kfCtx)
+            let kfValue = requiredFloat(kfObj, "value", kfCtx)
+            scalarKeys.add scalarKeyframe(kfTime, kfValue, parseCurveFromNode(kfObj, "curve", kfCtx))
+          boneTimelines.add boneScalarTimeline(bone, tlKind, scalarKeys)
+        of "translate", "scale", "shear":
+          let tlKind =
+            case propStr
+            of "translate": translateTimeline
+            of "scale": scaleTimeline
+            else: shearTimeline
+          var vectorKeys: seq[Vector2Keyframe] = @[]
+          for kfIndex, kfNode in kfListNode.elems:
+            let kfCtx = btCtx & ".keyframes[" & $kfIndex & "]"
+            let kfObj = requireObject(kfNode, kfCtx)
+            validateKnownKeys(kfObj, ["t", "x", "y", "curve", "curveX", "curveY", "c1x", "c1y", "c2x", "c2y"], kfCtx)
+            let kfTime = requiredF64(kfObj, "t", kfCtx)
+            let kfX = optionalFloat(kfObj, "x", 0.0, kfCtx)
+            let kfY = optionalFloat(kfObj, "y", 0.0, kfCtx)
+            let curveXKey = if kfObj.hasKey("curveX"): "curveX" else: "curve"
+            let curveYKey = if kfObj.hasKey("curveY"): "curveY" else: "curve"
+            vectorKeys.add vector2Keyframe(kfTime, kfX, kfY,
+              parseCurveFromNode(kfObj, curveXKey, kfCtx),
+              parseCurveFromNode(kfObj, curveYKey, kfCtx))
+          boneTimelines.add boneVectorTimeline(bone, tlKind, vectorKeys)
+        of "inherit":
+          var inheritKeys: seq[InheritKeyframe] = @[]
+          for kfIndex, kfNode in kfListNode.elems:
+            let kfCtx = btCtx & ".keyframes[" & $kfIndex & "]"
+            let kfObj = requireObject(kfNode, kfCtx)
+            validateKnownKeys(kfObj, ["t", "inheritRotation", "inheritScale", "inheritReflection", "transformMode"], kfCtx)
+            let kfTime = requiredF64(kfObj, "t", kfCtx)
+            let ir = optionalBool(kfObj, "inheritRotation", true, kfCtx)
+            let isc = optionalBool(kfObj, "inheritScale", true, kfCtx)
+            let irf = optionalBool(kfObj, "inheritReflection", true, kfCtx)
+            let tmStr = optionalString(kfObj, "transformMode", "normal", kfCtx)
+            let tm = parseTransformMode(tmStr, kfCtx)
+            inheritKeys.add inheritKeyframe(kfTime, ir, isc, irf, tm)
+          boneTimelines.add boneInheritTimeline(bone, inheritKeys)
+        else:
+          raise newBonyLoadError(schemaViolation, btCtx & ".property unknown: " & propStr)
+    var slotTimelines: seq[SlotTimeline] = @[]
+    if aObj.hasKey("slotTimelines"):
+      let stListNode = requireArray(aObj["slotTimelines"], ctx & ".slotTimelines")
+      for stIndex, stNode in stListNode.elems:
+        let stCtx = ctx & ".slotTimelines[" & $stIndex & "]"
+        let stObj = requireObject(stNode, stCtx)
+        let slot = requiredString(stObj, "slot", stCtx)
+        let propStr = requiredString(stObj, "property", stCtx)
+        validateKnownKeys(stObj, ["slot", "property", "keyframes"], stCtx)
+        if not stObj.hasKey("keyframes"):
+          raise newBonyLoadError(schemaViolation, stCtx & ".keyframes is required")
+        let kfListNode = requireArray(stObj["keyframes"], stCtx & ".keyframes")
+        case propStr
+        of "attachment":
+          var attachmentKeys: seq[AttachmentKeyframe] = @[]
+          for kfIndex, kfNode in kfListNode.elems:
+            let kfCtx = stCtx & ".keyframes[" & $kfIndex & "]"
+            let kfObj = requireObject(kfNode, kfCtx)
+            validateKnownKeys(kfObj, ["t", "attachment"], kfCtx)
+            let kfTime = requiredF64(kfObj, "t", kfCtx)
+            let att = optionalString(kfObj, "attachment", "", kfCtx)
+            attachmentKeys.add attachmentKeyframe(kfTime, att)
+          slotTimelines.add slotAttachmentTimeline(slot, attachmentKeys)
+        of "rgba", "rgb", "alpha":
+          let tlKind =
+            case propStr
+            of "rgba": rgbaTimeline
+            of "rgb": rgbTimeline
+            else: alphaTimeline
+          var colorKeys: seq[ColorKeyframe] = @[]
+          for kfIndex, kfNode in kfListNode.elems:
+            let kfCtx = stCtx & ".keyframes[" & $kfIndex & "]"
+            let kfObj = requireObject(kfNode, kfCtx)
+            validateKnownKeys(kfObj, ["t", "r", "g", "b", "a", "curve", "c1x", "c1y", "c2x", "c2y"], kfCtx)
+            let kfTime = requiredF64(kfObj, "t", kfCtx)
+            let r = optionalFloat(kfObj, "r", 1.0, kfCtx)
+            let g = optionalFloat(kfObj, "g", 1.0, kfCtx)
+            let b = optionalFloat(kfObj, "b", 1.0, kfCtx)
+            let a = optionalFloat(kfObj, "a", 1.0, kfCtx)
+            colorKeys.add colorKeyframe(kfTime, ColorRgba(r: r, g: g, b: b, a: a), parseCurveFromNode(kfObj, "curve", kfCtx))
+          slotTimelines.add slotColorTimeline(slot, tlKind, colorKeys)
+        of "rgba2":
+          var color2Keys: seq[Color2Keyframe] = @[]
+          for kfIndex, kfNode in kfListNode.elems:
+            let kfCtx = stCtx & ".keyframes[" & $kfIndex & "]"
+            let kfObj = requireObject(kfNode, kfCtx)
+            validateKnownKeys(kfObj, ["t", "r", "g", "b", "a", "dr", "dg", "db", "curve", "c1x", "c1y", "c2x", "c2y"], kfCtx)
+            let kfTime = requiredF64(kfObj, "t", kfCtx)
+            let r = optionalFloat(kfObj, "r", 1.0, kfCtx)
+            let g = optionalFloat(kfObj, "g", 1.0, kfCtx)
+            let b = optionalFloat(kfObj, "b", 1.0, kfCtx)
+            let a = optionalFloat(kfObj, "a", 1.0, kfCtx)
+            let dr = optionalFloat(kfObj, "dr", 0.0, kfCtx)
+            let dg = optionalFloat(kfObj, "dg", 0.0, kfCtx)
+            let db = optionalFloat(kfObj, "db", 0.0, kfCtx)
+            let light = ColorRgba(r: r, g: g, b: b, a: a)
+            color2Keys.add color2Keyframe(kfTime, ColorRgba2(light: light, darkR: dr, darkG: dg, darkB: db), parseCurveFromNode(kfObj, "curve", kfCtx))
+          slotTimelines.add slotColor2Timeline(slot, color2Keys)
+        of "sequence":
+          var sequenceKeys: seq[SequenceKeyframe] = @[]
+          for kfIndex, kfNode in kfListNode.elems:
+            let kfCtx = stCtx & ".keyframes[" & $kfIndex & "]"
+            let kfObj = requireObject(kfNode, kfCtx)
+            validateKnownKeys(kfObj, ["t", "index", "delay", "mode"], kfCtx)
+            let kfTime = requiredF64(kfObj, "t", kfCtx)
+            let index = optionalInt(kfObj, "index", 0, kfCtx)
+            let delay = optionalFloat(kfObj, "delay", 0.0, kfCtx)
+            let modeStr = optionalString(kfObj, "mode", "once", kfCtx)
+            let mode =
+              case modeStr
+              of "once": sequenceOnce
+              of "loop": sequenceLoop
+              of "pingpong": sequencePingpong
+              of "reverse": sequenceReverse
+              of "hold": sequenceHold
               else:
-                raise newBonyLoadError(schemaViolation, kfCtx & ".curve unknown: " & cs)
-            else:
-              linearTimelineCurve
-          scalarKeys.add scalarKeyframe(kfTime, kfValue, curve)
-        boneTimelines.add boneScalarTimeline(bone, tlKind, scalarKeys)
-    result[animName] = animationClip(data, animName, boneTimelines)
+                raise newBonyLoadError(schemaViolation, kfCtx & ".mode unknown: " & modeStr)
+            sequenceKeys.add sequenceKeyframe(kfTime, uint32(index), delay, mode)
+          slotTimelines.add slotSequenceTimeline(slot, sequenceKeys)
+        else:
+          raise newBonyLoadError(schemaViolation, stCtx & ".property unknown: " & propStr)
+    result[animName] = animationClip(data, animName, boneTimelines, slotTimelines)
 
 
 proc parseBonyStateMachines(
@@ -811,6 +931,12 @@ proc parseBonyStateMachines(
         else:
           raise newBonyLoadError(schemaViolation, lstCtx & ".kind must be 'stateEnter', 'stateExit', or 'transition'")
     result.add stateMachine(machineName, layers, inputs, listeners)
+
+
+proc loadBonyJsonAnimations*(text: string): Table[string, AnimationClip] =
+  let data = loadBonyJson(text)
+  let root = requireObject(parseJson(text), "root")
+  parseBonyAnimations(root, data)
 
 
 proc loadBonyJsonStateMachines*(text: string): seq[StateMachine] =

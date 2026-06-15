@@ -1,4 +1,4 @@
-import std/[json, math, os, osproc, sequtils, streams, strutils]
+import std/[json, math, os, osproc, sequtils, streams, strutils, tables]
 
 import bddy
 import bony
@@ -451,7 +451,7 @@ spec "bony package":
         discard loadBonyBnb(fixture)
         inc loaded
     then:
-      loaded == 7  # update when M9+ rigs are added to conformance/assets/bnb/
+      loaded == 8  # m1–m5, m7, m8, m9_non_scalar
 
   it "rejects malformed semantic .bnb payloads":
     then:
@@ -5248,6 +5248,66 @@ spec "bony package":
       machines[0].layers[0].states.len == 2
       machines[0].layers[1].name == "face"
       machines[0].listeners.len == 3
+
+  it "loads m9_non_scalar_rig.bony conformance asset":
+    let data = loadBonyJson(readFile("../conformance/assets/m9_non_scalar_rig.bony"))
+    let clips = loadBonyJsonAnimations(readFile("../conformance/assets/m9_non_scalar_rig.bony"))
+    let clipCount = clips.len
+    let slideKind = clips["slide"].boneTimelines[0].kind
+    let slideVectorLen = clips["slide"].boneTimelines[0].vectorKeys.len
+    let growKind = clips["grow"].boneTimelines[0].kind
+    let leanKind = clips["lean"].boneTimelines[0].kind
+    let inheritKind = clips["inherit_switch"].boneTimelines[0].kind
+    let inheritKeyLen = clips["inherit_switch"].boneTimelines[0].inheritKeys.len
+    let inheritMode = clips["inherit_switch"].boneTimelines[0].inheritKeys[1].transformMode
+    let blinkSlotLen = clips["blink"].slotTimelines.len
+    let blinkKind = clips["blink"].slotTimelines[0].kind
+    let blinkAttLen = clips["blink"].slotTimelines[0].attachmentKeys.len
+    let fadeKind = clips["fade"].slotTimelines[0].kind
+    let tintKind = clips["tint"].slotTimelines[0].kind
+    let alphaKind = clips["alpha_pulse"].slotTimelines[0].kind
+    let rgba2Kind = clips["two_color"].slotTimelines[0].kind
+    let color2Len = clips["two_color"].slotTimelines[0].color2Keys.len
+    let seqKind = clips["fx_sequence"].slotTimelines[0].kind
+    let seqKeyLen = clips["fx_sequence"].slotTimelines[0].sequenceKeys.len
+    let comboBoneLen = clips["combo"].boneTimelines.len
+    let comboSlotLen = clips["combo"].slotTimelines.len
+    then:
+      data.header.name == "m9-non-scalar-rig"
+      data.bones.len == 3
+      data.slots.len == 3
+      data.regions.len == 6
+      clipCount == 11
+      clips.hasKey("slide")
+      clips.hasKey("grow")
+      clips.hasKey("lean")
+      clips.hasKey("inherit_switch")
+      clips.hasKey("blink")
+      clips.hasKey("fade")
+      clips.hasKey("tint")
+      clips.hasKey("alpha_pulse")
+      clips.hasKey("two_color")
+      clips.hasKey("fx_sequence")
+      clips.hasKey("combo")
+      slideKind == translateTimeline
+      slideVectorLen == 2
+      growKind == scaleTimeline
+      leanKind == shearTimeline
+      inheritKind == inheritTimeline
+      inheritKeyLen == 2
+      inheritMode == noScale
+      blinkSlotLen == 1
+      blinkKind == attachmentTimeline
+      blinkAttLen == 3
+      fadeKind == rgbaTimeline
+      tintKind == rgbTimeline
+      alphaKind == alphaTimeline
+      rgba2Kind == rgba2Timeline
+      color2Len == 2
+      seqKind == sequenceTimeline
+      seqKeyLen == 2
+      comboBoneLen == 3
+      comboSlotLen == 2
 
   it "rejects M8 state machine with unknown clip reference":
     const badClipJson = """
