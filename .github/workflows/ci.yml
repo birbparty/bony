@@ -127,7 +127,7 @@ jobs:
 
       - name: Image golden gate
         run: |
-          pip3 install --quiet 'Pillow>=10.0.0'
+          pip3 install --quiet 'Pillow>=10.0.0,<12'
           python3 scripts/ci/image_diff_check.py --bony-bin /tmp/bony_bin
 
       - name: Whitespace check

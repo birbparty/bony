@@ -14,7 +14,7 @@ Usage:
     --assets conformance/assets --goldens conformance/goldens
 
 Exit 0 if all cases pass; non-zero otherwise.
-Requires: pip install 'Pillow>=10.0.0'
+Requires: pip install 'Pillow>=10.0.0,<12'
 """
 
 import argparse
@@ -25,10 +25,10 @@ import sys
 import tempfile
 
 try:
-    from PIL import Image
+    from PIL import Image, ImageChops
 except ImportError:
     print(
-        "error: Pillow not installed — run: pip install 'Pillow>=10.0.0'",
+        "error: Pillow not installed — run: pip install 'Pillow>=10.0.0,<12'",
         file=sys.stderr,
     )
     sys.exit(2)
@@ -38,12 +38,27 @@ except ImportError:
 MAX_DELTA = 1
 
 
+def _find_worst_pixel(actual, golden, w):
+    """Slow path: locate the worst pixel when max_delta > MAX_DELTA."""
+    act_bytes = actual.tobytes()
+    gld_bytes = golden.tobytes()
+    max_delta = 0
+    worst = (0, 0, 0, 0)  # (x, y, channel, delta)
+    for i in range(len(act_bytes)):
+        d = abs(int(act_bytes[i]) - int(gld_bytes[i]))
+        if d > max_delta:
+            max_delta = d
+            px = i // 4
+            worst = (px % w, px // w, i % 4, d)
+    return max_delta, worst
+
+
 def run_image_check(bony_bin, asset_path, golden_path, actual_path, label, width=256, height=256):
     """Render asset_path and compare against golden_path.
 
     Returns "pass", "fail", or "skip" (if no committed golden).
     """
-    if not os.path.exists(golden_path):
+    if not os.path.isfile(golden_path):
         print(f"SKIP {label}: no committed golden at {golden_path}")
         return "skip"
 
@@ -73,25 +88,17 @@ def run_image_check(bony_bin, asset_path, golden_path, actual_path, label, width
             )
             return "fail"
 
-        import struct
-
-        act_bytes = actual.tobytes()
-        gld_bytes = golden.tobytes()
-        max_delta = 0
-        worst = (0, 0, 0, 0)  # (x, y, channel, delta)
-        w, h = actual.size
-        for i in range(len(act_bytes)):
-            d = abs(int(act_bytes[i]) - int(gld_bytes[i]))
-            if d > max_delta:
-                max_delta = d
-                px = i // 4
-                worst = (px % w, px // w, i % 4, d)
+        # Fast path: ImageChops.difference runs in C; getextrema() returns
+        # (min, max) per channel — we only need the per-channel maxima.
+        diff = ImageChops.difference(actual, golden)
+        max_delta = max(ch_max for _, ch_max in diff.getextrema())
 
     except Exception as exc:
         print(f"FAIL {label}: {exc}")
         return "fail"
 
     if max_delta > MAX_DELTA:
+        _, worst = _find_worst_pixel(actual, golden, actual.width)
         ch_name = ["R", "G", "B", "A"][worst[2]]
         print(
             f"FAIL {label}: max per-channel delta {max_delta} > {MAX_DELTA} "
