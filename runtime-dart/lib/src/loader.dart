@@ -412,6 +412,76 @@ void _validate(SkeletonData data) {
       }
     }
   }
+
+  // M8 state machine cross-reference validation.
+  final animationNames = <String>{for (final a in data.animations) a.name};
+  for (var smi = 0; smi < data.stateMachines.length; smi++) {
+    final sm = data.stateMachines[smi];
+    final smCtx = 'stateMachines[$smi](${sm.name})';
+    final inputNames = <String>{for (final inp in sm.inputs) inp.name};
+    final layerStateNames = <String, Set<String>>{};
+    for (var li = 0; li < sm.layers.length; li++) {
+      final layer = sm.layers[li];
+      final lCtx = '$smCtx.layers[$li](${layer.name})';
+      final stateNames = <String>{for (final s in layer.states) s.name};
+      layerStateNames[layer.name] = stateNames;
+      for (var si = 0; si < layer.states.length; si++) {
+        final state = layer.states[si];
+        final sCtx = '$lCtx.states[$si](${state.name})';
+        if (state.kind == StateMachineStateKind.clip) {
+          if (!animationNames.contains(state.clipName)) {
+            throw FormatException('$sCtx.clip references unknown animation: ${state.clipName}');
+          }
+        } else if (state.kind == StateMachineStateKind.blend1d) {
+          if (!inputNames.contains(state.blendInput)) {
+            throw FormatException('$sCtx.blendInput references unknown input: ${state.blendInput}');
+          }
+          for (var bci = 0; bci < state.blendClips.length; bci++) {
+            final bc = state.blendClips[bci];
+            if (!animationNames.contains(bc.clipName)) {
+              throw FormatException('$sCtx.blendClips[$bci].clip references unknown animation: ${bc.clipName}');
+            }
+          }
+        }
+      }
+      for (var ti = 0; ti < layer.transitions.length; ti++) {
+        final tr = layer.transitions[ti];
+        final trCtx = '$lCtx.transitions[$ti]';
+        if (!stateNames.contains(tr.fromState)) {
+          throw FormatException('$trCtx.fromState references unknown state: ${tr.fromState}');
+        }
+        if (!stateNames.contains(tr.toState)) {
+          throw FormatException('$trCtx.toState references unknown state: ${tr.toState}');
+        }
+        for (var ci = 0; ci < tr.conditions.length; ci++) {
+          final cond = tr.conditions[ci];
+          if (!inputNames.contains(cond.input)) {
+            throw FormatException('$trCtx.conditions[$ci].input references unknown input: ${cond.input}');
+          }
+        }
+      }
+    }
+    for (var li = 0; li < sm.listeners.length; li++) {
+      final lst = sm.listeners[li];
+      final lstCtx = '$smCtx.listeners[$li](${lst.name})';
+      final lstStates = layerStateNames[lst.layer];
+      if (lstStates == null) {
+        throw FormatException('$lstCtx.layer references unknown layer: ${lst.layer}');
+      }
+      if (lst.kind == StateMachineListenerKind.stateEnter ||
+          lst.kind == StateMachineListenerKind.transition_) {
+        if (!lstStates.contains(lst.toState)) {
+          throw FormatException('$lstCtx.toState references unknown state: ${lst.toState}');
+        }
+      }
+      if (lst.kind == StateMachineListenerKind.stateExit ||
+          lst.kind == StateMachineListenerKind.transition_) {
+        if (!lstStates.contains(lst.fromState)) {
+          throw FormatException('$lstCtx.fromState references unknown state: ${lst.fromState}');
+        }
+      }
+    }
+  }
 }
 
 // ===========================================================================
