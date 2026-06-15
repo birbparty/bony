@@ -7,7 +7,6 @@ import bony/generated/wire
 import bony/model
 import bony/deform/deformers
 import bony/deform/keyforms
-import bony/deform/parameters
 
 const
   skeletonTypeKey = 1'u64
@@ -198,6 +197,18 @@ proc readVarintPayload(payload: openArray[byte]; context: string): int =
   if decoded < int64(low(int)) or decoded > int64(high(int)):
     raise newBonyLoadError(numericOutOfRange, ".bnb " & context & " varint payload is out of range")
   int(decoded)
+
+
+proc writeVaruintPayload(value: uint64): seq[byte] =
+  result.writeVaruint(value)
+
+
+proc readVaruintPayload(payload: openArray[byte]; context: string): uint64 =
+  var index = 0
+  let decoded = payload.readVaruint(index)
+  if index != payload.len:
+    raise newBonyLoadError(schemaViolation, ".bnb " & context & " varuint payload has trailing bytes")
+  decoded
 
 
 proc writeStringPayloadBytes(table: var BnbStringTable; value: string): seq[byte] =
@@ -417,8 +428,8 @@ proc readOptionalUintProperty(
 ): uint32 =
   if propertyKey notin properties:
     return defaultValue
-  let val = readVarintPayload(properties[propertyKey], context)
-  if val < 0 or val > int(high(uint32)):
+  let val = readVaruintPayload(properties[propertyKey], context)
+  if val > uint64(high(uint32)):
     raise newBonyLoadError(numericOutOfRange, ".bnb " & context & " varuint is out of uint32 range")
   uint32(val)
 
@@ -430,8 +441,8 @@ proc readRequiredUintProperty(
 ): uint32 =
   if propertyKey notin properties:
     raise newBonyLoadError(schemaViolation, ".bnb " & context & " is required")
-  let val = readVarintPayload(properties[propertyKey], context)
-  if val < 0 or val > int(high(uint32)):
+  let val = readVaruintPayload(properties[propertyKey], context)
+  if val > uint64(high(uint32)):
     raise newBonyLoadError(numericOutOfRange, ".bnb " & context & " varuint is out of uint32 range")
   uint32(val)
 
@@ -536,7 +547,7 @@ proc buildObjectRecords(data: SkeletonData; table: var BnbStringTable; toc: var 
     if def.parent.len > 0:
       defProperties.addStringIfNeeded(toc, table, parentKey, def.parent, "")
     if def.order != 0'u32:
-      defProperties.addProperty(toc, deformerOrderKey, writeVarintPayload(int(def.order)))
+      defProperties.addProperty(toc, deformerOrderKey, writeVaruintPayload(uint64(def.order)))
     case def.kind
     of warpDeformerKind:
       defProperties.addProperty(toc, deformerKindKey, writeStringPayloadBytes(table, "warp"))
@@ -549,9 +560,9 @@ proc buildObjectRecords(data: SkeletonData; table: var BnbStringTable; toc: var 
       let warp = def.warp
       var wProperties: seq[BnbPropertyRecord]
       if warp.rows != 2'u32:
-        wProperties.addProperty(toc, warpRowsKey, writeVarintPayload(int(warp.rows)))
+        wProperties.addProperty(toc, warpRowsKey, writeVaruintPayload(uint64(warp.rows)))
       if warp.cols != 2'u32:
-        wProperties.addProperty(toc, warpColsKey, writeVarintPayload(int(warp.cols)))
+        wProperties.addProperty(toc, warpColsKey, writeVaruintPayload(uint64(warp.cols)))
       wProperties.addProperty(toc, warpMinXKey, writeF32Payload(warp.minX))
       wProperties.addProperty(toc, warpMinYKey, writeF32Payload(warp.minY))
       wProperties.addProperty(toc, warpMaxXKey, writeF32Payload(warp.maxX))
@@ -575,7 +586,7 @@ proc buildObjectRecords(data: SkeletonData; table: var BnbStringTable; toc: var 
     let blend = rec.keyformBlend
     if blend.axes.len > 0 and blend.keyforms.len > 0:
       var bProperties: seq[BnbPropertyRecord]
-      bProperties.addProperty(toc, blendValueCountKey, writeVarintPayload(blend.valueCount))
+      bProperties.addProperty(toc, blendValueCountKey, writeVaruintPayload(uint64(blend.valueCount)))
       bProperties.addProperty(toc, blendAxesKey, writeBlendAxesPayload(blend.axes, table))
       result.add BnbObjectRecord(typeKey: keyformBlendTypeKey, properties: bProperties)
       for kf in blend.keyforms:
@@ -663,9 +674,6 @@ proc decodeSkeletonObjects(objects: openArray[BnbObjectRecord]; strings: BnbStri
 
   template flushPendingIfAny() =
     if deformerPending and geometryReady:
-      var paramMap = initTable[string, ParameterAxis]()
-      for p in loadedParameters:
-        paramMap[p.name] = p
       emitPendingDeformer(loadedDeformers, pendingId, pendingParent, pendingOrder,
         pendingKind, pendingWarp, pendingRotation, pendingBlendAxes, pendingKeyforms, blendPending)
       deformerPending = false
@@ -673,6 +681,8 @@ proc decodeSkeletonObjects(objects: openArray[BnbObjectRecord]; strings: BnbStri
       blendPending = false
       pendingBlendAxes = @[]
       pendingKeyforms = @[]
+    elif deformerPending:
+      raise newBonyLoadError(schemaViolation, ".bnb deformer header has no following geometry record")
 
   for record in objects:
     case record.typeKey
@@ -776,12 +786,8 @@ proc decodeSkeletonObjects(objects: openArray[BnbObjectRecord]; strings: BnbStri
       flushPendingIfAny()
       let properties = record.propertyMap([nameKey, parameterMinKey, parameterMaxKey, parameterDefaultKey])
       let paramName = properties.readStringProperty(strings, nameKey, "parameter.name")
-      let paramMin = readF32Payload(properties.getOrDefault(parameterMinKey, @[]), "parameter.min")
-      let paramMax = readF32Payload(properties.getOrDefault(parameterMaxKey, @[]), "parameter.max")
-      if parameterMinKey notin properties:
-        raise newBonyLoadError(schemaViolation, ".bnb parameter.min is required")
-      if parameterMaxKey notin properties:
-        raise newBonyLoadError(schemaViolation, ".bnb parameter.max is required")
+      let paramMin = properties.readFloatProperty(parameterMinKey, "parameter.min")
+      let paramMax = properties.readFloatProperty(parameterMaxKey, "parameter.max")
       let paramDefault =
         if parameterDefaultKey in properties:
           readF32Payload(properties[parameterDefaultKey], "parameter.default")

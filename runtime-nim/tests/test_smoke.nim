@@ -4981,3 +4981,65 @@ spec "bony package":
       closeTo(decoded.deformers[0].keyformBlend.keyforms[1].coordinates[0].value, 30.0)
       toBonyJson(decoded) == toBonyJson(original)
       toBonyBnb(decoded) == toBonyBnb(original)
+
+  it "rejects M7 BNB deformer header with no geometry record":
+    proc buildOrphanDeformer(kind: string): seq[byte] =
+      var table = initStringTable()
+      var nameP, rootP, idP, kindP: seq[byte]
+      nameP.writeStringPayload(table, "demo")
+      rootP.writeStringPayload(table, "root")
+      idP.writeStringPayload(table, "d1")
+      kindP.writeStringPayload(table, kind)
+      result.writeHeader(flags = bnbStringTableFlag)
+      result.writeToc(@[
+        BnbTocEntry(propertyKey: 1, backingTypeCode: backingTypeCode("string")),
+        BnbTocEntry(propertyKey: 6010, backingTypeCode: backingTypeCode("string")),
+        BnbTocEntry(propertyKey: 6012, backingTypeCode: backingTypeCode("string")),
+      ])
+      result.writeStringTable(table)
+      result.writeObjectRecord(1, @[BnbPropertyRecord(propertyKey: 1, payload: nameP)])
+      result.writeObjectRecord(2, @[BnbPropertyRecord(propertyKey: 1, payload: rootP)])
+      result.writeObjectRecord(6001, @[
+        BnbPropertyRecord(propertyKey: 6010, payload: idP),
+        BnbPropertyRecord(propertyKey: 6012, payload: kindP),
+      ])
+      result.writeObjectStreamTerminator()
+    then:
+      raisesBonyLoadError(proc() =
+        discard loadBonyBnb(buildOrphanDeformer("warp"))
+      , schemaViolation)
+      raisesBonyLoadError(proc() =
+        discard loadBonyBnb(buildOrphanDeformer("rotation"))
+      , schemaViolation)
+
+  it "rejects M7 BNB two consecutive deformer headers":
+    proc buildDoubleDeformerHeader(): seq[byte] =
+      var table = initStringTable()
+      var nameP, rootP, id1P, id2P, kindP: seq[byte]
+      nameP.writeStringPayload(table, "demo")
+      rootP.writeStringPayload(table, "root")
+      id1P.writeStringPayload(table, "d1")
+      id2P.writeStringPayload(table, "d2")
+      kindP.writeStringPayload(table, "warp")
+      result.writeHeader(flags = bnbStringTableFlag)
+      result.writeToc(@[
+        BnbTocEntry(propertyKey: 1, backingTypeCode: backingTypeCode("string")),
+        BnbTocEntry(propertyKey: 6010, backingTypeCode: backingTypeCode("string")),
+        BnbTocEntry(propertyKey: 6012, backingTypeCode: backingTypeCode("string")),
+      ])
+      result.writeStringTable(table)
+      result.writeObjectRecord(1, @[BnbPropertyRecord(propertyKey: 1, payload: nameP)])
+      result.writeObjectRecord(2, @[BnbPropertyRecord(propertyKey: 1, payload: rootP)])
+      result.writeObjectRecord(6001, @[
+        BnbPropertyRecord(propertyKey: 6010, payload: id1P),
+        BnbPropertyRecord(propertyKey: 6012, payload: kindP),
+      ])
+      result.writeObjectRecord(6001, @[
+        BnbPropertyRecord(propertyKey: 6010, payload: id2P),
+        BnbPropertyRecord(propertyKey: 6012, payload: kindP),
+      ])
+      result.writeObjectStreamTerminator()
+    then:
+      raisesBonyLoadError(proc() =
+        discard loadBonyBnb(buildDoubleDeformerHeader())
+      , schemaViolation)
