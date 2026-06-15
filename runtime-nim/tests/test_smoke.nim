@@ -1671,6 +1671,7 @@ spec "bony package":
     let roundTripPath = "/tmp/bony_cli_harness_roundtrip.bony"
     let goldenPath = "/tmp/bony_cli_harness_golden.json"
     let framePath = "/tmp/bony_cli_harness_frame.png"
+    let frameTopLeftPath = "/tmp/bony_cli_harness_frame_top_left.png"
     let lottiePath = "/tmp/bony_cli_harness_lottie.json"
     let lottieOutPath = "/tmp/bony_cli_harness_lottie.bony"
     let lottieBnbPath = "/tmp/bony_cli_harness_lottie.bnb"
@@ -1683,6 +1684,7 @@ spec "bony package":
       roundTripPath,
       goldenPath,
       framePath,
+      frameTopLeftPath,
       lottiePath,
       lottieOutPath,
       lottieBnbPath,
@@ -1712,7 +1714,7 @@ spec "bony package":
     let bnbToJson = runProcess(cliPath, ["bnb-to-json", bnbPath, roundTripPath])
     let golden = runProcess(cliPath, ["golden-gen", bnbPath, goldenPath, "--t", "0"])
     let play = runProcess(cliPath, ["play", assetPath, "--out", framePath, "--width", "8", "--height", "8", "--t", "0"])
-    let playTopLeft = runProcess(cliPath, ["play", assetPath, "--out", framePath, "--width", "8", "--height", "8", "--t", "0", "--origin", "top-left"])
+    let playTopLeft = runProcess(cliPath, ["play", assetPath, "--out", frameTopLeftPath, "--width", "8", "--height", "8", "--t", "0", "--origin", "top-left"])
     let playBadOrigin = runProcess(cliPath, ["play", assetPath, "--out", framePath, "--origin", "bad"])
     let unsupportedPlayStateMachine = runProcess(
       cliPath,
@@ -1875,6 +1877,8 @@ spec "bony package":
       goldenJson["drawBatches"][0]["indices"].len == 6
       fileExists(framePath)
       getFileSize(framePath) > 0
+      fileExists(frameTopLeftPath)
+      readFile(framePath) != readFile(frameTopLeftPath)
 
     for path in [
       cliPath,
@@ -1883,6 +1887,7 @@ spec "bony package":
       roundTripPath,
       goldenPath,
       framePath,
+      frameTopLeftPath,
       lottiePath,
       lottieOutPath,
       lottieBnbPath,

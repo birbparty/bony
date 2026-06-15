@@ -137,6 +137,10 @@ proc rejectStateMachineArgs(stateMachine, inputScript: string) =
     )
 
 
+const validOrigins = ["center", "top-left"]
+const originErrMsg = "origin must be center or top-left"
+
+
 proc loadInputSkeleton(path: string): SkeletonData =
   if path.toLowerAscii.endsWith(".bnb"):
     loadBonyBnb(readBytes(path))
@@ -527,8 +531,8 @@ proc importLottie(args: seq[string]) =
       if index + 1 >= args.len:
         quit(usage(), QuitFailure)
       origin = args[index + 1]
-      if origin notin ["center", "top-left"]:
-        raiseLottie("schemaViolation", "cli", "origin", "origin must be center or top-left")
+      if origin notin validOrigins:
+        raiseLottie("schemaViolation", "cli", "origin", originErrMsg)
       index += 2
     of "--reject-shapes":
       index += 1
@@ -1318,8 +1322,8 @@ proc renderSetupPose(args: seq[string]) =
       if index + 1 >= args.len:
         quit(usage(), QuitFailure)
       origin = args[index + 1]
-      if origin notin ["center", "top-left"]:
-        raise newBonyLoadError(schemaViolation, "origin must be center or top-left")
+      if origin notin validOrigins:
+        raise newBonyLoadError(schemaViolation, originErrMsg)
       index += 2
     else:
       quit(usage(), QuitFailure)
