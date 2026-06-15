@@ -86,10 +86,10 @@ spec "bony package":
       bonyRegistryVersion == 1
       bonyBackingTypes.len == 8
       bonyBackingTypes[0].id == "varuint"
-      bonyTypeKeys.len == 6
-      bonyPropertyKeys.len == 30
-      bonyPropertyDefaults.len == 15
-      bonyRequiredProperties.len == 20
+      bonyTypeKeys.len == 12
+      bonyPropertyKeys.len == 53
+      bonyPropertyDefaults.len == 23
+      bonyRequiredProperties.len == 37
 
   it "encodes and rejects .bnb varints canonically":
     var bytes: seq[byte]
@@ -4832,3 +4832,152 @@ spec "bony package":
           ]
         }
       """, schemaViolation)
+
+  it "round-trips M7 parameters through BNB":
+    let original = skeletonData(
+      skeletonHeader("m7-bnb-params", "0.1.0"),
+      @[boneData("root", "")],
+      parameters = @[
+        ParameterAxis(name: "AngleX", minValue: -30.0, maxValue: 30.0, defaultValue: 0.0),
+        ParameterAxis(name: "EyeOpen", minValue: 0.0, maxValue: 1.0, defaultValue: 1.0),
+      ],
+    )
+    let decoded = loadBonyBnb(toBonyBnb(original))
+
+    then:
+      decoded.parameters.len == 2
+      decoded.parameters[0].name == "AngleX"
+      closeTo(decoded.parameters[0].minValue, -30.0)
+      closeTo(decoded.parameters[0].maxValue, 30.0)
+      closeTo(decoded.parameters[0].defaultValue, 0.0)
+      decoded.parameters[1].name == "EyeOpen"
+      closeTo(decoded.parameters[1].defaultValue, 1.0)
+      toBonyJson(decoded) == toBonyJson(original)
+      toBonyBnb(decoded) == toBonyBnb(original)
+
+  it "round-trips M7 warp deformer through BNB":
+    let original = skeletonData(
+      skeletonHeader("m7-bnb-warp", "0.1.0"),
+      @[boneData("root", "")],
+      deformers = @[
+        DeformerRecord(
+          deformer: Deformer(
+            id: "warp_face", parent: "", order: 1'u32,
+            kind: warpDeformerKind,
+            warp: WarpLattice(
+              rows: 2'u32, cols: 2'u32,
+              minX: -50.0, minY: -50.0, maxX: 50.0, maxY: 50.0,
+              controlPoints: @[
+                DeformerPoint(x: -50.0, y: -50.0),
+                DeformerPoint(x:  50.0, y: -50.0),
+                DeformerPoint(x: -50.0, y:  50.0),
+                DeformerPoint(x:  50.0, y:  50.0),
+              ],
+            ),
+          ),
+          keyformBlend: KeyformBlend(),
+        ),
+      ],
+    )
+    let decoded = loadBonyBnb(toBonyBnb(original))
+
+    then:
+      decoded.deformers.len == 1
+      decoded.deformers[0].deformer.id == "warp_face"
+      decoded.deformers[0].deformer.kind == warpDeformerKind
+      decoded.deformers[0].deformer.order == 1'u32
+      decoded.deformers[0].deformer.warp.rows == 2'u32
+      decoded.deformers[0].deformer.warp.cols == 2'u32
+      closeTo(decoded.deformers[0].deformer.warp.minX, -50.0)
+      closeTo(decoded.deformers[0].deformer.warp.maxX, 50.0)
+      decoded.deformers[0].deformer.warp.controlPoints.len == 4
+      closeTo(decoded.deformers[0].deformer.warp.controlPoints[0].x, -50.0)
+      toBonyJson(decoded) == toBonyJson(original)
+      toBonyBnb(decoded) == toBonyBnb(original)
+
+  it "round-trips M7 rotation deformer through BNB":
+    let original = skeletonData(
+      skeletonHeader("m7-bnb-rot", "0.1.0"),
+      @[boneData("root", "")],
+      deformers = @[
+        DeformerRecord(
+          deformer: Deformer(
+            id: "rot_head", parent: "", order: 0'u32,
+            kind: rotationDeformerKind,
+            rotation: RotationDeformer(
+              pivotX: 10.0, pivotY: 20.0, angleDegrees: 45.0,
+              scaleX: 1.0, scaleY: 1.0, opacity: 0.75,
+            ),
+          ),
+          keyformBlend: KeyformBlend(),
+        ),
+      ],
+    )
+    let decoded = loadBonyBnb(toBonyBnb(original))
+
+    then:
+      decoded.deformers.len == 1
+      decoded.deformers[0].deformer.id == "rot_head"
+      decoded.deformers[0].deformer.kind == rotationDeformerKind
+      closeTo(decoded.deformers[0].deformer.rotation.pivotX, 10.0)
+      closeTo(decoded.deformers[0].deformer.rotation.pivotY, 20.0)
+      closeTo(decoded.deformers[0].deformer.rotation.angleDegrees, 45.0)
+      closeTo(decoded.deformers[0].deformer.rotation.scaleX, 1.0)
+      closeTo(decoded.deformers[0].deformer.rotation.opacity, 0.75)
+      toBonyJson(decoded) == toBonyJson(original)
+      toBonyBnb(decoded) == toBonyBnb(original)
+
+  it "round-trips M7 deformer with keyformBlend through BNB":
+    let axisAngleX = ParameterAxis(name: "AngleX", minValue: -30.0, maxValue: 30.0, defaultValue: 0.0)
+    let original = skeletonData(
+      skeletonHeader("m7-bnb-kf", "0.1.0"),
+      @[boneData("root", "")],
+      parameters = @[axisAngleX],
+      deformers = @[
+        DeformerRecord(
+          deformer: Deformer(
+            id: "warp_body", parent: "", order: 0'u32,
+            kind: warpDeformerKind,
+            warp: WarpLattice(
+              rows: 2'u32, cols: 2'u32,
+              minX: -10.0, minY: -10.0, maxX: 10.0, maxY: 10.0,
+              controlPoints: @[
+                DeformerPoint(x: -10.0, y: -10.0),
+                DeformerPoint(x:  10.0, y: -10.0),
+                DeformerPoint(x: -10.0, y:  10.0),
+                DeformerPoint(x:  10.0, y:  10.0),
+              ],
+            ),
+          ),
+          keyformBlend: keyformBlend(
+            @[axisAngleX],
+            @[
+              Keyform(
+                coordinates: @[ParameterSample(name: "AngleX", value: -30.0)],
+                values: @[-11.0, -11.0, 11.0, -11.0, -11.0, 11.0, 11.0, 11.0],
+              ),
+              Keyform(
+                coordinates: @[ParameterSample(name: "AngleX", value: 30.0)],
+                values: @[-9.0, -9.0, 9.0, -9.0, -9.0, 9.0, 9.0, 9.0],
+              ),
+            ],
+          ),
+        ),
+      ],
+    )
+    let decoded = loadBonyBnb(toBonyBnb(original))
+
+    then:
+      decoded.parameters.len == 1
+      decoded.parameters[0].name == "AngleX"
+      decoded.deformers.len == 1
+      decoded.deformers[0].deformer.id == "warp_body"
+      decoded.deformers[0].keyformBlend.axes.len == 1
+      decoded.deformers[0].keyformBlend.axes[0].name == "AngleX"
+      decoded.deformers[0].keyformBlend.keyforms.len == 2
+      closeTo(decoded.deformers[0].keyformBlend.keyforms[0].coordinates[0].value, -30.0)
+      decoded.deformers[0].keyformBlend.keyforms[0].values.len == 8
+      closeTo(decoded.deformers[0].keyformBlend.keyforms[0].values[0], -11.0)
+      closeTo(decoded.deformers[0].keyformBlend.keyforms[1].coordinates[0].value, 30.0)
+      toBonyJson(decoded) == toBonyJson(original)
+      toBonyBnb(decoded) == toBonyBnb(original)

@@ -238,6 +238,42 @@ typeKeys:
     milestone: M5
     ownerBead: bony-8gs
     doc: Cubic path attachment sampled by path constraints.
+  - id: parameter
+    key: 6000
+    status: active
+    milestone: M7
+    ownerBead: bony-rmg
+    doc: Named scalar parameter axis with clamped min/max/default range.
+  - id: deformer
+    key: 6001
+    status: active
+    milestone: M7
+    ownerBead: bony-rmg
+    doc: Deformer header record; followed in stream by warpLattice or rotationDeformer, then optional keyformBlend.
+  - id: warpLattice
+    key: 6002
+    status: active
+    milestone: M7
+    ownerBead: bony-rmg
+    doc: Warp lattice geometry record immediately following its deformer header.
+  - id: rotationDeformer
+    key: 6003
+    status: active
+    milestone: M7
+    ownerBead: bony-rmg
+    doc: Rotation deformer record immediately following its deformer header.
+  - id: keyformBlend
+    key: 6004
+    status: active
+    milestone: M7
+    ownerBead: bony-rmg
+    doc: Keyform blend header record; followed by N keyform objects.
+  - id: keyform
+    key: 6005
+    status: active
+    milestone: M7
+    ownerBead: bony-rmg
+    doc: Single keyform record within a keyformBlend; coordinates and values packed as f32 bytes.
 
 propertyKeys:
   - id: name
@@ -450,6 +486,167 @@ propertyKeys:
     milestone: M5
     ownerBead: bony-8gs
     doc: Cubic path second endpoint y coordinate.
+  - id: parameterMin
+    key: 6000
+    backingType: f32
+    status: active
+    milestone: M7
+    ownerBead: bony-rmg
+    doc: Minimum value of a parameter axis.
+  - id: parameterMax
+    key: 6001
+    backingType: f32
+    status: active
+    milestone: M7
+    ownerBead: bony-rmg
+    doc: Maximum value of a parameter axis.
+  - id: parameterDefault
+    key: 6002
+    backingType: f32
+    status: active
+    milestone: M7
+    ownerBead: bony-rmg
+    doc: Default resting value of a parameter axis; omitted when 0.0.
+  - id: deformerId
+    key: 6010
+    backingType: string
+    status: active
+    milestone: M7
+    ownerBead: bony-rmg
+    doc: Stable unique identifier of a deformer node.
+  - id: deformerOrder
+    key: 6011
+    backingType: varuint
+    status: active
+    milestone: M7
+    ownerBead: bony-rmg
+    doc: Global draw order of a deformer; omitted when 0.
+  - id: deformerKind
+    key: 6012
+    backingType: string
+    status: active
+    milestone: M7
+    ownerBead: bony-rmg
+    doc: Discriminant for the deformer variant; "warp" or "rotation".
+  - id: warpRows
+    key: 6020
+    backingType: varuint
+    status: active
+    milestone: M7
+    ownerBead: bony-rmg
+    doc: Warp lattice row count; omitted when 2.
+  - id: warpCols
+    key: 6021
+    backingType: varuint
+    status: active
+    milestone: M7
+    ownerBead: bony-rmg
+    doc: Warp lattice column count; omitted when 2.
+  - id: warpMinX
+    key: 6022
+    backingType: f32
+    status: active
+    milestone: M7
+    ownerBead: bony-rmg
+    doc: Warp lattice bounding-box minimum X coordinate.
+  - id: warpMinY
+    key: 6023
+    backingType: f32
+    status: active
+    milestone: M7
+    ownerBead: bony-rmg
+    doc: Warp lattice bounding-box minimum Y coordinate.
+  - id: warpMaxX
+    key: 6024
+    backingType: f32
+    status: active
+    milestone: M7
+    ownerBead: bony-rmg
+    doc: Warp lattice bounding-box maximum X coordinate.
+  - id: warpMaxY
+    key: 6025
+    backingType: f32
+    status: active
+    milestone: M7
+    ownerBead: bony-rmg
+    doc: Warp lattice bounding-box maximum Y coordinate.
+  - id: warpControlPoints
+    key: 6026
+    backingType: bytes
+    status: active
+    milestone: M7
+    ownerBead: bony-rmg
+    doc: Warp lattice control points; packed as varuint count followed by count*(f32 x, f32 y) pairs.
+  - id: rotationPivotX
+    key: 6030
+    backingType: f32
+    status: active
+    milestone: M7
+    ownerBead: bony-rmg
+    doc: Rotation deformer pivot point X coordinate.
+  - id: rotationPivotY
+    key: 6031
+    backingType: f32
+    status: active
+    milestone: M7
+    ownerBead: bony-rmg
+    doc: Rotation deformer pivot point Y coordinate.
+  - id: rotationAngleDegrees
+    key: 6032
+    backingType: f32
+    status: active
+    milestone: M7
+    ownerBead: bony-rmg
+    doc: Rotation deformer angle in degrees.
+  - id: rotationScaleX
+    key: 6033
+    backingType: f32
+    status: active
+    milestone: M7
+    ownerBead: bony-rmg
+    doc: Rotation deformer X-axis scale; omitted when 1.0.
+  - id: rotationScaleY
+    key: 6034
+    backingType: f32
+    status: active
+    milestone: M7
+    ownerBead: bony-rmg
+    doc: Rotation deformer Y-axis scale; omitted when 1.0.
+  - id: rotationOpacity
+    key: 6035
+    backingType: f32
+    status: active
+    milestone: M7
+    ownerBead: bony-rmg
+    doc: Rotation deformer opacity in 0..1; omitted when 1.0.
+  - id: blendValueCount
+    key: 6040
+    backingType: varuint
+    status: active
+    milestone: M7
+    ownerBead: bony-rmg
+    doc: Number of float values per keyform in a keyformBlend.
+  - id: blendAxes
+    key: 6041
+    backingType: bytes
+    status: active
+    milestone: M7
+    ownerBead: bony-rmg
+    doc: Keyform blend axis references; packed as varuint count followed by count*(varuint string-table index for axis name).
+  - id: blendCoordinates
+    key: 6042
+    backingType: bytes
+    status: active
+    milestone: M7
+    ownerBead: bony-rmg
+    doc: Keyform parameter coordinates; packed as N f32 values in blend-axis order.
+  - id: blendValues
+    key: 6043
+    backingType: bytes
+    status: active
+    milestone: M7
+    ownerBead: bony-rmg
+    doc: Keyform deformed values; packed as valueCount f32 values.
 
 objects:
   - type: skeleton
@@ -505,3 +702,46 @@ objects:
       - p3x
       - p3y
     doc: Cubic path attachment loaded by name for path constraints.
+  - type: parameter
+    properties:
+      - name
+      - parameterMin
+      - parameterMax
+      - parameterDefault
+    doc: Parameter axis record loaded in global parameter order.
+  - type: deformer
+    properties:
+      - deformerId
+      - parent
+      - deformerOrder
+      - deformerKind
+    doc: Deformer header; followed immediately by warpLattice or rotationDeformer, then optional keyformBlend.
+  - type: warpLattice
+    properties:
+      - warpRows
+      - warpCols
+      - warpMinX
+      - warpMinY
+      - warpMaxX
+      - warpMaxY
+      - warpControlPoints
+    doc: Warp lattice data immediately following its deformer header.
+  - type: rotationDeformer
+    properties:
+      - rotationPivotX
+      - rotationPivotY
+      - rotationAngleDegrees
+      - rotationScaleX
+      - rotationScaleY
+      - rotationOpacity
+    doc: Rotation deformer data immediately following its deformer header.
+  - type: keyformBlend
+    properties:
+      - blendValueCount
+      - blendAxes
+    doc: Keyform blend header immediately following its deformer geometry; followed by N keyform records.
+  - type: keyform
+    properties:
+      - blendCoordinates
+      - blendValues
+    doc: Single keyform record within a keyformBlend; coordinates and values packed as f32 bytes.
