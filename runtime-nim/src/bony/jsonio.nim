@@ -676,6 +676,9 @@ proc parseBonyStateMachines(
           inputs.add stateMachineTriggerInput(inputName)
         else:
           raise newBonyLoadError(schemaViolation, inCtx & ".kind must be 'bool', 'number', or 'trigger'")
+    var inputNames = initHashSet[string]()
+    for inp in inputs:
+      inputNames.incl(inp.name)
     if not smObj.hasKey("layers"):
       raise newBonyLoadError(schemaViolation, smCtx & ".layers is required")
     let layersListNode = requireArray(smObj["layers"], smCtx & ".layers")
@@ -702,6 +705,8 @@ proc parseBonyStateMachines(
           states.add stateMachineState(stateName, clips[clipName], loop)
         of "blend1d":
           let blendInput = requiredString(sObj, "blendInput", sCtx)
+          if blendInput notin inputNames:
+            raise newBonyLoadError(unknownRequiredReference, sCtx & ".blendInput references unknown input: " & blendInput)
           let bcListNode = requireArray(sObj["blendClips"], sCtx & ".blendClips")
           var blendClips: seq[StateMachineBlendClip] = @[]
           for bcIndex, bcNode in bcListNode.elems:
@@ -717,6 +722,9 @@ proc parseBonyStateMachines(
           states.add stateMachineBlendState(stateName, blendInput, blendClips)
         else:
           raise newBonyLoadError(schemaViolation, sCtx & ".kind must be 'clip' or 'blend1d'")
+      var stateNames = initHashSet[string]()
+      for s in states:
+        stateNames.incl(s.name)
       var transitions: seq[StateMachineTransition] = @[]
       if lObj.hasKey("transitions"):
         let transListNode = requireArray(lObj["transitions"], lCtx & ".transitions")
@@ -725,7 +733,11 @@ proc parseBonyStateMachines(
           let trObj = requireObject(trNode, trCtx)
           validateKnownKeys(trObj, ["fromState", "toState", "conditions"], trCtx)
           let fromState = requiredString(trObj, "fromState", trCtx)
+          if fromState notin stateNames:
+            raise newBonyLoadError(unknownRequiredReference, trCtx & ".fromState references unknown state: " & fromState)
           let toState = requiredString(trObj, "toState", trCtx)
+          if toState notin stateNames:
+            raise newBonyLoadError(unknownRequiredReference, trCtx & ".toState references unknown state: " & toState)
           let condListNode = requireArray(trObj["conditions"], trCtx & ".conditions")
           var conditions: seq[StateMachineCondition] = @[]
           for condIndex, condNode in condListNode.elems:
@@ -733,6 +745,8 @@ proc parseBonyStateMachines(
             let condObj = requireObject(condNode, condCtx)
             validateKnownKeys(condObj, ["input", "kind", "value"], condCtx)
             let condInput = requiredString(condObj, "input", condCtx)
+            if condInput notin inputNames:
+              raise newBonyLoadError(unknownRequiredReference, condCtx & ".input references unknown input: " & condInput)
             let condKindStr = requiredString(condObj, "kind", condCtx)
             case condKindStr
             of "boolEquals":
@@ -760,6 +774,12 @@ proc parseBonyStateMachines(
           transitions.add stateMachineTransition(fromState, toState, conditions)
       let initialState = optionalString(lObj, "initialState", "", lCtx)
       layers.add stateMachineLayer(layerName, states, initialState, transitions)
+    var layerStateMap = initTable[string, HashSet[string]]()
+    for layer in layers:
+      var ls = initHashSet[string]()
+      for s in layer.states:
+        ls.incl(s.name)
+      layerStateMap[layer.name] = ls
     var listeners: seq[StateMachineListener] = @[]
     if smObj.hasKey("listeners"):
       let lstListNode = requireArray(smObj["listeners"], smCtx & ".listeners")
@@ -770,16 +790,27 @@ proc parseBonyStateMachines(
         let lstName = requiredString(lstObj, "name", lstCtx)
         let lstKindStr = requiredString(lstObj, "kind", lstCtx)
         let lstLayer = requiredString(lstObj, "layer", lstCtx)
+        if lstLayer notin layerStateMap:
+          raise newBonyLoadError(unknownRequiredReference, lstCtx & ".layer references unknown layer: " & lstLayer)
+        let lstStates = layerStateMap[lstLayer]
         case lstKindStr
         of "stateEnter":
           let toState = requiredString(lstObj, "toState", lstCtx)
+          if toState notin lstStates:
+            raise newBonyLoadError(unknownRequiredReference, lstCtx & ".toState references unknown state: " & toState)
           listeners.add stateMachineStateEnterListener(lstName, lstLayer, toState)
         of "stateExit":
           let fromState = requiredString(lstObj, "fromState", lstCtx)
+          if fromState notin lstStates:
+            raise newBonyLoadError(unknownRequiredReference, lstCtx & ".fromState references unknown state: " & fromState)
           listeners.add stateMachineStateExitListener(lstName, lstLayer, fromState)
         of "transition":
           let fromState = requiredString(lstObj, "fromState", lstCtx)
+          if fromState notin lstStates:
+            raise newBonyLoadError(unknownRequiredReference, lstCtx & ".fromState references unknown state: " & fromState)
           let toState = requiredString(lstObj, "toState", lstCtx)
+          if toState notin lstStates:
+            raise newBonyLoadError(unknownRequiredReference, lstCtx & ".toState references unknown state: " & toState)
           listeners.add stateMachineTransitionListener(lstName, lstLayer, fromState, toState)
         else:
           raise newBonyLoadError(schemaViolation, lstCtx & ".kind must be 'stateEnter', 'stateExit', or 'transition'")
