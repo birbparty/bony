@@ -63,6 +63,79 @@ PathConstraintData _parsePath(Map<String, dynamic> j) {
   );
 }
 
+BoneTimelineKind _parseBoneTimelineKind(String prop, String ctx) {
+  switch (prop) {
+    case 'rotate':
+      return BoneTimelineKind.rotate;
+    case 'translateX':
+      return BoneTimelineKind.translateX;
+    case 'translateY':
+      return BoneTimelineKind.translateY;
+    case 'scaleX':
+      return BoneTimelineKind.scaleX;
+    case 'scaleY':
+      return BoneTimelineKind.scaleY;
+    case 'shearX':
+      return BoneTimelineKind.shearX;
+    case 'shearY':
+      return BoneTimelineKind.shearY;
+    default:
+      throw FormatException('$ctx.property unknown: $prop');
+  }
+}
+
+ScalarKeyframe _parseKeyframe(Map<String, dynamic> j, String ctx) {
+  final t = (j['t'] as num?)?.toDouble();
+  if (t == null) throw FormatException('missing required field: $ctx.t');
+  final value = (j['value'] as num?)?.toDouble();
+  if (value == null) throw FormatException('missing required field: $ctx.value');
+  final curveStr = j['curve'] as String?;
+  final curve = curveStr == null || curveStr == 'linear'
+      ? TimelineCurve.linear
+      : curveStr == 'stepped'
+          ? TimelineCurve.stepped
+          : throw FormatException('$ctx.curve unknown: $curveStr');
+  return ScalarKeyframe(time: t, value: value, curve: curve);
+}
+
+List<AnimationClip> _parseAnimations(List<dynamic> anims) {
+  final result = <AnimationClip>[];
+  final seen = <String>{};
+  for (var ai = 0; ai < anims.length; ai++) {
+    final anim = anims[ai] as Map<String, dynamic>;
+    final ctx = 'animations[$ai]';
+    final name = _required<String>(anim['name'], '$ctx.name');
+    if (!seen.add(name)) throw FormatException('duplicate animation name: $name');
+
+    var duration = 0.0;
+    final boneTimelines = <BoneTimeline>[];
+    final btList = anim['boneTimelines'] as List<dynamic>? ?? const [];
+    for (var bi = 0; bi < btList.length; bi++) {
+      final bt = btList[bi] as Map<String, dynamic>;
+      final btCtx = '$ctx.boneTimelines[$bi]';
+      final bone = _required<String>(bt['bone'], '$btCtx.bone');
+      final prop = _required<String>(bt['property'], '$btCtx.property');
+      final kind = _parseBoneTimelineKind(prop, btCtx);
+      final kfList = _required<List<dynamic>>(bt['keyframes'], '$btCtx.keyframes');
+      if (kfList.isEmpty) throw FormatException('$btCtx.keyframes must not be empty');
+      final keys = <ScalarKeyframe>[];
+      for (var ki = 0; ki < kfList.length; ki++) {
+        keys.add(_parseKeyframe(kfList[ki] as Map<String, dynamic>, '$btCtx.keyframes[$ki]'));
+      }
+      // Validate strictly increasing times.
+      for (var ki = 1; ki < keys.length; ki++) {
+        if (keys[ki].time <= keys[ki - 1].time) {
+          throw FormatException('$btCtx.keyframes: times must be strictly increasing');
+        }
+      }
+      boneTimelines.add(BoneTimeline(bone: bone, kind: kind, keys: keys));
+      if (keys.last.time > duration) duration = keys.last.time;
+    }
+    result.add(AnimationClip(name: name, duration: duration, boneTimelines: boneTimelines));
+  }
+  return result;
+}
+
 PathAttachment _parsePathAttachment(Map<String, dynamic> j) {
   return PathAttachment(
     name: _required<String>(j['name'], 'pathAttachment.name'),
@@ -165,6 +238,17 @@ void _validate(SkeletonData data) {
       throw FormatException('duplicate path constraint name: ${p.name}');
     }
   }
+
+  for (var ai = 0; ai < data.animations.length; ai++) {
+    final anim = data.animations[ai];
+    final ctx = 'animations[$ai](${anim.name})';
+    for (var bi = 0; bi < anim.boneTimelines.length; bi++) {
+      final tl = anim.boneTimelines[bi];
+      if (!boneNames.contains(tl.bone)) {
+        throw FormatException('$ctx.boneTimelines[$bi]: unknown bone: ${tl.bone}');
+      }
+    }
+  }
 }
 
 /// Parse a bony JSON string into a [SkeletonData].
@@ -210,6 +294,11 @@ SkeletonData loadBonyJson(String jsonText) {
       .map((pa) => _parsePathAttachment(pa as Map<String, dynamic>))
       .toList();
 
+  final animsRaw = root['animations'];
+  final animations = animsRaw is List<dynamic>
+      ? _parseAnimations(animsRaw)
+      : const <AnimationClip>[];
+
   final data = SkeletonData(
     header: header,
     bones: bones,
@@ -217,6 +306,7 @@ SkeletonData loadBonyJson(String jsonText) {
     regions: regions,
     paths: paths,
     pathAttachments: pathAttachments,
+    animations: animations,
   );
   _validate(data);
   return data;
