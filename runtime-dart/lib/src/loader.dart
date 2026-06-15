@@ -401,9 +401,13 @@ List<_BnbObj> _bnbReadObjects(_BnbCur c) {
     final typeKey = c.readVaruint();
     if (typeKey == 0) break;
     final props = <int, Uint8List>{};
+    final seenProps = <int>{};
     while (true) {
       final pk = c.readVaruint();
       if (pk == 0) break;
+      if (!seenProps.add(pk)) {
+        throw FormatException('.bnb duplicate property key $pk in type $typeKey object');
+      }
       final blen = c.readVaruint();
       props[pk] = c.readBytes(blen);
     }
@@ -411,17 +415,30 @@ List<_BnbObj> _bnbReadObjects(_BnbCur c) {
       out.add((typeKey: typeKey, props: props));
     }
   }
+  if (c.pos != c.data.length) {
+    throw const FormatException('.bnb trailing bytes after object stream');
+  }
   return out;
 }
 
-// Property accessors — each creates a tiny cursor over the stored payload.
+// Property accessors — each creates a tiny cursor over the stored payload and
+// validates that the payload is fully consumed (no trailing bytes).
+void _bCheckExhausted(_BnbCur c, String ctx) {
+  if (c.pos != c.data.length) {
+    throw FormatException('.bnb $ctx payload has ${c.data.length - c.pos} trailing bytes');
+  }
+}
+
 String _bStr(_BnbObj obj, int key, List<String> strings, String ctx, {String? def}) {
   final payload = obj.props[key];
   if (payload == null) {
     if (def != null) return def;
     throw FormatException('.bnb required property missing: $ctx');
   }
-  return _BnbCur(payload).readStr(strings);
+  final c = _BnbCur(payload);
+  final v = c.readStr(strings);
+  _bCheckExhausted(c, ctx);
+  return v;
 }
 
 double _bF32(_BnbObj obj, int key, String ctx, {double? def}) {
@@ -430,25 +447,37 @@ double _bF32(_BnbObj obj, int key, String ctx, {double? def}) {
     if (def != null) return def;
     throw FormatException('.bnb required property missing: $ctx');
   }
-  return _BnbCur(payload).readF32();
+  final c = _BnbCur(payload);
+  final v = c.readF32();
+  _bCheckExhausted(c, ctx);
+  return v;
 }
 
 double _bF64(_BnbObj obj, int key, String ctx) {
   final payload = obj.props[key];
   if (payload == null) throw FormatException('.bnb required property missing: $ctx');
-  return _BnbCur(payload).readF64();
+  final c = _BnbCur(payload);
+  final v = c.readF64();
+  _bCheckExhausted(c, ctx);
+  return v;
 }
 
 bool _bBool(_BnbObj obj, int key, {bool def = false}) {
   final payload = obj.props[key];
   if (payload == null) return def;
-  return _BnbCur(payload).readBool();
+  final c = _BnbCur(payload);
+  final v = c.readBool();
+  _bCheckExhausted(c, 'bool');
+  return v;
 }
 
 int _bVarint(_BnbObj obj, int key, {int def = 0}) {
   final payload = obj.props[key];
   if (payload == null) return def;
-  return _BnbCur(payload).readVarint();
+  final c = _BnbCur(payload);
+  final v = c.readVarint();
+  _bCheckExhausted(c, 'varint');
+  return v;
 }
 
 SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
