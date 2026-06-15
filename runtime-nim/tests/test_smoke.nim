@@ -440,6 +440,7 @@ spec "bony package":
       data.header.name == "m6-compat"
       data.bones.len == 1
       data.bones[0].name == "root"
+      raisesBonyLoadError(proc() = discard loadKnownBonyBnb(fixture), schemaViolation)
 
   it "loads all committed m*_rig.bnb conformance fixtures":
     let bnbDir = "../conformance/assets/bnb"
@@ -450,7 +451,7 @@ spec "bony package":
         discard loadBonyBnb(fixture)
         inc loaded
     then:
-      loaded == 5
+      loaded == 5  # update when M6+ rigs are added to conformance/assets/bnb/
 
   it "rejects malformed semantic .bnb payloads":
     then:
