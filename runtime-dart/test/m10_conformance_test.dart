@@ -60,6 +60,10 @@ void _checkGolden(
       expect(golden['skeleton'], data.header.name);
     });
 
+    test('golden is the t=0 setup pose', () {
+      expect((golden['time'] as num).toDouble(), 0.0);
+    });
+
     test('bone count matches golden', () {
       expect(worlds, hasLength((golden['bones'] as List<dynamic>).length));
     });
@@ -87,6 +91,15 @@ void _checkGolden(
           hasLength((golden['drawBatches'] as List<dynamic>).length));
     });
 
+    test('draw batch order matches golden', () {
+      final goldenSlots = (golden['drawBatches'] as List<dynamic>)
+          .cast<Map<String, dynamic>>()
+          .map((gb) => gb['slot'] as String)
+          .toList();
+      expect(batches.map((b) => b.slot).toList(), goldenSlots,
+          reason: 'draw order differs from golden');
+    });
+
     test('draw batch metadata matches golden', () {
       final goldenBatches = (golden['drawBatches'] as List<dynamic>)
           .cast<Map<String, dynamic>>();
@@ -97,6 +110,8 @@ void _checkGolden(
         expect(b.bone, gb['bone'], reason: 'batches[$i].bone');
         expect(b.attachment, gb['attachment'], reason: 'batches[$i].attachment');
         expect(b.blendMode, gb['blendMode'], reason: 'batches[$i].blendMode');
+        expect(b.texturePage, gb['texturePage'], reason: 'batches[$i].texturePage');
+        expect(b.clipId, gb['clipId'], reason: 'batches[$i].clipId');
       }
     });
 
