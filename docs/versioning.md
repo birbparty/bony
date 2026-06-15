@@ -47,7 +47,7 @@ regenerated fresh from those sources.
 
 | Artifact | v1.0 value |
 |---|---|
-| Binary format | major=1, minor=0 → varuint `0x00010000` |
+| Binary format | major=1, minor=0 → packed integer `0x10000` (65536), wire bytes `[0x80, 0x80, 0x04]` |
 | Nim package | `1.0.0` |
 | Dart package | `1.0.0` |
 | Spec document | `1.0` |
@@ -63,11 +63,11 @@ The property key registry (`registry/wire.yml`) is **append-only**:
 
 - Key 0 is the reserved object-stream terminator. It MUST NOT be assigned to any
   object type or property.
-- Retired keys (removed features) MUST NOT be reused. A retired key should be
-  recorded in the registry with a `status: retired` annotation so future authors
-  know to skip it.
-- New keys are always allocated at the end of the existing range; no gaps or
-  renumbering.
+- Retired keys (removed features) MUST NOT be reused. They remain in `wire.yml`
+  with `status: deprecated` so future authors know to skip those key numbers.
+- New keys are allocated from the milestone's pre-reserved band (see
+  `registry/key-ranges.md`). Keys within a band need not be contiguous, but
+  MUST NOT cross into another milestone's band.
 
 These rules ensure that a reader encountering an unknown key can safely skip it
 via the ToC payload-length record without misinterpreting retired data as a new
