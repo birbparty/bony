@@ -131,7 +131,7 @@ class StateMachineRuntime {
         if (iv.kind != StateMachineInputKind.number) {
           throw FormatException('state machine input is not number: $name');
         }
-        iv.numberValue = value;
+        iv.numberValue = quantizeF32(value);
         return;
       }
     }
@@ -154,8 +154,9 @@ class StateMachineRuntime {
   void update(double dt) {
     if (dt < 0.0) throw ArgumentError.value(dt, 'dt', 'must be >= 0');
     events.clear();
+    final step = quantizeF32(dt);
     for (final lr in _layers) {
-      lr.time += dt;
+      lr.time = quantizeF32(lr.time + step);
     }
     _applyTransitions();
   }

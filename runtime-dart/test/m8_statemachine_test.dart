@@ -127,6 +127,15 @@ void main() {
       final rt = initStateMachineRuntime(sm);
       expect(rt.layerTime('body'), 0.0);
     });
+
+    test('update accumulates layer time through quantizeF32', () {
+      final rt = initStateMachineRuntime(sm);
+      rt.update(0.1);
+      rt.update(0.1);
+      // f32-quantized accumulation differs from float64 sum 0.2
+      final expected = quantizeF32(quantizeF32(0.1) + quantizeF32(0.1));
+      expect(rt.layerTime('body'), expected);
+    });
   });
 
   // --- Input setters ---
@@ -138,10 +147,10 @@ void main() {
       expect(rt.getBoolInput('wave'), true);
     });
 
-    test('setNumberInput speed=0.7', () {
+    test('setNumberInput speed=0.7 stores quantized value', () {
       final rt = initStateMachineRuntime(sm);
       rt.setNumberInput('speed', 0.7);
-      expect(rt.getNumberInput('speed'), 0.7);
+      expect(rt.getNumberInput('speed'), quantizeF32(0.7));
     });
 
     test('fireTrigger consumes after transition', () {
