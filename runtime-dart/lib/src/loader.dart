@@ -98,7 +98,7 @@ ScalarKeyframe _parseKeyframe(Map<String, dynamic> j, String ctx) {
   return ScalarKeyframe(time: t, value: value, curve: curve);
 }
 
-List<AnimationClip> _parseAnimations(List<dynamic> anims, String skeletonName) {
+List<AnimationClip> _parseAnimations(List<dynamic> anims) {
   final result = <AnimationClip>[];
   final seen = <String>{};
   for (var ai = 0; ai < anims.length; ai++) {
@@ -238,6 +238,17 @@ void _validate(SkeletonData data) {
       throw FormatException('duplicate path constraint name: ${p.name}');
     }
   }
+
+  for (var ai = 0; ai < data.animations.length; ai++) {
+    final anim = data.animations[ai];
+    final ctx = 'animations[$ai](${anim.name})';
+    for (var bi = 0; bi < anim.boneTimelines.length; bi++) {
+      final tl = anim.boneTimelines[bi];
+      if (!boneNames.contains(tl.bone)) {
+        throw FormatException('$ctx.boneTimelines[$bi]: unknown bone: ${tl.bone}');
+      }
+    }
+  }
 }
 
 /// Parse a bony JSON string into a [SkeletonData].
@@ -285,7 +296,7 @@ SkeletonData loadBonyJson(String jsonText) {
 
   final animsRaw = root['animations'];
   final animations = animsRaw is List<dynamic>
-      ? _parseAnimations(animsRaw, header.name)
+      ? _parseAnimations(animsRaw)
       : const <AnimationClip>[];
 
   final data = SkeletonData(

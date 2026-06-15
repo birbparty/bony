@@ -96,6 +96,8 @@ class MixedPose {
   final List<({String bone, BoneTimelineKind kind, double value})> scalars;
 }
 
+String _scalarKey(String bone, BoneTimelineKind kind) => '$bone\x00${kind.index}';
+
 double _setupScalar(SkeletonData data, String boneName, BoneTimelineKind kind) {
   for (final bone in data.bones) {
     if (bone.name == boneName) {
@@ -129,7 +131,7 @@ void _putScalar(
   MixBlend blend,
   double weight,
 ) {
-  final key = '$boneName\x00${kind.index}';
+  final key = _scalarKey(boneName, kind);
   if (!out.containsKey(key)) {
     out[key] = _MixedScalar(
       bone: boneName,
@@ -140,7 +142,7 @@ void _putScalar(
   final entry = out[key]!;
   switch (blend) {
     case MixBlend.first:
-      // only write if not yet set (already seeded with setup value above)
+      // Keep the setup-pose seed; first track wins, subsequent tracks don't overwrite.
       break;
     case MixBlend.replace:
       entry.value = entry.value + (sampledValue - entry.value) * weight;
@@ -201,6 +203,8 @@ class AnimationState {
 
   final SkeletonData data;
   final List<AnimationTrack> tracks = [];
+
+  /// Always empty until event timelines are ported (planned post-M3).
   final List<DispatchedEvent> events = [];
 
   AnimationTrack _ensureTrack(int index) {
@@ -217,6 +221,7 @@ class AnimationState {
     double mixDuration = 0.0,
     MixBlend blend = MixBlend.replace,
   }) {
+    if (mixDuration < 0.0) throw ArgumentError.value(mixDuration, 'mixDuration', 'must be >= 0');
     final track = _ensureTrack(trackIndex);
     final entry = TrackEntry(clip: clip, loop: loop, mixDuration: mixDuration, blend: blend);
     if (track.current != null && mixDuration > 0.0) {
@@ -236,6 +241,8 @@ class AnimationState {
     double mixDuration = 0.0,
     MixBlend blend = MixBlend.replace,
   }) {
+    if (delay < 0.0) throw ArgumentError.value(delay, 'delay', 'must be >= 0');
+    if (mixDuration < 0.0) throw ArgumentError.value(mixDuration, 'mixDuration', 'must be >= 0');
     final track = _ensureTrack(trackIndex);
     final entry = TrackEntry(clip: clip, loop: loop, mixDuration: mixDuration, blend: blend)
       ..time = -delay;
@@ -243,9 +250,11 @@ class AnimationState {
   }
 
   void update(double dt) {
+    if (dt < 0.0) throw ArgumentError.value(dt, 'dt', 'must be >= 0');
     events.clear();
     for (var ti = 0; ti < tracks.length; ti++) {
       final track = tracks[ti];
+      if (track.timeScale < 0.0) throw ArgumentError.value(track.timeScale, 'timeScale', 'must be >= 0');
       final cur = track.current;
       if (cur == null) continue;
 
@@ -272,6 +281,21 @@ class AnimationState {
         }
         _advanceEntry(track, ti, remaining);
         remaining = 0.0;
+      }
+      // Post-loop: promote a queued entry that is already due (delay elapsed during
+      // a prior switch this frame). Mirrors mixer.nim:283-292.
+      if (track.queue.isNotEmpty && track.current != null) {
+        final next = track.queue.first;
+        final switchAt = -next.time;
+        if (track.current!.time >= switchAt) {
+          track.queue.removeAt(0);
+          if (next.mixDuration > 0.0) {
+            track.previous = track.current;
+          } else {
+            track.previous = null;
+          }
+          track.current = next;
+        }
       }
     }
   }
@@ -348,11 +372,11 @@ SkeletonData applyPose(SkeletonData data, MixedPose pose) {
   // Build lookup: (boneName, kind) → animated value.
   final lookup = <String, double>{};
   for (final s in pose.scalars) {
-    lookup['${s.bone}\x00${s.kind.index}'] = s.value;
+    lookup[_scalarKey(s.bone, s.kind)] = s.value;
   }
 
   double _get(String bone, BoneTimelineKind kind, double setup) =>
-      lookup['$bone\x00${kind.index}'] ?? setup;
+      lookup[_scalarKey(bone, kind)] ?? setup;
 
   final animBones = data.bones.map((b) {
     return BoneData(
