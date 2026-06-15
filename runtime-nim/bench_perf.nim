@@ -7,6 +7,7 @@
 ## Deferred budget targets (not enforced — record actuals, set budgets at M10):
 ##   loadBonyJson (m5 rig):        < 10 ms
 ##   loadKnownBonyBnb (m5 rig):    < 2 ms
+##   newSkeletonInstance:          < 200 µs
 ##   computeWorldTransforms:       < 100 µs
 ##   buildConstraintUpdateCache:   < 50 µs
 ##   buildPathConstraintUpdateCache: < 50 µs
@@ -112,6 +113,11 @@ proc main() =
     let bnbBytes = rigs[i].bnbBytes
     let t = measureNs(proc() = discard loadKnownBonyBnb(bnbBytes))
     printRow("loadKnownBonyBnb", rigs[i].name, t)
+  for i in 0 ..< rigs.len:
+    let dataRef = new SkeletonData
+    dataRef[] = loadBonyJson(rigs[i].jsonText)
+    let t = measureNs(proc() = discard newSkeletonInstance(dataRef))
+    printRow("newSkeletonInstance", rigs[i].name, t)
 
   echo ""
   echo "=== per-frame pipeline timings (using pre-loaded SkeletonData) ==="
@@ -124,7 +130,10 @@ proc main() =
     let t1 = measureNs(proc() = discard computeWorldTransforms(data))
     printRow("computeWorldTransforms", rigName, t1)
 
-    let t2 = measureNs(proc() = discard buildConstraintUpdateCache(data.bones, @[]))
+    var pathDescs: seq[ConstraintCacheDescriptor]
+    for pcIndex, pc in data.paths:
+      pathDescs.add constraintCacheDescriptor(ckPath, pc.order, pcIndex, [pc.bone])
+    let t2 = measureNs(proc() = discard buildConstraintUpdateCache(data.bones, pathDescs))
     printRow("buildConstraintUpdateCache", rigName, t2)
 
     let t3 = measureNs(proc() = discard buildPathConstraintUpdateCache(data))
