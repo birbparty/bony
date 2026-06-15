@@ -65,33 +65,6 @@ proc emitBoneGroup(result: var seq[ConstraintUpdateCacheEntry]; bones: seq[int])
     result.add ConstraintUpdateCacheEntry(kind: ccekBoneGroup, bones: bones)
 
 
-proc stageRank(kind: ConstraintKind): int =
-  case kind
-  of ckPhysics: 1
-  else: 0
-
-
-proc kindRank(kind: ConstraintKind): int =
-  case kind
-  of ckIk: 0
-  of ckTransform: 1
-  of ckPath: 2
-  of ckPhysics: 3
-
-
-proc compareConstraintOrder(left, right: ConstraintOrderEntry): int =
-  result = cmp(stageRank(left.kind), stageRank(right.kind))
-  if result != 0:
-    return
-  result = cmp(left.order, right.order)
-  if result != 0:
-    return
-  result = cmp(kindRank(left.kind), kindRank(right.kind))
-  if result != 0:
-    return
-  result = cmp(left.sourceIndex, right.sourceIndex)
-
-
 proc buildConstraintUpdateCache*(
   bones: openArray[BoneData];
   descriptors: openArray[ConstraintCacheDescriptor];
@@ -104,7 +77,7 @@ proc buildConstraintUpdateCache*(
     if descriptor.kind != ckPhysics:
       sortedEntries.add (order: order, descriptor: descriptor)
   sortedEntries.sort(proc(left, right: tuple[order: ConstraintOrderEntry; descriptor: ConstraintCacheDescriptor]): int =
-    compareConstraintOrder(left.order, right.order)
+    compareConstraintEntries(left.order, right.order)
   )
 
   var writeBlockers = newSeq[int](bones.len)
@@ -142,7 +115,7 @@ proc buildPhysicsConstraintOrder*(descriptors: openArray[ConstraintCacheDescript
     let order = constraintOrderEntry(descriptor.kind, descriptor.order, descriptor.sourceIndex)
     if descriptor.kind == ckPhysics:
       result.add order
-  result.sort(compareConstraintOrder)
+  result.sort(compareConstraintEntries)
 
 
 proc buildPathConstraintUpdateCache*(data: SkeletonData): seq[ConstraintUpdateCacheEntry] =

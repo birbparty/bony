@@ -450,20 +450,22 @@ proc constraintKindRank(kind: ConstraintKind): int =
   of ckPhysics: 3
 
 
+proc compareConstraintEntries*(left, right: ConstraintOrderEntry): int =
+  result = cmp(constraintStageRank(left.kind), constraintStageRank(right.kind))
+  if result != 0:
+    return
+  result = cmp(left.order, right.order)
+  if result != 0:
+    return
+  result = cmp(constraintKindRank(left.kind), constraintKindRank(right.kind))
+  if result != 0:
+    return
+  result = cmp(left.sourceIndex, right.sourceIndex)
+
+
 proc canonicalConstraintOrder*(entries: openArray[ConstraintOrderEntry]): seq[ConstraintOrderEntry] =
   result = @entries
-  result.sort(proc(left, right: ConstraintOrderEntry): int =
-    result = cmp(constraintStageRank(left.kind), constraintStageRank(right.kind))
-    if result != 0:
-      return
-    result = cmp(left.order, right.order)
-    if result != 0:
-      return
-    result = cmp(constraintKindRank(left.kind), constraintKindRank(right.kind))
-    if result != 0:
-      return
-    result = cmp(left.sourceIndex, right.sourceIndex)
-  )
+  result.sort(compareConstraintEntries)
 
 
 proc newSkeletonInstance*(data: ref SkeletonData): SkeletonInstance =
