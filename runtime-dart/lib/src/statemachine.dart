@@ -353,7 +353,7 @@ MixedPose _sampleClipPose(SkeletonData data, AnimationClip clip, bool loop, doub
 String _scalarKey(String bone, BoneTimelineKind kind) => '$bone\x00${kind.index}';
 
 // Scalar-only overlay: later layer's scalar wins per (bone, kind) key.
-// Non-scalar channels (vectors, attachments, inherits, colors, sequences)
+// Non-scalar channels (vectors, attachments, inherits, colors, colors2, sequences)
 // are not yet modelled in the Dart runtime — see [MixedPose] for rationale.
 MixedPose _overlayPose(MixedPose base, MixedPose overlay) {
   final map = <String, ({String bone, BoneTimelineKind kind, double value})>{};
@@ -372,8 +372,8 @@ MixedPose _overlayPose(MixedPose base, MixedPose overlay) {
 }
 
 // Scalar-only linear blend between two blend1d clip poses.
-// Non-scalar channels fall back to lo/hi snapshot semantics when the full
-// channel types are added — see [MixedPose] for the deferred scope.
+// Non-scalar channels (vectors, attachments, inherits, colors, colors2, sequences)
+// are not yet modelled — their blend strategy is undecided; see [MixedPose].
 MixedPose _blendPoses(SkeletonData data, MixedPose lo, MixedPose hi, double t) {
   final channels = <String, ({String bone, BoneTimelineKind kind})>{};
   for (final s in lo.scalars) {

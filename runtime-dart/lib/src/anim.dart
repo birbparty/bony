@@ -113,7 +113,7 @@ class _MixedScalar {
 ///
 /// Extending [MixedPose] to full parity requires first adding the missing
 /// timeline types to the data model and loader — see the follow-up task
-/// `bony-m3x` (Dart: port non-scalar timeline channels to full Nim parity).
+/// `bony-wwd` (Dart: port non-scalar MixedPose channels to Nim parity).
 class MixedPose {
   const MixedPose({required this.scalars});
   final List<({String bone, BoneTimelineKind kind, double value})> scalars;
@@ -389,6 +389,9 @@ class AnimationState {
 
 /// Apply a [MixedPose] to [SkeletonData] and return a new [SkeletonData]
 /// with animated bone local transforms.
+///
+/// Currently applies scalars only. When [MixedPose] gains non-scalar channels
+/// (`bony-wwd`), extend this function to apply slots, colors, attachments, etc.
 SkeletonData applyPose(SkeletonData data, MixedPose pose) {
   if (pose.scalars.isEmpty) return data;
 
