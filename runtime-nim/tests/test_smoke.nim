@@ -1671,6 +1671,7 @@ spec "bony package":
     let roundTripPath = "/tmp/bony_cli_harness_roundtrip.bony"
     let goldenPath = "/tmp/bony_cli_harness_golden.json"
     let framePath = "/tmp/bony_cli_harness_frame.png"
+    let frameTopLeftPath = "/tmp/bony_cli_harness_frame_top_left.png"
     let lottiePath = "/tmp/bony_cli_harness_lottie.json"
     let lottieOutPath = "/tmp/bony_cli_harness_lottie.bony"
     let lottieBnbPath = "/tmp/bony_cli_harness_lottie.bnb"
@@ -1683,6 +1684,7 @@ spec "bony package":
       roundTripPath,
       goldenPath,
       framePath,
+      frameTopLeftPath,
       lottiePath,
       lottieOutPath,
       lottieBnbPath,
@@ -1712,6 +1714,8 @@ spec "bony package":
     let bnbToJson = runProcess(cliPath, ["bnb-to-json", bnbPath, roundTripPath])
     let golden = runProcess(cliPath, ["golden-gen", bnbPath, goldenPath, "--t", "0"])
     let play = runProcess(cliPath, ["play", assetPath, "--out", framePath, "--width", "8", "--height", "8", "--t", "0"])
+    let playTopLeft = runProcess(cliPath, ["play", assetPath, "--out", frameTopLeftPath, "--width", "8", "--height", "8", "--t", "0", "--origin", "top-left"])
+    let playBadOrigin = runProcess(cliPath, ["play", assetPath, "--out", framePath, "--origin", "bad"])
     let unsupportedPlayStateMachine = runProcess(
       cliPath,
       ["play", assetPath, "--state-machine", "main", "--input-script", assetPath, "--out", framePath],
@@ -1806,6 +1810,9 @@ spec "bony package":
       bnbToJson.exitCode == 0
       golden.exitCode == 0
       play.exitCode == 0
+      playTopLeft.exitCode == 0
+      playBadOrigin.exitCode != 0
+      playBadOrigin.output.contains("origin must be center or top-left")
       importLottie.exitCode == 0
       lottieJsonToBnb.exitCode == 0
       lottieBnbToJson.exitCode == 0
@@ -1870,6 +1877,8 @@ spec "bony package":
       goldenJson["drawBatches"][0]["indices"].len == 6
       fileExists(framePath)
       getFileSize(framePath) > 0
+      fileExists(frameTopLeftPath)
+      readFile(framePath) != readFile(frameTopLeftPath)
 
     for path in [
       cliPath,
@@ -1878,6 +1887,7 @@ spec "bony package":
       roundTripPath,
       goldenPath,
       framePath,
+      frameTopLeftPath,
       lottiePath,
       lottieOutPath,
       lottieBnbPath,
