@@ -125,7 +125,5 @@ jobs:
       - name: Nim conformance golden gate
         run: python3 scripts/ci/conformance_run.py --bony-bin /tmp/bony_bin
 
-      # TODO(bony-5p2): add Dart conformance golden gate once Dart M1 loader lands
-
       - name: Whitespace check
         run: git diff --check
