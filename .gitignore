@@ -9,6 +9,14 @@ runtime-nim/bench_perf.exe
 scripts/gen_compat_fixture
 scripts/*.exe
 
+# Build artifacts
+bony
+bony_test
+runtime-dart/build/
+scripts/ci/__pycache__/
+__pycache__/
+*.pyc
+
 # Beads / Dolt files (added by bd init)
 .dolt/
 *.db
