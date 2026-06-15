@@ -125,5 +125,10 @@ jobs:
       - name: Nim conformance golden gate
         run: python3 scripts/ci/conformance_run.py --bony-bin /tmp/bony_bin
 
+      - name: Image golden gate
+        run: |
+          pip3 install --quiet 'Pillow>=10.0.0,<12'
+          python3 scripts/ci/image_diff_check.py --bony-bin /tmp/bony_bin
+
       - name: Whitespace check
         run: git diff --check
