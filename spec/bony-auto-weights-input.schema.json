@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bony.local/spec/bony-auto-weights-input.schema.json",
+  "title": "bony auto-weights input",
+  "description": "Input to 'bony auto-weights'. Describes bone rest positions and mesh vertex world positions for automatic skin-weight computation.",
+  "type": "object",
+  "required": ["format", "bones", "vertices"],
+  "additionalProperties": false,
+  "properties": {
+    "format": {
+      "type": "string",
+      "const": "bony.auto-weights-input.v1"
+    },
+    "bones": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["name", "worldX", "worldY"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Bone name (must match the target .bony skeleton)."
+          },
+          "worldX": {
+            "type": "number",
+            "description": "Bone root world X position at bind pose."
+          },
+          "worldY": {
+            "type": "number",
+            "description": "Bone root world Y position at bind pose."
+          }
+        }
+      }
+    },
+    "vertices": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["x", "y"],
+        "additionalProperties": false,
+        "properties": {
+          "x": {
+            "type": "number",
+            "description": "Vertex world X position at bind pose."
+          },
+          "y": {
+            "type": "number",
+            "description": "Vertex world Y position at bind pose."
+          }
+        }
+      }
+    },
+    "maxInfluences": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 255,
+      "description": "Maximum number of bone influences per vertex (default: 4)."
+    },
+    "epsilon": {
+      "type": "number",
+      "exclusiveMinimum": 0.0,
+      "description": "Distance regularization term to avoid division by zero for vertices exactly on a bone anchor (default: 1e-6)."
+    }
+  }
+}

@@ -6,6 +6,7 @@ import bony
 import pixie
 
 import atlas_packer
+import auto_weights
 
 
 proc usage(): string =
@@ -16,7 +17,8 @@ proc usage(): string =
     "       bony golden-gen <input.bony|input.bnb> <output.json> [--t seconds]\n" &
     "       bony play <input.bony|input.bnb> --out frame.png [--t seconds] [--width px] [--height px]\n" &
     "       bony play <input> --state-machine <name> --input-script <script.json> --out frame.png\n" &
-    "       bony pack-atlas <images-dir> --out-dir <dir> [--page-size 2048] [--padding 2]"
+    "       bony pack-atlas <images-dir> --out-dir <dir> [--page-size 2048] [--padding 2]\n" &
+    "       bony auto-weights <input.json> <output.json>"
 
 type
   LottieDiagnostic = object of CatchableError
@@ -1323,6 +1325,108 @@ proc packAtlasCmd(args: seq[string]) =
   echo "bony: packed ", inputs.len, " image(s) into ", packed.pages.len, " page(s) -> ", outDir
 
 
+proc autoWeightsCmd(args: seq[string]) =
+  if args.len != 2:
+    quit(usage(), QuitFailure)
+  let inputPath = args[0]
+  let outputPath = args[1]
+
+  var doc: JsonNode
+  try:
+    doc = parseJson(readFile(inputPath))
+  except JsonParsingError as exc:
+    raise newBonyLoadError(schemaViolation, "invalid JSON in " & inputPath & ": " & exc.msg)
+
+  if doc.kind != JObject:
+    raise newBonyLoadError(schemaViolation, "auto-weights input must be a JSON object")
+
+  let fmt = doc.getOrDefault("format")
+  if fmt == nil or fmt.kind != JString or fmt.getStr() != "bony.auto-weights-input.v1":
+    raise newBonyLoadError(schemaViolation,
+      "auto-weights input must have format = \"bony.auto-weights-input.v1\"")
+
+  # Parse bones
+  let bonesNode = doc.getOrDefault("bones")
+  if bonesNode == nil or bonesNode.kind != JArray or bonesNode.elems.len == 0:
+    raise newBonyLoadError(schemaViolation, "auto-weights input: bones must be a non-empty array")
+  var bones: seq[AutoWeightsBone]
+  for i, bn in bonesNode.elems:
+    let ctx = "bones[" & $i & "]"
+    if bn.kind != JObject:
+      raise newBonyLoadError(schemaViolation, ctx & " must be an object")
+    let name = bn.getOrDefault("name")
+    if name == nil or name.kind != JString or name.getStr().len == 0:
+      raise newBonyLoadError(schemaViolation, ctx & ".name must be a non-empty string")
+    let wx = bn.getOrDefault("worldX")
+    let wy = bn.getOrDefault("worldY")
+    if wx == nil or wx.kind notin {JInt, JFloat}:
+      raise newBonyLoadError(schemaViolation, ctx & ".worldX must be a number")
+    if wy == nil or wy.kind notin {JInt, JFloat}:
+      raise newBonyLoadError(schemaViolation, ctx & ".worldY must be a number")
+    bones.add AutoWeightsBone(name: name.getStr(), worldX: wx.getFloat(), worldY: wy.getFloat())
+
+  # Validate unique bone names
+  var boneNames = initHashSet[string]()
+  for bone in bones:
+    if bone.name in boneNames:
+      raise newBonyLoadError(schemaViolation, "duplicate bone name: " & bone.name)
+    boneNames.incl(bone.name)
+
+  # Parse vertices
+  let vertsNode = doc.getOrDefault("vertices")
+  if vertsNode == nil or vertsNode.kind != JArray or vertsNode.elems.len == 0:
+    raise newBonyLoadError(schemaViolation, "auto-weights input: vertices must be a non-empty array")
+  var verts: seq[AutoWeightsVertex]
+  for i, vn in vertsNode.elems:
+    let ctx = "vertices[" & $i & "]"
+    if vn.kind != JObject:
+      raise newBonyLoadError(schemaViolation, ctx & " must be an object")
+    let vx = vn.getOrDefault("x")
+    let vy = vn.getOrDefault("y")
+    if vx == nil or vx.kind notin {JInt, JFloat}:
+      raise newBonyLoadError(schemaViolation, ctx & ".x must be a number")
+    if vy == nil or vy.kind notin {JInt, JFloat}:
+      raise newBonyLoadError(schemaViolation, ctx & ".y must be a number")
+    verts.add AutoWeightsVertex(worldX: vx.getFloat(), worldY: vy.getFloat())
+
+  # Parse optional parameters
+  var maxInfluences = defaultMaxInfluences
+  var epsilon = defaultEpsilon
+  let maxInfNode = doc.getOrDefault("maxInfluences")
+  if maxInfNode != nil:
+    if maxInfNode.kind != JInt or maxInfNode.getInt() < 1 or maxInfNode.getInt() > 255:
+      raise newBonyLoadError(schemaViolation, "maxInfluences must be an integer in 1..255")
+    maxInfluences = maxInfNode.getInt()
+  let epsNode = doc.getOrDefault("epsilon")
+  if epsNode != nil:
+    if epsNode.kind notin {JInt, JFloat} or epsNode.getFloat() <= 0.0:
+      raise newBonyLoadError(schemaViolation, "epsilon must be a positive number")
+    epsilon = epsNode.getFloat()
+
+  let weighted = autoWeightVertices(bones, verts, maxInfluences, epsilon)
+
+  var vertsJson = newJArray()
+  for wv in weighted:
+    var inflArr = newJArray()
+    for inf in wv.influences:
+      var infNode = newJObject()
+      infNode["bone"] = newJString(inf.bone)
+      infNode["bindX"] = newJFloat(inf.bindX)
+      infNode["bindY"] = newJFloat(inf.bindY)
+      infNode["weight"] = newJFloat(inf.weight)
+      inflArr.add infNode
+    var vNode = newJObject()
+    vNode["influences"] = inflArr
+    vertsJson.add vNode
+
+  var root = newJObject()
+  root["format"] = newJString("bony.auto-weights-output.v1")
+  root["vertices"] = vertsJson
+
+  writeFile(outputPath, pretty(root) & "\n")
+  echo "bony: wrote weights for ", verts.len, " vertices across ", bones.len, " bones -> ", outputPath
+
+
 proc main() =
   let args = commandLineParams()
   if args.len == 0:
@@ -1348,6 +1452,8 @@ proc main() =
       renderSetupPose(args[1 .. ^1])
     of "pack-atlas":
       packAtlasCmd(args[1 .. ^1])
+    of "auto-weights":
+      autoWeightsCmd(args[1 .. ^1])
     else:
       quit(usage(), QuitFailure)
   except DbDiagnostic as exc:
@@ -1355,6 +1461,8 @@ proc main() =
   except LottieDiagnostic as exc:
     quit("bony: " & exc.lottieMessage, QuitFailure)
   except BonyLoadError as exc:
+    quit("bony: " & exc.msg, QuitFailure)
+  except IOError as exc:
     quit("bony: " & exc.msg, QuitFailure)
   except OSError as exc:
     quit("bony: " & exc.msg, QuitFailure)
