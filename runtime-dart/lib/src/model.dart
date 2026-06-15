@@ -111,6 +111,8 @@ class SkeletonData {
     required this.paths,
     required this.pathAttachments,
     this.animations = const [],
+    this.parameters = const [],
+    this.deformers = const [],
   });
 
   final SkeletonHeader header;
@@ -120,6 +122,113 @@ class SkeletonData {
   final List<PathConstraintData> paths;
   final List<PathAttachment> pathAttachments;
   final List<AnimationClip> animations;
+  final List<ParameterAxis> parameters;
+  final List<DeformerRecord> deformers;
+}
+
+// --- M7 deformer types ---
+
+class ParameterAxis {
+  const ParameterAxis({
+    required this.name,
+    required this.minValue,
+    required this.maxValue,
+    this.defaultValue = 0.0,
+  });
+  final String name;
+  final double minValue;
+  final double maxValue;
+  final double defaultValue;
+}
+
+class ParameterSample {
+  const ParameterSample({required this.name, required this.value});
+  final String name;
+  final double value;
+}
+
+class DeformerPoint {
+  const DeformerPoint({required this.x, required this.y});
+  final double x;
+  final double y;
+}
+
+class WarpLattice {
+  const WarpLattice({
+    required this.rows,
+    required this.cols,
+    required this.minX,
+    required this.minY,
+    required this.maxX,
+    required this.maxY,
+    required this.controlPoints,
+  });
+  final int rows;
+  final int cols;
+  final double minX;
+  final double minY;
+  final double maxX;
+  final double maxY;
+  final List<DeformerPoint> controlPoints;
+}
+
+class RotationDeformerData {
+  const RotationDeformerData({
+    required this.pivotX,
+    required this.pivotY,
+    required this.angleDegrees,
+    this.scaleX = 1.0,
+    this.scaleY = 1.0,
+    this.opacity = 1.0,
+  });
+  final double pivotX;
+  final double pivotY;
+  final double angleDegrees;
+  final double scaleX;
+  final double scaleY;
+  final double opacity;
+}
+
+enum DeformerKind { warp, rotation }
+
+class DeformerData {
+  const DeformerData({
+    required this.id,
+    this.parent = '',
+    required this.order,
+    required this.kind,
+    this.warp,
+    this.rotation,
+  });
+  final String id;
+  final String parent;
+  final int order;
+  final DeformerKind kind;
+  final WarpLattice? warp;
+  final RotationDeformerData? rotation;
+}
+
+class Keyform {
+  const Keyform({required this.coordinates, required this.values});
+  final List<ParameterSample> coordinates;
+  final List<double> values;
+}
+
+class KeyformBlend {
+  const KeyformBlend({
+    this.axes = const [],
+    this.valueCount = 0,
+    this.keyforms = const [],
+  });
+  final List<ParameterAxis> axes;
+  final int valueCount;
+  final List<Keyform> keyforms;
+}
+
+class DeformerRecord {
+  const DeformerRecord({required this.deformer, required this.keyformBlend});
+  final DeformerData deformer;
+  final KeyformBlend keyformBlend;
 }
 
 // --- M3 Animation types ---
