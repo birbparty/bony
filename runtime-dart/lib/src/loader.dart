@@ -982,6 +982,184 @@ SkeletonData loadBonyBnb(Uint8List bytes) {
 /// Throws [FormatException] if required fields are missing, have the wrong
 /// type, or fail structural validation (unknown references, duplicate names,
 /// parent-before-child ordering).
+StateMachineData _parseStateMachine(Map<String, dynamic> j) {
+  final name = _required<String>(j['name'], 'stateMachine.name');
+
+  final inputsRaw = j['inputs'] as List<dynamic>? ?? [];
+  final inputs = inputsRaw.map((i) {
+    final m = i as Map<String, dynamic>;
+    final iname = _required<String>(m['name'], 'input.name');
+    final kind = _required<String>(m['kind'], 'input.kind');
+    switch (kind) {
+      case 'bool':
+        return StateMachineInput(
+          name: iname,
+          kind: StateMachineInputKind.bool_,
+          defaultBool: (m['default'] as bool?) ?? false,
+        );
+      case 'number':
+        return StateMachineInput(
+          name: iname,
+          kind: StateMachineInputKind.number,
+          defaultNumber: (m['default'] as num?)?.toDouble() ?? 0.0,
+        );
+      case 'trigger':
+        return StateMachineInput(name: iname, kind: StateMachineInputKind.trigger);
+      default:
+        throw FormatException('unknown input kind: $kind');
+    }
+  }).toList();
+
+  final layersRaw = _required<List<dynamic>>(j['layers'], 'stateMachine.layers');
+  final layers = layersRaw.map((l) {
+    final lm = l as Map<String, dynamic>;
+    final lname = _required<String>(lm['name'], 'layer.name');
+    final initialState = (lm['initialState'] as String?) ?? '';
+
+    final statesRaw = _required<List<dynamic>>(lm['states'], 'layer.states');
+    final states = statesRaw.map((s) {
+      final sm = s as Map<String, dynamic>;
+      final sname = _required<String>(sm['name'], 'state.name');
+      final kind = _required<String>(sm['kind'], 'state.kind');
+      if (kind == 'clip') {
+        return StateMachineState(
+          name: sname,
+          kind: StateMachineStateKind.clip,
+          clipName: _required<String>(sm['clip'], 'state.clip'),
+          loop: (sm['loop'] as bool?) ?? false,
+        );
+      } else if (kind == 'blend1d') {
+        final blendClipsRaw = _required<List<dynamic>>(sm['blendClips'], 'state.blendClips');
+        final blendClips = blendClipsRaw.map((bc) {
+          final bcm = bc as Map<String, dynamic>;
+          return StateMachineBlendClip(
+            clipName: _required<String>(bcm['clip'], 'blendClip.clip'),
+            value: _required<num>(bcm['value'], 'blendClip.value').toDouble(),
+            loop: (bcm['loop'] as bool?) ?? false,
+          );
+        }).toList();
+        return StateMachineState(
+          name: sname,
+          kind: StateMachineStateKind.blend1d,
+          blendInput: _required<String>(sm['blendInput'], 'state.blendInput'),
+          blendClips: blendClips,
+        );
+      } else {
+        throw FormatException('unknown state kind: $kind');
+      }
+    }).toList();
+
+    final transitionsRaw = lm['transitions'] as List<dynamic>? ?? [];
+    final transitions = transitionsRaw.map((t) {
+      final tm = t as Map<String, dynamic>;
+      final conditionsRaw = _required<List<dynamic>>(tm['conditions'], 'transition.conditions');
+      final conditions = conditionsRaw.map((c) {
+        final cm = c as Map<String, dynamic>;
+        final cinput = _required<String>(cm['input'], 'condition.input');
+        final ckind = _required<String>(cm['kind'], 'condition.kind');
+        switch (ckind) {
+          case 'boolEquals':
+            return StateMachineCondition(
+              input: cinput,
+              kind: StateMachineConditionKind.boolEquals,
+              boolValue: _required<bool>(cm['value'], 'condition.value'),
+            );
+          case 'numberEquals':
+            return StateMachineCondition(
+              input: cinput,
+              kind: StateMachineConditionKind.numberEquals,
+              numberValue: _required<num>(cm['value'], 'condition.value').toDouble(),
+            );
+          case 'numberGreater':
+            return StateMachineCondition(
+              input: cinput,
+              kind: StateMachineConditionKind.numberGreater,
+              numberValue: _required<num>(cm['value'], 'condition.value').toDouble(),
+            );
+          case 'numberGreaterOrEqual':
+            return StateMachineCondition(
+              input: cinput,
+              kind: StateMachineConditionKind.numberGreaterOrEqual,
+              numberValue: _required<num>(cm['value'], 'condition.value').toDouble(),
+            );
+          case 'numberLess':
+            return StateMachineCondition(
+              input: cinput,
+              kind: StateMachineConditionKind.numberLess,
+              numberValue: _required<num>(cm['value'], 'condition.value').toDouble(),
+            );
+          case 'numberLessOrEqual':
+            return StateMachineCondition(
+              input: cinput,
+              kind: StateMachineConditionKind.numberLessOrEqual,
+              numberValue: _required<num>(cm['value'], 'condition.value').toDouble(),
+            );
+          case 'triggerSet':
+            return StateMachineCondition(
+              input: cinput,
+              kind: StateMachineConditionKind.triggerSet,
+            );
+          default:
+            throw FormatException('unknown condition kind: $ckind');
+        }
+      }).toList();
+      return StateMachineTransition(
+        fromState: _required<String>(tm['fromState'], 'transition.fromState'),
+        toState: _required<String>(tm['toState'], 'transition.toState'),
+        conditions: conditions,
+      );
+    }).toList();
+
+    return StateMachineLayer(
+      name: lname,
+      states: states,
+      initialState: initialState.isEmpty ? states[0].name : initialState,
+      transitions: transitions,
+    );
+  }).toList();
+
+  final listenersRaw = j['listeners'] as List<dynamic>? ?? [];
+  final listeners = listenersRaw.map((l) {
+    final lm = l as Map<String, dynamic>;
+    final lname = _required<String>(lm['name'], 'listener.name');
+    final lkind = _required<String>(lm['kind'], 'listener.kind');
+    final llayer = _required<String>(lm['layer'], 'listener.layer');
+    switch (lkind) {
+      case 'stateEnter':
+        return StateMachineListener(
+          name: lname,
+          kind: StateMachineListenerKind.stateEnter,
+          layer: llayer,
+          toState: _required<String>(lm['toState'], 'listener.toState'),
+        );
+      case 'stateExit':
+        return StateMachineListener(
+          name: lname,
+          kind: StateMachineListenerKind.stateExit,
+          layer: llayer,
+          fromState: _required<String>(lm['fromState'], 'listener.fromState'),
+        );
+      case 'transition':
+        return StateMachineListener(
+          name: lname,
+          kind: StateMachineListenerKind.transition_,
+          layer: llayer,
+          fromState: _required<String>(lm['fromState'], 'listener.fromState'),
+          toState: _required<String>(lm['toState'], 'listener.toState'),
+        );
+      default:
+        throw FormatException('unknown listener kind: $lkind');
+    }
+  }).toList();
+
+  return StateMachineData(
+    name: name,
+    layers: layers,
+    inputs: inputs,
+    listeners: listeners,
+  );
+}
+
 SkeletonData loadBonyJson(String jsonText) {
   final root = jsonDecode(jsonText);
   if (root is! Map<String, dynamic>) {
@@ -1042,6 +1220,11 @@ SkeletonData loadBonyJson(String jsonText) {
           .toList()
       : const <DeformerRecord>[];
 
+  final smRaw = root['stateMachines'];
+  final stateMachines = smRaw is List<dynamic>
+      ? smRaw.map((sm) => _parseStateMachine(sm as Map<String, dynamic>)).toList()
+      : const <StateMachineData>[];
+
   final data = SkeletonData(
     header: header,
     bones: bones,
@@ -1052,6 +1235,7 @@ SkeletonData loadBonyJson(String jsonText) {
     animations: animations,
     parameters: parameters,
     deformers: deformers,
+    stateMachines: stateMachines,
   );
   _validate(data);
   return data;
