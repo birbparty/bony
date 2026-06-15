@@ -1,0 +1,136 @@
+{
+  "skeleton": {
+    "name": "m8-rig",
+    "version": "1.0.0"
+  },
+  "bones": [
+    {"name": "root"},
+    {"name": "head", "parent": "root", "y": -60}
+  ],
+  "slots": [
+    {"name": "head_slot", "bone": "head", "attachment": "head_open"}
+  ],
+  "regions": [
+    {"name": "head_open", "width": 50, "height": 50},
+    {"name": "head_blink", "width": 50, "height": 50}
+  ],
+  "animations": [
+    {
+      "name": "idle",
+      "boneTimelines": [
+        {
+          "bone": "root",
+          "property": "rotate",
+          "keyframes": [
+            {"t": 0.0, "value": 0.0},
+            {"t": 1.0, "value": 10.0}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "wave",
+      "boneTimelines": [
+        {
+          "bone": "root",
+          "property": "rotate",
+          "keyframes": [
+            {"t": 0.0, "value": 90.0},
+            {"t": 0.5, "value": 180.0}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "walk",
+      "boneTimelines": [
+        {
+          "bone": "root",
+          "property": "rotate",
+          "keyframes": [
+            {"t": 0.0, "value": 5.0},
+            {"t": 0.5, "value": -5.0}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "run",
+      "boneTimelines": [
+        {
+          "bone": "root",
+          "property": "rotate",
+          "keyframes": [
+            {"t": 0.0, "value": 15.0},
+            {"t": 0.25, "value": -15.0}
+          ]
+        }
+      ]
+    }
+  ],
+  "stateMachines": [
+    {
+      "name": "gesture",
+      "inputs": [
+        {"name": "wave", "kind": "bool"},
+        {"name": "speed", "kind": "number", "default": 0.0},
+        {"name": "jump", "kind": "trigger"}
+      ],
+      "layers": [
+        {
+          "name": "body",
+          "states": [
+            {"name": "idle", "kind": "clip", "clip": "idle", "loop": true},
+            {
+              "name": "move",
+              "kind": "blend1d",
+              "blendInput": "speed",
+              "blendClips": [
+                {"clip": "walk", "value": 0.5, "loop": true},
+                {"clip": "run", "value": 1.0, "loop": true}
+              ]
+            }
+          ],
+          "initialState": "idle",
+          "transitions": [
+            {
+              "fromState": "idle",
+              "toState": "move",
+              "conditions": [
+                {"input": "wave", "kind": "boolEquals", "value": true}
+              ]
+            },
+            {
+              "fromState": "move",
+              "toState": "idle",
+              "conditions": [
+                {"input": "wave", "kind": "boolEquals", "value": false}
+              ]
+            }
+          ]
+        },
+        {
+          "name": "face",
+          "states": [
+            {"name": "normal", "kind": "clip", "clip": "idle"},
+            {"name": "jump_pose", "kind": "clip", "clip": "wave"}
+          ],
+          "transitions": [
+            {
+              "fromState": "normal",
+              "toState": "jump_pose",
+              "conditions": [
+                {"input": "jump", "kind": "triggerSet"}
+              ]
+            }
+          ]
+        }
+      ],
+      "listeners": [
+        {"name": "move_enter", "kind": "stateEnter", "layer": "body", "toState": "move"},
+        {"name": "idle_exit", "kind": "stateExit", "layer": "body", "fromState": "idle"},
+        {"name": "idle_to_move", "kind": "transition", "layer": "body", "fromState": "idle", "toState": "move"}
+      ]
+    }
+  ]
+}

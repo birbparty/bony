@@ -6,6 +6,8 @@ import bony/generated/wire
 import bony/model
 import bony/deform/deformers
 import bony/deform/keyforms
+import bony/anim/timelines
+import bony/statemachine/core
 
 const
   skeletonTypeId = "skeleton"
@@ -287,6 +289,14 @@ proc addBoolField(output: var string; key: string; value: bool; indent: int; fir
   output.add (if value: "true" else: "false")
 
 
+proc parseBonyAnimations(root: JsonNode; data: SkeletonData): Table[string, AnimationClip]
+proc parseBonyStateMachines(
+  root: JsonNode;
+  data: SkeletonData;
+  clips: Table[string, AnimationClip];
+): seq[StateMachine]
+
+
 proc loadBonyJson*(text: string): SkeletonData =
   rejectDuplicateObjectKeys(text)
 
@@ -297,7 +307,7 @@ proc loadBonyJson*(text: string): SkeletonData =
       raise newBonyLoadError(schemaViolation, "invalid JSON: " & exc.msg)
 
   let root = requireObject(parsed, "root")
-  validateKnownKeys(root, ["skeleton", "bones", "slots", "regions", "pathAttachments", "paths", "parameters", "deformers"], "root")
+  validateKnownKeys(root, ["skeleton", "bones", "slots", "regions", "pathAttachments", "paths", "parameters", "deformers", "animations", "stateMachines"], "root")
 
   if not root.hasKey("skeleton"):
     raise newBonyLoadError(schemaViolation, "root.skeleton is required")
@@ -560,7 +570,220 @@ proc loadBonyJson*(text: string): SkeletonData =
 
       loadedDeformers.add DeformerRecord(deformer: deformer, keyformBlend: blend)
 
-  skeletonData(loadedHeader, loadedBones, loadedSlots, loadedRegions, loadedPathAttachments, loadedPaths, loadedParameters, loadedDeformers)
+  result = skeletonData(loadedHeader, loadedBones, loadedSlots, loadedRegions, loadedPathAttachments, loadedPaths, loadedParameters, loadedDeformers)
+  let loadedAnimClips = parseBonyAnimations(root, result)
+  discard parseBonyStateMachines(root, result, loadedAnimClips)
+
+
+proc parseBonyAnimations(root: JsonNode; data: SkeletonData): Table[string, AnimationClip] =
+  if not root.hasKey("animations"):
+    return initTable[string, AnimationClip]()
+  let animsNode = requireArray(root["animations"], "animations")
+  for animIndex, animNode in animsNode.elems:
+    let ctx = "animations[" & $animIndex & "]"
+    let aObj = requireObject(animNode, ctx)
+    validateKnownKeys(aObj, ["name", "boneTimelines"], ctx)
+    let animName = requiredString(aObj, "name", ctx)
+    if animName.len == 0:
+      raise newBonyLoadError(schemaViolation, ctx & ".name must not be empty")
+    if result.hasKey(animName):
+      raise newBonyLoadError(duplicateKey, "duplicate animation name: " & animName)
+    var boneTimelines: seq[BoneTimeline] = @[]
+    if aObj.hasKey("boneTimelines"):
+      let btListNode = requireArray(aObj["boneTimelines"], ctx & ".boneTimelines")
+      for btIndex, btNode in btListNode.elems:
+        let btCtx = ctx & ".boneTimelines[" & $btIndex & "]"
+        let btObj = requireObject(btNode, btCtx)
+        validateKnownKeys(btObj, ["bone", "property", "keyframes"], btCtx)
+        let bone = requiredString(btObj, "bone", btCtx)
+        let propStr = requiredString(btObj, "property", btCtx)
+        let tlKind =
+          case propStr
+          of "rotate": rotateTimeline
+          of "translateX": translateXTimeline
+          of "translateY": translateYTimeline
+          of "scaleX": scaleXTimeline
+          of "scaleY": scaleYTimeline
+          of "shearX": shearXTimeline
+          of "shearY": shearYTimeline
+          else:
+            raise newBonyLoadError(schemaViolation, btCtx & ".property unknown: " & propStr)
+        let kfListNode = requireArray(btObj["keyframes"], btCtx & ".keyframes")
+        var scalarKeys: seq[ScalarKeyframe] = @[]
+        for kfIndex, kfNode in kfListNode.elems:
+          let kfCtx = btCtx & ".keyframes[" & $kfIndex & "]"
+          let kfObj = requireObject(kfNode, kfCtx)
+          validateKnownKeys(kfObj, ["t", "value", "curve"], kfCtx)
+          let kfTime = requiredF64(kfObj, "t", kfCtx)
+          let kfValue = requiredFloat(kfObj, "value", kfCtx)
+          let curveKind =
+            if kfObj.hasKey("curve"):
+              let cs = kfObj["curve"].getStr()
+              case cs
+              of "linear": linearCurve
+              of "stepped": steppedCurve
+              else:
+                raise newBonyLoadError(schemaViolation, kfCtx & ".curve unknown: " & cs)
+            else:
+              linearCurve
+          scalarKeys.add scalarKeyframe(kfTime, kfValue, curveKind)
+        boneTimelines.add boneScalarTimeline(bone, tlKind, scalarKeys)
+    result[animName] = animationClip(data, animName, boneTimelines)
+
+
+proc parseBonyStateMachines(
+  root: JsonNode;
+  data: SkeletonData;
+  clips: Table[string, AnimationClip];
+): seq[StateMachine] =
+  if not root.hasKey("stateMachines"):
+    return @[]
+  let smListNode = requireArray(root["stateMachines"], "stateMachines")
+  for smIndex, smNode in smListNode.elems:
+    let smCtx = "stateMachines[" & $smIndex & "]"
+    let smObj = requireObject(smNode, smCtx)
+    validateKnownKeys(smObj, ["name", "inputs", "layers", "listeners"], smCtx)
+    let machineName = requiredString(smObj, "name", smCtx)
+    var inputs: seq[StateMachineInput] = @[]
+    if smObj.hasKey("inputs"):
+      let inputsListNode = requireArray(smObj["inputs"], smCtx & ".inputs")
+      for inIndex, inNode in inputsListNode.elems:
+        let inCtx = smCtx & ".inputs[" & $inIndex & "]"
+        let inObj = requireObject(inNode, inCtx)
+        validateKnownKeys(inObj, ["name", "kind", "default"], inCtx)
+        let inputName = requiredString(inObj, "name", inCtx)
+        let kindStr = requiredString(inObj, "kind", inCtx)
+        case kindStr
+        of "bool":
+          let dv = optionalBool(inObj, "default", false, inCtx)
+          inputs.add stateMachineBoolInput(inputName, dv)
+        of "number":
+          let dv = optionalFloat(inObj, "default", 0.0, inCtx)
+          inputs.add stateMachineNumberInput(inputName, dv)
+        of "trigger":
+          inputs.add stateMachineTriggerInput(inputName)
+        else:
+          raise newBonyLoadError(schemaViolation, inCtx & ".kind must be 'bool', 'number', or 'trigger'")
+    if not smObj.hasKey("layers"):
+      raise newBonyLoadError(schemaViolation, smCtx & ".layers is required")
+    let layersListNode = requireArray(smObj["layers"], smCtx & ".layers")
+    var layers: seq[StateMachineLayer] = @[]
+    for layerIndex, layerNode in layersListNode.elems:
+      let lCtx = smCtx & ".layers[" & $layerIndex & "]"
+      let lObj = requireObject(layerNode, lCtx)
+      validateKnownKeys(lObj, ["name", "states", "initialState", "transitions"], lCtx)
+      let layerName = requiredString(lObj, "name", lCtx)
+      let statesListNode = requireArray(lObj["states"], lCtx & ".states")
+      var states: seq[StateMachineState] = @[]
+      for stateIndex, stateNode in statesListNode.elems:
+        let sCtx = lCtx & ".states[" & $stateIndex & "]"
+        let sObj = requireObject(stateNode, sCtx)
+        validateKnownKeys(sObj, ["name", "kind", "clip", "loop", "blendInput", "blendClips"], sCtx)
+        let stateName = requiredString(sObj, "name", sCtx)
+        let stateKindStr = requiredString(sObj, "kind", sCtx)
+        case stateKindStr
+        of "clip":
+          let clipName = requiredString(sObj, "clip", sCtx)
+          if clipName notin clips:
+            raise newBonyLoadError(unknownRequiredReference, sCtx & ".clip references unknown animation: " & clipName)
+          let loop = optionalBool(sObj, "loop", false, sCtx)
+          states.add stateMachineState(stateName, clips[clipName], loop)
+        of "blend1d":
+          let blendInput = requiredString(sObj, "blendInput", sCtx)
+          let bcListNode = requireArray(sObj["blendClips"], sCtx & ".blendClips")
+          var blendClips: seq[StateMachineBlendClip] = @[]
+          for bcIndex, bcNode in bcListNode.elems:
+            let bcCtx = sCtx & ".blendClips[" & $bcIndex & "]"
+            let bcObj = requireObject(bcNode, bcCtx)
+            validateKnownKeys(bcObj, ["clip", "value", "loop"], bcCtx)
+            let bcClipName = requiredString(bcObj, "clip", bcCtx)
+            if bcClipName notin clips:
+              raise newBonyLoadError(unknownRequiredReference, bcCtx & ".clip references unknown animation: " & bcClipName)
+            let bcValue = requiredFloat(bcObj, "value", bcCtx)
+            let bcLoop = optionalBool(bcObj, "loop", false, bcCtx)
+            blendClips.add stateMachineBlendClip(clips[bcClipName], bcValue, bcLoop)
+          states.add stateMachineBlendState(stateName, blendInput, blendClips)
+        else:
+          raise newBonyLoadError(schemaViolation, sCtx & ".kind must be 'clip' or 'blend1d'")
+      var transitions: seq[StateMachineTransition] = @[]
+      if lObj.hasKey("transitions"):
+        let transListNode = requireArray(lObj["transitions"], lCtx & ".transitions")
+        for trIndex, trNode in transListNode.elems:
+          let trCtx = lCtx & ".transitions[" & $trIndex & "]"
+          let trObj = requireObject(trNode, trCtx)
+          validateKnownKeys(trObj, ["fromState", "toState", "conditions"], trCtx)
+          let fromState = requiredString(trObj, "fromState", trCtx)
+          let toState = requiredString(trObj, "toState", trCtx)
+          let condListNode = requireArray(trObj["conditions"], trCtx & ".conditions")
+          var conditions: seq[StateMachineCondition] = @[]
+          for condIndex, condNode in condListNode.elems:
+            let condCtx = trCtx & ".conditions[" & $condIndex & "]"
+            let condObj = requireObject(condNode, condCtx)
+            validateKnownKeys(condObj, ["input", "kind", "value"], condCtx)
+            let condInput = requiredString(condObj, "input", condCtx)
+            let condKindStr = requiredString(condObj, "kind", condCtx)
+            case condKindStr
+            of "boolEquals":
+              let bv = optionalBool(condObj, "value", true, condCtx)
+              conditions.add stateMachineBoolCondition(condInput, bv)
+            of "numberEquals":
+              let nv = requiredFloat(condObj, "value", condCtx)
+              conditions.add stateMachineNumberCondition(condInput, numberEqualsCondition, nv)
+            of "numberGreater":
+              let nv = requiredFloat(condObj, "value", condCtx)
+              conditions.add stateMachineNumberCondition(condInput, numberGreaterCondition, nv)
+            of "numberGreaterOrEqual":
+              let nv = requiredFloat(condObj, "value", condCtx)
+              conditions.add stateMachineNumberCondition(condInput, numberGreaterOrEqualCondition, nv)
+            of "numberLess":
+              let nv = requiredFloat(condObj, "value", condCtx)
+              conditions.add stateMachineNumberCondition(condInput, numberLessCondition, nv)
+            of "numberLessOrEqual":
+              let nv = requiredFloat(condObj, "value", condCtx)
+              conditions.add stateMachineNumberCondition(condInput, numberLessOrEqualCondition, nv)
+            of "triggerSet":
+              conditions.add stateMachineTriggerCondition(condInput)
+            else:
+              raise newBonyLoadError(schemaViolation, condCtx & ".kind unknown: " & condKindStr)
+          transitions.add stateMachineTransition(fromState, toState, conditions)
+      let initialState = optionalString(lObj, "initialState", "", lCtx)
+      layers.add stateMachineLayer(layerName, states, initialState, transitions)
+    var listeners: seq[StateMachineListener] = @[]
+    if smObj.hasKey("listeners"):
+      let lstListNode = requireArray(smObj["listeners"], smCtx & ".listeners")
+      for lstIndex, lstNode in lstListNode.elems:
+        let lstCtx = smCtx & ".listeners[" & $lstIndex & "]"
+        let lstObj = requireObject(lstNode, lstCtx)
+        validateKnownKeys(lstObj, ["name", "kind", "layer", "fromState", "toState"], lstCtx)
+        let lstName = requiredString(lstObj, "name", lstCtx)
+        let lstKindStr = requiredString(lstObj, "kind", lstCtx)
+        let lstLayer = requiredString(lstObj, "layer", lstCtx)
+        case lstKindStr
+        of "stateEnter":
+          let toState = requiredString(lstObj, "toState", lstCtx)
+          listeners.add stateMachineStateEnterListener(lstName, lstLayer, toState)
+        of "stateExit":
+          let fromState = requiredString(lstObj, "fromState", lstCtx)
+          listeners.add stateMachineStateExitListener(lstName, lstLayer, fromState)
+        of "transition":
+          let fromState = requiredString(lstObj, "fromState", lstCtx)
+          let toState = requiredString(lstObj, "toState", lstCtx)
+          listeners.add stateMachineTransitionListener(lstName, lstLayer, fromState, toState)
+        else:
+          raise newBonyLoadError(schemaViolation, lstCtx & ".kind must be 'stateEnter', 'stateExit', or 'transition'")
+    result.add stateMachine(machineName, layers, inputs, listeners)
+
+
+proc loadBonyJsonStateMachines*(text: string): seq[StateMachine] =
+  let parsed =
+    try:
+      parseJson(text)
+    except JsonParsingError as exc:
+      raise newBonyLoadError(schemaViolation, "invalid JSON: " & exc.msg)
+  let root = requireObject(parsed, "root")
+  let data = loadBonyJson(text)
+  let clips = parseBonyAnimations(root, data)
+  parseBonyStateMachines(root, data, clips)
 
 
 proc toBonyJson*(data: SkeletonData): string =
