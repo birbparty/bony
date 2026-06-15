@@ -67,6 +67,10 @@ def main():
 
     bnb_dir = os.path.join(args.assets_dir, "bnb")
     bony_files = sorted(glob.glob(os.path.join(args.assets_dir, "*.bony")))
+    # *_rig.bnb intentionally excludes forward_compat.bnb, which is a one-way
+    # forward-compatibility fixture (drops unknown future fields on load and
+    # cannot be round-tripped through JSON).  It is covered by a dedicated
+    # smoke test instead.
     bnb_files = sorted(glob.glob(os.path.join(bnb_dir, "*_rig.bnb")))
 
     if not bony_files:
@@ -76,6 +80,8 @@ def main():
     passed = 0
     failed = 0
     skipped = 0
+    dir1_ran = 0
+    dir2_ran = 0
 
     with tempfile.TemporaryDirectory() as tmpdir:
 
@@ -91,6 +97,7 @@ def main():
                 skipped += 1
                 continue
 
+            dir1_ran += 1
             out_bnb = os.path.join(tmpdir, f"{stem}_from_json.bnb")
             try:
                 rc, stderr = run_json_to_bnb(bony_bin, bony_path, out_bnb)
@@ -101,12 +108,12 @@ def main():
                     failed += 1
                     continue
 
-                match, actual_len, golden_len = bytes_equal(out_bnb, golden_bnb)
+                match, actual_len, _ = bytes_equal(out_bnb, golden_bnb)
                 if match:
                     print(f"PASS {label} ({actual_len} bytes)")
                     passed += 1
                 else:
-                    print(f"FAIL {label}: byte mismatch (got {actual_len} bytes, expected {golden_len} bytes)")
+                    print(f"FAIL {label}: byte mismatch ({actual_len} bytes vs golden)")
                     failed += 1
             except Exception as exc:
                 print(f"FAIL {label}: {exc}")
@@ -120,6 +127,7 @@ def main():
             stem = os.path.splitext(os.path.basename(bnb_path))[0]
             label = f"{stem}.bnb"
 
+            dir2_ran += 1
             mid_bony = os.path.join(tmpdir, f"{stem}_mid.bony")
             out_bnb = os.path.join(tmpdir, f"{stem}_roundtrip.bnb")
             try:
@@ -139,12 +147,12 @@ def main():
                     failed += 1
                     continue
 
-                match, actual_len, golden_len = bytes_equal(out_bnb, bnb_path)
+                match, actual_len, _ = bytes_equal(out_bnb, bnb_path)
                 if match:
                     print(f"PASS {label} ({actual_len} bytes)")
                     passed += 1
                 else:
-                    print(f"FAIL {label}: byte mismatch after round-trip (got {actual_len} bytes, original {golden_len} bytes)")
+                    print(f"FAIL {label}: byte mismatch after round-trip ({actual_len} bytes vs original)")
                     failed += 1
             except Exception as exc:
                 print(f"FAIL {label}: {exc}")
@@ -152,8 +160,11 @@ def main():
 
     print(f"\n{passed} passed, {failed} failed, {skipped} skipped")
 
-    if passed == 0 and failed == 0:
-        print("error: no round-trip checks were executed — gate is vacuously green", file=sys.stderr)
+    if dir1_ran == 0:
+        print("error: Direction 1 (json→bnb) ran no checks — gate is vacuously green", file=sys.stderr)
+        sys.exit(2)
+    if dir2_ran == 0:
+        print("error: Direction 2 (bnb→json→bnb) ran no checks — gate is vacuously green", file=sys.stderr)
         sys.exit(2)
 
     if failed:
