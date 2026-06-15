@@ -135,5 +135,8 @@ jobs:
           pip3 install --quiet 'jsonschema>=4.18.0,<5'
           python3 scripts/ci/input_script_run.py --bony-bin /tmp/bony_bin
 
+      - name: Round-trip conformance gate
+        run: python3 scripts/ci/round_trip_run.py --bony-bin /tmp/bony_bin
+
       - name: Whitespace check
         run: git diff --check
