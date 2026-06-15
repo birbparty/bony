@@ -1,0 +1,46 @@
+{
+  "skeleton": {
+    "name": "m5-rig",
+    "version": "1.0.0"
+  },
+  "bones": [
+    {"name": "root"},
+    {"name": "spine", "parent": "root", "y": -30},
+    {"name": "head", "parent": "spine", "y": -60},
+    {"name": "upper_arm", "parent": "spine", "x": -25, "rotation": -25},
+    {"name": "lower_arm", "parent": "upper_arm", "y": -45, "rotation": 15},
+    {"name": "tail_a", "parent": "root", "x": 15, "y": 5, "rotation": 30},
+    {"name": "tail_b", "parent": "tail_a", "y": -30, "rotation": 10},
+    {"name": "rider", "parent": "root", "x": -50, "y": -20}
+  ],
+  "slots": [
+    {"name": "spine_slot", "bone": "spine", "attachment": "spine_body"},
+    {"name": "head_slot", "bone": "head", "attachment": "head"},
+    {"name": "upper_arm_slot", "bone": "upper_arm", "attachment": "upper_arm"},
+    {"name": "lower_arm_slot", "bone": "lower_arm", "attachment": "lower_arm"},
+    {"name": "tail_b_slot", "bone": "tail_b", "attachment": "tail_b"},
+    {"name": "rider_slot", "bone": "rider", "attachment": "rider"}
+  ],
+  "regions": [
+    {"name": "spine_body", "width": 30, "height": 80},
+    {"name": "head", "width": 50, "height": 50},
+    {"name": "upper_arm", "width": 20, "height": 50},
+    {"name": "lower_arm", "width": 18, "height": 40},
+    {"name": "tail_b", "width": 15, "height": 35},
+    {"name": "rider", "width": 35, "height": 45}
+  ],
+  "pathAttachments": [
+    {
+      "name": "spine_path",
+      "p0x": 0.0, "p0y": 0.0,
+      "p1x": -30.0, "p1y": -50.0,
+      "p2x": -20.0, "p2y": -90.0,
+      "p3x": 0.0, "p3y": -120.0
+    }
+  ],
+  "paths": [
+    {"name": "rider_follow", "bone": "rider", "target": "root", "path": "spine_path", "order": 0},
+    {"name": "arm_follow", "bone": "lower_arm", "target": "spine", "path": "spine_path", "order": 0},
+    {"name": "tail_follow", "bone": "tail_b", "target": "tail_a", "path": "spine_path", "order": 2}
+  ]
+}
