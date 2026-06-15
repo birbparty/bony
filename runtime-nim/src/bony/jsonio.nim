@@ -683,6 +683,7 @@ proc parseBonyStateMachines(
       raise newBonyLoadError(schemaViolation, smCtx & ".layers is required")
     let layersListNode = requireArray(smObj["layers"], smCtx & ".layers")
     var layers: seq[StateMachineLayer] = @[]
+    var layerStateMap = initTable[string, HashSet[string]]()
     for layerIndex, layerNode in layersListNode.elems:
       let lCtx = smCtx & ".layers[" & $layerIndex & "]"
       let lObj = requireObject(layerNode, lCtx)
@@ -773,13 +774,8 @@ proc parseBonyStateMachines(
               raise newBonyLoadError(schemaViolation, condCtx & ".kind unknown: " & condKindStr)
           transitions.add stateMachineTransition(fromState, toState, conditions)
       let initialState = optionalString(lObj, "initialState", "", lCtx)
+      layerStateMap[layerName] = stateNames
       layers.add stateMachineLayer(layerName, states, initialState, transitions)
-    var layerStateMap = initTable[string, HashSet[string]]()
-    for layer in layers:
-      var ls = initHashSet[string]()
-      for s in layer.states:
-        ls.incl(s.name)
-      layerStateMap[layer.name] = ls
     var listeners: seq[StateMachineListener] = @[]
     if smObj.hasKey("listeners"):
       let lstListNode = requireArray(smObj["listeners"], smCtx & ".listeners")
