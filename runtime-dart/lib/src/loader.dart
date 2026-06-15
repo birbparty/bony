@@ -110,6 +110,12 @@ ScalarKeyframe _parseKeyframe(Map<String, dynamic> j, String ctx) {
     final qc1y = quantizeF32(c1y);
     final qc2x = quantizeF32(c2x);
     final qc2y = quantizeF32(c2y);
+    // All four must be finite — f32 overflow (e.g. double.maxFinite → ±Inf)
+    // is rejected by Nim's quantizeF32, so we must match.
+    if (!qc1x.isFinite) throw FormatException('$ctx.c1x must be a finite f32 value');
+    if (!qc1y.isFinite) throw FormatException('$ctx.c1y must be a finite f32 value');
+    if (!qc2x.isFinite) throw FormatException('$ctx.c2x must be a finite f32 value');
+    if (!qc2y.isFinite) throw FormatException('$ctx.c2y must be a finite f32 value');
     if (qc1x < 0.0 || qc1x > 1.0) throw FormatException('$ctx.c1x must be in 0..1');
     if (qc2x < 0.0 || qc2x > 1.0) throw FormatException('$ctx.c2x must be in 0..1');
     curve = TimelineCurve.bezier(qc1x, qc1y, qc2x, qc2y);

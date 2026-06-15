@@ -4,6 +4,7 @@
 // and applyPose — all exercised programmatically without a golden file.
 
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:test/test.dart';
 import 'package:bony/bony.dart';
 
@@ -305,6 +306,29 @@ void main() {
             '"keyframes":[{"t":0.0,"value":0.0},'
             '{"t":1.0,"value":90.0,"curve":"bezier",'
             '"c1x":0.25,"c1y":0.0,"c2x":1.1,"c2y":1.0}]}]}]}'),
+        throwsFormatException,
+      );
+    });
+
+    test('bezier keyframe rejects f32-overflow c1y (cross-runtime parity)', () {
+      // double.maxFinite overflows to Infinity when cast to f32 — Nim's
+      // quantizeF32 raises on this; Dart must match.
+      final bigVal = double.maxFinite; // 1.7976931348623157e308
+      expect(bigVal.isFinite, isTrue, reason: 'starts finite');
+      // verify it actually overflows to Inf when quantized
+      final bd = ByteData(4);
+      bd.setFloat32(0, bigVal, Endian.little);
+      expect(bd.getFloat32(0, Endian.little), double.infinity,
+          reason: 'double.maxFinite rounds up to f32 Infinity');
+      // the loader must reject it
+      expect(
+        () => loadBonyJson(
+          '{"skeleton":{"name":"bz"},"bones":[{"name":"root"}],'
+          '"animations":[{"name":"a","boneTimelines":[{"bone":"root","property":"rotate",'
+          '"keyframes":[{"t":0.0,"value":0.0},'
+          '{"t":1.0,"value":90.0,"curve":"bezier",'
+          '"c1x":0.25,"c1y":${double.maxFinite},"c2x":0.75,"c2y":1.0}]}]}]}',
+        ),
         throwsFormatException,
       );
     });
