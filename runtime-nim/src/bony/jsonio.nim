@@ -615,6 +615,9 @@ proc parseBonyAnimations(root: JsonNode; data: SkeletonData): Table[string, Anim
         let btObj = requireObject(btNode, btCtx)
         let bone = requiredString(btObj, "bone", btCtx)
         let propStr = requiredString(btObj, "property", btCtx)
+        validateKnownKeys(btObj, ["bone", "property", "keyframes"], btCtx)
+        if not btObj.hasKey("keyframes"):
+          raise newBonyLoadError(schemaViolation, btCtx & ".keyframes is required")
         let kfListNode = requireArray(btObj["keyframes"], btCtx & ".keyframes")
         case propStr
         of "rotate", "translateX", "translateY", "scaleX", "scaleY", "shearX", "shearY":
@@ -627,7 +630,6 @@ proc parseBonyAnimations(root: JsonNode; data: SkeletonData): Table[string, Anim
             of "scaleY": scaleYTimeline
             of "shearX": shearXTimeline
             else: shearYTimeline
-          validateKnownKeys(btObj, ["bone", "property", "keyframes"], btCtx)
           var scalarKeys: seq[ScalarKeyframe] = @[]
           for kfIndex, kfNode in kfListNode.elems:
             let kfCtx = btCtx & ".keyframes[" & $kfIndex & "]"
@@ -643,7 +645,6 @@ proc parseBonyAnimations(root: JsonNode; data: SkeletonData): Table[string, Anim
             of "translate": translateTimeline
             of "scale": scaleTimeline
             else: shearTimeline
-          validateKnownKeys(btObj, ["bone", "property", "keyframes"], btCtx)
           var vectorKeys: seq[Vector2Keyframe] = @[]
           for kfIndex, kfNode in kfListNode.elems:
             let kfCtx = btCtx & ".keyframes[" & $kfIndex & "]"
@@ -659,7 +660,6 @@ proc parseBonyAnimations(root: JsonNode; data: SkeletonData): Table[string, Anim
               parseCurveFromNode(kfObj, curveYKey, kfCtx))
           boneTimelines.add boneVectorTimeline(bone, tlKind, vectorKeys)
         of "inherit":
-          validateKnownKeys(btObj, ["bone", "property", "keyframes"], btCtx)
           var inheritKeys: seq[InheritKeyframe] = @[]
           for kfIndex, kfNode in kfListNode.elems:
             let kfCtx = btCtx & ".keyframes[" & $kfIndex & "]"
@@ -683,10 +683,12 @@ proc parseBonyAnimations(root: JsonNode; data: SkeletonData): Table[string, Anim
         let stObj = requireObject(stNode, stCtx)
         let slot = requiredString(stObj, "slot", stCtx)
         let propStr = requiredString(stObj, "property", stCtx)
+        validateKnownKeys(stObj, ["slot", "property", "keyframes"], stCtx)
+        if not stObj.hasKey("keyframes"):
+          raise newBonyLoadError(schemaViolation, stCtx & ".keyframes is required")
         let kfListNode = requireArray(stObj["keyframes"], stCtx & ".keyframes")
         case propStr
         of "attachment":
-          validateKnownKeys(stObj, ["slot", "property", "keyframes"], stCtx)
           var attachmentKeys: seq[AttachmentKeyframe] = @[]
           for kfIndex, kfNode in kfListNode.elems:
             let kfCtx = stCtx & ".keyframes[" & $kfIndex & "]"
@@ -702,7 +704,6 @@ proc parseBonyAnimations(root: JsonNode; data: SkeletonData): Table[string, Anim
             of "rgba": rgbaTimeline
             of "rgb": rgbTimeline
             else: alphaTimeline
-          validateKnownKeys(stObj, ["slot", "property", "keyframes"], stCtx)
           var colorKeys: seq[ColorKeyframe] = @[]
           for kfIndex, kfNode in kfListNode.elems:
             let kfCtx = stCtx & ".keyframes[" & $kfIndex & "]"
@@ -716,7 +717,6 @@ proc parseBonyAnimations(root: JsonNode; data: SkeletonData): Table[string, Anim
             colorKeys.add colorKeyframe(kfTime, ColorRgba(r: r, g: g, b: b, a: a), parseCurveFromNode(kfObj, "curve", kfCtx))
           slotTimelines.add slotColorTimeline(slot, tlKind, colorKeys)
         of "rgba2":
-          validateKnownKeys(stObj, ["slot", "property", "keyframes"], stCtx)
           var color2Keys: seq[Color2Keyframe] = @[]
           for kfIndex, kfNode in kfListNode.elems:
             let kfCtx = stCtx & ".keyframes[" & $kfIndex & "]"
@@ -734,7 +734,6 @@ proc parseBonyAnimations(root: JsonNode; data: SkeletonData): Table[string, Anim
             color2Keys.add color2Keyframe(kfTime, ColorRgba2(light: light, darkR: dr, darkG: dg, darkB: db), parseCurveFromNode(kfObj, "curve", kfCtx))
           slotTimelines.add slotColor2Timeline(slot, color2Keys)
         of "sequence":
-          validateKnownKeys(stObj, ["slot", "property", "keyframes"], stCtx)
           var sequenceKeys: seq[SequenceKeyframe] = @[]
           for kfIndex, kfNode in kfListNode.elems:
             let kfCtx = stCtx & ".keyframes[" & $kfIndex & "]"
