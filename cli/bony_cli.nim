@@ -1,9 +1,11 @@
 ## Headless bony CLI harness core.
 
-import std/[json, math, os, parseutils, sets, strutils, tables]
+import std/[algorithm, json, math, os, parseutils, sets, strutils, tables]
 
 import bony
 import pixie
+
+import atlas_packer
 
 
 proc usage(): string =
@@ -13,7 +15,8 @@ proc usage(): string =
     "       bony import-dragonbones <input_ske.json> <output.bony> [--assets-dir images] [--setup-only] [--allow-multiple-armatures]\n" &
     "       bony golden-gen <input.bony|input.bnb> <output.json> [--t seconds]\n" &
     "       bony play <input.bony|input.bnb> --out frame.png [--t seconds] [--width px] [--height px]\n" &
-    "       bony play <input> --state-machine <name> --input-script <script.json> --out frame.png"
+    "       bony play <input> --state-machine <name> --input-script <script.json> --out frame.png\n" &
+    "       bony pack-atlas <images-dir> --out-dir <dir> [--page-size 2048] [--padding 2]"
 
 type
   LottieDiagnostic = object of CatchableError
@@ -105,6 +108,14 @@ proc parsePositiveIntArg(value, name: string): int =
   let consumed = parseInt(value, parsed)
   if consumed != value.len or parsed <= 0:
     raise newBonyLoadError(schemaViolation, name & " must be a positive integer")
+  parsed
+
+
+proc parseNonNegativeIntArg(value, name: string): int =
+  var parsed: int
+  let consumed = parseInt(value, parsed)
+  if consumed != value.len or parsed < 0:
+    raise newBonyLoadError(schemaViolation, name & " must be a non-negative integer")
   parsed
 
 
@@ -1208,6 +1219,110 @@ proc renderSetupPose(args: seq[string]) =
   image.writeFile(outputPath)
 
 
+proc packAtlasCmd(args: seq[string]) =
+  if args.len < 1:
+    quit(usage(), QuitFailure)
+  let imagesDir = args[0]
+  var outDir = ""
+  var pageSize = 2048
+  var padding = 2
+  var index = 1
+  while index < args.len:
+    case args[index]
+    of "--out-dir":
+      if index + 1 >= args.len:
+        quit(usage(), QuitFailure)
+      outDir = args[index + 1]
+      index += 2
+    of "--page-size":
+      if index + 1 >= args.len:
+        quit(usage(), QuitFailure)
+      pageSize = parsePositiveIntArg(args[index + 1], "--page-size")
+      index += 2
+    of "--padding":
+      if index + 1 >= args.len:
+        quit(usage(), QuitFailure)
+      padding = parseNonNegativeIntArg(args[index + 1], "--padding")
+      index += 2
+    else:
+      quit(usage(), QuitFailure)
+
+  if outDir.len == 0:
+    raise newBonyLoadError(schemaViolation, "pack-atlas requires --out-dir")
+  if not dirExists(imagesDir):
+    raise newBonyLoadError(schemaViolation, "images-dir not found: " & imagesDir)
+  if 2 * padding >= pageSize:
+    raise newBonyLoadError(schemaViolation,
+      "--padding " & $padding & " leaves no usable space in --page-size " & $pageSize)
+
+  # Collect PNG files from images-dir
+  var inputs: seq[AtlasInputImage] = @[]
+  var seen = initHashSet[string]()
+  for kind, path in walkDir(imagesDir):
+    if kind == pcFile and path.toLowerAscii.endsWith(".png"):
+      let name = changeFileExt(extractFilename(path), "")
+      if name in seen:
+        raise newBonyLoadError(schemaViolation,
+          "duplicate region name '" & name & "' from: " & path)
+      seen.incl(name)
+      var img: Image
+      try:
+        img = decodeImage(readFile(path))
+      except PixieError as exc:
+        raise newBonyLoadError(schemaViolation,
+          "failed to decode PNG '" & path & "': " & exc.msg)
+      inputs.add AtlasInputImage(name: name, image: img)
+  if inputs.len == 0:
+    raise newBonyLoadError(schemaViolation, "no PNG images found in: " & imagesDir)
+
+  # Sort by name for deterministic output independent of filesystem traversal order
+  inputs.sort proc(a, b: AtlasInputImage): int = cmp(a.name, b.name)
+
+  let packed = packAtlas(inputs, pageSize, padding)
+
+  createDir(outDir)
+
+  # Write page images
+  var pagesJson = newJArray()
+  for i, page in packed.pages:
+    let pageName = "atlas_" & $i & ".png"
+    let pagePath = outDir / pageName
+    page.writeFile(pagePath)
+    var pageNode = newJObject()
+    pageNode["name"] = newJString(pageName)
+    pageNode["width"] = newJInt(page.width)
+    pageNode["height"] = newJInt(page.height)
+    pagesJson.add pageNode
+
+  # Build regions JSON with UV coordinates
+  var regionsJson = newJArray()
+  for region in packed.regions:
+    let pageW = packed.pages[region.page].width
+    let pageH = packed.pages[region.page].height
+    var rNode = newJObject()
+    rNode["name"] = newJString(region.name)
+    rNode["page"] = newJInt(region.page)
+    rNode["x"] = newJInt(region.x)
+    rNode["y"] = newJInt(region.y)
+    rNode["width"] = newJInt(region.width)
+    rNode["height"] = newJInt(region.height)
+    rNode["u0"] = newJFloat(atlasRegionU0(region, pageW))
+    rNode["v0"] = newJFloat(atlasRegionV0(region, pageH))
+    rNode["u1"] = newJFloat(atlasRegionU1(region, pageW))
+    rNode["v1"] = newJFloat(atlasRegionV1(region, pageH))
+    regionsJson.add rNode
+
+  var root = newJObject()
+  root["format"] = newJString("bony.atlas.v1")
+  root["pageSize"] = newJInt(pageSize)
+  root["padding"] = newJInt(padding)
+  root["pages"] = pagesJson
+  root["regions"] = regionsJson
+
+  writeFile(outDir / "atlas.json", pretty(root) & "\n")
+  echo "bony: packed ", inputs.len, " image(s) into ", packed.pages.len, " page(s) -> ", outDir
+
+
 proc main() =
   let args = commandLineParams()
   if args.len == 0:
@@ -1231,6 +1346,8 @@ proc main() =
       writeNumericGolden(args[1 .. ^1])
     of "play":
       renderSetupPose(args[1 .. ^1])
+    of "pack-atlas":
+      packAtlasCmd(args[1 .. ^1])
     else:
       quit(usage(), QuitFailure)
   except DbDiagnostic as exc:
