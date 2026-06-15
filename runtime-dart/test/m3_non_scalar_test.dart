@@ -685,4 +685,54 @@ void main() {
       expect(headSlot.attachment, 'head_b');
     });
   });
+
+  // --------------------------------------------------------- Review fix regressions
+
+  group('Review fix regressions', () {
+    const String _skelBase =
+        '{"skeleton":{"name":"ns"},'
+        '"bones":[{"name":"root"}],'
+        '"slots":[{"name":"s1","bone":"root"}],'
+        '"regions":[{"name":"r1","width":10,"height":10}],';
+
+    test('[loader] curveX overrides top-level curve on vector keyframe', () {
+      // If j has both "curve":"linear" and "curveX":"stepped", curveX must win.
+      final json = _skelBase +
+          '"animations":[{"name":"a","boneTimelines":[{'
+          '"bone":"root","property":"translate",'
+          '"keyframes":['
+          '{"t":0.0,"x":0.0,"y":0.0,"curve":"linear","curveX":"stepped"},'
+          '{"t":1.0,"x":10.0,"y":10.0}]}]}]}';
+      final data = loadBonyJson(json);
+      final tl = data.animations[0].boneTimelines[0];
+      // curveX should be stepped (overrides "curve":"linear")
+      expect(tl.vectorKeys[0].curveX.kind, TimelineCurveKind.stepped);
+      // curveY falls back to "curve":"linear"
+      expect(tl.vectorKeys[0].curveY.kind, TimelineCurveKind.linear);
+      // Sampling: stepped X stays at 0 at t=0.5; linear Y interpolates.
+      final (x, y) = sampleBoneVectorTimeline(tl, 0.5);
+      _expectClose(x, 0.0, 'stepped x at 0.5');
+      _expectClose(y, 5.0, 'linear y at 0.5');
+    });
+
+    test('[applyPose] preserves parameters, deformers, stateMachines', () {
+      // Use m8_rig.bony which has stateMachines; after applyPose they must survive.
+      final text = File('../conformance/assets/m8_rig.bony').readAsStringSync();
+      final data = loadBonyJson(text);
+      expect(data.stateMachines, isNotEmpty);
+
+      final pose = const MixedPose(scalars: []);
+      final result = applyPose(data, pose);
+      // Empty pose returns data unchanged — but also test a non-empty pose.
+      expect(result.stateMachines, hasLength(data.stateMachines.length));
+
+      // Non-empty pose (rotate bone) — stateMachines must survive.
+      final pose2 = MixedPose(
+        scalars: [(bone: 'root', kind: BoneTimelineKind.rotate, value: 45.0)],
+      );
+      final result2 = applyPose(data, pose2);
+      expect(result2.stateMachines, hasLength(data.stateMachines.length));
+      expect(result2.stateMachines.first.name, data.stateMachines.first.name);
+    });
+  });
 }

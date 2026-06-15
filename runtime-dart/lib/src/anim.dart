@@ -719,5 +719,8 @@ SkeletonData applyPose(SkeletonData data, MixedPose pose) {
     paths: data.paths,
     pathAttachments: data.pathAttachments,
     animations: data.animations,
+    parameters: data.parameters,
+    deformers: data.deformers,
+    stateMachines: data.stateMachines,
   );
 }

@@ -157,8 +157,8 @@ Vector2Keyframe _parseVector2Keyframe(Map<String, dynamic> j, String ctx) {
   // Vector keyframes may carry separate curves for x and y.
   final curveXStr = j['curveX'] as String? ?? j['curve'] as String?;
   final curveYStr = j['curveY'] as String? ?? j['curve'] as String?;
-  final jx = curveXStr != null ? {'curve': curveXStr, ...j} : j;
-  final jy = curveYStr != null ? {'curve': curveYStr, ...j} : j;
+  final jx = curveXStr != null ? {...j, 'curve': curveXStr} : j;
+  final jy = curveYStr != null ? {...j, 'curve': curveYStr} : j;
   return Vector2Keyframe(
     time: t,
     x: x,
