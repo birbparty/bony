@@ -21,7 +21,8 @@ when isMainModule:
 
   # ToC covers known property keys (name=1, version/parent=3) plus the two unknown
   # property keys that appear inside the unknown object (900000, 900001).
-  # Without these ToC entries the reader cannot compute payload byte lengths to skip.
+  # Required: skipPropertyRecord validates every property key against the ToC via
+  # backingTypeCodeFor, which raises schemaViolation for any key absent from the ToC.
   let toc = @[
     BnbTocEntry(propertyKey: 1'u64, backingTypeCode: backingTypeCode("string")),
     BnbTocEntry(propertyKey: 3'u64, backingTypeCode: backingTypeCode("string")),
@@ -58,6 +59,7 @@ when isMainModule:
 
   # Verify it loads correctly
   let data = loadBonyBnb(fixture)
+  doAssert data.header.name == "m6-compat", &"Expected skeleton 'm6-compat', got '{data.header.name}'"
   doAssert data.bones.len == 1, &"Expected 1 bone, got {data.bones.len}"
   doAssert data.bones[0].name == "root", &"Expected bone 'root', got '{data.bones[0].name}'"
 
