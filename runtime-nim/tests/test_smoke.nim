@@ -5265,3 +5265,61 @@ spec "bony package":
       raisesBonyLoadError(proc() =
         discard loadBonyJsonStateMachines(badKindJson)
       , schemaViolation)
+
+  it "rejects M8 animation keyframe curve with non-string type":
+    then:
+      raisesBonyLoadError("""
+        {
+          "skeleton": {"name": "bad-curve"},
+          "bones": [{"name": "root"}],
+          "slots": [],
+          "animations": [
+            {
+              "name": "anim",
+              "boneTimelines": [
+                {
+                  "bone": "root",
+                  "property": "rotate",
+                  "keyframes": [{"t": 0.0, "value": 0.0, "curve": 42}]
+                }
+              ]
+            }
+          ]
+        }
+      """, schemaViolation)
+
+  it "rejects duplicate M8 state machine names":
+    const dupMachineJson = """
+      {
+        "skeleton": {"name": "dup-machine"},
+        "bones": [{"name": "root"}],
+        "slots": [],
+        "animations": [
+          {"name": "idle", "boneTimelines": [{"bone": "root", "property": "rotate", "keyframes": [{"t": 0.0, "value": 0.0}]}]}
+        ],
+        "stateMachines": [
+          {
+            "name": "gesture",
+            "layers": [
+              {
+                "name": "body",
+                "states": [{"name": "idle", "kind": "clip", "clip": "idle"}]
+              }
+            ]
+          },
+          {
+            "name": "gesture",
+            "layers": [
+              {
+                "name": "body",
+                "states": [{"name": "idle", "kind": "clip", "clip": "idle"}]
+              }
+            ]
+          }
+        ]
+      }
+    """
+    then:
+      raisesBonyLoadError(proc() =
+        discard loadBonyJsonStateMachines(dupMachineJson)
+      , duplicateKey)

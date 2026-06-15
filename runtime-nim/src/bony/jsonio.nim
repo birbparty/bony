@@ -618,6 +618,8 @@ proc parseBonyAnimations(root: JsonNode; data: SkeletonData): Table[string, Anim
           let kfValue = requiredFloat(kfObj, "value", kfCtx)
           let curveKind =
             if kfObj.hasKey("curve"):
+              if kfObj["curve"].kind != JString:
+                raise newBonyLoadError(schemaViolation, kfCtx & ".curve must be a string")
               let cs = kfObj["curve"].getStr()
               case cs
               of "linear": linearCurve
@@ -639,11 +641,15 @@ proc parseBonyStateMachines(
   if not root.hasKey("stateMachines"):
     return @[]
   let smListNode = requireArray(root["stateMachines"], "stateMachines")
+  var seenMachines = initHashSet[string]()
   for smIndex, smNode in smListNode.elems:
     let smCtx = "stateMachines[" & $smIndex & "]"
     let smObj = requireObject(smNode, smCtx)
     validateKnownKeys(smObj, ["name", "inputs", "layers", "listeners"], smCtx)
     let machineName = requiredString(smObj, "name", smCtx)
+    if machineName in seenMachines:
+      raise newBonyLoadError(duplicateKey, "duplicate state machine name: " & machineName)
+    seenMachines.incl(machineName)
     var inputs: seq[StateMachineInput] = @[]
     if smObj.hasKey("inputs"):
       let inputsListNode = requireArray(smObj["inputs"], smCtx & ".inputs")
@@ -775,13 +781,8 @@ proc parseBonyStateMachines(
 
 
 proc loadBonyJsonStateMachines*(text: string): seq[StateMachine] =
-  let parsed =
-    try:
-      parseJson(text)
-    except JsonParsingError as exc:
-      raise newBonyLoadError(schemaViolation, "invalid JSON: " & exc.msg)
-  let root = requireObject(parsed, "root")
   let data = loadBonyJson(text)
+  let root = requireObject(parseJson(text), "root")
   let clips = parseBonyAnimations(root, data)
   parseBonyStateMachines(root, data, clips)
 
