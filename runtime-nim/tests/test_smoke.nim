@@ -1805,6 +1805,160 @@ spec "bony package":
     if dirExists(lottieAssetsDir):
       removeDir(lottieAssetsDir)
 
+  it "imports a minimal DragonBones _ske.json and round-trips through .bnb":
+    let cliPath = "/tmp/bony_cli_harness_db_smoke"
+    let skePath = "/tmp/bony_cli_harness_ske.json"
+    let dbOutPath = "/tmp/bony_cli_harness_db_out.bony"
+    let dbBnbPath = "/tmp/bony_cli_harness_db_out.bnb"
+    let dbRoundTripPath = "/tmp/bony_cli_harness_db_roundtrip.bony"
+    let dbRejectMeshPath = "/tmp/bony_cli_harness_db_reject_mesh.json"
+    let dbRejectBadParentPath = "/tmp/bony_cli_harness_db_reject_parent.json"
+    let dbRejectDisplayXformPath = "/tmp/bony_cli_harness_db_reject_disp_xform.json"
+    for path in [cliPath, skePath, dbOutPath, dbBnbPath, dbRoundTripPath,
+                 dbRejectMeshPath, dbRejectBadParentPath, dbRejectDisplayXformPath]:
+      if fileExists(path):
+        removeFile(path)
+
+    let compileResult = execCmdEx(
+      "nim c --path:src --path:../../bddy/src -o:" & cliPath & " ../cli/bony_cli.nim",
+      options = {poStdErrToStdOut},
+    )
+
+    # Minimal valid 5.x _ske.json with two bones and one slot (no assets needed
+    # for a setup-only, no-skin import).
+    writeFile(skePath, """{
+  "version": "5.6.300.1",
+  "name": "db_test",
+  "armature": [
+    {
+      "type": "Armature",
+      "frameRate": 30,
+      "name": "hero",
+      "bone": [
+        {"name": "root"},
+        {"name": "torso", "parent": "root", "transform": {"x": 0, "y": 10, "skX": 5, "skY": 5, "scX": 1, "scY": 1}},
+        {"name": "arm", "parent": "torso", "transform": {"x": 20, "y": -5, "skX": -15, "skY": -10}}
+      ],
+      "slot": [
+        {"name": "body_slot", "parent": "torso"}
+      ]
+    }
+  ]
+}
+""")
+    # --setup-only: no assets dir needed; no skin defined, so no attachment lookup.
+    let importDb = runProcess(cliPath, ["import-dragonbones", skePath, dbOutPath, "--setup-only"])
+    let dbJsonToBnb = runProcess(cliPath, ["json-to-bnb", dbOutPath, dbBnbPath])
+    let dbBnbToJson = runProcess(cliPath, ["bnb-to-json", dbBnbPath, dbRoundTripPath])
+    let imported =
+      if fileExists(dbRoundTripPath): loadBonyJson(readFile(dbRoundTripPath))
+      else: skeletonData(skeletonHeader("err", "0"), @[boneData("err", "")])
+
+    # Reject: mesh display (unsupportedFeature).
+    writeFile(dbRejectMeshPath, """{
+  "version": "5.6.300.1",
+  "name": "db_mesh",
+  "armature": [
+    {
+      "type": "Armature",
+      "frameRate": 24,
+      "name": "mesh_arm",
+      "bone": [{"name": "root"}],
+      "slot": [{"name": "slot1", "parent": "root"}],
+      "skin": [{"name": "", "slot": [
+        {"name": "slot1", "display": [{"name": "mesh_disp", "type": "mesh"}]}
+      ]}]
+    }
+  ]
+}
+""")
+    let rejectedMesh = runProcess(
+      cliPath,
+      ["import-dragonbones", dbRejectMeshPath, "/tmp/bony_cli_harness_db_bad.bony", "--setup-only"],
+    )
+
+    # Reject: slot parent references non-existent bone (invalidReference).
+    writeFile(dbRejectBadParentPath, """{
+  "version": "5.6.300.1",
+  "name": "db_bad_parent",
+  "armature": [
+    {
+      "type": "Armature",
+      "frameRate": 24,
+      "name": "bad_arm",
+      "bone": [{"name": "root"}],
+      "slot": [{"name": "slot1", "parent": "ghost"}]
+    }
+  ]
+}
+""")
+    let rejectedBadParent = runProcess(
+      cliPath,
+      ["import-dragonbones", dbRejectBadParentPath, "/tmp/bony_cli_harness_db_bad.bony", "--setup-only"],
+    )
+
+    # Reject: non-identity display transform (unsupportedFeature).
+    writeFile(dbRejectDisplayXformPath, """{
+  "version": "5.6.300.1",
+  "name": "db_disp_xform",
+  "armature": [
+    {
+      "type": "Armature",
+      "frameRate": 24,
+      "name": "xform_arm",
+      "bone": [{"name": "root"}],
+      "slot": [{"name": "slot1", "parent": "root"}],
+      "skin": [{"name": "", "slot": [
+        {"name": "slot1", "display": [
+          {"name": "img", "type": "image", "transform": {"x": 10, "y": 5}}
+        ]}
+      ]}]
+    }
+  ]
+}
+""")
+    let rejectedDisplayXform = runProcess(
+      cliPath,
+      ["import-dragonbones", dbRejectDisplayXformPath, "/tmp/bony_cli_harness_db_bad.bony", "--setup-only"],
+    )
+
+    then:
+      compileResult.exitCode == 0
+      importDb.exitCode == 0
+      dbJsonToBnb.exitCode == 0
+      dbBnbToJson.exitCode == 0
+      imported.bones.len == 3
+      imported.bones[0].name == "root"
+      imported.bones[1].name == "torso"
+      imported.bones[1].parent == "root"
+      imported.bones[2].name == "arm"
+      imported.bones[2].parent == "torso"
+      closeTo(imported.bones[1].local.y, -10.0)   # Y-flip: 10 → -10
+      closeTo(imported.bones[1].local.rotation, -5.0)  # rotation = -skY = -5
+      closeTo(imported.bones[1].local.shearY, 0.0)  # shearY = skY - skX = 5 - 5 = 0
+      closeTo(imported.bones[2].local.rotation, 10.0)  # rotation = -skY = -(-10) = 10
+      closeTo(imported.bones[2].local.shearY, 5.0)   # shearY = skY - skX = -10 - (-15) = 5
+      imported.slots.len == 1
+      imported.slots[0].name == "body_slot"
+      imported.slots[0].bone == "torso"
+      rejectedMesh.exitCode != 0
+      rejectedMesh.output.contains("unsupportedFeature")
+      rejectedMesh.output.contains("capability=mesh")
+      rejectedBadParent.exitCode != 0
+      rejectedBadParent.output.contains("invalidReference")
+      not rejectedMesh.output.contains("Traceback")
+      not rejectedBadParent.output.contains("Traceback")
+      rejectedDisplayXform.exitCode != 0
+      rejectedDisplayXform.output.contains("unsupportedFeature")
+      rejectedDisplayXform.output.contains("capability=displayTransform")
+      not rejectedDisplayXform.output.contains("Traceback")
+
+    for path in [cliPath, skePath, dbOutPath, dbBnbPath, dbRoundTripPath,
+                 dbRejectMeshPath, dbRejectBadParentPath, dbRejectDisplayXformPath,
+                 "/tmp/bony_cli_harness_db_bad.bony"]:
+      if fileExists(path):
+        removeFile(path)
+
   it "plans naylib draw batches with color-only blend presets":
     let data = skeletonData(
       skeletonHeader("demo", "0.1.0"),
