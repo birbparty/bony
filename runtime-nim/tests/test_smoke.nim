@@ -1712,6 +1712,8 @@ spec "bony package":
     let bnbToJson = runProcess(cliPath, ["bnb-to-json", bnbPath, roundTripPath])
     let golden = runProcess(cliPath, ["golden-gen", bnbPath, goldenPath, "--t", "0"])
     let play = runProcess(cliPath, ["play", assetPath, "--out", framePath, "--width", "8", "--height", "8", "--t", "0"])
+    let playTopLeft = runProcess(cliPath, ["play", assetPath, "--out", framePath, "--width", "8", "--height", "8", "--t", "0", "--origin", "top-left"])
+    let playBadOrigin = runProcess(cliPath, ["play", assetPath, "--out", framePath, "--origin", "bad"])
     let unsupportedPlayStateMachine = runProcess(
       cliPath,
       ["play", assetPath, "--state-machine", "main", "--input-script", assetPath, "--out", framePath],
@@ -1806,6 +1808,9 @@ spec "bony package":
       bnbToJson.exitCode == 0
       golden.exitCode == 0
       play.exitCode == 0
+      playTopLeft.exitCode == 0
+      playBadOrigin.exitCode != 0
+      playBadOrigin.output.contains("origin must be center or top-left")
       importLottie.exitCode == 0
       lottieJsonToBnb.exitCode == 0
       lottieBnbToJson.exitCode == 0

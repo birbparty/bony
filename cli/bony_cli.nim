@@ -15,7 +15,7 @@ proc usage(): string =
     "       bony import-lottie <input.json> <output.bony> --assets-dir images [--setup-only] [--origin center|top-left]\n" &
     "       bony import-dragonbones <input_ske.json> <output.bony> [--assets-dir images] [--setup-only] [--allow-multiple-armatures]\n" &
     "       bony golden-gen <input.bony|input.bnb> <output.json> [--t seconds]\n" &
-    "       bony play <input.bony|input.bnb> --out frame.png [--t seconds] [--width px] [--height px]\n" &
+    "       bony play <input.bony|input.bnb> --out frame.png [--t seconds] [--width px] [--height px] [--origin center|top-left]\n" &
     "       bony play <input> --state-machine <name> --input-script <script.json> --out frame.png\n" &
     "       bony pack-atlas <images-dir> --out-dir <dir> [--page-size 2048] [--padding 2]\n" &
     "       bony auto-weights <input.json> <output.json>"
@@ -1280,6 +1280,7 @@ proc renderSetupPose(args: seq[string]) =
   var height = 256
   var stateMachine = ""
   var inputScript = ""
+  var origin = "center"
   var index = 1
   while index < args.len:
     case args[index]
@@ -1313,6 +1314,13 @@ proc renderSetupPose(args: seq[string]) =
         quit(usage(), QuitFailure)
       inputScript = args[index + 1]
       index += 2
+    of "--origin":
+      if index + 1 >= args.len:
+        quit(usage(), QuitFailure)
+      origin = args[index + 1]
+      if origin notin ["center", "top-left"]:
+        raise newBonyLoadError(schemaViolation, "origin must be center or top-left")
+      index += 2
     else:
       quit(usage(), QuitFailure)
 
@@ -1321,7 +1329,8 @@ proc renderSetupPose(args: seq[string]) =
   rejectStateMachineArgs(stateMachine, inputScript)
   requireSetupPoseTime(time)
   let data = loadInputSkeleton(inputPath)
-  let batches = applyViewportTransform(buildDrawBatches(data), width, height)
+  let rawBatches = buildDrawBatches(data)
+  let batches = if origin == "center": applyViewportTransform(rawBatches, width, height) else: rawBatches
   let image = renderSoftware(batches, width, height)
   image.writeFile(outputPath)
 
