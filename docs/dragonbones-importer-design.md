@@ -196,8 +196,9 @@ a genuine shear (det = √2/2 ≠ 1), matching the DragonBones skewed-Y interpre
 ## Format Validation Against Sample Data
 
 The following findings are based on examination of `_ske.json` files from the
-DragonBonesJS Pixi demo resources (user-supplied input data; not runtime source).
-These findings supersede any prior assumptions in this document.
+DragonBonesJS Pixi demo resources at
+`~/git/DragonBonesJS/Pixi/Demos/resource/` (user-supplied input data; not
+runtime source). These findings supersede any prior assumptions in this document.
 
 ### Skew Decomposition: Confirmed Correct
 
@@ -215,8 +216,8 @@ array. Instead, each bone timeline carries **separate per-channel arrays**:
 - `translateFrame`: translation keyframes (x/y additive deltas)
 - `rotateFrame`: rotation keyframes (`rotate` = additive delta to both skX and
   skY; optional `clockwise` = arc direction hint)
-- `scaleFrame`: scale keyframes (x/y = absolute scale multipliers relative to
-  rest; default 1.0)
+- `scaleFrame`: scale keyframes (x/y = scale multipliers applied to rest
+  scX/scY, final = rest × value; default 1.0)
 
 Each channel is independent; a bone may animate only translation and not
 rotation, for example.
@@ -241,8 +242,8 @@ frame 30. Animated abs `skX = skY = -176.2594°`; `bony.rotation = 176.2594°`;
 
 The `clockwise` field (integer 0 or 1) appears on some `rotateFrame` entries
 to resolve arc direction ambiguity when the rotation delta is near ±180°. Tier
-1 may treat this as `unsupportedFeature` and require it absent, or implement the
-shortest-arc fallback.
+1 rejects `clockwise` as `unsupportedFeature`; shortest-arc handling is deferred
+to a later tier.
 
 ### Translation Delta: Additive (Validated)
 
@@ -256,9 +257,11 @@ Validated: pelvis bone (rest `x = -0.0889`, `y = 0.543`), frame-30 delta
 ### Scale Delta: Multiplicative (Validated Structurally)
 
 `scaleFrame` `x` and `y` are scale multipliers applied to the bone's rest
-`scX`/`scY`. Default (absent) = 1.0 (identity). Validated structurally: first
-frame absent (defaults to 1.0, no change), subsequent frames have values near
-1.0 (e.g., 0.99, 1.01) representing small squash-and-stretch deviations.
+`scX`/`scY` (final = rest × value). Default (absent) = 1.0 (identity).
+Validated structurally: all observed rest scales in the sample are near 1.0
+(e.g., squash-and-stretch deviations of 0.99, 1.01), so the multiplicative
+vs. absolute distinction is **not** numerically discriminated by the sample.
+The required scale-channel golden fixture (§Conformance Gate) pins this choice.
 
 ### Observed Field Set (Complete)
 
@@ -473,6 +476,9 @@ not listed has no animation (holds rest pose throughout).
 }
 ```
 
+A `BoneChannelObject.name` that does not match any declared bone in the armature
+→ `invalidReference`.
+
 ### TranslateFrame
 
 ```
@@ -611,24 +617,45 @@ DragonBones animation time is frame-based. Convert to seconds:
 time_seconds = cumulative_frame_offset / armature.frameRate
 ```
 
+`armature.frameRate` is the authoritative rate (required, integer > 0; see
+ArmatureObject). A top-level `frameRate`, if present, is ignored even if it
+disagrees with the armature value.
+
 Each channel frame's `duration` is the number of frames from that keyframe to
 the next. The cumulative offset of keyframe `i` is the sum of `duration` fields
 of all prior keyframes in that channel.
 
-Every channel array ends with a **terminator frame** whose `duration` is `0`.
-The terminator defines the animation endpoint value (the loop-restart pose). The
-sum of all durations **including the terminator** must equal `animation.duration`.
-Validated: mecha_1004d idle, pelvis `translateFrame` durations 30 + 30 + 0 = 60 =
-`animation.duration`. ✓
+Every non-empty channel array must end with a **terminator frame** whose
+`duration` is `0`. The terminator defines the animation endpoint value (the
+loop-restart pose). The sum of all durations **including the terminator** must
+equal `animation.duration`. Validated: mecha_1004d idle, pelvis `translateFrame`
+durations 30 + 30 + 0 = 60 = `animation.duration`. ✓
 
-If the sum exceeds `animation.duration` → `schemaViolation`. If the sum is less
-(e.g., terminator missing) → treat as a hold on the final explicit value through
-the end.
+If the sum does not equal `animation.duration` — whether from a missing
+terminator (sum < duration) or extra frames (sum > duration) — emit
+`schemaViolation`. Both cases are symmetric rejections.
+
+**Start coverage.** The cumulative offset of a channel's first frame is `0` by
+definition (no prior durations), so every present channel has an explicit value
+at `t = 0`. A property with no channel holds its rest-pose value for the entire
+clip and contributes no bony keyframes.
 
 ### Animation: Per-Channel Animated Values
 
-Each channel produces an independent bony timeline. The formulas below are
-validated against sample data.
+Each channel produces an independent bony timeline. The formulas below define
+the bone's value **at each DragonBones keyframe sample point**, not a continuous
+function of time. The importer emits one bony keyframe per DragonBones channel
+frame, carrying that frame's `tweenEasing` as the bony keyframe's interpolation
+mode (linear or step). Between keyframes, bony interpolates its own native
+channels.
+
+This per-channel decompose-then-emit mapping is valid because the rest-pose
+decomposition is **affine** in `(skX, skY)`: `rotation = -skY` and
+`shearY = skY - skX`. Linearly interpolating `skX`/`skY` is therefore identical
+to linearly interpolating bony `rotation`/`shearY`, so decomposing each keyframe
+and letting bony interpolate yields the same path as interpolating the
+DragonBones delta and decomposing. For scale, `rest.scX × lerp(m0, m1) =
+lerp(rest.scX×m0, rest.scX×m1)`, so the same equivalence holds.
 
 **Translation channel** (`translateFrame`):
 
@@ -655,9 +682,9 @@ Validated: pelvis bone, `rotate = -1.5°` at frame 30 →
 `bony.shearX` is always `0` (canonical choice; rotation does not introduce shear).
 
 The `clockwise` field on a `RotateFrame` entry (value 0 or 1) is a direction
-hint for interpolation when the rotation arc crosses ±180°. Tier 1 may reject
-`clockwise` as `unsupportedFeature` and require it absent; conformance fixtures
-must test this explicitly.
+hint for interpolation when the rotation arc crosses ±180°. Tier 1 rejects
+`clockwise` as `unsupportedFeature`; shortest-arc handling is deferred to a
+later tier. Conformance fixtures must include a `clockwise` rejection case.
 
 **Scale channel** (`scaleFrame`):
 
@@ -692,9 +719,9 @@ interpolation between this keyframe and the next.
 endpoint value. It has no successor to tween toward; its easing field is ignored.
 
 **`clockwise` hint**: present on some `rotateFrame` entries to resolve direction
-when the `rotate` delta would cross ±180°. Tier 1 may either reject it as
-`unsupportedFeature` or implement shortest-arc interpolation and ignore the hint.
-Conformance fixtures must include a `clockwise = 1` rejection fixture for Tier 1.
+when the `rotate` delta crosses ±180°. Tier 1 rejects `clockwise` as
+`unsupportedFeature`; shortest-arc handling is deferred to a later tier.
+Conformance fixtures must include a `clockwise` rejection case.
 
 ## Supported Subset — Tier 1
 
@@ -762,7 +789,7 @@ that map to bony defaults.
 | ---------------------- | ----------------------------------------------------------------- |
 | `unsupportedVersion`   | Version string does not start with `"5."`                         |
 | `unsupportedFeature`   | Recognized input that is out of the Tier 1 subset                 |
-| `invalidReference`     | Parent bone, slot parent, or display name missing                 |
+| `invalidReference`     | Parent bone, slot parent, display, or animation-channel target name missing |
 | `cycleDetected`        | Bone parent chain contains a cycle                                |
 | `schemaViolation`      | Malformed input: wrong type, non-finite number, extra field, etc. |
 | `multipleArmatures`    | File contains more than one armature (unless `--allow-multiple…`) |
@@ -785,6 +812,10 @@ Tier 1 implementation fixtures must cover:
 - An animated bone timeline with at least one `translateFrame`, one
   `rotateFrame`, and one `scaleFrame` channel; linear-interpolation keyframes;
   world matrices sampled via `play --t` golden with hand-computed expected values.
+- A single-channel animation (only `translateFrame`) confirming `rotation`,
+  `scaleX`, `scaleY`, and `shearY` hold their rest-pose values throughout.
+- An animation whose `bone` list omits a rigged bone, confirming that bone holds
+  its full rest pose for the clip's duration.
 - A step/hold timeline (no tween) producing the correct held value.
 - A single-keyframe timeline (last-keyframe hold behavior regardless of easing).
 - A timeline whose keyframe durations sum to exactly `animation.duration`.
@@ -810,12 +841,17 @@ Do not start the importer implementation (`bony-g20`) until:
 - `docs/PROVENANCE.md` records this design note as the capability-context source
   for DragonBones wire-format field names.
 
-The following gates were met during the design spike (see §Format Validation):
+The following gates were met during the design spike (see §Format Validation).
+Validation evidence is from examination of files in the local DragonBonesJS
+clone at `~/git/DragonBonesJS/Pixi/Demos/resource/` (not committed to bony).
 
 - [x] Skew decomposition validated against real `_ske.json` bones (20 bones,
-  max error < 1e-8, including a shear bone).
+  max error < 1e-8 against mecha_1004d_ske.json, including a shear bone).
 - [x] Per-channel animation structure confirmed (translateFrame, rotateFrame,
   scaleFrame with additive/multiplicative semantics and terminator frame).
 - [x] Rotation delta confirmed to add to both skX and skY (preserves shearY).
 - [x] Terminator frame (duration=0) confirmed; sum of durations = animation.duration.
 - [x] Format field survey complete (§Format Validation §Observed Field Set).
+- [~] Scale channel semantics: structurally validated only; multiplicative
+  vs. absolute not numerically discriminated (rest scales ≈ 1.0 in sample).
+  Pinned by the required scale golden fixture in the conformance suite.
