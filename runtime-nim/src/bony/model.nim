@@ -450,6 +450,7 @@ proc constraintKindRank(kind: ConstraintKind): int =
   of ckPhysics: 3
 
 
+## Canonical sort order: stage (physics last) → order → kind (IK/transform/path/physics) → sourceIndex.
 proc compareConstraintEntries*(left, right: ConstraintOrderEntry): int =
   result = cmp(constraintStageRank(left.kind), constraintStageRank(right.kind))
   if result != 0:
