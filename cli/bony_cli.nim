@@ -145,10 +145,18 @@ proc loadInputSkeleton(path: string): SkeletonData =
 
 
 proc applyViewportTransform(batches: seq[DrawBatch]; width, height: int): seq[DrawBatch] =
-  # Map world space (y-up, origin at skeleton root) to screen space (y-down,
-  # origin at image top-left) by centering the viewport at (width/2, height/2)
-  # and flipping the y-axis. This ensures skeletons positioned at negative y
-  # world coordinates (common in Spine rigs) remain visible.
+  # Translate world-space vertices to pixel space for `bony play` image output.
+  # Transform: screen_x = world_x + width/2; screen_y = height/2 - world_y.
+  # This places the skeleton origin at the viewport centre and flips y (world is
+  # y-up; pixels are y-down). Rigs with geometry within ±width/2 and ±height/2
+  # of the origin will be visible; larger or off-centre rigs may still clip.
+  # For odd dimensions, width/2 and height/2 are 0.5-fractional (e.g. 127.5 for
+  # width=255), which is harmless — vertices land at half-pixel offsets and the
+  # rasterizer rounds to the nearest integer via the normal fill rule.
+  #
+  # INVARIANT: only `vertices` are rewritten to screen space; `batch.world` and
+  # `clipId` remain in world space and must not be mixed with the transformed
+  # vertices by any future consumer.
   let cx = float64(width) * 0.5
   let cy = float64(height) * 0.5
   result = batches
