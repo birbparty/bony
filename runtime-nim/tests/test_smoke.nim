@@ -853,6 +853,22 @@ spec "bony package":
         discard constraintOrderEntry(ckPath, 0, -1)
       , schemaViolation)
 
+  it "resolves canonicalConstraintOrder tie at order=0 by sourceIndex":
+    # Mirrors the M5 conformance rig: rider_follow and arm_follow are both
+    # ckPath at order=0. sourceIndex must break the tie (rider_follow=0 first).
+    let entries = @[
+      constraintOrderEntry(ckPath, 0, 1),  # arm_follow (sourceIndex=1)
+      constraintOrderEntry(ckPath, 0, 0),  # rider_follow (sourceIndex=0)
+    ]
+    let ordered = canonicalConstraintOrder(entries)
+
+    then:
+      ordered.len == 2
+      ordered[0].kind == ckPath
+      ordered[0].order == 0
+      ordered[0].sourceIndex == 0  # rider_follow wins the tie
+      ordered[1].sourceIndex == 1  # arm_follow follows
+
   it "builds deterministic ordered constraint update caches":
     let data = skeletonData(
       skeletonHeader("demo", "0.1.0"),
