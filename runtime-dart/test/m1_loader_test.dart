@@ -1,9 +1,9 @@
 // Dart M1 conformance gate: SkeletonData loader gated against m1_rig.bony.
 //
-// Verifies that loadBonyJson parses the committed M1 conformance asset into
-// the correct SkeletonData model. Values are checked against the committed
-// asset (conformance/assets/m1_rig.bony) and the committed M1 golden
-// (conformance/goldens/m1_rig_t0.json) which records the reference poses.
+// Verifies that loadBonyJson parses the committed M1 conformance asset
+// (conformance/assets/m1_rig.bony) into the correct SkeletonData model.
+// World-matrix pose goldens require the M2 world-transform pass; those are
+// covered by bony-65j (Dart M2).
 //
 // Tests run from runtime-dart/ so ../conformance/ resolves to repo root.
 
@@ -172,6 +172,97 @@ void main() {
       expect(bone.scaleX, closeTo(1.0, 1e-9));
       expect(bone.inheritRotation, isTrue);
       expect(bone.transformMode, 'normal');
+    });
+
+    test('rejects wrong type for name field', () {
+      // _required<T> must throw FormatException, not TypeError, on type mismatch.
+      expect(
+        () => loadBonyJson('{"skeleton":{"name":42},"bones":[]}'),
+        throwsFormatException,
+      );
+    });
+
+    test('accepts order as double (e.g. 0.0)', () {
+      // JSON numbers without a decimal point are int; with one are double.
+      // toInt() must handle both.
+      final d = loadBonyJson('{'
+          '"skeleton":{"name":"x"},'
+          '"bones":[{"name":"b"},{"name":"c","parent":"b"}],'
+          '"pathAttachments":[{"name":"p","p0x":0,"p0y":0,"p1x":0,"p1y":0,"p2x":0,"p2y":0,"p3x":0,"p3y":0}],'
+          '"paths":[{"name":"pc","bone":"b","target":"c","path":"p","order":0.0}]'
+          '}');
+      expect(d.paths.first.order, 0);
+    });
+  });
+
+  group('loadBonyJson structural validation', () {
+    test('rejects duplicate bone names', () {
+      expect(
+        () => loadBonyJson(
+          '{"skeleton":{"name":"x"},"bones":[{"name":"b"},{"name":"b"}]}',
+        ),
+        throwsFormatException,
+      );
+    });
+
+    test('rejects unknown parent bone', () {
+      expect(
+        () => loadBonyJson(
+          '{"skeleton":{"name":"x"},"bones":[{"name":"b","parent":"missing"}]}',
+        ),
+        throwsFormatException,
+      );
+    });
+
+    test('rejects child before parent', () {
+      // "child" appears first but references "root" which appears second.
+      expect(
+        () => loadBonyJson(
+          '{"skeleton":{"name":"x"},"bones":['
+          '{"name":"child","parent":"root"},'
+          '{"name":"root"}'
+          ']}',
+        ),
+        throwsFormatException,
+      );
+    });
+
+    test('rejects slot referencing unknown bone', () {
+      expect(
+        () => loadBonyJson(
+          '{"skeleton":{"name":"x"},"bones":[{"name":"b"}],'
+          '"slots":[{"name":"s","bone":"missing"}]}',
+        ),
+        throwsFormatException,
+      );
+    });
+
+    test('rejects slot referencing unknown attachment', () {
+      expect(
+        () => loadBonyJson(
+          '{"skeleton":{"name":"x"},"bones":[{"name":"b"}],'
+          '"slots":[{"name":"s","bone":"b","attachment":"no_such_region"}]}',
+        ),
+        throwsFormatException,
+      );
+    });
+
+    test('accepts slot with empty attachment (omitted)', () {
+      final d = loadBonyJson(
+        '{"skeleton":{"name":"x"},"bones":[{"name":"b"}],'
+        '"slots":[{"name":"s","bone":"b"}]}',
+      );
+      expect(d.slots.first.attachment, '');
+    });
+
+    test('rejects negative region dimensions', () {
+      expect(
+        () => loadBonyJson(
+          '{"skeleton":{"name":"x"},"bones":[{"name":"b"}],'
+          '"regions":[{"name":"r","width":-1,"height":10}]}',
+        ),
+        throwsFormatException,
+      );
     });
   });
 }

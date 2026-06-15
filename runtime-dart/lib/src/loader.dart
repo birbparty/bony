@@ -5,10 +5,17 @@
 import 'dart:convert';
 import 'model.dart';
 
-// Sentinel for a missing required field — the caller gets a clear message.
+// Throw FormatException with a clear message if the value is null or the
+// wrong type. This is intentionally strict so callers get a FormatException
+// (not a TypeError) on schema violations.
 T _required<T>(dynamic value, String field) {
   if (value == null) throw FormatException('missing required field: $field');
-  return value as T;
+  if (value is! T) {
+    throw FormatException(
+      'field $field: expected ${T.toString()}, got ${value.runtimeType}',
+    );
+  }
+  return value;
 }
 
 BoneData _parseBone(Map<String, dynamic> j) {
@@ -51,7 +58,8 @@ PathConstraintData _parsePath(Map<String, dynamic> j) {
     bone: _required<String>(j['bone'], 'path.bone'),
     target: _required<String>(j['target'], 'path.target'),
     path: _required<String>(j['path'], 'path.path'),
-    order: (j['order'] as int?) ?? 0,
+    // JSON doesn't distinguish int from double; toInt() handles "order": 0.0.
+    order: (j['order'] as num?)?.toInt() ?? 0,
   );
 }
 
@@ -69,10 +77,101 @@ PathAttachment _parsePathAttachment(Map<String, dynamic> j) {
   );
 }
 
+void _validate(SkeletonData data) {
+  if (data.header.name.isEmpty) {
+    throw const FormatException('skeleton.name must not be empty');
+  }
+
+  final boneNames = <String>{};
+  final seenBones = <String>{};
+  for (var i = 0; i < data.bones.length; i++) {
+    final b = data.bones[i];
+    final ctx = 'bones[$i]';
+    if (b.name.isEmpty) throw FormatException('$ctx.name must not be empty');
+    if (!boneNames.add(b.name)) {
+      throw FormatException('duplicate bone name: ${b.name}');
+    }
+  }
+  // Second pass: parent ordering (parent must appear before child).
+  for (var i = 0; i < data.bones.length; i++) {
+    final b = data.bones[i];
+    if (b.parent.isNotEmpty) {
+      if (!boneNames.contains(b.parent)) {
+        throw FormatException('unknown parent bone: ${b.parent}');
+      }
+      if (!seenBones.contains(b.parent)) {
+        throw FormatException(
+          'bone parent must appear before child: ${b.name}',
+        );
+      }
+    }
+    seenBones.add(b.name);
+  }
+
+  final regionNames = <String>{};
+  for (var i = 0; i < data.regions.length; i++) {
+    final r = data.regions[i];
+    final ctx = 'regions[$i]';
+    if (r.name.isEmpty) throw FormatException('$ctx.name must not be empty');
+    if (r.width < 0 || r.height < 0) {
+      throw FormatException('$ctx dimensions must be non-negative');
+    }
+    if (!regionNames.add(r.name)) {
+      throw FormatException('duplicate region name: ${r.name}');
+    }
+  }
+
+  final slotNames = <String>{};
+  for (var i = 0; i < data.slots.length; i++) {
+    final s = data.slots[i];
+    final ctx = 'slots[$i]';
+    if (s.name.isEmpty) throw FormatException('$ctx.name must not be empty');
+    if (!boneNames.contains(s.bone)) {
+      throw FormatException('unknown slot bone: ${s.bone}');
+    }
+    if (s.attachment.isNotEmpty && !regionNames.contains(s.attachment)) {
+      throw FormatException('unknown slot attachment: ${s.attachment}');
+    }
+    if (!slotNames.add(s.name)) {
+      throw FormatException('duplicate slot name: ${s.name}');
+    }
+  }
+
+  final pathAttachmentNames = <String>{};
+  for (var i = 0; i < data.pathAttachments.length; i++) {
+    final pa = data.pathAttachments[i];
+    final ctx = 'pathAttachments[$i]';
+    if (pa.name.isEmpty) throw FormatException('$ctx.name must not be empty');
+    if (!pathAttachmentNames.add(pa.name)) {
+      throw FormatException('duplicate path attachment name: ${pa.name}');
+    }
+  }
+
+  final pathNames = <String>{};
+  for (var i = 0; i < data.paths.length; i++) {
+    final p = data.paths[i];
+    final ctx = 'paths[$i]';
+    if (p.name.isEmpty) throw FormatException('$ctx.name must not be empty');
+    if (!boneNames.contains(p.bone)) {
+      throw FormatException('unknown path constraint bone: ${p.bone}');
+    }
+    if (!boneNames.contains(p.target)) {
+      throw FormatException('unknown path constraint target: ${p.target}');
+    }
+    if (!pathAttachmentNames.contains(p.path)) {
+      throw FormatException('unknown path constraint path: ${p.path}');
+    }
+    if (!pathNames.add(p.name)) {
+      throw FormatException('duplicate path constraint name: ${p.name}');
+    }
+  }
+}
+
 /// Parse a bony JSON string into a [SkeletonData].
 ///
-/// Throws [FormatException] if required fields are missing or the JSON is
-/// malformed.
+/// Throws [FormatException] if required fields are missing, have the wrong
+/// type, or fail structural validation (unknown references, duplicate names,
+/// parent-before-child ordering).
 SkeletonData loadBonyJson(String jsonText) {
   final root = jsonDecode(jsonText);
   if (root is! Map<String, dynamic>) {
@@ -88,13 +187,12 @@ SkeletonData loadBonyJson(String jsonText) {
     version: (skelJson['version'] as String?) ?? '0.1.0',
   );
 
-  final bonesJson = root['bones'];
-  if (bonesJson == null) {
+  final bonesRaw = root['bones'];
+  if (bonesRaw is! List<dynamic>) {
     throw const FormatException('missing required field: bones');
   }
-  final bones = (bonesJson as List<dynamic>)
-      .map((b) => _parseBone(b as Map<String, dynamic>))
-      .toList();
+  final bones =
+      bonesRaw.map((b) => _parseBone(b as Map<String, dynamic>)).toList();
 
   final slots = ((root['slots'] as List<dynamic>?) ?? [])
       .map((s) => _parseSlot(s as Map<String, dynamic>))
@@ -112,7 +210,7 @@ SkeletonData loadBonyJson(String jsonText) {
       .map((pa) => _parsePathAttachment(pa as Map<String, dynamic>))
       .toList();
 
-  return SkeletonData(
+  final data = SkeletonData(
     header: header,
     bones: bones,
     slots: slots,
@@ -120,4 +218,6 @@ SkeletonData loadBonyJson(String jsonText) {
     paths: paths,
     pathAttachments: pathAttachments,
   );
+  _validate(data);
+  return data;
 }
