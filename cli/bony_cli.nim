@@ -1394,8 +1394,8 @@ proc autoWeightsCmd(args: seq[string]) =
   var epsilon = defaultEpsilon
   let maxInfNode = doc.getOrDefault("maxInfluences")
   if maxInfNode != nil:
-    if maxInfNode.kind != JInt or maxInfNode.getInt() < 1:
-      raise newBonyLoadError(schemaViolation, "maxInfluences must be a positive integer")
+    if maxInfNode.kind != JInt or maxInfNode.getInt() < 1 or maxInfNode.getInt() > 255:
+      raise newBonyLoadError(schemaViolation, "maxInfluences must be an integer in 1..255")
     maxInfluences = maxInfNode.getInt()
   let epsNode = doc.getOrDefault("epsilon")
   if epsNode != nil:
@@ -1461,6 +1461,8 @@ proc main() =
   except LottieDiagnostic as exc:
     quit("bony: " & exc.lottieMessage, QuitFailure)
   except BonyLoadError as exc:
+    quit("bony: " & exc.msg, QuitFailure)
+  except IOError as exc:
     quit("bony: " & exc.msg, QuitFailure)
   except OSError as exc:
     quit("bony: " & exc.msg, QuitFailure)

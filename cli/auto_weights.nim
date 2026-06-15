@@ -19,7 +19,7 @@
 ## This is a clean-room implementation of standard textbook inverse-distance
 ## weighting (Shepard 1968). No third-party code or data.
 
-import std/[algorithm, math]
+import std/algorithm
 
 
 const defaultEpsilon* = 1e-6
@@ -62,9 +62,9 @@ proc autoWeightVertex*(
     let d2 = dx * dx + dy * dy
     raw.add (bone: i, w: 1.0 / (d2 + epsilon))
 
-  # Sort by weight descending, keep top N
+  # Sort by weight descending; tie-break by bone index for deterministic output.
   raw.sort proc(a, b: tuple[bone: int; w: float64]): int =
-    if a.w > b.w: -1 elif a.w < b.w: 1 else: 0
+    if a.w > b.w: -1 elif a.w < b.w: 1 else: cmp(a.bone, b.bone)
 
   let keep = min(maxInfluences, raw.len)
   var total = 0.0
