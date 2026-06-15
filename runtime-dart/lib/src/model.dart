@@ -1,4 +1,4 @@
-// Bony SkeletonData model: M1 static skeleton types + M2 world transform types.
+// Bony SkeletonData model: M1 static + M2 world transform + M3 animation types.
 
 class SkeletonHeader {
   const SkeletonHeader({required this.name, required this.version});
@@ -110,6 +110,7 @@ class SkeletonData {
     required this.regions,
     required this.paths,
     required this.pathAttachments,
+    this.animations = const [],
   });
 
   final SkeletonHeader header;
@@ -118,6 +119,61 @@ class SkeletonData {
   final List<RegionAttachment> regions;
   final List<PathConstraintData> paths;
   final List<PathAttachment> pathAttachments;
+  final List<AnimationClip> animations;
+}
+
+// --- M3 Animation types ---
+
+enum TimelineCurveKind { linear, stepped, bezier }
+
+class TimelineCurve {
+  const TimelineCurve._({
+    required this.kind,
+    this.c1x = 0.0,
+    this.c1y = 0.0,
+    this.c2x = 1.0,
+    this.c2y = 1.0,
+  });
+
+  factory TimelineCurve.bezier(double c1x, double c1y, double c2x, double c2y) =>
+      TimelineCurve._(kind: TimelineCurveKind.bezier, c1x: c1x, c1y: c1y, c2x: c2x, c2y: c2y);
+
+  static const linear = TimelineCurve._(kind: TimelineCurveKind.linear);
+  static const stepped = TimelineCurve._(kind: TimelineCurveKind.stepped);
+
+  final TimelineCurveKind kind;
+  final double c1x, c1y, c2x, c2y;
+}
+
+enum BoneTimelineKind {
+  rotate,
+  translateX,
+  translateY,
+  scaleX,
+  scaleY,
+  shearX,
+  shearY,
+}
+
+class ScalarKeyframe {
+  const ScalarKeyframe({required this.time, required this.value, this.curve = TimelineCurve.linear});
+  final double time;
+  final double value;
+  final TimelineCurve curve;
+}
+
+class BoneTimeline {
+  const BoneTimeline({required this.bone, required this.kind, required this.keys});
+  final String bone;
+  final BoneTimelineKind kind;
+  final List<ScalarKeyframe> keys;
+}
+
+class AnimationClip {
+  const AnimationClip({required this.name, required this.duration, required this.boneTimelines});
+  final String name;
+  final double duration;
+  final List<BoneTimeline> boneTimelines;
 }
 
 /// 2D affine world transform matrix (column-major: [a c tx / b d ty / 0 0 1]).
