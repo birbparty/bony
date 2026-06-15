@@ -1,6 +1,6 @@
 ## Headless bony CLI harness core.
 
-import std/[algorithm, json, math, os, parseutils, sequtils, sets, strutils, tables]
+import std/[algorithm, json, math, os, parseutils, sets, strutils, tables]
 
 import bony
 import pixie
@@ -108,6 +108,14 @@ proc parsePositiveIntArg(value, name: string): int =
   let consumed = parseInt(value, parsed)
   if consumed != value.len or parsed <= 0:
     raise newBonyLoadError(schemaViolation, name & " must be a positive integer")
+  parsed
+
+
+proc parseNonNegativeIntArg(value, name: string): int =
+  var parsed: int
+  let consumed = parseInt(value, parsed)
+  if consumed != value.len or parsed < 0:
+    raise newBonyLoadError(schemaViolation, name & " must be a non-negative integer")
   parsed
 
 
@@ -1234,8 +1242,7 @@ proc packAtlasCmd(args: seq[string]) =
     of "--padding":
       if index + 1 >= args.len:
         quit(usage(), QuitFailure)
-      let p = parsePositiveIntArg(args[index + 1], "--padding")
-      padding = p
+      padding = parseNonNegativeIntArg(args[index + 1], "--padding")
       index += 2
     else:
       quit(usage(), QuitFailure)
@@ -1244,13 +1251,26 @@ proc packAtlasCmd(args: seq[string]) =
     raise newBonyLoadError(schemaViolation, "pack-atlas requires --out-dir")
   if not dirExists(imagesDir):
     raise newBonyLoadError(schemaViolation, "images-dir not found: " & imagesDir)
+  if 2 * padding >= pageSize:
+    raise newBonyLoadError(schemaViolation,
+      "--padding " & $padding & " leaves no usable space in --page-size " & $pageSize)
 
   # Collect PNG files from images-dir
   var inputs: seq[AtlasInputImage] = @[]
+  var seen = initHashSet[string]()
   for kind, path in walkDir(imagesDir):
     if kind == pcFile and path.toLowerAscii.endsWith(".png"):
       let name = changeFileExt(extractFilename(path), "")
-      let img = decodeImage(readFile(path))
+      if name in seen:
+        raise newBonyLoadError(schemaViolation,
+          "duplicate region name '" & name & "' from: " & path)
+      seen.incl(name)
+      var img: Image
+      try:
+        img = decodeImage(readFile(path))
+      except PixieError as exc:
+        raise newBonyLoadError(schemaViolation,
+          "failed to decode PNG '" & path & "': " & exc.msg)
       inputs.add AtlasInputImage(name: name, image: img)
   if inputs.len == 0:
     raise newBonyLoadError(schemaViolation, "no PNG images found in: " & imagesDir)
@@ -1300,7 +1320,7 @@ proc packAtlasCmd(args: seq[string]) =
   root["regions"] = regionsJson
 
   writeFile(outDir / "atlas.json", pretty(root) & "\n")
-  echo "bony: packed ", inputs.len, " image(s) into ", packed.pages.len, " page(s) → ", outDir
+  echo "bony: packed ", inputs.len, " image(s) into ", packed.pages.len, " page(s) -> ", outDir
 
 
 proc main() =

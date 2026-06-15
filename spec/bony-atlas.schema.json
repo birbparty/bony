@@ -4,7 +4,7 @@
   "title": "bony atlas metadata",
   "description": "Output of 'bony pack-atlas'. Describes how source images were packed into atlas page(s).",
   "type": "object",
-  "required": ["format", "pages", "regions"],
+  "required": ["format", "pageSize", "padding", "pages", "regions"],
   "additionalProperties": false,
   "properties": {
     "format": {
@@ -95,7 +95,7 @@
             "type": "number",
             "minimum": 0.0,
             "maximum": 1.0,
-            "description": "Top UV coordinate (y / pageHeight)."
+            "description": "Top UV coordinate (y / pageHeight). Image-space Y-down: v=0 is the top edge."
           },
           "u1": {
             "type": "number",
@@ -107,7 +107,7 @@
             "type": "number",
             "minimum": 0.0,
             "maximum": 1.0,
-            "description": "Bottom UV coordinate ((y + height) / pageHeight)."
+            "description": "Bottom UV coordinate ((y + height) / pageHeight). Image-space Y-down: v=1 is the bottom edge."
           }
         }
       }

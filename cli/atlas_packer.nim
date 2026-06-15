@@ -7,7 +7,7 @@
 ## The shelf algorithm is a classic O(n log n) greedy bin packing approach
 ## documented in textbooks and not encumbered by any third-party license.
 
-import std/[algorithm, math]
+import std/algorithm
 
 import pixie
 
@@ -55,12 +55,13 @@ proc packAtlas*(
   let pad2 = 2 * padding
   let innerMax = pageSize - pad2
 
-  # Sort by height descending (improves shelf packing density)
+  # Sort by height descending for packing density; tie-break by name for
+  # deterministic output regardless of sort stability or input order.
   var sorted = inputs
   sorted.sort proc(a, b: AtlasInputImage): int =
     let ha = a.image.height
     let hb = b.image.height
-    if ha > hb: -1 elif ha < hb: 1 else: 0
+    if ha > hb: -1 elif ha < hb: 1 else: cmp(a.name, b.name)
 
   var currentPage = newImage(pageSize, pageSize)
   var shelf = Shelf(y: padding, rowHeight: 0, x: padding)
@@ -114,6 +115,8 @@ proc packAtlas*(
   result.pages.add currentPage
 
 
+# UVs are in image/texture space (Y-down, v=0 at top). This is independent of
+# bony's world-space Y-up convention — texture sampling uses image-space UVs.
 proc atlasRegionU0*(region: PackedRegion; pageWidth: int): float64 =
   region.x.float64 / pageWidth.float64
 
