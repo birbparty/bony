@@ -1037,7 +1037,13 @@ StateMachineData _parseStateMachine(Map<String, dynamic> j) {
             value: _required<num>(bcm['value'], 'blendClip.value').toDouble(),
             loop: (bcm['loop'] as bool?) ?? false,
           );
-        }).toList();
+        }).toList()
+          ..sort((a, b) => a.value.compareTo(b.value));
+        for (var bi = 1; bi < blendClips.length; bi++) {
+          if (blendClips[bi].value == blendClips[bi - 1].value) {
+            throw FormatException('duplicate blend clip value: ${blendClips[bi].value}');
+          }
+        }
         return StateMachineState(
           name: sname,
           kind: StateMachineStateKind.blend1d,
@@ -1110,10 +1116,15 @@ StateMachineData _parseStateMachine(Map<String, dynamic> j) {
       );
     }).toList();
 
+    if (states.isEmpty) throw FormatException('state machine layer "$lname" must have at least one state');
+    final resolvedInitial = initialState.isEmpty ? states[0].name : initialState;
+    if (!states.any((s) => s.name == resolvedInitial)) {
+      throw FormatException('state machine layer "$lname" initialState "$resolvedInitial" not found');
+    }
     return StateMachineLayer(
       name: lname,
       states: states,
-      initialState: initialState.isEmpty ? states[0].name : initialState,
+      initialState: resolvedInitial,
       transitions: transitions,
     );
   }).toList();

@@ -3,6 +3,7 @@
 
 import 'dart:math' as math;
 import 'package:bony/src/anim.dart';
+import 'deform.dart' show quantizeF32;
 import 'model.dart';
 
 // --- Runtime input value ---
@@ -268,18 +269,27 @@ class StateMachineRuntime {
 
     for (final lr in _layers) {
       final state = _stateByName(lr.layer, lr.currentState);
-      final time = lr.time;
-      final pose = _sampleStatePose(data, state, time);
+      final sampleTime = _computeSampleTime(data, state, lr.time);
+      final pose = _sampleStatePose(data, state, lr.time);
       evalLayers.add(EvaluatedStateMachineLayer(
         layer: lr.layer.name,
         state: lr.currentState,
-        time: time,
+        time: sampleTime,
         pose: pose,
       ));
       combined = _overlayPose(combined, pose);
     }
 
     return EvaluatedStateMachine(layers: evalLayers, pose: combined);
+  }
+
+  // Compute the wrapped sample time for evaluate's reported time field.
+  // For blend1d: raw time. For clip: wrapped by loop/clamp then quantized.
+  double _computeSampleTime(SkeletonData data, StateMachineState state, double time) {
+    if (state.kind == StateMachineStateKind.blend1d) return time;
+    final clip = _findClip(data, state.clipName);
+    final wrapped = state.loop && clip.duration > 0 ? time % clip.duration : math.min(time, clip.duration);
+    return quantizeF32(wrapped);
   }
 
   MixedPose _sampleStatePose(SkeletonData data, StateMachineState state, double time) {
@@ -335,7 +345,7 @@ MixedPose _sampleClipPose(SkeletonData data, AnimationClip clip, bool loop, doub
   final anim = AnimationState(data);
   anim.setAnimation(0, clip, loop: loop);
   final wrapped = loop && clip.duration > 0 ? time % clip.duration : math.min(time, clip.duration);
-  anim.tracks[0].current!.time = wrapped;
+  anim.tracks[0].current!.time = quantizeF32(wrapped);
   return anim.sample();
 }
 
