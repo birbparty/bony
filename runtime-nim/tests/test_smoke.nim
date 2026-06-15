@@ -5402,3 +5402,207 @@ spec "bony package":
           }
         """)
       , schemaViolation)
+
+  it "rejects M8 blend1d state with unknown blendInput":
+    then:
+      raisesBonyLoadError("""
+        {
+          "skeleton": {"name": "bad-blendinput"},
+          "bones": [{"name": "root"}],
+          "animations": [{"name": "idle", "boneTimelines": []}],
+          "stateMachines": [{
+            "name": "m",
+            "inputs": [],
+            "layers": [{
+              "name": "body",
+              "states": [
+                {"name": "idle", "kind": "blend1d",
+                 "blendInput": "nonexistent",
+                 "blendClips": [{"clip": "idle", "value": 0.0}]}
+              ]
+            }]
+          }]
+        }
+      """, unknownRequiredReference)
+
+  it "rejects M8 transition with unknown fromState":
+    then:
+      raisesBonyLoadError("""
+        {
+          "skeleton": {"name": "bad-fromstate"},
+          "bones": [{"name": "root"}],
+          "animations": [{"name": "idle", "boneTimelines": []}],
+          "stateMachines": [{
+            "name": "m",
+            "inputs": [{"name": "wave", "kind": "bool"}],
+            "layers": [{
+              "name": "body",
+              "states": [{"name": "idle", "kind": "clip", "clip": "idle"}],
+              "transitions": [
+                {"fromState": "nonexistent", "toState": "idle",
+                 "conditions": [{"input": "wave", "kind": "boolEquals", "value": true}]}
+              ]
+            }]
+          }]
+        }
+      """, unknownRequiredReference)
+
+  it "rejects M8 transition with unknown toState":
+    then:
+      raisesBonyLoadError("""
+        {
+          "skeleton": {"name": "bad-tostate"},
+          "bones": [{"name": "root"}],
+          "animations": [{"name": "idle", "boneTimelines": []}],
+          "stateMachines": [{
+            "name": "m",
+            "inputs": [{"name": "wave", "kind": "bool"}],
+            "layers": [{
+              "name": "body",
+              "states": [{"name": "idle", "kind": "clip", "clip": "idle"}],
+              "transitions": [
+                {"fromState": "idle", "toState": "nonexistent",
+                 "conditions": [{"input": "wave", "kind": "boolEquals", "value": true}]}
+              ]
+            }]
+          }]
+        }
+      """, unknownRequiredReference)
+
+  it "rejects M8 condition with unknown input":
+    then:
+      raisesBonyLoadError("""
+        {
+          "skeleton": {"name": "bad-condinput"},
+          "bones": [{"name": "root"}],
+          "animations": [{"name": "idle", "boneTimelines": []}, {"name": "walk", "boneTimelines": []}],
+          "stateMachines": [{
+            "name": "m",
+            "inputs": [{"name": "wave", "kind": "bool"}],
+            "layers": [{
+              "name": "body",
+              "states": [
+                {"name": "idle", "kind": "clip", "clip": "idle"},
+                {"name": "walk", "kind": "clip", "clip": "walk"}
+              ],
+              "transitions": [
+                {"fromState": "idle", "toState": "walk",
+                 "conditions": [{"input": "nonexistent", "kind": "boolEquals", "value": true}]}
+              ]
+            }]
+          }]
+        }
+      """, unknownRequiredReference)
+
+  it "rejects M8 listener with unknown layer":
+    then:
+      raisesBonyLoadError("""
+        {
+          "skeleton": {"name": "bad-lstlayer"},
+          "bones": [{"name": "root"}],
+          "animations": [{"name": "idle", "boneTimelines": []}],
+          "stateMachines": [{
+            "name": "m",
+            "inputs": [],
+            "layers": [{
+              "name": "body",
+              "states": [{"name": "idle", "kind": "clip", "clip": "idle"}]
+            }],
+            "listeners": [
+              {"name": "ev", "kind": "stateEnter", "layer": "nonexistent", "toState": "idle"}
+            ]
+          }]
+        }
+      """, unknownRequiredReference)
+
+  it "rejects M8 stateEnter listener with unknown toState":
+    then:
+      raisesBonyLoadError("""
+        {
+          "skeleton": {"name": "bad-enter-tostate"},
+          "bones": [{"name": "root"}],
+          "animations": [{"name": "idle", "boneTimelines": []}],
+          "stateMachines": [{
+            "name": "m",
+            "inputs": [],
+            "layers": [{
+              "name": "body",
+              "states": [{"name": "idle", "kind": "clip", "clip": "idle"}]
+            }],
+            "listeners": [
+              {"name": "ev", "kind": "stateEnter", "layer": "body", "toState": "nonexistent"}
+            ]
+          }]
+        }
+      """, unknownRequiredReference)
+
+  it "rejects M8 stateExit listener with unknown fromState":
+    then:
+      raisesBonyLoadError("""
+        {
+          "skeleton": {"name": "bad-exit-fromstate"},
+          "bones": [{"name": "root"}],
+          "animations": [{"name": "idle", "boneTimelines": []}],
+          "stateMachines": [{
+            "name": "m",
+            "inputs": [],
+            "layers": [{
+              "name": "body",
+              "states": [{"name": "idle", "kind": "clip", "clip": "idle"}]
+            }],
+            "listeners": [
+              {"name": "ev", "kind": "stateExit", "layer": "body", "fromState": "nonexistent"}
+            ]
+          }]
+        }
+      """, unknownRequiredReference)
+
+  it "rejects M8 transition listener with unknown fromState":
+    then:
+      raisesBonyLoadError("""
+        {
+          "skeleton": {"name": "bad-tr-fromstate"},
+          "bones": [{"name": "root"}],
+          "animations": [{"name": "idle", "boneTimelines": []}],
+          "stateMachines": [{
+            "name": "m",
+            "inputs": [],
+            "layers": [{
+              "name": "body",
+              "states": [
+                {"name": "idle", "kind": "clip", "clip": "idle"},
+                {"name": "move", "kind": "clip", "clip": "idle"}
+              ]
+            }],
+            "listeners": [
+              {"name": "ev", "kind": "transition", "layer": "body",
+               "fromState": "nonexistent", "toState": "move"}
+            ]
+          }]
+        }
+      """, unknownRequiredReference)
+
+  it "rejects M8 transition listener with unknown toState":
+    then:
+      raisesBonyLoadError("""
+        {
+          "skeleton": {"name": "bad-tr-tostate"},
+          "bones": [{"name": "root"}],
+          "animations": [{"name": "idle", "boneTimelines": []}],
+          "stateMachines": [{
+            "name": "m",
+            "inputs": [],
+            "layers": [{
+              "name": "body",
+              "states": [
+                {"name": "idle", "kind": "clip", "clip": "idle"},
+                {"name": "move", "kind": "clip", "clip": "idle"}
+              ]
+            }],
+            "listeners": [
+              {"name": "ev", "kind": "transition", "layer": "body",
+               "fromState": "idle", "toState": "nonexistent"}
+            ]
+          }]
+        }
+      """, unknownRequiredReference)
