@@ -1,0 +1,236 @@
+{
+  "skeleton": {
+    "name": "m9-non-scalar-rig",
+    "version": "1.0.0"
+  },
+  "bones": [
+    {"name": "root"},
+    {"name": "torso", "parent": "root", "x": 0, "y": -20, "scaleX": 1.0, "scaleY": 1.0},
+    {"name": "head", "parent": "torso", "y": -60}
+  ],
+  "slots": [
+    {"name": "body_slot", "bone": "torso", "attachment": "body"},
+    {"name": "head_slot", "bone": "head", "attachment": "head_a"},
+    {"name": "fx_slot", "bone": "root", "attachment": "fx_0"}
+  ],
+  "regions": [
+    {"name": "body", "width": 50, "height": 100},
+    {"name": "head_a", "width": 50, "height": 50},
+    {"name": "head_b", "width": 50, "height": 50},
+    {"name": "fx_0", "width": 32, "height": 32},
+    {"name": "fx_1", "width": 32, "height": 32},
+    {"name": "fx_2", "width": 32, "height": 32}
+  ],
+  "animations": [
+    {
+      "name": "slide",
+      "boneTimelines": [
+        {
+          "bone": "torso",
+          "property": "translate",
+          "keyframes": [
+            {"t": 0.0, "x": 0.0, "y": 0.0},
+            {"t": 1.0, "x": 50.0, "y": 0.0}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "grow",
+      "boneTimelines": [
+        {
+          "bone": "torso",
+          "property": "scale",
+          "keyframes": [
+            {"t": 0.0, "x": 1.0, "y": 1.0},
+            {"t": 0.5, "x": 1.5, "y": 1.5},
+            {"t": 1.0, "x": 1.0, "y": 1.0}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "lean",
+      "boneTimelines": [
+        {
+          "bone": "torso",
+          "property": "shear",
+          "keyframes": [
+            {"t": 0.0, "x": 0.0, "y": 0.0},
+            {"t": 0.5, "x": 10.0, "y": 0.0},
+            {"t": 1.0, "x": 0.0, "y": 0.0}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "inherit_switch",
+      "boneTimelines": [
+        {
+          "bone": "head",
+          "property": "inherit",
+          "keyframes": [
+            {
+              "t": 0.0,
+              "inheritRotation": true,
+              "inheritScale": true,
+              "inheritReflection": true,
+              "transformMode": "normal"
+            },
+            {
+              "t": 1.0,
+              "inheritRotation": false,
+              "inheritScale": false,
+              "inheritReflection": false,
+              "transformMode": "noScale"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "blink",
+      "slotTimelines": [
+        {
+          "slot": "head_slot",
+          "property": "attachment",
+          "keyframes": [
+            {"t": 0.0, "attachment": "head_a"},
+            {"t": 0.15, "attachment": "head_b"},
+            {"t": 0.25, "attachment": "head_a"}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "fade",
+      "slotTimelines": [
+        {
+          "slot": "body_slot",
+          "property": "rgba",
+          "keyframes": [
+            {"t": 0.0, "r": 1.0, "g": 1.0, "b": 1.0, "a": 1.0},
+            {"t": 1.0, "r": 1.0, "g": 1.0, "b": 1.0, "a": 0.0}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "tint",
+      "slotTimelines": [
+        {
+          "slot": "body_slot",
+          "property": "rgb",
+          "keyframes": [
+            {"t": 0.0, "r": 1.0, "g": 1.0, "b": 1.0, "a": 1.0},
+            {"t": 1.0, "r": 1.0, "g": 0.0, "b": 0.0, "a": 1.0}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "alpha_pulse",
+      "slotTimelines": [
+        {
+          "slot": "body_slot",
+          "property": "alpha",
+          "keyframes": [
+            {"t": 0.0, "r": 1.0, "g": 1.0, "b": 1.0, "a": 1.0},
+            {"t": 0.5, "r": 1.0, "g": 1.0, "b": 1.0, "a": 0.2},
+            {"t": 1.0, "r": 1.0, "g": 1.0, "b": 1.0, "a": 1.0}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "two_color",
+      "slotTimelines": [
+        {
+          "slot": "body_slot",
+          "property": "rgba2",
+          "keyframes": [
+            {
+              "t": 0.0,
+              "r": 1.0, "g": 1.0, "b": 1.0, "a": 1.0,
+              "dr": 0.0, "dg": 0.0, "db": 0.0
+            },
+            {
+              "t": 1.0,
+              "r": 0.8, "g": 0.6, "b": 0.4, "a": 1.0,
+              "dr": 0.1, "dg": 0.05, "db": 0.0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "fx_sequence",
+      "slotTimelines": [
+        {
+          "slot": "fx_slot",
+          "property": "sequence",
+          "keyframes": [
+            {"t": 0.0, "index": 0, "delay": 0.1, "mode": "loop"},
+            {"t": 0.3, "index": 1, "delay": 0.05, "mode": "loop"}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "combo",
+      "boneTimelines": [
+        {
+          "bone": "torso",
+          "property": "translate",
+          "keyframes": [
+            {"t": 0.0, "x": 0.0, "y": 0.0},
+            {"t": 0.5, "x": 25.0, "y": 10.0},
+            {"t": 1.0, "x": 0.0, "y": 0.0}
+          ]
+        },
+        {
+          "bone": "torso",
+          "property": "scale",
+          "keyframes": [
+            {"t": 0.0, "x": 1.0, "y": 1.0},
+            {"t": 0.5, "x": 1.2, "y": 1.2},
+            {"t": 1.0, "x": 1.0, "y": 1.0}
+          ]
+        },
+        {
+          "bone": "head",
+          "property": "inherit",
+          "keyframes": [
+            {
+              "t": 0.0,
+              "inheritRotation": true,
+              "inheritScale": true,
+              "inheritReflection": true,
+              "transformMode": "normal"
+            }
+          ]
+        }
+      ],
+      "slotTimelines": [
+        {
+          "slot": "head_slot",
+          "property": "attachment",
+          "keyframes": [
+            {"t": 0.0, "attachment": "head_a"},
+            {"t": 0.5, "attachment": "head_b"},
+            {"t": 0.8, "attachment": "head_a"}
+          ]
+        },
+        {
+          "slot": "body_slot",
+          "property": "rgba",
+          "keyframes": [
+            {"t": 0.0, "r": 1.0, "g": 1.0, "b": 1.0, "a": 1.0},
+            {"t": 0.5, "r": 0.5, "g": 0.8, "b": 1.0, "a": 0.8},
+            {"t": 1.0, "r": 1.0, "g": 1.0, "b": 1.0, "a": 1.0}
+          ]
+        }
+      ]
+    }
+  ]
+}

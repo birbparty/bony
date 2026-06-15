@@ -264,6 +264,39 @@ enum BoneTimelineKind {
   scaleY,
   shearX,
   shearY,
+  // Vector (X+Y pair) bone timeline kinds — use BoneTimeline.vectorKeys.
+  translate,
+  scale,
+  shear,
+  // Stepped inherit-mode kind — use BoneTimeline.inheritKeys.
+  inherit,
+}
+
+enum SlotTimelineKind {
+  attachment,
+  rgba,
+  rgb,
+  alpha,
+  rgba2,
+  sequence,
+}
+
+enum SequenceMode { once, loop, pingpong, reverse, hold }
+
+class ColorRgba {
+  const ColorRgba({required this.r, required this.g, required this.b, required this.a});
+  final double r;
+  final double g;
+  final double b;
+  final double a;
+}
+
+class ColorRgba2 {
+  const ColorRgba2({required this.light, required this.darkR, required this.darkG, required this.darkB});
+  final ColorRgba light;
+  final double darkR;
+  final double darkG;
+  final double darkB;
 }
 
 class ScalarKeyframe {
@@ -273,18 +306,112 @@ class ScalarKeyframe {
   final TimelineCurve curve;
 }
 
+class Vector2Keyframe {
+  const Vector2Keyframe({
+    required this.time,
+    required this.x,
+    required this.y,
+    this.curveX = TimelineCurve.linear,
+    this.curveY = TimelineCurve.linear,
+  });
+  final double time;
+  final double x;
+  final double y;
+  final TimelineCurve curveX;
+  final TimelineCurve curveY;
+}
+
+class InheritKeyframe {
+  const InheritKeyframe({
+    required this.time,
+    required this.inheritRotation,
+    required this.inheritScale,
+    required this.inheritReflection,
+    required this.transformMode,
+  });
+  final double time;
+  final bool inheritRotation;
+  final bool inheritScale;
+  final bool inheritReflection;
+  final String transformMode;
+}
+
+class AttachmentKeyframe {
+  const AttachmentKeyframe({required this.time, required this.attachment});
+  final double time;
+  final String attachment;
+}
+
+class ColorKeyframe {
+  const ColorKeyframe({required this.time, required this.color, this.curve = TimelineCurve.linear});
+  final double time;
+  final ColorRgba color;
+  final TimelineCurve curve;
+}
+
+class Color2Keyframe {
+  const Color2Keyframe({required this.time, required this.color, this.curve = TimelineCurve.linear});
+  final double time;
+  final ColorRgba2 color;
+  final TimelineCurve curve;
+}
+
+class SequenceKeyframe {
+  const SequenceKeyframe({
+    required this.time,
+    required this.index,
+    required this.delay,
+    this.mode = SequenceMode.once,
+  });
+  final double time;
+  final int index;
+  final double delay;
+  final SequenceMode mode;
+}
+
 class BoneTimeline {
-  const BoneTimeline({required this.bone, required this.kind, required this.keys});
+  const BoneTimeline({
+    required this.bone,
+    required this.kind,
+    this.scalarKeys = const [],
+    this.vectorKeys = const [],
+    this.inheritKeys = const [],
+  });
   final String bone;
   final BoneTimelineKind kind;
-  final List<ScalarKeyframe> keys;
+  final List<ScalarKeyframe> scalarKeys;
+  final List<Vector2Keyframe> vectorKeys;
+  final List<InheritKeyframe> inheritKeys;
+}
+
+class SlotTimeline {
+  const SlotTimeline({
+    required this.slot,
+    required this.kind,
+    this.attachmentKeys = const [],
+    this.colorKeys = const [],
+    this.color2Keys = const [],
+    this.sequenceKeys = const [],
+  });
+  final String slot;
+  final SlotTimelineKind kind;
+  final List<AttachmentKeyframe> attachmentKeys;
+  final List<ColorKeyframe> colorKeys;
+  final List<Color2Keyframe> color2Keys;
+  final List<SequenceKeyframe> sequenceKeys;
 }
 
 class AnimationClip {
-  const AnimationClip({required this.name, required this.duration, required this.boneTimelines});
+  const AnimationClip({
+    required this.name,
+    required this.duration,
+    required this.boneTimelines,
+    this.slotTimelines = const [],
+  });
   final String name;
   final double duration;
   final List<BoneTimeline> boneTimelines;
+  final List<SlotTimeline> slotTimelines;
 }
 
 /// 2D affine world transform matrix (column-major: [a c tx / b d ty / 0 0 1]).
