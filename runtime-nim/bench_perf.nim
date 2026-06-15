@@ -130,12 +130,19 @@ proc main() =
     let t1 = measureNs(proc() = discard computeWorldTransforms(data))
     printRow("computeWorldTransforms", rigName, t1)
 
+    # Core cache algorithm only — descriptors pre-built so only O(bones+constraints)
+    # ordering logic is measured.  For rigs without path constraints pathDescs is
+    # empty; the row still confirms the zero-constraint baseline.
     var pathDescs: seq[ConstraintCacheDescriptor]
     for pcIndex, pc in data.paths:
       pathDescs.add constraintCacheDescriptor(ckPath, pc.order, pcIndex, [pc.bone])
     let t2 = measureNs(proc() = discard buildConstraintUpdateCache(data.bones, pathDescs))
     printRow("buildConstraintUpdateCache", rigName, t2)
 
+    # Full path including descriptor construction — measures end-to-end cost.
+    # When path constraints are the only constraint type (pre-M10), this row and
+    # the one above use an identical descriptor set; the delta reveals descriptor
+    # build overhead.
     let t3 = measureNs(proc() = discard buildPathConstraintUpdateCache(data))
     printRow("buildPathConstraintUpdateCache", rigName, t3)
 
