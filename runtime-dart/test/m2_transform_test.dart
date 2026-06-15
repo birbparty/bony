@@ -95,6 +95,8 @@ void main() {
         expect(b.bone, gb['bone'], reason: 'batches[$i].bone');
         expect(b.attachment, gb['attachment'], reason: 'batches[$i].attachment');
         expect(b.blendMode, gb['blendMode'], reason: 'batches[$i].blendMode');
+        expect(b.texturePage, gb['texturePage'], reason: 'batches[$i].texturePage');
+        expect(b.clipId, gb['clipId'], reason: 'batches[$i].clipId');
       }
     });
 

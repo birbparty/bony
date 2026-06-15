@@ -167,6 +167,8 @@ class DrawBatch {
     required this.bone,
     required this.attachment,
     required this.blendMode,
+    required this.texturePage,
+    required this.clipId,
     required this.world,
     required this.vertices,
     required this.indices,
@@ -176,6 +178,8 @@ class DrawBatch {
   final String bone;
   final String attachment;
   final String blendMode;
+  final String texturePage;
+  final String clipId;
   final Affine2 world;
   final List<DrawVertex> vertices;
   final List<int> indices;

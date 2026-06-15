@@ -154,6 +154,8 @@ List<DrawBatch> buildDrawBatches(SkeletonData data) {
       bone: slot.bone,
       attachment: slot.attachment,
       blendMode: 'normal',
+      texturePage: '',
+      clipId: '',
       world: world,
       vertices: [
         _vertex(world, -hw, -hh, 0.0, 0.0),
