@@ -38,6 +38,18 @@
       "items": {
         "$ref": "#/$defs/pathAttachment"
       }
+    },
+    "parameters": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/parameter"
+      }
+    },
+    "deformers": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/deformerRecord"
+      }
     }
   },
   "required": [
@@ -561,6 +573,206 @@
         "p2y",
         "p3x",
         "p3y"
+      ]
+    },
+    "parameter": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "min": {
+          "type": "number"
+        },
+        "max": {
+          "type": "number"
+        },
+        "default": {
+          "type": "number",
+          "default": 0.0
+        }
+      },
+      "required": [
+        "name",
+        "min",
+        "max"
+      ]
+    },
+    "deformerRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "parent": {
+          "type": "string",
+          "default": ""
+        },
+        "order": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["warp", "rotation"]
+        },
+        "warp": {
+          "$ref": "#/$defs/warpLattice"
+        },
+        "rotation": {
+          "$ref": "#/$defs/rotationDeformer"
+        },
+        "keyformBlend": {
+          "$ref": "#/$defs/keyformBlend"
+        }
+      },
+      "required": [
+        "id",
+        "kind"
+      ]
+    },
+    "warpLattice": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "rows": {
+          "type": "integer",
+          "minimum": 2,
+          "default": 2
+        },
+        "cols": {
+          "type": "integer",
+          "minimum": 2,
+          "default": 2
+        },
+        "minX": {
+          "type": "number"
+        },
+        "minY": {
+          "type": "number"
+        },
+        "maxX": {
+          "type": "number"
+        },
+        "maxY": {
+          "type": "number"
+        },
+        "controlPoints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/deformerPoint"
+          }
+        }
+      },
+      "required": [
+        "minX",
+        "minY",
+        "maxX",
+        "maxY",
+        "controlPoints"
+      ]
+    },
+    "rotationDeformer": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "pivotX": {
+          "type": "number"
+        },
+        "pivotY": {
+          "type": "number"
+        },
+        "angleDegrees": {
+          "type": "number"
+        },
+        "scaleX": {
+          "type": "number",
+          "default": 1.0
+        },
+        "scaleY": {
+          "type": "number",
+          "default": 1.0
+        },
+        "opacity": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "default": 1.0
+        }
+      },
+      "required": [
+        "pivotX",
+        "pivotY",
+        "angleDegrees"
+      ]
+    },
+    "deformerPoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y"
+      ]
+    },
+    "keyformBlend": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "axes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "keyforms": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/keyform"
+          }
+        }
+      },
+      "required": [
+        "axes",
+        "keyforms"
+      ]
+    },
+    "keyform": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "coordinates": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "number"
+          }
+        },
+        "values": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "number"
+          }
+        }
+      },
+      "required": [
+        "coordinates",
+        "values"
       ]
     }
   }

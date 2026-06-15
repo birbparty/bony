@@ -9,43 +9,6 @@ const
   minLatticeAxis = 2
   deformerEpsilon = 1e-12
 
-type
-  DeformerPoint* = object
-    x*: float64
-    y*: float64
-
-  WarpLattice* = object
-    rows*: uint32
-    cols*: uint32
-    minX*: float64
-    minY*: float64
-    maxX*: float64
-    maxY*: float64
-    controlPoints*: seq[DeformerPoint]
-
-  RotationDeformer* = object
-    pivotX*: float64
-    pivotY*: float64
-    angleDegrees*: float64
-    scaleX*: float64
-    scaleY*: float64
-    opacity*: float64
-
-  DeformerKind* = enum
-    warpDeformerKind,
-    rotationDeformerKind
-
-  Deformer* = object
-    id*: string
-    parent*: string
-    order*: uint32
-    case kind*: DeformerKind
-    of warpDeformerKind:
-      warp*: WarpLattice
-    of rotationDeformerKind:
-      rotation*: RotationDeformer
-
-
 proc deformerPoint*(x, y: float64): DeformerPoint =
   DeformerPoint(x: quantizeF32(x, "deformer.point.x"), y: quantizeF32(y, "deformer.point.y"))
 

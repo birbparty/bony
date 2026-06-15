@@ -5,16 +5,6 @@ import std/[sets, tables]
 import bony/model
 
 type
-  ParameterAxis* = object
-    name*: string
-    minValue*: float64
-    maxValue*: float64
-    defaultValue*: float64
-
-  ParameterSample* = object
-    name*: string
-    value*: float64
-
   ParameterState* = object
     axes: seq[ParameterAxis]
     values: Table[string, float64]

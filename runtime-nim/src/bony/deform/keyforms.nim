@@ -9,15 +9,6 @@ import bony/model
 const maxVaryingKeyformAxes = 20
 
 type
-  Keyform* = object
-    coordinates*: seq[ParameterSample]
-    values*: seq[float64]
-
-  KeyformBlend* = object
-    axes*: seq[ParameterAxis]
-    valueCount*: int
-    keyforms*: seq[Keyform]
-
   ActiveAxis = object
     axisIndex: int
     low: float64
