@@ -432,6 +432,26 @@ spec "bony package":
 """
       raisesBonyLoadError(proc() = discard loadKnownBonyBnb(bytes), schemaViolation)
 
+  it "loads committed forward-compat fixture skipping the unknown object":
+    let path = "../conformance/assets/bnb/forward_compat.bnb"
+    let fixture = cast[seq[byte]](readFile(path))
+    let data = loadBonyBnb(fixture)
+    then:
+      data.header.name == "m6-compat"
+      data.bones.len == 1
+      data.bones[0].name == "root"
+
+  it "loads all committed m*_rig.bnb conformance fixtures":
+    let bnbDir = "../conformance/assets/bnb"
+    var loaded = 0
+    for entry in walkDir(bnbDir):
+      if entry.kind == pcFile and entry.path.endsWith("_rig.bnb"):
+        let fixture = cast[seq[byte]](readFile(entry.path))
+        discard loadBonyBnb(fixture)
+        inc loaded
+    then:
+      loaded == 5
+
   it "rejects malformed semantic .bnb payloads":
     then:
       raisesBonyLoadError(proc() =
