@@ -1,0 +1,433 @@
+// M8 state machine runtime: inputs, layers, transitions, listeners, evaluate.
+// Ports runtime-nim/src/bony/statemachine/core.nim.
+
+import 'dart:math' as math;
+import 'package:bony/src/anim.dart';
+import 'deform.dart' show quantizeF32;
+import 'model.dart';
+
+// --- Runtime input value ---
+
+class _InputValue {
+  _InputValue({required this.name, required this.kind, this.boolValue = false, this.numberValue = 0.0});
+  final String name;
+  final StateMachineInputKind kind;
+  bool boolValue;
+  double numberValue;
+}
+
+// --- Runtime layer state ---
+
+class _LayerRuntime {
+  _LayerRuntime({required this.layer, required this.currentState});
+  final StateMachineLayer layer;
+  String currentState;
+  double time = 0.0;
+}
+
+// --- Evaluated output types ---
+
+class EvaluatedStateMachineLayer {
+  const EvaluatedStateMachineLayer({
+    required this.layer,
+    required this.state,
+    required this.time,
+    required this.pose,
+  });
+  final String layer;
+  final String state;
+  final double time;
+  final MixedPose pose;
+}
+
+class EvaluatedStateMachine {
+  const EvaluatedStateMachine({required this.layers, required this.pose});
+  final List<EvaluatedStateMachineLayer> layers;
+  final MixedPose pose;
+}
+
+// --- Listener event ---
+
+class StateMachineListenerEvent {
+  const StateMachineListenerEvent({
+    required this.listener,
+    required this.kind,
+    required this.layer,
+    required this.fromState,
+    required this.toState,
+  });
+  final String listener;
+  final StateMachineListenerKind kind;
+  final String layer;
+  final String fromState;
+  final String toState;
+}
+
+// --- Runtime ---
+
+class StateMachineRuntime {
+  StateMachineRuntime._(this._data, this._layers, this._inputs);
+
+  final StateMachineData _data;
+  final List<_LayerRuntime> _layers;
+  final List<_InputValue> _inputs;
+  final List<StateMachineListenerEvent> events = [];
+
+  // Expose read-only state for tests/evaluation.
+  String currentState(String layerName) {
+    for (final lr in _layers) {
+      if (lr.layer.name == layerName) return lr.currentState;
+    }
+    throw FormatException('unknown state machine layer: $layerName');
+  }
+
+  double layerTime(String layerName) {
+    for (final lr in _layers) {
+      if (lr.layer.name == layerName) return lr.time;
+    }
+    throw FormatException('unknown state machine layer: $layerName');
+  }
+
+  bool getBoolInput(String name) {
+    for (final iv in _inputs) {
+      if (iv.name == name) {
+        if (iv.kind != StateMachineInputKind.bool_) {
+          throw FormatException('state machine input is not bool: $name');
+        }
+        return iv.boolValue;
+      }
+    }
+    throw FormatException('unknown state machine input: $name');
+  }
+
+  double getNumberInput(String name) {
+    for (final iv in _inputs) {
+      if (iv.name == name) {
+        if (iv.kind != StateMachineInputKind.number) {
+          throw FormatException('state machine input is not number: $name');
+        }
+        return iv.numberValue;
+      }
+    }
+    throw FormatException('unknown state machine input: $name');
+  }
+
+  void setBoolInput(String name, bool value) {
+    for (final iv in _inputs) {
+      if (iv.name == name) {
+        if (iv.kind != StateMachineInputKind.bool_) {
+          throw FormatException('state machine input is not bool: $name');
+        }
+        iv.boolValue = value;
+        return;
+      }
+    }
+    throw FormatException('unknown state machine input: $name');
+  }
+
+  void setNumberInput(String name, double value) {
+    for (final iv in _inputs) {
+      if (iv.name == name) {
+        if (iv.kind != StateMachineInputKind.number) {
+          throw FormatException('state machine input is not number: $name');
+        }
+        iv.numberValue = value;
+        return;
+      }
+    }
+    throw FormatException('unknown state machine input: $name');
+  }
+
+  void fireTrigger(String name) {
+    for (final iv in _inputs) {
+      if (iv.name == name) {
+        if (iv.kind != StateMachineInputKind.trigger) {
+          throw FormatException('state machine input is not trigger: $name');
+        }
+        iv.boolValue = true;
+        return;
+      }
+    }
+    throw FormatException('unknown state machine input: $name');
+  }
+
+  void update(double dt) {
+    if (dt < 0.0) throw ArgumentError.value(dt, 'dt', 'must be >= 0');
+    events.clear();
+    for (final lr in _layers) {
+      lr.time += dt;
+    }
+    _applyTransitions();
+  }
+
+  void _applyTransitions() {
+    // Collect matched transitions per layer (one per layer at most, first match wins).
+    final matched = <({int layerIndex, StateMachineTransition transition})>[];
+    final consumedTriggers = <String>{};
+
+    for (var li = 0; li < _layers.length; li++) {
+      final lr = _layers[li];
+      for (final t in lr.layer.transitions) {
+        if (t.fromState != lr.currentState) continue;
+        if (_transitionMatches(t)) {
+          matched.add((layerIndex: li, transition: t));
+          for (final c in t.conditions) {
+            if (c.kind == StateMachineConditionKind.triggerSet) {
+              consumedTriggers.add(c.input);
+            }
+          }
+          break;
+        }
+      }
+    }
+
+    for (final m in matched) {
+      final lr = _layers[m.layerIndex];
+      final layerName = lr.layer.name;
+      final from = m.transition.fromState;
+      final to = m.transition.toState;
+      _emitEvents(StateMachineListenerKind.stateExit, layerName, from, to);
+      _emitEvents(StateMachineListenerKind.transition_, layerName, from, to);
+      lr.currentState = to;
+      lr.time = 0.0;
+      _emitEvents(StateMachineListenerKind.stateEnter, layerName, from, to);
+    }
+
+    for (final name in consumedTriggers) {
+      for (final iv in _inputs) {
+        if (iv.name == name && iv.kind == StateMachineInputKind.trigger) {
+          iv.boolValue = false;
+          break;
+        }
+      }
+    }
+  }
+
+  bool _transitionMatches(StateMachineTransition t) {
+    for (final c in t.conditions) {
+      if (!_conditionMatches(c)) return false;
+    }
+    return true;
+  }
+
+  bool _conditionMatches(StateMachineCondition c) {
+    _InputValue? iv;
+    for (final v in _inputs) {
+      if (v.name == c.input) {
+        iv = v;
+        break;
+      }
+    }
+    if (iv == null) throw FormatException('missing state machine runtime input: ${c.input}');
+    switch (c.kind) {
+      case StateMachineConditionKind.boolEquals:
+        return iv.boolValue == c.boolValue;
+      case StateMachineConditionKind.numberEquals:
+        return iv.numberValue == c.numberValue;
+      case StateMachineConditionKind.numberGreater:
+        return iv.numberValue > c.numberValue;
+      case StateMachineConditionKind.numberGreaterOrEqual:
+        return iv.numberValue >= c.numberValue;
+      case StateMachineConditionKind.numberLess:
+        return iv.numberValue < c.numberValue;
+      case StateMachineConditionKind.numberLessOrEqual:
+        return iv.numberValue <= c.numberValue;
+      case StateMachineConditionKind.triggerSet:
+        return iv.boolValue;
+    }
+  }
+
+  void _emitEvents(
+    StateMachineListenerKind kind,
+    String layerName,
+    String fromState,
+    String toState,
+  ) {
+    for (final listener in _data.listeners) {
+      if (listener.kind != kind || listener.layer != layerName) continue;
+      switch (kind) {
+        case StateMachineListenerKind.stateEnter:
+          if (listener.toState != toState) continue;
+        case StateMachineListenerKind.stateExit:
+          if (listener.fromState != fromState) continue;
+        case StateMachineListenerKind.transition_:
+          if (listener.fromState != fromState || listener.toState != toState) continue;
+      }
+      events.add(StateMachineListenerEvent(
+        listener: listener.name,
+        kind: kind,
+        layer: layerName,
+        fromState: fromState,
+        toState: toState,
+      ));
+    }
+  }
+
+  EvaluatedStateMachine evaluate(SkeletonData data) {
+    final evalLayers = <EvaluatedStateMachineLayer>[];
+    var combined = const MixedPose(scalars: []);
+
+    for (final lr in _layers) {
+      final state = _stateByName(lr.layer, lr.currentState);
+      final sampleTime = _computeSampleTime(data, state, lr.time);
+      final pose = _sampleStatePose(data, state, lr.time);
+      evalLayers.add(EvaluatedStateMachineLayer(
+        layer: lr.layer.name,
+        state: lr.currentState,
+        time: sampleTime,
+        pose: pose,
+      ));
+      combined = _overlayPose(combined, pose);
+    }
+
+    return EvaluatedStateMachine(layers: evalLayers, pose: combined);
+  }
+
+  // Compute the wrapped sample time for evaluate's reported time field.
+  // For blend1d: raw time. For clip: wrapped by loop/clamp then quantized.
+  double _computeSampleTime(SkeletonData data, StateMachineState state, double time) {
+    if (state.kind == StateMachineStateKind.blend1d) return time;
+    final clip = _findClip(data, state.clipName);
+    final wrapped = state.loop && clip.duration > 0 ? time % clip.duration : math.min(time, clip.duration);
+    return quantizeF32(wrapped);
+  }
+
+  MixedPose _sampleStatePose(SkeletonData data, StateMachineState state, double time) {
+    if (state.kind == StateMachineStateKind.clip) {
+      final clip = _findClip(data, state.clipName);
+      return _sampleClipPose(data, clip, state.loop, time);
+    } else {
+      return _sampleBlendPose(data, state, time);
+    }
+  }
+
+  MixedPose _sampleBlendPose(SkeletonData data, StateMachineState state, double time) {
+    final input = getNumberInput(state.blendInput);
+    final clips = state.blendClips;
+    if (clips.isEmpty) return const MixedPose(scalars: []);
+    if (input <= clips.first.value) {
+      return _sampleClipPose(data, _findClip(data, clips.first.clipName), clips.first.loop, time);
+    }
+    for (var i = 0; i < clips.length - 1; i++) {
+      final lo = clips[i];
+      final hi = clips[i + 1];
+      if (input <= hi.value) {
+        final t = hi.value == lo.value ? 0.0 : (input - lo.value) / (hi.value - lo.value);
+        final loClip = _findClip(data, lo.clipName);
+        final hiClip = _findClip(data, hi.clipName);
+        final loPose = _sampleClipPose(data, loClip, lo.loop, time);
+        final hiPose = _sampleClipPose(data, hiClip, hi.loop, time);
+        return _blendPoses(data, loPose, hiPose, t);
+      }
+    }
+    final last = clips.last;
+    return _sampleClipPose(data, _findClip(data, last.clipName), last.loop, time);
+  }
+}
+
+// --- Free helpers ---
+
+AnimationClip _findClip(SkeletonData data, String name) {
+  for (final a in data.animations) {
+    if (a.name == name) return a;
+  }
+  throw FormatException('state machine: clip not found: $name');
+}
+
+StateMachineState _stateByName(StateMachineLayer layer, String name) {
+  for (final s in layer.states) {
+    if (s.name == name) return s;
+  }
+  throw FormatException('state machine: unknown state: $name in layer ${layer.name}');
+}
+
+MixedPose _sampleClipPose(SkeletonData data, AnimationClip clip, bool loop, double time) {
+  final anim = AnimationState(data);
+  anim.setAnimation(0, clip, loop: loop);
+  final wrapped = loop && clip.duration > 0 ? time % clip.duration : math.min(time, clip.duration);
+  anim.tracks[0].current!.time = quantizeF32(wrapped);
+  return anim.sample();
+}
+
+String _scalarKey(String bone, BoneTimelineKind kind) => '$bone\x00${kind.index}';
+
+MixedPose _overlayPose(MixedPose base, MixedPose overlay) {
+  final map = <String, ({String bone, BoneTimelineKind kind, double value})>{};
+  for (final s in base.scalars) {
+    map[_scalarKey(s.bone, s.kind)] = s;
+  }
+  for (final s in overlay.scalars) {
+    map[_scalarKey(s.bone, s.kind)] = s;
+  }
+  final sorted = map.values.toList()
+    ..sort((a, b) {
+      final c = a.bone.compareTo(b.bone);
+      return c != 0 ? c : a.kind.index.compareTo(b.kind.index);
+    });
+  return MixedPose(scalars: sorted);
+}
+
+MixedPose _blendPoses(SkeletonData data, MixedPose lo, MixedPose hi, double t) {
+  final channels = <String, ({String bone, BoneTimelineKind kind})>{};
+  for (final s in lo.scalars) {
+    channels[_scalarKey(s.bone, s.kind)] = (bone: s.bone, kind: s.kind);
+  }
+  for (final s in hi.scalars) {
+    channels[_scalarKey(s.bone, s.kind)] = (bone: s.bone, kind: s.kind);
+  }
+  final loMap = {for (final s in lo.scalars) _scalarKey(s.bone, s.kind): s.value};
+  final hiMap = {for (final s in hi.scalars) _scalarKey(s.bone, s.kind): s.value};
+
+  double setupValue(String bone, BoneTimelineKind kind) {
+    for (final b in data.bones) {
+      if (b.name != bone) continue;
+      return switch (kind) {
+        BoneTimelineKind.rotate => b.rotation,
+        BoneTimelineKind.translateX => b.x,
+        BoneTimelineKind.translateY => b.y,
+        BoneTimelineKind.scaleX => b.scaleX,
+        BoneTimelineKind.scaleY => b.scaleY,
+        BoneTimelineKind.shearX => b.shearX,
+        BoneTimelineKind.shearY => b.shearY,
+      };
+    }
+    return 0.0;
+  }
+
+  final result = <({String bone, BoneTimelineKind kind, double value})>[];
+  for (final entry in channels.entries) {
+    final key = entry.key;
+    final ch = entry.value;
+    final setup = setupValue(ch.bone, ch.kind);
+    final loV = loMap[key] ?? setup;
+    final hiV = hiMap[key] ?? setup;
+    result.add((bone: ch.bone, kind: ch.kind, value: loV + (hiV - loV) * t));
+  }
+  result.sort((a, b) {
+    final c = a.bone.compareTo(b.bone);
+    return c != 0 ? c : a.kind.index.compareTo(b.kind.index);
+  });
+  return MixedPose(scalars: result);
+}
+
+// --- Factory ---
+
+StateMachineRuntime initStateMachineRuntime(StateMachineData data) {
+  final layers = data.layers.map((l) {
+    final initial = l.initialState.isNotEmpty ? l.initialState : l.states.first.name;
+    return _LayerRuntime(layer: l, currentState: initial);
+  }).toList();
+
+  final inputs = data.inputs.map((inp) {
+    switch (inp.kind) {
+      case StateMachineInputKind.bool_:
+        return _InputValue(name: inp.name, kind: inp.kind, boolValue: inp.defaultBool);
+      case StateMachineInputKind.number:
+        return _InputValue(name: inp.name, kind: inp.kind, numberValue: inp.defaultNumber);
+      case StateMachineInputKind.trigger:
+        return _InputValue(name: inp.name, kind: inp.kind);
+    }
+  }).toList();
+
+  return StateMachineRuntime._(data, layers, inputs);
+}
