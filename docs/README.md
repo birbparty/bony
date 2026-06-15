@@ -73,6 +73,16 @@ public capability-level knowledge only — no runtime source from third parties.
 
 ---
 
+## Runtime Design Notes (Deferred)
+
+Design notes for future runtime targets. No implementation in v1.
+
+| Document | Scope |
+|----------|-------|
+| [csharp-runtime-design.md](csharp-runtime-design.md) | C# managed runtime: Unity/Godot embedder seams, codegen strategy, conformance-vector compatibility |
+
+---
+
 ## Governance and Provenance
 
 | Document | What it records |
