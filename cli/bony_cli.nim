@@ -1077,10 +1077,86 @@ proc vertexJson(vertex: DrawVertex): JsonNode =
   result["a"] = newJFloat(vertex.a)
 
 
+proc defaultParamSamples(data: SkeletonData): seq[ParameterSample] =
+  for param in data.parameters:
+    result.add defaultParameterSample(param)
+
+
+proc effectiveDeformers(data: SkeletonData; samples: seq[ParameterSample]): seq[Deformer] =
+  for rec in data.deformers:
+    if rec.keyformBlend.axes.len > 0 and rec.keyformBlend.keyforms.len > 0 and rec.deformer.kind == warpDeformerKind:
+      let pts = sampleKeyformPoints(rec.keyformBlend, samples)
+      result.add warpDeformer(
+        rec.deformer.id,
+        warpLattice(
+          rec.deformer.warp.rows, rec.deformer.warp.cols,
+          rec.deformer.warp.minX, rec.deformer.warp.minY,
+          rec.deformer.warp.maxX, rec.deformer.warp.maxY,
+          pts,
+        ),
+        rec.deformer.parent,
+        rec.deformer.order,
+      )
+    else:
+      result.add rec.deformer
+
+
+proc applyDeformersToDrawBatches(batches: seq[DrawBatch]; deforms: seq[Deformer]): seq[DrawBatch] =
+  if deforms.len == 0:
+    return batches
+  result = batches
+  for batchIndex, batch in batches:
+    var skinned: seq[SkinnedMeshVertex]
+    for v in batch.vertices:
+      skinned.add SkinnedMeshVertex(x: v.x, y: v.y, u: v.u, v: v.v)
+    let deformed = applyDeformers(skinned, deforms)
+    doAssert deformed.len == batch.vertices.len, "applyDeformers must preserve vertex count"
+    for vertIndex, dv in deformed:
+      result[batchIndex].vertices[vertIndex].x = dv.x
+      result[batchIndex].vertices[vertIndex].y = dv.y
+
+
+proc deformerJson(rec: DeformerRecord; samples: seq[ParameterSample]): JsonNode =
+  result = newJObject()
+  result["id"] = newJString(rec.deformer.id)
+  if rec.deformer.parent.len > 0:
+    result["parent"] = newJString(rec.deformer.parent)
+  result["order"] = newJInt(int(rec.deformer.order))
+  case rec.deformer.kind
+  of warpDeformerKind:
+    result["kind"] = newJString("warp")
+    var pts: seq[DeformerPoint]
+    if rec.keyformBlend.axes.len > 0 and rec.keyformBlend.keyforms.len > 0:
+      pts = sampleKeyformPoints(rec.keyformBlend, samples)
+    else:
+      pts = rec.deformer.warp.controlPoints
+    var cpArr = newJArray()
+    for pt in pts:
+      var cpNode = newJObject()
+      cpNode["x"] = newJFloat(pt.x)
+      cpNode["y"] = newJFloat(pt.y)
+      cpArr.add cpNode
+    result["controlPoints"] = cpArr
+  of rotationDeformerKind:
+    result["kind"] = newJString("rotation")
+    let rot = rec.deformer.rotation
+    var rotNode = newJObject()
+    rotNode["pivotX"] = newJFloat(rot.pivotX)
+    rotNode["pivotY"] = newJFloat(rot.pivotY)
+    rotNode["angleDegrees"] = newJFloat(rot.angleDegrees)
+    rotNode["scaleX"] = newJFloat(rot.scaleX)
+    rotNode["scaleY"] = newJFloat(rot.scaleY)
+    rotNode["opacity"] = newJFloat(rot.opacity)
+    result["rotation"] = rotNode
+
+
 proc numericGoldenJson(data: SkeletonData; time: float64): string =
   validateSkeletonData(data)
   let worlds = computeWorldTransforms(data)
-  let batches = buildDrawBatches(data)
+  let baseBatches = buildDrawBatches(data)
+  let samples = defaultParamSamples(data)
+  let efDefs = effectiveDeformers(data, samples)
+  let batches = applyDeformersToDrawBatches(baseBatches, efDefs)
   var root = newJObject()
   root["format"] = newJString("bony.numeric-golden.v1")
   root["skeleton"] = newJString(data.header.name)
@@ -1109,6 +1185,12 @@ proc numericGoldenJson(data: SkeletonData; time: float64): string =
     node["a"] = newJFloat(1.0)
     slots.add node
   root["slots"] = slots
+
+  if data.deformers.len > 0:
+    var defArray = newJArray()
+    for rec in data.deformers:
+      defArray.add deformerJson(rec, samples)
+    root["deformers"] = defArray
 
   var drawBatches = newJArray()
   for batch in batches:
