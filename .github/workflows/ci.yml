@@ -130,5 +130,10 @@ jobs:
           pip3 install --quiet 'Pillow>=10.0.0,<12'
           python3 scripts/ci/image_diff_check.py --bony-bin /tmp/bony_bin
 
+      - name: Input-script conformance gate
+        run: |
+          pip3 install --quiet 'jsonschema>=4.18.0,<5'
+          python3 scripts/ci/input_script_run.py --bony-bin /tmp/bony_bin
+
       - name: Whitespace check
         run: git diff --check

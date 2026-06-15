@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bony.local/spec/bony-input-script.schema.json",
+  "title": "bony input script",
+  "description": "bony.input-script.v1: a JSON file that drives the golden-gen harness through one or more time-sampled poses, optionally with named state-machine inputs.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "asset", "samples"],
+  "properties": {
+    "format": {
+      "type": "string",
+      "const": "bony.input-script.v1",
+      "description": "Sentinel that identifies this file as a bony input script."
+    },
+    "asset": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Basename of the conformance asset file (e.g. 'm2_rig.bony'). Resolved relative to the sibling assets/ directory: conformance/scripts/<asset> -> conformance/assets/<asset>."
+    },
+    "samples": {
+      "type": "array",
+      "minItems": 1,
+      "description": "Ordered list of time samples to evaluate. Each sample drives one golden-gen invocation.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["t"],
+        "properties": {
+          "t": {
+            "type": "number",
+            "minimum": 0.0,
+            "description": "Time in seconds at which to sample the skeleton. Passed as --t to golden-gen."
+          },
+          "inputs": {
+            "type": "object",
+            "description": "Named state-machine inputs at this sample. Keys are input names; values are booleans, numbers, or strings. Empty object ({}) means no inputs (setup pose evaluation only).",
+            "additionalProperties": {
+              "oneOf": [
+                {"type": "boolean"},
+                {"type": "number"},
+                {"type": "string"}
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}
