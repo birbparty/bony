@@ -1,0 +1,27 @@
+{
+  "skeleton": {
+    "name": "m3-rig",
+    "version": "1.0.0"
+  },
+  "bones": [
+    {"name": "root"},
+    {"name": "hip", "parent": "root", "y": -10},
+    {"name": "spine", "parent": "hip", "y": -30},
+    {"name": "head", "parent": "spine", "y": -75, "rotation": 5},
+    {"name": "arm_r", "parent": "spine", "x": -40, "y": -5, "rotation": -20},
+    {"name": "arm_l", "parent": "spine", "x": 40, "y": -5, "rotation": 20}
+  ],
+  "slots": [
+    {"name": "arm_r_slot", "bone": "arm_r", "attachment": "arm_r"},
+    {"name": "arm_l_slot", "bone": "arm_l", "attachment": "arm_l"},
+    {"name": "body_slot", "bone": "spine", "attachment": "body"},
+    {"name": "head_slot", "bone": "head", "attachment": "head_open"}
+  ],
+  "regions": [
+    {"name": "arm_r", "width": 25, "height": 70},
+    {"name": "arm_l", "width": 25, "height": 70},
+    {"name": "body", "width": 70, "height": 100},
+    {"name": "head_open", "width": 55, "height": 55},
+    {"name": "head_blink", "width": 55, "height": 55}
+  ]
+}
