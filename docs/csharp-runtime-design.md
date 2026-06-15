@@ -72,12 +72,13 @@ interface IDrawBatchConsumer {
 ```
 
 - `DrawBatch` is a value struct: slot name, bone name, texture page string,
-  blend mode enum, vertex array, index array.
+  blend mode string (open value — unknown values are an error, not silently
+  ignored), vertex array, index array.
 - Unity renderer implements `IDrawBatchConsumer` using `Graphics.DrawMesh`
   or a `MeshRenderer` + `MaterialPropertyBlock` combination for each batch.
 - The tint-black shader (dark/light two-colour blending) requires a custom
-  shader; see `docs/drawbatch-raylib-contract.md` §Tint-Black Shader for the
-  blend formula.
+  shader; see `docs/drawbatch-raylib-contract.md` §Color And Two-Color Tint
+  for the blend formula.
 
 ### Per-instance state
 
@@ -116,8 +117,9 @@ consumer.End();
 
 ## Godot Embedder Seam
 
-Godot 4 supports C# via Mono/.NET 6+. The bony C# runtime would run as a
-GDExtension class library (pure C#, no GDNative/C++ layer needed).
+Godot 4 supports C# via GodotSharp/.NET 6+. The bony C# runtime would ship
+as a pure-managed GodotSharp class library — no GDExtension (C/C++) layer
+required.
 
 ### Asset loading
 
@@ -159,9 +161,12 @@ against the Nim reference. A C# runtime must pass the same suite.
 ### Numeric compatibility
 
 The conformance golden format (`bony.numeric-golden.v1`) records bone world
-transforms, slot draw order, and path-constraint outputs to 6 significant
-figures. C# `double` (IEEE 754 64-bit) matches Nim `float64`; all cross-
-runtime numeric contracts in `docs/float-math-contract.md` apply unchanged.
+transforms and slot draw order as full-precision `float64` values. Numeric
+comparison uses **absolute tolerance `1e-4`** (not significant-figure
+rounding); string and integer fields are compared exactly. See
+`conformance/README.md` §Numeric golden format and `docs/float-math-contract.md`
+for the binding rules. C# `double` (IEEE 754 64-bit) matches Nim `float64`;
+all cross-runtime numeric contracts apply unchanged.
 
 Specific gate: `scripts/ci/conformance_run.py` invokes the CLI's `golden-gen`
 subcommand. A C# runtime would need a companion CLI (`bony-cs`) that implements
@@ -174,10 +179,11 @@ against `conformance/goldens/`. A C# `bony-cs play` command would need to
 produce pixel-identical output to the Nim software rasterizer, or the gate must
 be extended to allow a per-runtime reference image (currently unimplemented).
 
-The simplest approach: C# uses the same software rasterizer algorithm as the
-Nim `render/software_rasterizer.nim` (deterministic triangle fill, bilinear UV
-sampling) and produces bit-identical output. This avoids needing per-runtime
-image goldens.
+The simplest approach: C# uses the same software rasterizer algorithm as
+`runtime-nim/src/render/software_rasterizer.nim` (deterministic triangle fill,
+bilinear UV sampling). The image gate (`scripts/ci/image_diff_check.py`)
+allows ≤1 per-channel delta per pixel, so implementation-level rounding
+differences are tolerated. This avoids needing per-runtime image goldens.
 
 ---
 
