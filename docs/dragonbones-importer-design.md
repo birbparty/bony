@@ -193,6 +193,104 @@ For a shear case: `skX = 45°`, `skY = 0°`, `scX = scY = 1`. Mapping:
 The X axis is unrotated; the Y axis leans toward the X axis by 45°. This is
 a genuine shear (det = √2/2 ≠ 1), matching the DragonBones skewed-Y interpretation. ✓
 
+## Format Validation Against Sample Data
+
+The following findings are based on examination of `_ske.json` files from the
+DragonBonesJS Pixi demo resources (user-supplied input data; not runtime source).
+These findings supersede any prior assumptions in this document.
+
+### Skew Decomposition: Confirmed Correct
+
+The mapping `rotation = -skY`, `shearY = skY - skX`, `scaleX = scX`,
+`scaleY = scY`, `x = x`, `y = -y` was validated against all 20 bones in
+`mecha_1004d_ske.json`. Maximum matrix entry error < 1e-8. Including a bone
+with genuine shear (`effect_r`: `skX = -46.2343°`, `skY = -23.9186°`,
+`scX = 2.1416`, `scY = 2.3753`).
+
+### Animation Structure: Per-Channel Frame Arrays (Correction)
+
+Animation keyframes are **not** a unified `transform` delta on a single `frame`
+array. Instead, each bone timeline carries **separate per-channel arrays**:
+
+- `translateFrame`: translation keyframes (x/y additive deltas)
+- `rotateFrame`: rotation keyframes (`rotate` = additive delta to both skX and
+  skY; optional `clockwise` = arc direction hint)
+- `scaleFrame`: scale keyframes (x/y = absolute scale multipliers relative to
+  rest; default 1.0)
+
+Each channel is independent; a bone may animate only translation and not
+rotation, for example.
+
+### Terminator Frame: Validated
+
+Every channel array ends with a frame whose `duration` is `0`. This is the
+terminator: it defines the animation endpoint value (the loop restart point).
+The sum of **all** frame durations including the terminator equals
+`animation.duration`. Validated: mecha_1004d idle animation, `duration: 60`,
+pelvis `translateFrame` durations sum = 30 + 30 + 0 = 60 ✓.
+
+### Rotation Delta: Adds to Both skX and skY
+
+`rotateFrame.rotate` is an additive rotation delta (degrees) applied equally to
+both `skX` and `skY`. This preserves the original shear: if a bone had a
+non-zero `shearY = skY - skX`, animation does not change it.
+
+Validated: pelvis bone (rest `skX = skY = -174.7594°`), `rotate = -1.5°` at
+frame 30. Animated abs `skX = skY = -176.2594°`; `bony.rotation = 176.2594°`;
+`bony.shearY = 0` (unchanged). ✓
+
+The `clockwise` field (integer 0 or 1) appears on some `rotateFrame` entries
+to resolve arc direction ambiguity when the rotation delta is near ±180°. Tier
+1 may treat this as `unsupportedFeature` and require it absent, or implement the
+shortest-arc fallback.
+
+### Translation Delta: Additive (Validated)
+
+`translateFrame` `x` and `y` fields are additive offsets from the rest pose in
+DragonBones Y-down coordinates. Default (absent) = 0.
+
+Validated: pelvis bone (rest `x = -0.0889`, `y = 0.543`), frame-30 delta
+`x = -1.95`, `y = 0.01`. Bony animated values: `x = -0.0889 + (-1.95) = -2.039`,
+`y = -(0.543 + 0.01) = -0.553`. ✓
+
+### Scale Delta: Multiplicative (Validated Structurally)
+
+`scaleFrame` `x` and `y` are scale multipliers applied to the bone's rest
+`scX`/`scY`. Default (absent) = 1.0 (identity). Validated structurally: first
+frame absent (defaults to 1.0, no change), subsequent frames have values near
+1.0 (e.g., 0.99, 1.01) representing small squash-and-stretch deviations.
+
+### Observed Field Set (Complete)
+
+All field names in `_ske.json` files observed in the sample set:
+
+**Top-level**: `name`, `version`, `compatibleVersion`, `armature`, `frameRate`
+(duplicate of armature frameRate), `isGlobal`, `textureAtlas` (inline atlas for
+some exports). None affect import; `version` and `armature` are the only parsed
+fields.
+
+**ArmatureObject extra fields**: `aabb` (bounding box hint), `defaultActions`,
+`ik` (IK constraint list), `canvas` (canvas size hint). None affect Tier 1 bone
+or skin import.
+
+**AnimationObject extra fields**: `fadeInTime`, `playTimes`, `blendType`,
+`type`, `frame` (global event frames, separate from bone frames), `slot` (slot
+channel list), `ffd` (mesh free-form deform channels, always empty in Tier 1
+scope).
+
+**rotateFrame**: `duration`, `rotate`, `tweenEasing`, `curve`, `clockwise`.
+
+**translateFrame**: `duration`, `x`, `y`, `tweenEasing`, `curve`.
+
+**scaleFrame**: `duration`, `x`, `y`, `tweenEasing`, `curve`.
+
+**Slot channel types**: `colorFrame` and `displayFrame` (both Tier 1 rejects).
+
+**colorFrame**: `duration`, `tweenEasing`, `curve`, `value`/`color` (both
+spellings observed; object with `aM`, `rM`, `gM`, `bM` in 0–100 percent range).
+
+**displayFrame**: `duration`, `value` (integer display index; -1 = hidden).
+
 ## Importer-Owned Adapter Model
 
 The importer should parse into an intermediate model before constructing
@@ -201,18 +299,20 @@ The importer should parse into an intermediate model before constructing
 - `DbSkeleton`: version string, top-level name, armature list.
 - `DbArmature`: name, frame-rate, bone list, slot list, skin list, animation
   list.
-- `DbBone`: name, optional parent name, optional length hint, optional
-  `DbTransform` (rest-pose transform).
+- `DbBone`: name, optional parent name, optional `DbTransform` (rest-pose).
 - `DbSlot`: name, parent bone name, draw-order index, optional blend mode.
 - `DbSkin`: name, display entries per slot.
-- `DbDisplay`: name, display type, optional `DbTransform`, optional
-  width/height for image displays.
-- `DbAnimation`: name, duration in frames, bone timeline list.
-- `DbBoneTimeline`: bone name, keyframe list.
-- `DbKeyframe`: duration-offset in frames, optional `DbTransform` delta,
-  tween-easing value or null, optional Bezier curve handles.
-- `DbTransform`: x, y, skX, skY, scX, scY — all optional with the defaults
-  listed above.
+- `DbDisplay`: name, display type, optional `DbTransform`, optional dimensions.
+- `DbAnimation`: name, duration in frames, bone channel list.
+- `DbBoneChannels`: bone name, optional translate-frame list, optional
+  rotate-frame list, optional scale-frame list.
+- `DbTranslateFrame`: duration (frames), x delta, y delta, tween easing, optional
+  curve.
+- `DbRotateFrame`: duration (frames), rotate delta (degrees), tween easing,
+  optional curve, optional clockwise hint.
+- `DbScaleFrame`: duration (frames), scX multiplier, scY multiplier, tween
+  easing, optional curve.
+- `DbTransform`: x, y, skX, skY, scX, scY — all optional with defaults.
 
 This intermediate model is project-owned. The importer isolates input-field
 names at the parser boundary so runtime objects and conformance assets remain
@@ -234,8 +334,9 @@ leak into bony runtime objects.
 }
 ```
 
-Allowed keys at the **top-level** object: `name`, `version`, `armature`. Any
-other key → `schemaViolation`.
+Required keys: `version`, `armature`. Optional known keys (`name`,
+`compatibleVersion`, `frameRate`, `isGlobal`, `textureAtlas`) are silently
+ignored. Unknown keys beyond these are also silently ignored at the top level.
 
 The importer rejects version strings that do not begin with `"5."`. Earlier
 DragonBones versions used different transform semantics; the math above applies
@@ -255,8 +356,10 @@ only to `_ske.json` format version 5.x files.
 }
 ```
 
-Allowed keys at the **ArmatureObject** level: `name`, `frameRate`, `type`,
-`bone`, `slot`, `skin`, `animation`. Any other key → `schemaViolation`.
+Required keys: `name`, `frameRate`, `type`, `bone`. Optional known keys
+(`slot`, `skin`, `animation`, `aabb`, `defaultActions`, `ik`, `canvas`) are
+parsed or silently ignored as noted. Unknown keys beyond these are silently
+ignored at the armature level.
 
 A static rig (no `animation` key, or empty `animation` array) is valid input. The
 `--setup-only` flag also suppresses any animation present in the file. Both paths
@@ -346,29 +449,93 @@ Any additional field in a `TransformObject` is rejected as `schemaViolation`.
 
 ```
 {
-  "name":     string,           // required
-  "duration": number,           // required, integer frames > 0
-  "bone": [ BoneTimelineObject ] // optional; absent = static animation
+  "name":     string,                  // required
+  "duration": number,                  // required, integer frames > 0
+  "bone": [ BoneChannelObject ],       // optional; absent or empty = static
+  "slot": [ SlotChannelObject ]        // optional; all slot channels rejected in Tier 1
 }
 ```
 
-### BoneTimelineObject
+Other fields (`fadeInTime`, `playTimes`, `blendType`, `type`, `frame`, `ffd`)
+are silently ignored.
+
+### BoneChannelObject
+
+A bone's per-channel animation data. All channel arrays are optional; a bone
+not listed has no animation (holds rest pose throughout).
 
 ```
 {
-  "name":  string,              // required, references a BoneObject name
-  "frame": [ KeyframeObject ]   // required, non-empty
+  "name":           string,               // required; references a BoneObject name
+  "translateFrame": [ TranslateFrame ],   // optional
+  "rotateFrame":    [ RotateFrame ],      // optional
+  "scaleFrame":     [ ScaleFrame ]        // optional
 }
 ```
 
-### KeyframeObject
+### TranslateFrame
 
 ```
 {
-  "duration":    number,        // required, integer frames ≥ 1
+  "duration":    number,        // required, integer ≥ 0; 0 = terminator
+  "x":           number,        // optional; additive x delta; default 0
+  "y":           number,        // optional; additive y delta; default 0
   "tweenEasing": number | null, // optional; see §Easing
-  "curve":       [ number ],    // optional; four Bezier control values; see §Easing
-  "transform":   TransformObject // optional; delta transform from rest pose
+  "curve":       [ number ]     // optional; see §Easing
+}
+```
+
+### RotateFrame
+
+```
+{
+  "duration":    number,        // required, integer ≥ 0; 0 = terminator
+  "rotate":      number,        // optional; rotation delta in degrees; default 0
+  "clockwise":   number,        // optional; 0 or 1; arc direction hint; see §Easing
+  "tweenEasing": number | null, // optional; see §Easing
+  "curve":       [ number ]     // optional; see §Easing
+}
+```
+
+### ScaleFrame
+
+```
+{
+  "duration":    number,        // required, integer ≥ 0; 0 = terminator
+  "x":           number,        // optional; scX multiplier; default 1.0
+  "y":           number,        // optional; scY multiplier; default 1.0
+  "tweenEasing": number | null, // optional; see §Easing
+  "curve":       [ number ]     // optional; see §Easing
+}
+```
+
+### SlotChannelObject
+
+```
+{
+  "name":         string,               // required; references a SlotObject name
+  "colorFrame":   [ ColorFrame ],       // optional; Tier 1: unsupportedFeature
+  "displayFrame": [ DisplayFrame ]      // optional; Tier 1: unsupportedFeature
+}
+```
+
+### ColorFrame
+
+```
+{
+  "duration":    number,        // required, integer ≥ 0
+  "value":       ColorMultiplierObject,  // optional; or key "color" (alias)
+  "tweenEasing": number | null,
+  "curve":       [ number ]
+}
+```
+
+### DisplayFrame
+
+```
+{
+  "duration": number,           // required, integer ≥ 0
+  "value":    number            // optional; display index; -1 = hidden
 }
 ```
 
@@ -394,17 +561,19 @@ Only `"normal"` (the default) is in the first supported subset. Others produce
 
 ## Structural Mapping to bony
 
-| DragonBones concept      | bony concept                      |
-| ------------------------ | --------------------------------- |
-| Armature                 | `SkeletonData`                    |
-| Bone (name, parent)      | `Bone` (name, parent)             |
-| Bone rest-pose transform | Bone `x`, `y`, `rotation`, etc.   |
-| Slot (name, parent bone) | `Slot` (name, bone)               |
-| Skin (name)              | `Skin` (name)                     |
-| Image display in skin    | `RegionAttachment` in skin        |
-| Animation (name)         | `AnimationClip` (name)            |
-| Bone timeline            | Per-bone property timelines       |
-| Keyframe (duration, transform delta) | Keyframe in property timeline |
+| DragonBones concept          | bony concept                         |
+| ---------------------------- | ------------------------------------ |
+| Armature                     | `SkeletonData`                       |
+| Bone (name, parent)          | `Bone` (name, parent)                |
+| Bone rest-pose transform     | Bone `x`, `y`, `rotation`, etc.      |
+| Slot (name, parent bone)     | `Slot` (name, bone)                  |
+| Skin (name)                  | `Skin` (name)                        |
+| Image display in skin        | `RegionAttachment` in skin           |
+| Animation (name, duration)   | `AnimationClip` (name)               |
+| `translateFrame` channel     | Separate X and Y translation timelines |
+| `rotateFrame` channel        | Rotation timeline (shearY stays constant) |
+| `scaleFrame` channel         | Separate scaleX and scaleY timelines |
+| TranslateFrame/RotateFrame/ScaleFrame with `duration` | Keyframe in property timeline |
 
 ### Bone Hierarchy
 
@@ -434,7 +603,7 @@ decomposition to obtain a bony attachment offset and rotation. The attachment
 `scX` / `scY` map directly to attachment `scaleX` / `scaleY`. The attachment
 `y` follows the same negation (`bony.y = -db.y`).
 
-### Animation: Time Basis
+### Animation: Time Basis and Terminator Frame
 
 DragonBones animation time is frame-based. Convert to seconds:
 
@@ -442,69 +611,90 @@ DragonBones animation time is frame-based. Convert to seconds:
 time_seconds = cumulative_frame_offset / armature.frameRate
 ```
 
-Each `KeyframeObject` contributes `duration` frames. The cumulative offset of
-keyframe `i` is the sum of `duration` fields of all prior keyframes in the
-timeline. The first keyframe always begins at `t = 0`.
+Each channel frame's `duration` is the number of frames from that keyframe to
+the next. The cumulative offset of keyframe `i` is the sum of `duration` fields
+of all prior keyframes in that channel.
 
-### Animation: Keyframe Duration and Timeline Coverage
+Every channel array ends with a **terminator frame** whose `duration` is `0`.
+The terminator defines the animation endpoint value (the loop-restart pose). The
+sum of all durations **including the terminator** must equal `animation.duration`.
+Validated: mecha_1004d idle, pelvis `translateFrame` durations 30 + 30 + 0 = 60 =
+`animation.duration`. ✓
 
-The `duration` of each `KeyframeObject` is the number of frames this keyframe
-occupies before the next keyframe starts. The sum of all keyframe durations in a
-timeline must equal `animation.duration`. If the sum is less, the importer
-treats the gap as a hold on the last keyframe value. If the sum exceeds
-`animation.duration`, emit `schemaViolation`.
+If the sum exceeds `animation.duration` → `schemaViolation`. If the sum is less
+(e.g., terminator missing) → treat as a hold on the final explicit value through
+the end.
 
-This invariant must be validated with at least one user-supplied `_ske.json`
-sample before the implementation is considered conformant (see Implementation
-Gate).
+### Animation: Per-Channel Animated Values
 
-### Animation: Delta Transform Application
+Each channel produces an independent bony timeline. The formulas below are
+validated against sample data.
 
-*Assumption (pending sample validation)*: DragonBones keyframe `transform`
-fields are per-channel additive offsets from the bone's rest pose, with scale
-composing multiplicatively. This assumption must be confirmed against the
-user-supplied sample at the Implementation Gate.
-
-To obtain the absolute bone transform at keyframe `i`:
+**Translation channel** (`translateFrame`):
 
 ```
-abs.x   = rest.x + delta.x      (no negation: delta is already in DB coord)
-abs.y   = rest.y + delta.y      (negate after summing: bony.y = -(rest.y + delta.y))
-abs.skX = rest.skX + delta.skX
-abs.skY = rest.skY + delta.skY
-abs.scX = rest.scX * delta.scX  (scale composes multiplicatively)
-abs.scY = rest.scY * delta.scY
+bony.x[t] = rest.x + translateFrame.x_delta[t]    (x_delta default: 0)
+bony.y[t] = -(rest.y + translateFrame.y_delta[t])  (y_delta default: 0)
 ```
 
-Then apply the skew decomposition to the absolute `(skX, skY, scX, scY, x, y)`
-to obtain bony keyframe values. Scale defaults in `delta` are `1.0` (identity
-multiplicative), not `0.0`.
+Produces two bony keyframe timelines: one for `x` and one for `y`. Both are
+linear (or step) between sampled keyframe values.
 
-If the importer encounters a timeline with no keyframe at `t = 0`, emit an
-implicit keyframe at `t = 0` using the rest-pose transform (delta = identity).
+**Rotation channel** (`rotateFrame`):
+
+```
+abs.skX[t] = rest.skX + rotateFrame.rotate[t]     (rotate default: 0)
+abs.skY[t] = rest.skY + rotateFrame.rotate[t]
+bony.rotation[t] = -abs.skY[t]
+bony.shearY[t]   = rest_bony_shearY                (constant; animation does not change shear)
+```
+
+Validated: pelvis bone, `rotate = -1.5°` at frame 30 →
+`bony.rotation = 176.2594°`, `bony.shearY = 0` (unchanged from rest). ✓
+
+`bony.shearX` is always `0` (canonical choice; rotation does not introduce shear).
+
+The `clockwise` field on a `RotateFrame` entry (value 0 or 1) is a direction
+hint for interpolation when the rotation arc crosses ±180°. Tier 1 may reject
+`clockwise` as `unsupportedFeature` and require it absent; conformance fixtures
+must test this explicitly.
+
+**Scale channel** (`scaleFrame`):
+
+```
+bony.scaleX[t] = rest.scX * scaleFrame.x[t]   (x default: 1.0)
+bony.scaleY[t] = rest.scY * scaleFrame.y[t]   (y default: 1.0)
+```
+
+Produces two bony keyframe timelines: one for `scaleX` and one for `scaleY`.
+
+**Channels that are absent** produce no bony keyframes for that property; the
+property holds its rest-pose value throughout the animation.
 
 ### Animation: Easing
 
-`tweenEasing` and `curve` control interpolation between this keyframe and the
-next. The easing semantics below are **assumed** from capability-level knowledge
-and must be validated against the user-supplied `_ske.json` sample at the
-Implementation Gate (linear-interpolation and step/hold golden outputs are both
-required conformance fixtures for this reason).
+`tweenEasing` and `curve` fields appear on all per-channel frame types
+(`TranslateFrame`, `RotateFrame`, `ScaleFrame`, `ColorFrame`). They control
+interpolation between this keyframe and the next.
 
-- `tweenEasing` absent or `null`: step / hold interpolation — no tween. The
-  bony equivalent is a step keyframe; the value holds until the next keyframe.
-- `tweenEasing = 0`: linear interpolation between keyframes.
-- Any other numeric `tweenEasing` value: reject with `unsupportedFeature` in
-  Tier 1. DragonBones uses non-zero values to encode ease-in/ease-out weight;
-  mapping to bony cubic keyframe curves is deferred.
-- `curve` present: must be an array of exactly four numbers `[cx1, cy1, cx2,
-  cy2]`. A well-formed four-element `curve` → `unsupportedFeature` in Tier 1.
-  A malformed `curve` (wrong type or wrong arity) → `schemaViolation`.
+- `tweenEasing` absent or `null`: step / hold — value holds until next keyframe.
+  Bony equivalent: step keyframe.
+- `tweenEasing = 0`: linear interpolation. Bony equivalent: linear keyframe.
+- Any other numeric `tweenEasing`: reject with `unsupportedFeature` in Tier 1.
+  (DragonBones uses non-zero values for ease-in/ease-out weight; mapping to
+  bony cubic keyframe curves is deferred.)
+- `curve` present (array of four numbers `[cx1, cy1, cx2, cy2]`): Bezier easing.
+  Well-formed four-element `curve` → `unsupportedFeature` in Tier 1. Malformed
+  `curve` (wrong type, wrong arity) → `schemaViolation`. Confirmed present in
+  the sample set (`colorFrame`, `rotateFrame`).
 
-**Last-keyframe tween**: the `tweenEasing` of the final keyframe in a timeline
-has no successor to interpolate toward, so it is always treated as a hold
-regardless of its value. An implementor must not attempt to evaluate the tween
-formula past the end of the timeline.
+**Last/terminator keyframe**: the terminator frame (`duration = 0`) sets the
+endpoint value. It has no successor to tween toward; its easing field is ignored.
+
+**`clockwise` hint**: present on some `rotateFrame` entries to resolve direction
+when the `rotate` delta would cross ±180°. Tier 1 may either reject it as
+`unsupportedFeature` or implement shortest-arc interpolation and ignore the hint.
+Conformance fixtures must include a `clockwise = 1` rejection fixture for Tier 1.
 
 ## Supported Subset — Tier 1
 
@@ -535,14 +725,15 @@ exploratory use.
 - `curve` Bezier easing.
 - Negative scale.
 - Image atlas references not resolvable through the `--assets-dir` option.
-- Unknown keys in the top-level object (allowed: `name`, `version`, `armature`).
-- Unknown keys in an ArmatureObject (allowed: `name`, `frameRate`, `type`,
-  `bone`, `slot`, `skin`, `animation`).
+- Unknown keys in a `TransformObject` (strict; all 6 fields are listed).
 - `displayIndex = -1` (hidden slot) or any out-of-range `displayIndex`.
-- DragonBones `timelineType` fields or slot/constraint timeline entries beyond
-  bone-transform timelines.
+- `SlotChannelObject` entries (any `colorFrame` or `displayFrame`) →
+  `unsupportedFeature`. Slot animation is deferred to a later tier.
+- `clockwise` field in `rotateFrame` → `unsupportedFeature` in Tier 1.
 - Non-finite angles (`skX`, `skY`) or zero/non-finite scale (`scX`, `scY`) in
   any `TransformObject` → `schemaViolation`.
+- Well-formed four-element `curve` arrays → `unsupportedFeature`.
+- Malformed `curve` (not array, or not exactly four numbers) → `schemaViolation`.
 
 ## CLI Shape
 
@@ -591,19 +782,19 @@ Tier 1 implementation fixtures must cover:
 - A shearing bone (`skX ≠ skY`) confirming `shearY = skY - skX`.
 - Negative `y` DragonBones → positive `y` bony (coordinate flip).
 - A static rig with no `animation` key (confirming valid empty-animation path).
-- An animated bone timeline with linear-interpolation keyframes sampling to
-  expected world matrices via the CLI `play --t` golden. The hand-computed
-  golden must cover at least two keyframes with a delta transform to validate
-  the additive composition assumption.
+- An animated bone timeline with at least one `translateFrame`, one
+  `rotateFrame`, and one `scaleFrame` channel; linear-interpolation keyframes;
+  world matrices sampled via `play --t` golden with hand-computed expected values.
 - A step/hold timeline (no tween) producing the correct held value.
 - A single-keyframe timeline (last-keyframe hold behavior regardless of easing).
 - A timeline whose keyframe durations sum to exactly `animation.duration`.
 - A two-skin setup with image display mapping.
 - Rejection fixtures for: unsupported version, mesh display, well-formed Bezier
-  `curve`, non-zero `tweenEasing`, non-`normal` blend mode, missing parent
-  bone reference, parent cycle, extra top-level key, extra ArmatureObject key,
-  non-finite `skX`, zero `scX`, `displayIndex = -1`, out-of-range
-  `displayIndex`, and keyframe duration sum exceeding `animation.duration`.
+  `curve`, non-zero `tweenEasing`, non-`normal` blend mode, `clockwise` in
+  rotateFrame, slot channel (`colorFrame`/`displayFrame`), missing parent bone
+  reference, parent cycle, extra `TransformObject` key, non-finite `skX`,
+  zero `scX`, `displayIndex = -1`, out-of-range `displayIndex`, and keyframe
+  duration sum exceeding `animation.duration`.
 
 Numeric golden output compares the resulting `bony` JSON after canonicalization.
 Rejection fixtures assert stable diagnostic code, bone/slot/animation name where
@@ -614,16 +805,17 @@ applicable, nonzero exit status, and no partial output file.
 Do not start the importer implementation (`bony-g20`) until:
 
 - This design note is merged.
-- The skew decomposition math has been validated against at least one
-  user-supplied `_ske.json` sample file: the computed rest-pose matrix must
-  match the expected visual pose.
-- The `tweenEasing` absent/null = step assumption has been confirmed against a
-  sample file with a known step keyframe (or the delta-transform semantics
-  section updated if the assumption is wrong).
-- The delta-transform additive-composition assumption has been confirmed against
-  a sample file with a known animated bone and at least two keyframes with
-  non-identity transforms.
 - The Tier 1 conformance fixtures are committed or planned in the implementation
   bead.
 - `docs/PROVENANCE.md` records this design note as the capability-context source
   for DragonBones wire-format field names.
+
+The following gates were met during the design spike (see §Format Validation):
+
+- [x] Skew decomposition validated against real `_ske.json` bones (20 bones,
+  max error < 1e-8, including a shear bone).
+- [x] Per-channel animation structure confirmed (translateFrame, rotateFrame,
+  scaleFrame with additive/multiplicative semantics and terminator frame).
+- [x] Rotation delta confirmed to add to both skX and skY (preserves shearY).
+- [x] Terminator frame (duration=0) confirmed; sum of durations = animation.duration.
+- [x] Format field survey complete (§Format Validation §Observed Field Set).
