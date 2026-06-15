@@ -451,7 +451,7 @@ spec "bony package":
         discard loadBonyBnb(fixture)
         inc loaded
     then:
-      loaded == 6  # update when M8+ rigs are added to conformance/assets/bnb/
+      loaded == 7  # update when M9+ rigs are added to conformance/assets/bnb/
 
   it "rejects malformed semantic .bnb payloads":
     then:
