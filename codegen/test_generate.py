@@ -365,6 +365,26 @@ class GeneratorValidationTests(unittest.TestCase):
         self.assertNotIn("timelineKeys", schema["$defs"]["boneTimeline"]["properties"])
         self.assertIn("keyframes", schema["$defs"]["boneTimeline"]["properties"])
 
+    def test_project_schema_constrains_ik_mix_to_unit_range(self) -> None:
+        # Regression guard for the frozen IK format (ik-format-freeze.md §7-C1):
+        # ikConstraint.mix must carry [0, 1] in BOTH the canonical schema (via the
+        # canonical_json_overrides[ikConstraint] entry) and the wire schema (via the
+        # "mix" id in schema_for_property's range set). The two ranges are produced
+        # by independent mechanisms, so the wire range can silently disappear if
+        # "mix" is dropped from schema_for_property while the override still carries
+        # the canonical range. Assert both so neither half can regress unnoticed.
+        registry = generate.load_yaml_subset(generate.ROOT / "registry" / "wire.yml")
+        defaults = generate.load_yaml_subset(generate.ROOT / "spec" / "defaults.yml")
+
+        canonical = json.loads(generate.generate_schema(registry, defaults))
+        wire = json.loads(generate.generate_wire_schema(registry, defaults))
+
+        for label, schema in (("canonical", canonical), ("wire", wire)):
+            with self.subTest(schema=label):
+                mix = schema["$defs"]["ikConstraint"]["properties"]["mix"]
+                self.assertEqual(mix["minimum"], 0)
+                self.assertEqual(mix["maximum"], 1)
+
     def test_invalid_default_type_is_rejected(self) -> None:
         registry = sample_registry()
         defaults = sample_defaults()
