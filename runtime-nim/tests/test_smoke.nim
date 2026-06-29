@@ -1788,11 +1788,16 @@ spec "bony package":
 """)
     writeFile(colorStateAssetPath, """{
   "skeleton": {"name": "color-sm"},
-  "bones": [{"name": "root"}],
+  "bones": [
+    {"name": "root"},
+    {"name": "body_bone", "parent": "root", "x": -4},
+    {"name": "glow_bone", "parent": "root"},
+    {"name": "fx_bone", "parent": "root", "x": 4}
+  ],
   "slots": [
-    {"name": "body", "bone": "root", "attachment": "body"},
-    {"name": "glow", "bone": "root", "attachment": "glow"},
-    {"name": "fx", "bone": "root", "attachment": "fx_0"}
+    {"name": "body", "bone": "body_bone", "attachment": "body"},
+    {"name": "glow", "bone": "glow_bone", "attachment": "glow"},
+    {"name": "fx", "bone": "fx_bone", "attachment": "fx_0"}
   ],
   "regions": [
     {"name": "body", "width": 2, "height": 2},
@@ -1827,7 +1832,10 @@ spec "bony package":
         {
           "slot": "fx",
           "property": "sequence",
-          "keyframes": [{"t": 0.0, "index": 1, "delay": 0.1, "mode": "loop"}]
+          "keyframes": [
+            {"t": 0.0, "index": 0, "delay": 0.1, "mode": "loop"},
+            {"t": 0.2, "index": 0, "delay": 0.1, "mode": "loop"}
+          ]
         }
       ]
     }
@@ -1858,7 +1866,7 @@ spec "bony package":
   "asset": "bony_cli_harness_color_state.bony",
   "stateMachine": "color",
   "samples": [
-    {"name": "alpha", "t": 0.0, "inputs": {}}
+    {"name": "alpha", "t": 0.1, "inputs": {}}
   ]
 }
 """)
@@ -2086,6 +2094,7 @@ spec "bony package":
       colorStateGoldenJson["drawBatches"].elems[2]["attachment"].getStr() == "fx_1"
       colorStateImage.width == 16
       colorStateImage.height == 16
+      colorStateImage[4, 8].a == 128
       stateTimeArg.exitCode != 0
       stateTimeArg.output.contains("--t cannot be combined")
       sampleWithoutInputScript.exitCode != 0

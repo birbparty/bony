@@ -1,6 +1,6 @@
 ## M3 multi-track animation mixer.
 
-import std/[algorithm, math, tables]
+import std/[algorithm, math, strutils, tables]
 
 import bony/anim/timelines
 import bony/model
@@ -41,7 +41,7 @@ type
 
   MixedSequence* = object
     target*: string
-    value*: SequenceKeyframe
+    value*: SampledSequence
 
   DispatchedEvent* = object
     trackIndex*: int
@@ -396,6 +396,43 @@ proc putVectorWithSetup(
   values.putVector(sample, blend, weight)
 
 
+proc sequencePrefix(attachment: string): string =
+  var suffixStart = attachment.len
+  while suffixStart > 0 and attachment[suffixStart - 1].isDigit:
+    dec suffixStart
+  attachment[0 ..< suffixStart]
+
+
+proc sequenceFrameCount(data: ref SkeletonData; target: string): uint32 =
+  if data.isNil:
+    return 1'u32
+  var attachment = ""
+  for slot in data[].slots:
+    if slot.name == target:
+      attachment = slot.attachment
+      break
+  let prefix = sequencePrefix(attachment)
+  if prefix.len == 0:
+    return 1'u32
+  var count = 0'u32
+  for region in data[].regions:
+    if not region.name.startsWith(prefix):
+      continue
+    if region.name.len <= prefix.len:
+      continue
+    let suffix = region.name[prefix.len .. ^1]
+    if suffix.len == 0:
+      continue
+    var numeric = true
+    for ch in suffix:
+      if not ch.isDigit:
+        numeric = false
+        break
+    if numeric:
+      inc count
+  max(count, 1'u32)
+
+
 proc applyEntry(
   data: ref SkeletonData;
   scalars: var Table[string, MixedScalar];
@@ -433,7 +470,9 @@ proc applyEntry(
       of rgba2Timeline:
         colors2[timeline.target] = MixedColor2(target: timeline.target, color: timeline.sampleColor2(sampleTime).color)
       of sequenceTimeline:
-        sequences[timeline.target] = MixedSequence(target: timeline.target, value: timeline.sampleSequenceKey(sampleTime))
+        let sample = timeline.sampleSequenceKey(sampleTime)
+        let frameCount = max(sequenceFrameCount(data, timeline.target), sample.index + 1'u32)
+        sequences[timeline.target] = MixedSequence(target: timeline.target, value: timeline.sampleSequence(sampleTime, frameCount))
 
 
 proc scalarOrder(a, b: MixedScalar): int =

@@ -3,6 +3,6 @@
   "asset": "m9_non_scalar_rig.bony",
   "stateMachine": "non_scalar",
   "samples": [
-    {"name": "projected", "t": 0.35, "inputs": {}}
+    {"name": "projected", "t": 0.25, "inputs": {}}
   ]
 }

@@ -105,6 +105,22 @@ def compare_goldens(actual, expected):
         _check_exact(as_.get("attachment"), es.get("attachment"), f"slots[{name}].attachment", errors)
         for key in ("r", "g", "b", "a"):
             _check_float(as_.get(key, 0.0), es.get(key, 0.0), f"slots[{name}].{key}", errors)
+        for key in ("darkR", "darkG", "darkB", "sequenceDelay"):
+            if key in as_ or key in es:
+                if key not in as_:
+                    errors.append(f"  slots[{name}].{key}: missing from actual")
+                elif key not in es:
+                    errors.append(f"  slots[{name}].{key}: unexpected in actual")
+                else:
+                    _check_float(as_[key], es[key], f"slots[{name}].{key}", errors)
+        for key in ("sequenceIndex", "sequenceMode"):
+            if key in as_ or key in es:
+                if key not in as_:
+                    errors.append(f"  slots[{name}].{key}: missing from actual")
+                elif key not in es:
+                    errors.append(f"  slots[{name}].{key}: unexpected in actual")
+                else:
+                    _check_exact(as_[key], es[key], f"slots[{name}].{key}", errors)
     for name in actual_slots:
         if name not in expected_slots:
             errors.append(f"  slots: unexpected extra slot '{name}'")
