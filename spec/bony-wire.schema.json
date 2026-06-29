@@ -39,6 +39,12 @@
         "$ref": "#/$defs/pathAttachment"
       }
     },
+    "ikConstraints": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ikConstraint"
+      }
+    },
     "parameters": {
       "type": "array",
       "items": {
@@ -632,6 +638,46 @@
         "bone",
         "name",
         "path",
+        "target"
+      ]
+    },
+    "ikConstraint": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "bones": {
+          "type": "string",
+          "contentEncoding": "base64",
+          "x-bony-packedBytes": {
+            "payload": "ikConstraintBones",
+            "layout": ".agents/notes/ik-format-freeze.md#3-bones-wire-encoding",
+            "structuralSchema": "base64Only",
+            "validatedBy": "loader"
+          }
+        },
+        "target": {
+          "type": "string"
+        },
+        "order": {
+          "type": "integer",
+          "default": 0
+        },
+        "mix": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "bendPositive": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "bones",
+        "name",
         "target"
       ]
     },

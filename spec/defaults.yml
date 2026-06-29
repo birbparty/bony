@@ -190,6 +190,24 @@ objectDefaults:
         omitWhenDefault: true
         applyOnLoad: false
         doc: Runtime path solver opt-in tangent rotation blend.
+  - object: ikConstraint
+    ownerBead: bony-b5d.3
+    properties:
+      order:
+        value: 0
+        omitWhenDefault: true
+        applyOnLoad: true
+        doc: Constraint order defaults to the first world-transform slot.
+      mix:
+        value: 1.0
+        omitWhenDefault: true
+        applyOnLoad: false
+        doc: Runtime IK solver blend amount; full influence by default.
+      bendPositive:
+        value: true
+        omitWhenDefault: true
+        applyOnLoad: false
+        doc: Runtime IK two-bone bend direction; positive bend by default.
   - object: pathAttachment
     ownerBead: bony-8gs
     properties: {}
@@ -385,6 +403,18 @@ requiredProperties:
     property: path
     reason: A path constraint must identify the path attachment it samples.
     ownerBead: bony-8gs
+  - object: ikConstraint
+    property: name
+    reason: IK constraints are referenced by stable unique names.
+    ownerBead: bony-b5d.3
+  - object: ikConstraint
+    property: bones
+    reason: An IK constraint must identify the bone chain it solves.
+    ownerBead: bony-b5d.3
+  - object: ikConstraint
+    property: target
+    reason: An IK constraint must identify its target bone.
+    ownerBead: bony-b5d.3
   - object: pathAttachment
     property: name
     reason: Path attachments are referenced by path constraints.
