@@ -48,10 +48,10 @@ jobs:
           nim-version: '2.2.10'
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Setup Dart
-        uses: dart-lang/setup-dart@v1
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
         with:
-          sdk: stable
+          channel: stable
 
       - name: Checkout bddy test dependency
         run: |
@@ -107,15 +107,15 @@ jobs:
 
       - name: Dart dependencies
         working-directory: runtime-dart
-        run: dart pub get
+        run: flutter pub get
 
       - name: Dart tests
         working-directory: runtime-dart
-        run: dart test
+        run: flutter test
 
       - name: Dart analyze
         working-directory: runtime-dart
-        run: dart analyze
+        run: flutter analyze
 
       - name: Build bony CLI
         run: |

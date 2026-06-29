@@ -1,7 +1,8 @@
-# dart_test.yaml — restrict `dart test` to pure-Dart tests.
-# test/flutter/ uses dart:ui / flutter_test and must be run with `flutter test`.
-# `exclude:` is NOT a valid key in this config (it is silently ignored by the
-# test package), so we enumerate the pure-Dart paths explicitly instead.
+# Historical pure-Dart test runner config.
+#
+# runtime-dart now declares Flutter SDK dependencies for its painter surface, so
+# plain `dart test` fails during dependency resolution before this config can
+# select a subset. Use `flutter test` for local and CI verification.
 paths:
   - test/m1_loader_test.dart
   - test/m2_transform_test.dart
