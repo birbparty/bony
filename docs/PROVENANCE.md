@@ -84,6 +84,33 @@ documentation prose.
 - **CI enforcement**: not required — enforced by code review and the
   import-boundary rule in `docs/CLEANROOM.md`.
 
+### Comparable Feature Set Survey (2026-06-29)
+
+- **Reason needed**: Future `next-milestone` planning needs a project-owned way
+  to compare `bony`'s feature frontier against DragonBones, Spine, and Rive
+  without treating those products as implementation sources.
+- **Classification**: capability context only — broad feature categories,
+  product-surface concepts, and clean-room risk boundaries from official vendor
+  documentation.
+- **What is recorded**: the survey in `docs/comparable-feature-set.md` records
+  high-level categories such as bones, slots, attachments, meshes/deformation,
+  constraints, timelines, state machines, skins/avatar reuse, events, text,
+  vector/layout features, runtime/export surfaces, and tooling/importer
+  surfaces.
+- **Source**: official public docs from DragonBones, Esoteric Software's Spine
+  docs, and Rive docs, as listed in `docs/comparable-feature-set.md`.
+- **Excluded despite visibility**: runtime source, importer source, generated
+  definitions, exact JSON/binary layouts, type/property keys, object ordering,
+  schema structure, and copied documentation prose. Rive's detailed `.riv`
+  runtime-format documentation is explicitly treated as a clean-room risk
+  marker, not a design source for `bony`.
+- **Cleanroom compliance**: confirmed. The survey is informational and cannot
+  justify implementation details. Future implementation work must still derive
+  from local `bony` contracts, project-owned designs, user-supplied input data
+  under an importer boundary, or public/textbook math.
+- **CI enforcement**: not required — enforced by code review and the
+  clean-room review checklist in `docs/CLEANROOM.md`.
+
 ## Source Introduction Rule
 
 When a new external dependency, reference, algorithm paper, or importer input

@@ -73,6 +73,17 @@ public capability-level knowledge only — no runtime source from third parties.
 
 ---
 
+## Comparable Research
+
+Informational capability surveys used for milestone planning. These are not
+runtime contracts and must not be used as implementation source.
+
+| Document | Scope |
+|----------|-------|
+| [comparable-feature-set.md](comparable-feature-set.md) | Capability-level feature set comparison for DragonBones, Spine, and Rive |
+
+---
+
 ## Runtime Design Notes (Deferred)
 
 Design notes for future runtime targets. No implementation in v1.
