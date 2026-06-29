@@ -166,8 +166,32 @@ Within each group:
   evaluation order is separately defined by `docs/constraint-total-order.md`.
 - Skins, events, parameters, deformers, animations, and state machines keep
   loaded array order unless a later contract assigns a more specific order.
-- Timeline and keyframe child objects are emitted immediately after their owning
-  animation object, in the owning animation's stored timeline order.
+- Animation records are emitted before state-machine records. This is required
+  because state-machine clip and blend-clip references index the loaded
+  animation sequence.
+- Timeline child objects are emitted immediately after their owning animation
+  object. Within one animation, emit all `boneTimeline` records in loaded
+  `boneTimelines` order, then all `slotTimeline` records in loaded
+  `slotTimelines` order. Keyframes for the current animation/state-machine
+  slice are packed inside `timelineKeys` bytes properties, so no separate
+  keyframe child objects are emitted in this slice.
+- State-machine child records are emitted immediately after their owning parent
+  record, recursively:
+  1. `stateMachine`
+  2. all owned `stateMachineInput` records in loaded input order
+  3. each `stateMachineLayer` in loaded layer order
+  4. each layer's `stateMachineState` records in loaded state order, with each
+     blend1d state's `stateMachineBlendClip` records immediately following the
+     owning state in normalized blend-value order
+  5. each layer's `stateMachineTransition` records in loaded transition order,
+     with each transition's `stateMachineCondition` records immediately
+     following the owning transition in loaded condition order
+  6. all owned `stateMachineListener` records in loaded listener order
+
+Unknown objects are excluded from canonical emission until extension
+preservation is designed. A canonical writer that cannot preserve unknown
+objects without changing known child adjacency must reject instead of emitting a
+partial canonical file.
 
 If a future registry entry introduces a map-like collection, its canonical
 binary order must be defined in the bead that introduces it.
@@ -175,6 +199,31 @@ binary order must be defined in the bead that introduces it.
 Raw embedded atlas bytes are not object-stream entries. Atlas metadata objects,
 if present, use the `atlasMetadata` group above. The raw embedded atlas payload
 is emitted only in the post-EOF atlas section defined by File Section Order.
+
+## Animation Packed Payload Traversal
+
+Animation `timelineKeys` packed `bytes` properties participate in canonical
+output even though their internal fields are not object-stream properties.
+
+Rules:
+
+- For `timelineKeys`, writers visit keys by ascending stored key index and then
+  visit fields in the order shown in
+  [binary-animation-state-machine-object-families.md](binary-animation-state-machine-object-families.md).
+- Curve payload fields are visited as `curveKind`, then Bezier control points
+  `c1x`, `c1y`, `c2x`, `c2y` only when `curveKind` is Bezier.
+- The current animation and state-machine packed payloads use indices and
+  numeric tags, not strings. If a future animation/state-machine packed payload
+  includes strings, those strings must be interned at the point they are visited
+  by that payload's explicitly declared packed field order.
+- Packed payload bytes compare by exact bytes for default omission and canonical
+  equality. The default table may omit a `bytes` property only when the loaded
+  semantic payload equals the default payload and the default entry sets
+  `omitWhenDefault: true`.
+
+Packed `bytes` properties outside this animation/state-machine slice keep the
+traversal rules owned by their original contracts. This section does not change
+existing packed payloads such as deformer `blendAxes`.
 
 ## Property Emission
 
@@ -240,6 +289,14 @@ The M6 `bnb->json->bnb` byte-stability gate must include:
 - Default-valued properties omitted from objects and absent from the ToC.
 - Falsey non-default values still emitted.
 - Object stream order follows the canonical group order.
+- Animation records emit before state-machine records.
+- Timeline records immediately follow their owning animation, with
+  `boneTimeline` records before `slotTimeline` records and each family in loaded
+  order.
+- State-machine inputs, layers, states, blend clips, transitions, conditions,
+  and listeners follow the recursive child-adjacency order defined above.
+- Packed `timelineKeys` bytes are emitted and traversed in contract field order,
+  and any future packed strings intern at their packed traversal point.
 - Attachment object order is independent of source/runtime map representation.
 - Raw embedded atlas bytes appear only after the object-stream EOF marker.
 - Property order within an object is ascending property key.
