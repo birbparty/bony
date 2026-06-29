@@ -87,6 +87,16 @@ type
     hasRotateMix: bool
     rotateMix: float64
 
+  IkConstraintData* = object
+    name: string
+    bones: seq[string]
+    target: string
+    order: int
+    hasMix: bool
+    mix: float64
+    hasBendPositive: bool
+    bendPositive: bool
+
   ParameterAxis* = object
     name*: string
     minValue*: float64
@@ -186,6 +196,7 @@ type
     regions: seq[RegionAttachment]
     pathAttachments: seq[PathAttachmentData]
     paths: seq[PathConstraintData]
+    ikConstraints: seq[IkConstraintData]
     parameters: seq[ParameterAxis]
     deformers: seq[DeformerRecord]
 
@@ -309,6 +320,30 @@ proc pathConstraintData*(
     translateMix: storedTranslateMix,
     hasRotateMix: hasRotateMix,
     rotateMix: storedRotateMix,
+  )
+
+
+proc ikConstraintData*(
+  name, target: string;
+  bones: seq[string];
+  order = 0;
+  hasMix = false;
+  mix = 1.0;
+  hasBendPositive = false;
+  bendPositive = true;
+): IkConstraintData =
+  let storedMix = quantizeF32(mix, "ik.mix")
+  if storedMix < 0.0 or storedMix > 1.0:
+    raise newBonyLoadError(schemaViolation, "ik.mix must be in [0, 1]")
+  IkConstraintData(
+    name: name,
+    bones: bones,
+    target: target,
+    order: order,
+    hasMix: hasMix,
+    mix: storedMix,
+    hasBendPositive: hasBendPositive,
+    bendPositive: bendPositive,
   )
 
 
