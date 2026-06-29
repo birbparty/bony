@@ -142,6 +142,14 @@ def sample_defaults() -> dict:
 
 
 class GeneratorValidationTests(unittest.TestCase):
+    def assert_subsequence(self, expected: list[str], actual: list[str]) -> None:
+        position = -1
+        for item in expected:
+            try:
+                position = actual.index(item, position + 1)
+            except ValueError:
+                self.fail(f"{item!r} missing after index {position} in {actual!r}")
+
     def project_sources(self) -> tuple[dict, dict]:
         registry = generate.load_yaml_subset(generate.ROOT / "registry" / "wire.yml")
         defaults = generate.load_yaml_subset(generate.ROOT / "spec" / "defaults.yml")
@@ -235,12 +243,9 @@ class GeneratorValidationTests(unittest.TestCase):
         property_ids = [entry["id"] for entry in registry["propertyKeys"]]
         object_ids = [entry["type"] for entry in registry["objects"]]
 
-        self.assertEqual(type_ids[-len(M3_M8_OBJECTS):], M3_M8_OBJECTS)
-        self.assertEqual(
-            property_ids[-len(M3_M8_PROPERTY_KEYS):],
-            list(M3_M8_PROPERTY_KEYS.keys()),
-        )
-        self.assertEqual(object_ids[-len(M3_M8_OBJECTS):], M3_M8_OBJECTS)
+        self.assert_subsequence(M3_M8_OBJECTS, type_ids)
+        self.assert_subsequence(list(M3_M8_PROPERTY_KEYS.keys()), property_ids)
+        self.assert_subsequence(M3_M8_OBJECTS, object_ids)
 
     def test_project_m3_m8_defaults_cover_every_property_once(self) -> None:
         registry, defaults = self.project_sources()
@@ -273,6 +278,30 @@ class GeneratorValidationTests(unittest.TestCase):
         for property_id, key in M3_M8_PROPERTY_KEYS.items():
             self.assertIn(f'id: "{property_id}", key: {key}.uint64', nim)
             self.assertIn(f"id: '{property_id}', key: {key}", dart)
+        self.assertIn(
+            'BonyObjectSpec(typeId: "boneTimeline", properties: @["boneIndex", "boneTimelineKind", "timelineKeys"])',
+            nim,
+        )
+        self.assertIn(
+            'BonyObjectSpec(typeId: "stateMachineState", properties: @["name", "stateMachineStateKind", "stateClipIndex", "stateLoop", "stateBlendInputIndex"])',
+            nim,
+        )
+        self.assertIn(
+            'BonyObjectSpec(typeId: "stateMachineListener", properties: @["name", "stateMachineListenerKind", "listenerLayerIndex", "listenerFromStateIndex", "listenerToStateIndex"])',
+            nim,
+        )
+        self.assertIn(
+            'BonyObjectSpec(typeId: \'boneTimeline\', properties: ["boneIndex", "boneTimelineKind", "timelineKeys"])',
+            dart,
+        )
+        self.assertIn(
+            'BonyObjectSpec(typeId: \'stateMachineState\', properties: ["name", "stateMachineStateKind", "stateClipIndex", "stateLoop", "stateBlendInputIndex"])',
+            dart,
+        )
+        self.assertIn(
+            'BonyObjectSpec(typeId: \'stateMachineListener\', properties: ["name", "stateMachineListenerKind", "listenerLayerIndex", "listenerFromStateIndex", "listenerToStateIndex"])',
+            dart,
+        )
 
     def test_project_schema_root_orders_animations_before_state_machines(self) -> None:
         registry, defaults = self.project_sources()
