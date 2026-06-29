@@ -29,6 +29,112 @@ This document owns:
 It does not define solver math, transform composition formulas, or physics
 integration formulas.
 
+## Path Constraint Runtime Contract
+
+`paths[]` entries currently store only:
+
+- `name`
+- `bone`
+- `target`
+- `path`
+- `order`
+
+That payload is sufficient for validation, serialization, deterministic update
+cache construction, and path-attachment reference checks. It is not sufficient
+to define a runtime path solver. A runtime-evaluable path constraint needs at
+least an explicit path position/distance channel, coordinate-space policy,
+translation/rotation behavior, and output mix. Implementations must therefore
+not infer solver defaults from the current five-field payload.
+
+Until those fields are added to the JSON schema, wire registry, and loaders,
+the v1 runtime behavior for existing `paths[]` entries is:
+
+- Include each path constraint in the canonical world-transform update cache at
+  its `(stageRank, order, kindRank, sourceIndex)` position.
+- Validate that `bone`, `target`, and `path` references are known.
+- Do not modify bone world transforms, draw batches, or numeric/image goldens.
+- Preserve existing `m5_rig_t0.json` and `m5_rig_play.png` output.
+
+The runtime-evaluable v1 path-constraint extension must add explicit solver
+fields before changing output. The solver extension is opt-in: a path
+constraint is runtime-evaluable only when at least one of the solver fields
+below is present after load. Five-field path constraints continue to use the
+validation-only behavior above. If any solver field is present, absent solver
+fields use the evaluation defaults below for that constraint, but those absent
+fields still remain absent for canonical emission and binary presence tracking.
+
+The extension fields and defaults are:
+
+- `position`: f32 normalized distance along the path in `[0, 1]`. Default
+  `0.0`, but this default is `applyOnLoad: false` for compatibility: old
+  five-field files do not become runtime-evaluable merely because the default
+  exists. When the field is present, `position = 0.0` samples the path start
+  and `position = 1.0` samples the path end.
+- `translateMix`: f32 blend in `[0, 1]`. Default `1.0` with
+  `applyOnLoad: false`. When present, the constrained bone's local translation
+  is blended from its unconstrained local translation toward the sampled path
+  point transformed into the parent bone's local space.
+- `rotateMix`: f32 blend in `[0, 1]`. Default `0.0` with
+  `applyOnLoad: false`. When present and greater than zero, the constrained
+  bone's local rotation is blended toward the sampled path tangent angle in the
+  parent bone's local basis. `rotateMix = 0.0` preserves existing rotation.
+
+Path attachment control points are interpreted in the `target` bone's local
+space. To evaluate a runtime path constraint:
+
+1. Compute the target bone world transform at the constraint's canonical
+   update-cache position.
+2. Transform the cubic path attachment control points by the target bone world
+   transform into skeleton/root space.
+3. Build the fixed `pathArcLengthSamples = 32` arc-length table already
+   defined by `runtime-nim/src/bony/constraints/path_constraints.nim`.
+4. Sample by `position * totalLength`.
+5. Convert the sampled position from skeleton/root space into the constrained
+   bone parent's local space using the full inverse parent affine. If the
+   constrained bone has no parent, skeleton/root space is the parent local
+   space. If the parent affine is singular and `translateMix > 0`, the
+   runtime-evaluable path constraint is invalid and must be rejected; runtimes
+   must not use a pseudo-inverse or host-specific fallback.
+6. Blend translation by `translateMix` and rotation by `rotateMix`, then
+   recompute the constrained bone world transform before any later cache
+   entries read it.
+
+Rotation uses the same parent-space conversion as translation: transform the
+sampled tangent vector by the parent's inverse linear 2x2 matrix, then compute
+`atan2(y, x)` in degrees. If the parent linear matrix is singular and
+`rotateMix > 0`, the runtime-evaluable path constraint is invalid and must be
+rejected. If `rotateMix = 0`, runtimes may skip tangent conversion and preserve
+the unconstrained local rotation. Blend rotation by shortest signed angular
+delta, matching the transform-constraint shortest-angle rule. The constrained
+bone's own `inheritRotation`, `inheritScale`, `inheritReflection`, and
+`transformMode` flags are applied only when recomputing its world transform
+from the blended local transform; they do not change the sampled path-space
+conversion.
+
+The extension does not define chain spacing, offset rotation, percent-vs-fixed
+distance modes, or multi-bone path distribution. Those require additional
+fields and must not be inferred from the v1 extension.
+
+Serialization requirements for the extension:
+
+- Add JSON schema fields and wire property keys for `position`,
+  `translateMix`, and `rotateMix`.
+- Default-table entries must use `applyOnLoad: false` so old files remain
+  validation-only.
+- Canonical emission may omit default-valued solver fields only when they were
+  absent on load or explicitly canonicalized by a versioned migration. It must
+  not silently remove the last present solver field from a runtime-evaluable
+  constraint.
+- Binary loaders must preserve whether solver fields were present, not just
+  their numeric value, because presence is the opt-in signal.
+
+When those fields land, conformance must update `m5_rig.bony` to opt into the
+new solver behavior explicitly and regenerate `m5_rig_t0.json` plus any image
+goldens that observe changed world transforms. Older five-field path
+constraints must remain byte/load compatible and continue to produce the
+validation-only output described above unless a migration explicitly opts them
+into solver fields.
+
 ## Canonical Sort Key
 
 Every constraint has a canonical key:
@@ -105,6 +211,18 @@ can write that bone or any ancestor needed to compute that bone's world
 transform. If two runtimes disagree about dependency analysis, they must choose
 the conservative result that delays the bone until after the constraint. This
 may reduce batching, but it preserves the canonical constraint order.
+
+Runtime-evaluable path constraints also have a read dependency on their
+`target` bone, because the path attachment is evaluated in target-bone local
+space. The update cache must ensure the target bone and its ancestors have
+already been emitted before the path constraint runs. If a later constraint
+writes the target bone, the path constraint reads the pre-later-constraint world
+transform; later constraints still run at their canonical positions. A path
+constraint whose target cannot be emitted before the constraint without
+violating parent-first order or canonical constraint order is invalid for the
+runtime-evaluable extension and must be rejected when solver fields are
+present. Five-field validation-only path constraints retain the existing
+ordering-only behavior.
 
 ### Physics Stage
 
