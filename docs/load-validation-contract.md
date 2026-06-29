@@ -82,7 +82,9 @@ Required category mapping for shared fuzz fixtures:
 Loaders validate in these phases:
 
 1. Decode bytes/text into a bounded intermediate representation.
-2. Apply defaults for known fields.
+2. Apply `applyOnLoad: true` defaults for known fields. Preserve raw field
+   presence for variant-specific defaults that explicitly set
+   `applyOnLoad: false`.
 3. Resolve known references.
 4. Validate graph shape, ordering, and semantic invariants.
 5. Build immutable `SkeletonData`.
@@ -176,7 +178,10 @@ Required checks:
   preserve or drop unknown extension data, but it must not let extension data
   override known fields.
 
-Defaults are applied only after known fields pass type validation.
+Defaults are applied only after known fields pass type validation. Defaults with
+`applyOnLoad: false` are not synthesized by this generic phase; loaders use
+their values only after validating variant-specific required/forbidden field
+presence.
 
 ## Reference Resolution
 

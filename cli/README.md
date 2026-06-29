@@ -40,8 +40,11 @@ numeric conformance source. With `--state-machine` and `--input-script`, `play`
 renders a horizontal contact sheet: one cell per script sample, using the same
 input replay semantics as `golden-gen`.
 
-The M6 commands cover the currently registered `SkeletonData` objects:
-`skeleton`, `bone`, `slot`, and `region`.
+The setup-pose `.bnb` commands cover the currently implemented static
+`SkeletonData` path. The binary registry and contracts now reserve
+animation/state-machine records for preservation, but the CLI conversion path
+must not advertise lossless `.bnb` animation/state-machine round trips until the
+aggregate asset implementation is wired through the runtime.
 
 `bnb-to-json` is intentionally strict: it rejects embedded atlas payloads,
 unknown object types, and unknown property keys because the current `.bony`
@@ -50,5 +53,6 @@ domain for `bnb -> json -> bnb` is canonical known-model `.bnb` emitted by the
 current writer.
 
 State-machine input scripts currently require `.bony` assets. `.bnb` playback
-continues to support the setup-pose path only until the binary contract includes
-animation and state-machine data.
+continues to support the setup-pose path only; it must keep rejecting
+state-machine input scripts until a dedicated runtime implementation accepts
+`.bnb` animation/state-machine playback with tests.
