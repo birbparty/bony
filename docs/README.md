@@ -40,6 +40,7 @@ the milestone-to-key-range table.
 |----------|----------------|
 | [binary-canonicalization.md](binary-canonicalization.md) | Canonical `.bnb` byte emission for round-trip tools and the M6 byte-stability gate |
 | [binary-toc-skip-semantics.md](binary-toc-skip-semantics.md) | `.bnb` table-of-contents skip rule for composite values (arrays of structs) |
+| [binary-animation-state-machine-object-families.md](binary-animation-state-machine-object-families.md) | Project-owned `.bnb` object-family decision for current animation and state-machine features |
 | [header-hash-bounds.md](header-hash-bounds.md) | v1 decision for `SkeletonData.header.hash` and `header.bounds` |
 
 ---
@@ -93,7 +94,6 @@ work.
 |----------|-------|
 | [animation-state-machine-contract-boundaries.md](animation-state-machine-contract-boundaries.md) | Inventory of current project-owned Nim/Dart animation and state-machine runtime and JSON surfaces |
 | [animation-state-machine-cleanroom-boundary.md](animation-state-machine-cleanroom-boundary.md) | Provenance and clean-room source boundary for designing `.bnb` animation/state-machine object families |
-| [binary-animation-state-machine-object-families.md](binary-animation-state-machine-object-families.md) | Project-owned `.bnb` object-family decision for current animation and state-machine features |
 
 ---
 

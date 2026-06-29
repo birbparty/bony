@@ -40,7 +40,7 @@ animationClip
 
 stateMachine
   stateMachineInput*
-  stateMachineLayer
+  stateMachineLayer+
     stateMachineState*
     stateMachineBlendClip*
     stateMachineTransition*
@@ -69,6 +69,8 @@ Encountering a new parent closes the previous parent at that level. The exact
 canonical order and child-adjacency rules are owned by the follow-up canonical
 order bead, but the implementation should not require backpatching or
 cross-parent search to attach children.
+Skipped unknown objects and skipped unknown properties do not change the current
+known parent stack.
 
 ## Registry Bands
 
@@ -150,8 +152,8 @@ varuint keyCount
 
 `keyCount` must be at least one.
 
-Times are stored as f32 seconds and validated as non-negative. Non-event
-timeline times must be strictly increasing.
+Times are stored as f32 seconds and validated as non-negative. Timeline times in
+this slice must be strictly increasing.
 
 ### Curve Payload
 
