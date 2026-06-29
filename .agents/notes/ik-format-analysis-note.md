@@ -30,9 +30,12 @@ Enforces:
   declared propertyKey.
 - **Default coverage (the trap, generate.py:261-309):** *every* property of every
   registry object must appear in **exactly one** of `objectDefaults` or
-  `requiredProperties` — never both, never neither. A registry property with no
-  defaults entry → `missing coverage` failure; a defaults entry with no registry
-  property → `extra coverage` failure.
+  `requiredProperties` — never both, never neither. The generator raises (verbatim
+  strings, for grep-matching CI output): `"{object_id} default coverage mismatch,
+  missing={missing}, extra={extra}"` (generate.py:309) when a registry property has
+  no defaults entry (→ `missing`) or a defaults entry has no registry property (→
+  `extra`); and a separate `"... properties are both defaulted and required: ..."`
+  (generate.py:305) for the overlap case.
 
 > **Consequence for implementation sequencing:** because `validate_sources()` runs
 > unconditionally and cross-checks both files, a registry object and its
@@ -58,7 +61,7 @@ Enforces:
 For `bytes`-backed properties that pack a binary blob, an entry here makes
 `schema_for_property()` attach an `x-bony-packedBytes` extension (generate.py:877).
 Today only `timelineKeys` is registered. The registry-level precedent for a
-packed-bytes property is **`blendAxes`** (see §2). IK does *not* need packed bytes
+packed-bytes property is **`blendAxes`** (see §3). IK does *not* need packed bytes
 for the M5 contract (its fields are scalar), but the precedent is the model to
 follow if a packed bone-list is ever chosen.
 
@@ -77,8 +80,8 @@ registry README mandate.
 ## 2. The `path` precedent (the object IK mirrors)
 
 ### registry/wire.yml
-- **Type key:** `path` = **4000** (wire.yml:26-27). Sibling in M5: `pathAttachment`
-  = **4001** (wire.yml:32-33).
+- **Type key:** `path` = **4000** (wire.yml:229-234). Sibling in M5: `pathAttachment`
+  = **4001** (wire.yml:235-240).
 - **Object** (`- type: path`, wire.yml:954-964), ordered properties:
   `name, bone, target, path, order, position, translateMix, rotateMix`.
 - **Property keys (M5 band 4000-4999):**
@@ -144,12 +147,14 @@ discover -s codegen -p 'test_*.py'`** must pass. IK belongs to **M5 (4000-4999)*
 
 ### Reused keys (global propertyKey scope — same key, same backingType)
 - `name` = **1**, string (wire.yml:345-351, M1).
+- `bone` = **1012**, string (wire.yml:450-452, M2) — the constrained-bone
+  reference; `path.bone` reuses it and IK's bone field(s) must too.
 - `target` = **4000**, string (wire.yml:478-484).
 - `order` = **4002**, varint (wire.yml:492-498).
 
   IK can reference these existing property keys rather than minting new ones,
-  exactly as `path` reuses `name`/`target`/`order`. Any genuinely new IK property
-  (e.g. a mix, a bend-direction flag, a bone list) gets a fresh key from 4014+.
+  exactly as `path` reuses `name`/`bone`/`target`/`order`. Any genuinely new IK
+  property (e.g. a mix, a bend-direction flag) gets a fresh key from 4014+.
 
 ### blendAxes packed-bytes precedent (if a packed bone list is ever needed)
 - `blendAxes` = key **6041**, `backingType: bytes` (wire.yml:716-722, M7): "packed
@@ -179,7 +184,11 @@ The IK solver already exists; the format must carry exactly what it consumes.
 derived from `BoneData`/`LocalTransform` at solve time — they are *not* stored on
 the constraint. What the **constraint record** must persist:
 - the constrained **bone(s)** (one for one-bone, parent+child for two-bone, an
-  ordered chain for chain IK) — by stable bone name, like `path.bone`;
+  ordered chain for chain IK) — by stable bone name, like `path.bone` (reuse `bone`
+  key 1012, string). The variable-length chain/two-bone case is exactly where the
+  encoding decision lives: repeat a scalar `bone` property, mint sibling keys, or
+  use the `blendAxes` packed-list precedent (§3). bony-b5d.2 should weigh
+  scalar-repeat vs packed-list deliberately;
 - the **target** bone (reuse `target` key 4000, string);
 - the **mix** blend weight in [0,1] (new property key, `f32`, default per design —
   Spine convention is `mix=1.0`);
@@ -202,6 +211,7 @@ decision. No JSON key or Nim field spelling is committed here.
 | Next-free type key | **4002** | wire.yml (path=4000, pathAttachment=4001) |
 | Next-free property key | **4014+** | wire.yml (rotateMix=4013 is last) |
 | Reuse: name | key 1, string | wire.yml:345-351 |
+| Reuse: bone | key 1012, string | wire.yml:450-452 |
 | Reuse: target | key 4000, string | wire.yml:478-484 |
 | Reuse: order | key 4002, varint | wire.yml:492-498 |
 | Packed-bytes precedent | blendAxes key 6041, bytes | wire.yml:716-722 |
