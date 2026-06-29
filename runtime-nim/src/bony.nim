@@ -3,6 +3,7 @@
 import bony/generated/wire
 import bony/anim/mixer
 import bony/anim/timelines
+import bony/asset
 import bony/binary/framing
 import bony/binary/semantic
 import bony/constraints/ik
@@ -45,6 +46,7 @@ export sequences
 export skinning
 export mixer
 export timelines
+export asset
 export jsonio
 export model
 export core

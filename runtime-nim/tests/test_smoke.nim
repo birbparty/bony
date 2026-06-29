@@ -1774,6 +1774,7 @@ spec "bony package":
     let framePath = "/tmp/bony_cli_harness_frame.png"
     let frameTopLeftPath = "/tmp/bony_cli_harness_frame_top_left.png"
     let stateAssetPath = repoPath("conformance", "assets", "m8_rig.bony")
+    let stateBnbPath = "/tmp/m8_rig.bnb"
     let stateScriptPath = "/tmp/bony_cli_harness_state_script.json"
     let badStateScriptPath = "/tmp/bony_cli_harness_bad_state_script.json"
     let duplicateStateScriptPath = "/tmp/bony_cli_harness_duplicate_state_script.json"
@@ -1798,6 +1799,7 @@ spec "bony package":
       framePath,
       frameTopLeftPath,
       stateScriptPath,
+      stateBnbPath,
       badStateScriptPath,
       duplicateStateScriptPath,
       numericStateScriptPath,
@@ -2045,10 +2047,11 @@ spec "bony package":
       cliPath,
       ["golden-gen", assetPath, goldenPath, "--t", "0", "--sample", "ignored"],
     )
+    let stateJsonToBnb = runProcess(cliPath, ["json-to-bnb", stateAssetPath, stateBnbPath])
     let bnbStateMachine = runProcess(
       cliPath,
       [
-        "golden-gen", bnbPath, stateGoldenPath,
+        "golden-gen", stateBnbPath, stateGoldenPath,
         "--state-machine", "gesture",
         "--input-script", stateScriptPath,
         "--sample", "move",
@@ -2191,8 +2194,9 @@ spec "bony package":
       stateTimeArg.output.contains("--t cannot be combined")
       sampleWithoutInputScript.exitCode != 0
       sampleWithoutInputScript.output.contains("requires --input-script")
-      bnbStateMachine.exitCode != 0
-      bnbStateMachine.output.contains(".bnb playback is not supported")
+      stateJsonToBnb.exitCode == 0
+      bnbStateMachine.exitCode == 0
+      parseFile(stateGoldenPath)["stateMachine"].getStr() == "gesture"
       importLottie.exitCode == 0
       lottieJsonToBnb.exitCode == 0
       lottieBnbToJson.exitCode == 0

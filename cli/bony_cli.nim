@@ -15,9 +15,9 @@ proc usage(): string =
     "       bony import-lottie <input.json> <output.bony> --assets-dir images [--setup-only] [--origin center|top-left]\n" &
     "       bony import-dragonbones <input_ske.json> <output.bony> [--assets-dir images] [--setup-only] [--allow-multiple-armatures]\n" &
     "       bony golden-gen <input.bony|input.bnb> <output.json> [--t seconds]\n" &
-    "       bony golden-gen <input.bony> <output.json> --state-machine <name> --input-script <script.json> --sample <name-or-index>\n" &
+    "       bony golden-gen <input.bony|input.bnb> <output.json> --state-machine <name> --input-script <script.json> --sample <name-or-index>\n" &
     "       bony play <input.bony|input.bnb> --out frame.png [--t seconds] [--width px] [--height px] [--origin center|top-left]\n" &
-    "       bony play <input.bony> --state-machine <name> --input-script <script.json> --out frame.png [--width px] [--height px] [--origin center|top-left]\n" &
+    "       bony play <input.bony|input.bnb> --state-machine <name> --input-script <script.json> --out frame.png [--width px] [--height px] [--origin center|top-left]\n" &
     "       bony pack-atlas <images-dir> --out-dir <dir> [--page-size 2048] [--padding 2]\n" &
     "       bony auto-weights <input.json> <output.json>"
 
@@ -1447,19 +1447,27 @@ proc applyRenderablePose(data: SkeletonData; pose: MixedPose): SkeletonData =
 proc executeStateMachineScript(
   assetPath, stateMachineName, scriptPath, selector: string;
 ): seq[StateMachineRunSample] =
-  if assetPath.toLowerAscii.endsWith(".bnb"):
-    raise newBonyLoadError(schemaViolation, "state-machine input scripts require .bony assets; .bnb playback is not supported")
   let script = parseInputScript(scriptPath)
-  if extractFilename(assetPath) != script.asset:
+  let assetName = extractFilename(assetPath)
+  let scriptComparableAsset =
+    if assetName.toLowerAscii.endsWith(".bnb"):
+      assetName.changeFileExt(".bony")
+    else:
+      assetName
+  if scriptComparableAsset != script.asset:
     raise newBonyLoadError(schemaViolation, "inputScript.asset does not match input asset")
   let machineName = resolveStateMachineName(stateMachineName, script)
   validateStateMachineScript(script, machineName)
 
-  let text = readFile(assetPath)
-  let data = loadBonyJson(text)
+  let asset =
+    if assetPath.toLowerAscii.endsWith(".bnb"):
+      loadBonyBnbAsset(readBytes(assetPath))
+    else:
+      loadBonyJsonAsset(readFile(assetPath))
+  let data = asset.skeleton
   var dataRef = new(SkeletonData)
   dataRef[] = data
-  var runtime = initStateMachineRuntime(selectStateMachine(loadBonyJsonStateMachines(text), machineName))
+  var runtime = initStateMachineRuntime(selectStateMachine(asset.stateMachines, machineName))
   var previousTime = 0.0
   var matched = false
   for index, sample in script.samples:
@@ -2157,11 +2165,11 @@ proc main() =
     of "json-to-bnb":
       if args.len != 3:
         quit(usage(), QuitFailure)
-      writeBytes(args[2], toBonyBnb(loadBonyJson(readFile(args[1]))))
+      writeBytes(args[2], toBonyBnb(loadBonyJsonAsset(readFile(args[1]))))
     of "bnb-to-json":
       if args.len != 3:
         quit(usage(), QuitFailure)
-      writeFile(args[2], toBonyJson(loadKnownBonyBnb(readBytes(args[1]))))
+      writeFile(args[2], toBonyJson(loadKnownBonyBnbAsset(readBytes(args[1]))))
     of "import-lottie":
       importLottie(args[1 .. ^1])
     of "import-dragonbones":

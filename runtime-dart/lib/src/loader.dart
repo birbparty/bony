@@ -62,6 +62,9 @@ PathConstraintData _parsePath(Map<String, dynamic> j) {
     path: _required<String>(j['path'], 'path.path'),
     // JSON doesn't distinguish int from double; toInt() handles "order": 0.0.
     order: (j['order'] as num?)?.toInt() ?? 0,
+    position: (j['position'] as num?)?.toDouble(),
+    translateMix: (j['translateMix'] as num?)?.toDouble(),
+    rotateMix: (j['rotateMix'] as num?)?.toDouble(),
   );
 }
 
@@ -130,12 +133,18 @@ TimelineCurve _parseCurve(Map<String, dynamic> j, String ctx) {
     final qc1y = quantizeF32(c1y);
     final qc2x = quantizeF32(c2x);
     final qc2y = quantizeF32(c2y);
-    if (!qc1x.isFinite) throw FormatException('$ctx.c1x must be a finite f32 value');
-    if (!qc1y.isFinite) throw FormatException('$ctx.c1y must be a finite f32 value');
-    if (!qc2x.isFinite) throw FormatException('$ctx.c2x must be a finite f32 value');
-    if (!qc2y.isFinite) throw FormatException('$ctx.c2y must be a finite f32 value');
-    if (qc1x < 0.0 || qc1x > 1.0) throw FormatException('$ctx.c1x must be in 0..1');
-    if (qc2x < 0.0 || qc2x > 1.0) throw FormatException('$ctx.c2x must be in 0..1');
+    if (!qc1x.isFinite)
+      throw FormatException('$ctx.c1x must be a finite f32 value');
+    if (!qc1y.isFinite)
+      throw FormatException('$ctx.c1y must be a finite f32 value');
+    if (!qc2x.isFinite)
+      throw FormatException('$ctx.c2x must be a finite f32 value');
+    if (!qc2y.isFinite)
+      throw FormatException('$ctx.c2y must be a finite f32 value');
+    if (qc1x < 0.0 || qc1x > 1.0)
+      throw FormatException('$ctx.c1x must be in 0..1');
+    if (qc2x < 0.0 || qc2x > 1.0)
+      throw FormatException('$ctx.c2x must be in 0..1');
     return TimelineCurve.bezier(qc1x, qc1y, qc2x, qc2y);
   }
   throw FormatException('$ctx.curve unknown: $curveStr');
@@ -145,7 +154,8 @@ ScalarKeyframe _parseKeyframe(Map<String, dynamic> j, String ctx) {
   final t = (j['t'] as num?)?.toDouble();
   if (t == null) throw FormatException('missing required field: $ctx.t');
   final value = (j['value'] as num?)?.toDouble();
-  if (value == null) throw FormatException('missing required field: $ctx.value');
+  if (value == null)
+    throw FormatException('missing required field: $ctx.value');
   return ScalarKeyframe(time: t, value: value, curve: _parseCurve(j, ctx));
 }
 
@@ -184,10 +194,12 @@ InheritKeyframe _parseInheritKeyframe(Map<String, dynamic> j, String ctx) {
   );
 }
 
-AttachmentKeyframe _parseAttachmentKeyframe(Map<String, dynamic> j, String ctx) {
+AttachmentKeyframe _parseAttachmentKeyframe(
+    Map<String, dynamic> j, String ctx) {
   final t = (j['t'] as num?)?.toDouble();
   if (t == null) throw FormatException('missing required field: $ctx.t');
-  return AttachmentKeyframe(time: t, attachment: (j['attachment'] as String?) ?? '');
+  return AttachmentKeyframe(
+      time: t, attachment: (j['attachment'] as String?) ?? '');
 }
 
 ColorRgba _parseColorRgba(Map<String, dynamic> j, String ctx) {
@@ -202,7 +214,8 @@ ColorRgba _parseColorRgba(Map<String, dynamic> j, String ctx) {
 ColorKeyframe _parseColorKeyframe(Map<String, dynamic> j, String ctx) {
   final t = (j['t'] as num?)?.toDouble();
   if (t == null) throw FormatException('missing required field: $ctx.t');
-  return ColorKeyframe(time: t, color: _parseColorRgba(j, ctx), curve: _parseCurve(j, ctx));
+  return ColorKeyframe(
+      time: t, color: _parseColorRgba(j, ctx), curve: _parseCurve(j, ctx));
 }
 
 Color2Keyframe _parseColor2Keyframe(Map<String, dynamic> j, String ctx) {
@@ -221,12 +234,18 @@ Color2Keyframe _parseColor2Keyframe(Map<String, dynamic> j, String ctx) {
 
 SequenceMode _parseSequenceMode(String? s) {
   switch (s) {
-    case 'once': return SequenceMode.once;
-    case 'loop': return SequenceMode.loop;
-    case 'pingpong': return SequenceMode.pingpong;
-    case 'reverse': return SequenceMode.reverse;
-    case 'hold': return SequenceMode.hold;
-    default: return SequenceMode.once;
+    case 'once':
+      return SequenceMode.once;
+    case 'loop':
+      return SequenceMode.loop;
+    case 'pingpong':
+      return SequenceMode.pingpong;
+    case 'reverse':
+      return SequenceMode.reverse;
+    case 'hold':
+      return SequenceMode.hold;
+    default:
+      return SequenceMode.once;
   }
 }
 
@@ -242,7 +261,8 @@ SequenceKeyframe _parseSequenceKeyframe(Map<String, dynamic> j, String ctx) {
 void _ensureStrictlyIncreasing(List<double> times, String ctx) {
   for (var i = 1; i < times.length; i++) {
     if (times[i] <= times[i - 1]) {
-      throw FormatException('$ctx.keyframes: times must be strictly increasing');
+      throw FormatException(
+          '$ctx.keyframes: times must be strictly increasing');
     }
   }
 }
@@ -254,7 +274,8 @@ List<AnimationClip> _parseAnimations(List<dynamic> anims) {
     final anim = anims[ai] as Map<String, dynamic>;
     final ctx = 'animations[$ai]';
     final name = _required<String>(anim['name'], '$ctx.name');
-    if (!seen.add(name)) throw FormatException('duplicate animation name: $name');
+    if (!seen.add(name))
+      throw FormatException('duplicate animation name: $name');
 
     var duration = 0.0;
     final boneTimelines = <BoneTimeline>[];
@@ -265,8 +286,10 @@ List<AnimationClip> _parseAnimations(List<dynamic> anims) {
       final bone = _required<String>(bt['bone'], '$btCtx.bone');
       final prop = _required<String>(bt['property'], '$btCtx.property');
       final kind = _parseBoneTimelineKind(prop, btCtx);
-      final kfList = _required<List<dynamic>>(bt['keyframes'], '$btCtx.keyframes');
-      if (kfList.isEmpty) throw FormatException('$btCtx.keyframes must not be empty');
+      final kfList =
+          _required<List<dynamic>>(bt['keyframes'], '$btCtx.keyframes');
+      if (kfList.isEmpty)
+        throw FormatException('$btCtx.keyframes must not be empty');
 
       late BoneTimeline tl;
       switch (kind) {
@@ -275,7 +298,8 @@ List<AnimationClip> _parseAnimations(List<dynamic> anims) {
         case BoneTimelineKind.shear:
           final keys = <Vector2Keyframe>[];
           for (var ki = 0; ki < kfList.length; ki++) {
-            keys.add(_parseVector2Keyframe(kfList[ki] as Map<String, dynamic>, '$btCtx.keyframes[$ki]'));
+            keys.add(_parseVector2Keyframe(
+                kfList[ki] as Map<String, dynamic>, '$btCtx.keyframes[$ki]'));
           }
           _ensureStrictlyIncreasing(keys.map((k) => k.time).toList(), btCtx);
           tl = BoneTimeline(bone: bone, kind: kind, vectorKeys: keys);
@@ -283,7 +307,8 @@ List<AnimationClip> _parseAnimations(List<dynamic> anims) {
         case BoneTimelineKind.inherit:
           final keys = <InheritKeyframe>[];
           for (var ki = 0; ki < kfList.length; ki++) {
-            keys.add(_parseInheritKeyframe(kfList[ki] as Map<String, dynamic>, '$btCtx.keyframes[$ki]'));
+            keys.add(_parseInheritKeyframe(
+                kfList[ki] as Map<String, dynamic>, '$btCtx.keyframes[$ki]'));
           }
           _ensureStrictlyIncreasing(keys.map((k) => k.time).toList(), btCtx);
           tl = BoneTimeline(bone: bone, kind: kind, inheritKeys: keys);
@@ -291,7 +316,8 @@ List<AnimationClip> _parseAnimations(List<dynamic> anims) {
         default:
           final keys = <ScalarKeyframe>[];
           for (var ki = 0; ki < kfList.length; ki++) {
-            keys.add(_parseKeyframe(kfList[ki] as Map<String, dynamic>, '$btCtx.keyframes[$ki]'));
+            keys.add(_parseKeyframe(
+                kfList[ki] as Map<String, dynamic>, '$btCtx.keyframes[$ki]'));
           }
           _ensureStrictlyIncreasing(keys.map((k) => k.time).toList(), btCtx);
           tl = BoneTimeline(bone: bone, kind: kind, scalarKeys: keys);
@@ -308,15 +334,18 @@ List<AnimationClip> _parseAnimations(List<dynamic> anims) {
       final slot = _required<String>(st['slot'], '$stCtx.slot');
       final prop = _required<String>(st['property'], '$stCtx.property');
       final kind = _parseSlotTimelineKind(prop, stCtx);
-      final kfList = _required<List<dynamic>>(st['keyframes'], '$stCtx.keyframes');
-      if (kfList.isEmpty) throw FormatException('$stCtx.keyframes must not be empty');
+      final kfList =
+          _required<List<dynamic>>(st['keyframes'], '$stCtx.keyframes');
+      if (kfList.isEmpty)
+        throw FormatException('$stCtx.keyframes must not be empty');
 
       late SlotTimeline tl;
       switch (kind) {
         case SlotTimelineKind.attachment:
           final keys = <AttachmentKeyframe>[];
           for (var ki = 0; ki < kfList.length; ki++) {
-            keys.add(_parseAttachmentKeyframe(kfList[ki] as Map<String, dynamic>, '$stCtx.keyframes[$ki]'));
+            keys.add(_parseAttachmentKeyframe(
+                kfList[ki] as Map<String, dynamic>, '$stCtx.keyframes[$ki]'));
           }
           _ensureStrictlyIncreasing(keys.map((k) => k.time).toList(), stCtx);
           tl = SlotTimeline(slot: slot, kind: kind, attachmentKeys: keys);
@@ -326,7 +355,8 @@ List<AnimationClip> _parseAnimations(List<dynamic> anims) {
         case SlotTimelineKind.alpha:
           final keys = <ColorKeyframe>[];
           for (var ki = 0; ki < kfList.length; ki++) {
-            keys.add(_parseColorKeyframe(kfList[ki] as Map<String, dynamic>, '$stCtx.keyframes[$ki]'));
+            keys.add(_parseColorKeyframe(
+                kfList[ki] as Map<String, dynamic>, '$stCtx.keyframes[$ki]'));
           }
           _ensureStrictlyIncreasing(keys.map((k) => k.time).toList(), stCtx);
           tl = SlotTimeline(slot: slot, kind: kind, colorKeys: keys);
@@ -334,7 +364,8 @@ List<AnimationClip> _parseAnimations(List<dynamic> anims) {
         case SlotTimelineKind.rgba2:
           final keys = <Color2Keyframe>[];
           for (var ki = 0; ki < kfList.length; ki++) {
-            keys.add(_parseColor2Keyframe(kfList[ki] as Map<String, dynamic>, '$stCtx.keyframes[$ki]'));
+            keys.add(_parseColor2Keyframe(
+                kfList[ki] as Map<String, dynamic>, '$stCtx.keyframes[$ki]'));
           }
           _ensureStrictlyIncreasing(keys.map((k) => k.time).toList(), stCtx);
           tl = SlotTimeline(slot: slot, kind: kind, color2Keys: keys);
@@ -342,7 +373,8 @@ List<AnimationClip> _parseAnimations(List<dynamic> anims) {
         case SlotTimelineKind.sequence:
           final keys = <SequenceKeyframe>[];
           for (var ki = 0; ki < kfList.length; ki++) {
-            keys.add(_parseSequenceKeyframe(kfList[ki] as Map<String, dynamic>, '$stCtx.keyframes[$ki]'));
+            keys.add(_parseSequenceKeyframe(
+                kfList[ki] as Map<String, dynamic>, '$stCtx.keyframes[$ki]'));
           }
           _ensureStrictlyIncreasing(keys.map((k) => k.time).toList(), stCtx);
           tl = SlotTimeline(slot: slot, kind: kind, sequenceKeys: keys);
@@ -351,7 +383,11 @@ List<AnimationClip> _parseAnimations(List<dynamic> anims) {
       slotTimelines.add(tl);
     }
 
-    result.add(AnimationClip(name: name, duration: duration, boneTimelines: boneTimelines, slotTimelines: slotTimelines));
+    result.add(AnimationClip(
+        name: name,
+        duration: duration,
+        boneTimelines: boneTimelines,
+        slotTimelines: slotTimelines));
   }
   return result;
 }
@@ -379,7 +415,8 @@ DeformerRecord _parseDeformer(
     final wj = _required<Map<String, dynamic>>(j['warp'], 'deformer.warp');
     final rows = (_required<num>(wj['rows'], 'warp.rows')).toInt();
     final cols = (_required<num>(wj['cols'], 'warp.cols')).toInt();
-    final cpRaw = _required<List<dynamic>>(wj['controlPoints'], 'warp.controlPoints');
+    final cpRaw =
+        _required<List<dynamic>>(wj['controlPoints'], 'warp.controlPoints');
     final controlPoints = cpRaw.map((p) {
       final pm = p as Map<String, dynamic>;
       return DeformerPoint(
@@ -403,7 +440,8 @@ DeformerRecord _parseDeformer(
       ),
     );
   } else if (kindStr == 'rotation') {
-    final rj = _required<Map<String, dynamic>>(j['rotation'], 'deformer.rotation');
+    final rj =
+        _required<Map<String, dynamic>>(j['rotation'], 'deformer.rotation');
     deformerData = DeformerData(
       id: id,
       parent: parent,
@@ -412,7 +450,9 @@ DeformerRecord _parseDeformer(
       rotation: RotationDeformerData(
         pivotX: _required<num>(rj['pivotX'], 'rotation.pivotX').toDouble(),
         pivotY: _required<num>(rj['pivotY'], 'rotation.pivotY').toDouble(),
-        angleDegrees: _required<num>(rj['angleDegrees'], 'rotation.angleDegrees').toDouble(),
+        angleDegrees:
+            _required<num>(rj['angleDegrees'], 'rotation.angleDegrees')
+                .toDouble(),
         scaleX: (rj['scaleX'] as num?)?.toDouble() ?? 1.0,
         scaleY: (rj['scaleY'] as num?)?.toDouble() ?? 1.0,
         opacity: (rj['opacity'] as num?)?.toDouble() ?? 1.0,
@@ -424,24 +464,29 @@ DeformerRecord _parseDeformer(
 
   final kbj = j['keyformBlend'] as Map<String, dynamic>?;
   if (kbj == null) {
-    return DeformerRecord(deformer: deformerData, keyformBlend: const KeyformBlend());
+    return DeformerRecord(
+        deformer: deformerData, keyformBlend: const KeyformBlend());
   }
 
   final axisNames = _required<List<dynamic>>(kbj['axes'], 'keyformBlend.axes');
   final axes = axisNames.map((n) {
     final name = n as String;
     final axis = paramsByName[name];
-    if (axis == null) throw FormatException('keyformBlend references unknown parameter: $name');
+    if (axis == null)
+      throw FormatException('keyformBlend references unknown parameter: $name');
     return axis;
   }).toList();
 
-  final kfList = _required<List<dynamic>>(kbj['keyforms'], 'keyformBlend.keyforms');
+  final kfList =
+      _required<List<dynamic>>(kbj['keyforms'], 'keyformBlend.keyforms');
   final keyforms = kfList.map((kf) {
     final kfm = kf as Map<String, dynamic>;
-    final coordMap = _required<Map<String, dynamic>>(kfm['coordinates'], 'keyform.coordinates');
+    final coordMap = _required<Map<String, dynamic>>(
+        kfm['coordinates'], 'keyform.coordinates');
     final coordinates = axes.map((a) {
       final v = coordMap[a.name];
-      if (v == null) throw FormatException('keyform missing coordinate: ${a.name}');
+      if (v == null)
+        throw FormatException('keyform missing coordinate: ${a.name}');
       return ParameterSample(name: a.name, value: (v as num).toDouble());
     }).toList();
     final vals = _required<List<dynamic>>(kfm['values'], 'keyform.values');
@@ -454,7 +499,8 @@ DeformerRecord _parseDeformer(
   final valueCount = keyforms.isEmpty ? 0 : keyforms[0].values.length;
   return DeformerRecord(
     deformer: deformerData,
-    keyformBlend: KeyformBlend(axes: axes, valueCount: valueCount, keyforms: keyforms),
+    keyformBlend:
+        KeyformBlend(axes: axes, valueCount: valueCount, keyforms: keyforms),
   );
 }
 
@@ -567,13 +613,15 @@ void _validate(SkeletonData data) {
     for (var bi = 0; bi < anim.boneTimelines.length; bi++) {
       final tl = anim.boneTimelines[bi];
       if (!boneNames.contains(tl.bone)) {
-        throw FormatException('$ctx.boneTimelines[$bi]: unknown bone: ${tl.bone}');
+        throw FormatException(
+            '$ctx.boneTimelines[$bi]: unknown bone: ${tl.bone}');
       }
     }
     for (var si = 0; si < anim.slotTimelines.length; si++) {
       final tl = anim.slotTimelines[si];
       if (!slotNames.contains(tl.slot)) {
-        throw FormatException('$ctx.slotTimelines[$si]: unknown slot: ${tl.slot}');
+        throw FormatException(
+            '$ctx.slotTimelines[$si]: unknown slot: ${tl.slot}');
       }
     }
   }
@@ -593,21 +641,27 @@ void _validate(SkeletonData data) {
       throw FormatException('duplicate deformer order: ${def.order}');
     }
     if (def.parent.isNotEmpty && !deformerIds.contains(def.parent)) {
-      throw FormatException('$ctx: parent deformer not found or not ordered before child: ${def.parent}');
+      throw FormatException(
+          '$ctx: parent deformer not found or not ordered before child: ${def.parent}');
     }
     if (def.kind == DeformerKind.warp) {
       final w = def.warp!;
-      if (w.rows < 2) throw FormatException('$ctx warp.rows must be >= 2, got ${w.rows}');
-      if (w.cols < 2) throw FormatException('$ctx warp.cols must be >= 2, got ${w.cols}');
+      if (w.rows < 2)
+        throw FormatException('$ctx warp.rows must be >= 2, got ${w.rows}');
+      if (w.cols < 2)
+        throw FormatException('$ctx warp.cols must be >= 2, got ${w.cols}');
       final expectedPts = w.rows * w.cols;
       if (w.controlPoints.length != expectedPts) {
-        throw FormatException('$ctx warp.controlPoints: expected $expectedPts, got ${w.controlPoints.length}');
+        throw FormatException(
+            '$ctx warp.controlPoints: expected $expectedPts, got ${w.controlPoints.length}');
       }
       if (w.maxX <= w.minX) {
-        throw FormatException('$ctx warp bounds: maxX (${w.maxX}) must be > minX (${w.minX})');
+        throw FormatException(
+            '$ctx warp bounds: maxX (${w.maxX}) must be > minX (${w.minX})');
       }
       if (w.maxY <= w.minY) {
-        throw FormatException('$ctx warp bounds: maxY (${w.maxY}) must be > minY (${w.minY})');
+        throw FormatException(
+            '$ctx warp bounds: maxY (${w.maxY}) must be > minY (${w.minY})');
       }
     }
   }
@@ -629,16 +683,19 @@ void _validate(SkeletonData data) {
         final sCtx = '$lCtx.states[$si](${state.name})';
         if (state.kind == StateMachineStateKind.clip) {
           if (!animationNames.contains(state.clipName)) {
-            throw FormatException('$sCtx.clip references unknown animation: ${state.clipName}');
+            throw FormatException(
+                '$sCtx.clip references unknown animation: ${state.clipName}');
           }
         } else if (state.kind == StateMachineStateKind.blend1d) {
           if (!inputNames.contains(state.blendInput)) {
-            throw FormatException('$sCtx.blendInput references unknown input: ${state.blendInput}');
+            throw FormatException(
+                '$sCtx.blendInput references unknown input: ${state.blendInput}');
           }
           for (var bci = 0; bci < state.blendClips.length; bci++) {
             final bc = state.blendClips[bci];
             if (!animationNames.contains(bc.clipName)) {
-              throw FormatException('$sCtx.blendClips[$bci].clip references unknown animation: ${bc.clipName}');
+              throw FormatException(
+                  '$sCtx.blendClips[$bci].clip references unknown animation: ${bc.clipName}');
             }
           }
         }
@@ -647,15 +704,18 @@ void _validate(SkeletonData data) {
         final tr = layer.transitions[ti];
         final trCtx = '$lCtx.transitions[$ti]';
         if (!stateNames.contains(tr.fromState)) {
-          throw FormatException('$trCtx.fromState references unknown state: ${tr.fromState}');
+          throw FormatException(
+              '$trCtx.fromState references unknown state: ${tr.fromState}');
         }
         if (!stateNames.contains(tr.toState)) {
-          throw FormatException('$trCtx.toState references unknown state: ${tr.toState}');
+          throw FormatException(
+              '$trCtx.toState references unknown state: ${tr.toState}');
         }
         for (var ci = 0; ci < tr.conditions.length; ci++) {
           final cond = tr.conditions[ci];
           if (!inputNames.contains(cond.input)) {
-            throw FormatException('$trCtx.conditions[$ci].input references unknown input: ${cond.input}');
+            throw FormatException(
+                '$trCtx.conditions[$ci].input references unknown input: ${cond.input}');
           }
         }
       }
@@ -665,18 +725,21 @@ void _validate(SkeletonData data) {
       final lstCtx = '$smCtx.listeners[$li](${lst.name})';
       final lstStates = layerStateNames[lst.layer];
       if (lstStates == null) {
-        throw FormatException('$lstCtx.layer references unknown layer: ${lst.layer}');
+        throw FormatException(
+            '$lstCtx.layer references unknown layer: ${lst.layer}');
       }
       if (lst.kind == StateMachineListenerKind.stateEnter ||
           lst.kind == StateMachineListenerKind.transition_) {
         if (!lstStates.contains(lst.toState)) {
-          throw FormatException('$lstCtx.toState references unknown state: ${lst.toState}');
+          throw FormatException(
+              '$lstCtx.toState references unknown state: ${lst.toState}');
         }
       }
       if (lst.kind == StateMachineListenerKind.stateExit ||
           lst.kind == StateMachineListenerKind.transition_) {
         if (!lstStates.contains(lst.fromState)) {
-          throw FormatException('$lstCtx.fromState references unknown state: ${lst.fromState}');
+          throw FormatException(
+              '$lstCtx.fromState references unknown state: ${lst.fromState}');
         }
       }
     }
@@ -694,6 +757,17 @@ const int _bnbSlot = 1000;
 const int _bnbRegion = 1001;
 const int _bnbPath = 4000;
 const int _bnbPathAttachment = 4001;
+const int _bnbAnimationClip = 2000;
+const int _bnbBoneTimeline = 2001;
+const int _bnbSlotTimeline = 2002;
+const int _bnbStateMachine = 7000;
+const int _bnbStateMachineInput = 7001;
+const int _bnbStateMachineLayer = 7002;
+const int _bnbStateMachineState = 7003;
+const int _bnbStateMachineBlendClip = 7004;
+const int _bnbStateMachineTransition = 7005;
+const int _bnbStateMachineCondition = 7006;
+const int _bnbStateMachineListener = 7007;
 // M7 type keys.
 const int _bnbParameter = 6000;
 const int _bnbDeformer = 6001;
@@ -732,6 +806,35 @@ const int _bkP2x = 4007;
 const int _bkP2y = 4008;
 const int _bkP3x = 4009;
 const int _bkP3y = 4010;
+const int _bkPosition = 4011;
+const int _bkTranslateMix = 4012;
+const int _bkRotateMix = 4013;
+const int _bkBoneIndex = 2000;
+const int _bkBoneTimelineKind = 2001;
+const int _bkSlotIndex = 2002;
+const int _bkSlotTimelineKind = 2003;
+const int _bkTimelineKeys = 2004;
+const int _bkStateMachineInputKind = 7000;
+const int _bkInputDefaultBool = 7001;
+const int _bkInputDefaultNumber = 7002;
+const int _bkInitialStateIndex = 7010;
+const int _bkStateMachineStateKind = 7020;
+const int _bkStateClipIndex = 7021;
+const int _bkStateLoop = 7022;
+const int _bkStateBlendInputIndex = 7023;
+const int _bkBlendClipAnimationIndex = 7030;
+const int _bkBlendClipValue = 7031;
+const int _bkBlendClipLoop = 7032;
+const int _bkTransitionFromStateIndex = 7040;
+const int _bkTransitionToStateIndex = 7041;
+const int _bkConditionInputIndex = 7050;
+const int _bkStateMachineConditionKind = 7051;
+const int _bkConditionBoolValue = 7052;
+const int _bkConditionNumberValue = 7053;
+const int _bkStateMachineListenerKind = 7060;
+const int _bkListenerLayerIndex = 7061;
+const int _bkListenerFromStateIndex = 7062;
+const int _bkListenerToStateIndex = 7063;
 // M7 property keys.
 const int _bkParamMin = 6000;
 const int _bkParamMax = 6001;
@@ -759,9 +862,29 @@ const int _bkBlendValues = 6043;
 
 // Type keys we recognize; everything else is skipped for forward compat.
 const _bnbKnownTypes = {
-  _bnbSkeleton, _bnbBone, _bnbSlot, _bnbRegion, _bnbPath, _bnbPathAttachment,
-  _bnbParameter, _bnbDeformer, _bnbWarpLattice, _bnbRotationDeformer,
-  _bnbKeyformBlend, _bnbKeyform,
+  _bnbSkeleton,
+  _bnbBone,
+  _bnbSlot,
+  _bnbRegion,
+  _bnbPath,
+  _bnbPathAttachment,
+  _bnbAnimationClip,
+  _bnbBoneTimeline,
+  _bnbSlotTimeline,
+  _bnbParameter,
+  _bnbDeformer,
+  _bnbWarpLattice,
+  _bnbRotationDeformer,
+  _bnbKeyformBlend,
+  _bnbKeyform,
+  _bnbStateMachine,
+  _bnbStateMachineInput,
+  _bnbStateMachineLayer,
+  _bnbStateMachineState,
+  _bnbStateMachineBlendClip,
+  _bnbStateMachineTransition,
+  _bnbStateMachineCondition,
+  _bnbStateMachineListener,
 };
 
 // Mutable cursor over a binary buffer.
@@ -781,8 +904,10 @@ class _BnbCur {
     int result = 0;
     int shift = 0;
     while (true) {
-      if (pos >= data.length) throw const FormatException('truncated .bnb varuint');
-      if (pos - start >= 10) throw const FormatException('.bnb varuint too long');
+      if (pos >= data.length)
+        throw const FormatException('truncated .bnb varuint');
+      if (pos - start >= 10)
+        throw const FormatException('.bnb varuint too long');
       final b = data[pos++];
       // Bit 63 overflow check: top 7 bits of the 10th byte must be 0 except bit 0.
       if (shift == 63 && (b & 0x7e) != 0) {
@@ -825,14 +950,16 @@ class _BnbCur {
   bool readBool() {
     if (pos >= data.length) throw const FormatException('truncated .bnb bool');
     final b = data[pos++];
-    if (b != 0 && b != 1) throw FormatException('.bnb bool must be 0 or 1, got $b');
+    if (b != 0 && b != 1)
+      throw FormatException('.bnb bool must be 0 or 1, got $b');
     return b == 1;
   }
 
   String readStr(List<String> strings) {
     final idx = readVaruint();
     if (idx >= strings.length) {
-      throw FormatException('.bnb string index $idx out of range (${strings.length})');
+      throw FormatException(
+          '.bnb string index $idx out of range (${strings.length})');
     }
     return strings[idx];
   }
@@ -870,7 +997,8 @@ List<_BnbObj> _bnbReadObjects(_BnbCur c) {
       final pk = c.readVaruint();
       if (pk == 0) break;
       if (!seenProps.add(pk)) {
-        throw FormatException('.bnb duplicate property key $pk in type $typeKey object');
+        throw FormatException(
+            '.bnb duplicate property key $pk in type $typeKey object');
       }
       final blen = c.readVaruint();
       props[pk] = c.readBytes(blen);
@@ -889,11 +1017,13 @@ List<_BnbObj> _bnbReadObjects(_BnbCur c) {
 // validates that the payload is fully consumed (no trailing bytes).
 void _bCheckExhausted(_BnbCur c, String ctx) {
   if (c.pos != c.data.length) {
-    throw FormatException('.bnb $ctx payload has ${c.data.length - c.pos} trailing bytes');
+    throw FormatException(
+        '.bnb $ctx payload has ${c.data.length - c.pos} trailing bytes');
   }
 }
 
-String _bStr(_BnbObj obj, int key, List<String> strings, String ctx, {String? def}) {
+String _bStr(_BnbObj obj, int key, List<String> strings, String ctx,
+    {String? def}) {
   final payload = obj.props[key];
   if (payload == null) {
     if (def != null) return def;
@@ -919,7 +1049,8 @@ double _bF32(_BnbObj obj, int key, String ctx, {double? def}) {
 
 double _bF64(_BnbObj obj, int key, String ctx) {
   final payload = obj.props[key];
-  if (payload == null) throw FormatException('.bnb required property missing: $ctx');
+  if (payload == null)
+    throw FormatException('.bnb required property missing: $ctx');
   final c = _BnbCur(payload);
   final v = c.readF64();
   _bCheckExhausted(c, ctx);
@@ -953,10 +1084,22 @@ int _bVaruint(_BnbObj obj, int key, {int def = 0}) {
   return v;
 }
 
+int _bRequiredVaruint(_BnbObj obj, int key, String ctx) {
+  final payload = obj.props[key];
+  if (payload == null) {
+    throw FormatException('.bnb required property missing: $ctx');
+  }
+  final c = _BnbCur(payload);
+  final v = c.readVaruint();
+  _bCheckExhausted(c, ctx);
+  return v;
+}
+
 // Parse warpControlPoints payload: varuint count, then count*(f32 x, f32 y) pairs.
 List<DeformerPoint> _bControlPoints(_BnbObj obj, List<String> strings) {
   final payload = obj.props[_bkWarpControlPoints];
-  if (payload == null) throw const FormatException('.bnb warpLattice.controlPoints is required');
+  if (payload == null)
+    throw const FormatException('.bnb warpLattice.controlPoints is required');
   final c = _BnbCur(payload);
   final count = c.readVaruint();
   final pts = <DeformerPoint>[];
@@ -976,7 +1119,8 @@ List<ParameterAxis> _bBlendAxes(
   Map<String, ParameterAxis> paramsByName,
 ) {
   final payload = obj.props[_bkBlendAxes];
-  if (payload == null) throw const FormatException('.bnb keyformBlend.axes is required');
+  if (payload == null)
+    throw const FormatException('.bnb keyformBlend.axes is required');
   final c = _BnbCur(payload);
   final count = c.readVaruint();
   final axes = <ParameterAxis>[];
@@ -984,7 +1128,8 @@ List<ParameterAxis> _bBlendAxes(
     final name = c.readStr(strings);
     final axis = paramsByName[name];
     if (axis == null) {
-      throw FormatException('.bnb keyformBlend references unknown parameter: $name');
+      throw FormatException(
+          '.bnb keyformBlend references unknown parameter: $name');
     }
     axes.add(axis);
   }
@@ -995,9 +1140,11 @@ List<ParameterAxis> _bBlendAxes(
 // Parse a flat array of n f32 values from a property payload.
 List<double> _bF32Array(_BnbObj obj, int key, int count, String ctx) {
   final payload = obj.props[key];
-  if (payload == null) throw FormatException('.bnb required property missing: $ctx');
+  if (payload == null)
+    throw FormatException('.bnb required property missing: $ctx');
   if (payload.length != count * 4) {
-    throw FormatException('.bnb $ctx payload length mismatch: expected ${count * 4}, got ${payload.length}');
+    throw FormatException(
+        '.bnb $ctx payload length mismatch: expected ${count * 4}, got ${payload.length}');
   }
   final c = _BnbCur(payload);
   final result = <double>[];
@@ -1007,7 +1154,259 @@ List<double> _bF32Array(_BnbObj obj, int key, int count, String ctx) {
   return result;
 }
 
+TimelineCurve _bCurve(_BnbCur c, String ctx) {
+  final tag = c.readVaruint();
+  switch (tag) {
+    case 0:
+      return TimelineCurve.linear;
+    case 1:
+      return TimelineCurve.stepped;
+    case 2:
+      return TimelineCurve.bezier(
+          c.readF32(), c.readF32(), c.readF32(), c.readF32());
+    default:
+      throw FormatException('.bnb $ctx curve kind is invalid: $tag');
+  }
+}
+
+BoneTimelineKind _bBoneTimelineKind(int tag) {
+  switch (tag) {
+    case 0:
+      return BoneTimelineKind.rotate;
+    case 1:
+      return BoneTimelineKind.translate;
+    case 2:
+      return BoneTimelineKind.translateX;
+    case 3:
+      return BoneTimelineKind.translateY;
+    case 4:
+      return BoneTimelineKind.scale;
+    case 5:
+      return BoneTimelineKind.scaleX;
+    case 6:
+      return BoneTimelineKind.scaleY;
+    case 7:
+      return BoneTimelineKind.shear;
+    case 8:
+      return BoneTimelineKind.shearX;
+    case 9:
+      return BoneTimelineKind.shearY;
+    case 10:
+      return BoneTimelineKind.inherit;
+    default:
+      throw FormatException('.bnb boneTimeline.kind is invalid: $tag');
+  }
+}
+
+SlotTimelineKind _bSlotTimelineKind(int tag) {
+  if (tag < 0 || tag >= SlotTimelineKind.values.length) {
+    throw FormatException('.bnb slotTimeline.kind is invalid: $tag');
+  }
+  return SlotTimelineKind.values[tag];
+}
+
+SequenceMode _bSequenceMode(int tag) {
+  if (tag < 0 || tag >= SequenceMode.values.length) {
+    throw FormatException('.bnb sequence mode is invalid: $tag');
+  }
+  return SequenceMode.values[tag];
+}
+
+String _bTransformMode(int tag) {
+  switch (tag) {
+    case 0:
+      return 'normal';
+    case 1:
+      return 'onlyTranslation';
+    case 2:
+      return 'noRotationOrReflection';
+    case 3:
+      return 'noScale';
+    case 4:
+      return 'noScaleOrReflection';
+    default:
+      throw FormatException('.bnb transformMode is invalid: $tag');
+  }
+}
+
+BoneTimeline _bBoneTimelineKeys(
+    String bone, BoneTimelineKind kind, Uint8List payload, String ctx) {
+  final c = _BnbCur(payload);
+  final count = c.readVaruint();
+  if (count == 0)
+    throw FormatException('.bnb $ctx must contain at least one key');
+  switch (kind) {
+    case BoneTimelineKind.translate:
+    case BoneTimelineKind.scale:
+    case BoneTimelineKind.shear:
+      final keys = <Vector2Keyframe>[];
+      for (var i = 0; i < count; i++) {
+        keys.add(Vector2Keyframe(
+          time: c.readF32(),
+          x: c.readF32(),
+          y: c.readF32(),
+          curveX: _bCurve(c, '$ctx.curveX'),
+          curveY: _bCurve(c, '$ctx.curveY'),
+        ));
+      }
+      _bCheckExhausted(c, ctx);
+      _ensureStrictlyIncreasing(keys.map((k) => k.time).toList(), ctx);
+      return BoneTimeline(bone: bone, kind: kind, vectorKeys: keys);
+    case BoneTimelineKind.inherit:
+      final keys = <InheritKeyframe>[];
+      for (var i = 0; i < count; i++) {
+        keys.add(InheritKeyframe(
+          time: c.readF32(),
+          inheritRotation: c.readBool(),
+          inheritScale: c.readBool(),
+          inheritReflection: c.readBool(),
+          transformMode: _bTransformMode(c.readVaruint()),
+        ));
+      }
+      _bCheckExhausted(c, ctx);
+      _ensureStrictlyIncreasing(keys.map((k) => k.time).toList(), ctx);
+      return BoneTimeline(bone: bone, kind: kind, inheritKeys: keys);
+    default:
+      final keys = <ScalarKeyframe>[];
+      for (var i = 0; i < count; i++) {
+        keys.add(ScalarKeyframe(
+            time: c.readF32(),
+            value: c.readF32(),
+            curve: _bCurve(c, '$ctx.curve')));
+      }
+      _bCheckExhausted(c, ctx);
+      _ensureStrictlyIncreasing(keys.map((k) => k.time).toList(), ctx);
+      return BoneTimeline(bone: bone, kind: kind, scalarKeys: keys);
+  }
+}
+
+SlotTimeline _bSlotTimelineKeys(
+  String slot,
+  SlotTimelineKind kind,
+  Uint8List payload,
+  List<RegionAttachment> regions,
+  String ctx,
+) {
+  final c = _BnbCur(payload);
+  final count = c.readVaruint();
+  if (count == 0)
+    throw FormatException('.bnb $ctx must contain at least one key');
+  switch (kind) {
+    case SlotTimelineKind.attachment:
+      final keys = <AttachmentKeyframe>[];
+      for (var i = 0; i < count; i++) {
+        final time = c.readF32();
+        final tag = c.readVaruint();
+        if (tag == 0) {
+          keys.add(AttachmentKeyframe(time: time, attachment: ''));
+        } else {
+          final index = tag - 1;
+          if (index < 0 || index >= regions.length) {
+            throw FormatException('.bnb $ctx attachment index is out of range');
+          }
+          keys.add(
+              AttachmentKeyframe(time: time, attachment: regions[index].name));
+        }
+      }
+      _bCheckExhausted(c, ctx);
+      _ensureStrictlyIncreasing(keys.map((k) => k.time).toList(), ctx);
+      return SlotTimeline(slot: slot, kind: kind, attachmentKeys: keys);
+    case SlotTimelineKind.rgba:
+    case SlotTimelineKind.rgb:
+    case SlotTimelineKind.alpha:
+      final keys = <ColorKeyframe>[];
+      for (var i = 0; i < count; i++) {
+        keys.add(ColorKeyframe(
+          time: c.readF32(),
+          color: ColorRgba(
+              r: c.readF32(), g: c.readF32(), b: c.readF32(), a: c.readF32()),
+          curve: _bCurve(c, '$ctx.curve'),
+        ));
+      }
+      _bCheckExhausted(c, ctx);
+      _ensureStrictlyIncreasing(keys.map((k) => k.time).toList(), ctx);
+      return SlotTimeline(slot: slot, kind: kind, colorKeys: keys);
+    case SlotTimelineKind.rgba2:
+      final keys = <Color2Keyframe>[];
+      for (var i = 0; i < count; i++) {
+        final time = c.readF32();
+        final light = ColorRgba(
+            r: c.readF32(), g: c.readF32(), b: c.readF32(), a: c.readF32());
+        keys.add(Color2Keyframe(
+          time: time,
+          color: ColorRgba2(
+              light: light,
+              darkR: c.readF32(),
+              darkG: c.readF32(),
+              darkB: c.readF32()),
+          curve: _bCurve(c, '$ctx.curve'),
+        ));
+      }
+      _bCheckExhausted(c, ctx);
+      _ensureStrictlyIncreasing(keys.map((k) => k.time).toList(), ctx);
+      return SlotTimeline(slot: slot, kind: kind, color2Keys: keys);
+    case SlotTimelineKind.sequence:
+      final keys = <SequenceKeyframe>[];
+      for (var i = 0; i < count; i++) {
+        keys.add(SequenceKeyframe(
+          time: c.readF32(),
+          index: c.readVaruint(),
+          delay: c.readF32(),
+          mode: _bSequenceMode(c.readVaruint()),
+        ));
+      }
+      _bCheckExhausted(c, ctx);
+      _ensureStrictlyIncreasing(keys.map((k) => k.time).toList(), ctx);
+      return SlotTimeline(slot: slot, kind: kind, sequenceKeys: keys);
+  }
+}
+
+double _animationDuration(
+    List<BoneTimeline> boneTimelines, List<SlotTimeline> slotTimelines) {
+  var duration = 0.0;
+  for (final timeline in boneTimelines) {
+    if (timeline.vectorKeys.isNotEmpty &&
+        timeline.vectorKeys.last.time > duration) {
+      duration = timeline.vectorKeys.last.time;
+    }
+    if (timeline.inheritKeys.isNotEmpty &&
+        timeline.inheritKeys.last.time > duration) {
+      duration = timeline.inheritKeys.last.time;
+    }
+    if (timeline.scalarKeys.isNotEmpty &&
+        timeline.scalarKeys.last.time > duration) {
+      duration = timeline.scalarKeys.last.time;
+    }
+  }
+  for (final timeline in slotTimelines) {
+    if (timeline.attachmentKeys.isNotEmpty &&
+        timeline.attachmentKeys.last.time > duration) {
+      duration = timeline.attachmentKeys.last.time;
+    }
+    if (timeline.colorKeys.isNotEmpty &&
+        timeline.colorKeys.last.time > duration) {
+      duration = timeline.colorKeys.last.time;
+    }
+    if (timeline.color2Keys.isNotEmpty &&
+        timeline.color2Keys.last.time > duration) {
+      duration = timeline.color2Keys.last.time;
+    }
+    if (timeline.sequenceKeys.isNotEmpty &&
+        timeline.sequenceKeys.last.time > duration) {
+      duration = timeline.sequenceKeys.last.time;
+    }
+  }
+  return duration;
+}
+
 SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
+  bool isStateMachineObject(_BnbObj obj) =>
+      obj.typeKey >= _bnbStateMachine &&
+      obj.typeKey <= _bnbStateMachineListener;
+  final decodeObjects = [
+    ...objects.where((obj) => !isStateMachineObject(obj)),
+    ...objects.where(isStateMachineObject),
+  ];
   SkeletonHeader? header;
   final bones = <BoneData>[];
   final slots = <SlotData>[];
@@ -1016,6 +1415,89 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
   final pathAttachments = <PathAttachment>[];
   final parameters = <ParameterAxis>[];
   final deformers = <DeformerRecord>[];
+  final animations = <AnimationClip>[];
+  final stateMachines = <StateMachineData>[];
+  var currentAnimationName = '';
+  var currentBoneTimelines = <BoneTimeline>[];
+  var currentSlotTimelines = <SlotTimeline>[];
+  var currentMachineName = '';
+  var machineInputs = <StateMachineInput>[];
+  var machineLayers = <StateMachineLayer>[];
+  var machineListeners = <StateMachineListener>[];
+  var currentLayerName = '';
+  var currentLayerInitialIndex = 0;
+  var currentLayerStates = <StateMachineState>[];
+  var currentLayerTransitions = <StateMachineTransition>[];
+  var pendingTransitionFrom = '';
+  var pendingTransitionTo = '';
+  var pendingConditions = <StateMachineCondition>[];
+  final seenAnimationNames = <String>{};
+
+  void flushAnimation() {
+    if (currentAnimationName.isEmpty) return;
+    if (!seenAnimationNames.add(currentAnimationName)) {
+      throw FormatException('duplicate animation name: $currentAnimationName');
+    }
+    animations.add(AnimationClip(
+      name: currentAnimationName,
+      duration: _animationDuration(currentBoneTimelines, currentSlotTimelines),
+      boneTimelines: currentBoneTimelines,
+      slotTimelines: currentSlotTimelines,
+    ));
+    currentAnimationName = '';
+    currentBoneTimelines = [];
+    currentSlotTimelines = [];
+  }
+
+  String stateNameAt(List<StateMachineState> states, int index, String ctx) {
+    if (index < 0 || index >= states.length) {
+      throw FormatException('.bnb $ctx state index is out of range');
+    }
+    return states[index].name;
+  }
+
+  void flushTransition() {
+    if (pendingTransitionFrom.isEmpty) return;
+    currentLayerTransitions.add(StateMachineTransition(
+      fromState: pendingTransitionFrom,
+      toState: pendingTransitionTo,
+      conditions: pendingConditions,
+    ));
+    pendingTransitionFrom = '';
+    pendingTransitionTo = '';
+    pendingConditions = [];
+  }
+
+  void flushLayer() {
+    if (currentLayerName.isEmpty) return;
+    flushTransition();
+    machineLayers.add(StateMachineLayer(
+      name: currentLayerName,
+      states: currentLayerStates,
+      initialState: stateNameAt(currentLayerStates, currentLayerInitialIndex,
+          'stateMachineLayer.initialStateIndex'),
+      transitions: currentLayerTransitions,
+    ));
+    currentLayerName = '';
+    currentLayerInitialIndex = 0;
+    currentLayerStates = [];
+    currentLayerTransitions = [];
+  }
+
+  void flushMachine() {
+    if (currentMachineName.isEmpty) return;
+    flushLayer();
+    stateMachines.add(StateMachineData(
+      name: currentMachineName,
+      layers: machineLayers,
+      inputs: machineInputs,
+      listeners: machineListeners,
+    ));
+    currentMachineName = '';
+    machineInputs = [];
+    machineLayers = [];
+    machineListeners = [];
+  }
 
   // M7 deformer state machine — mirrors Nim semantic.nim decodeSkeletonObjects.
   var deformerPending = false;
@@ -1034,7 +1516,8 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
   void flushPending() {
     if (!deformerPending) return;
     if (!geometryReady) {
-      throw const FormatException('.bnb deformer header has no following geometry record');
+      throw const FormatException(
+          '.bnb deformer header has no following geometry record');
     }
     final DeformerData deformerData;
     if (pendingKind == DeformerKind.warp) {
@@ -1071,14 +1554,16 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
 
   final paramsByName = <String, ParameterAxis>{};
 
-  for (final obj in objects) {
+  for (final obj in decodeObjects) {
     switch (obj.typeKey) {
       case _bnbSkeleton:
         flushPending();
-        if (header != null) throw const FormatException('.bnb: multiple skeleton objects');
+        if (header != null)
+          throw const FormatException('.bnb: multiple skeleton objects');
         header = SkeletonHeader(
           name: _bStr(obj, _bkName, strings, 'skeleton.name'),
-          version: _bStr(obj, _bkVersion, strings, 'skeleton.version', def: '0.1.0'),
+          version:
+              _bStr(obj, _bkVersion, strings, 'skeleton.version', def: '0.1.0'),
         );
       case _bnbBone:
         flushPending();
@@ -1095,14 +1580,17 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
           inheritRotation: _bBool(obj, _bkInheritRotation, def: true),
           inheritScale: _bBool(obj, _bkInheritScale, def: true),
           inheritReflection: _bBool(obj, _bkInheritReflection, def: true),
-          transformMode: _bStr(obj, _bkTransformMode, strings, 'bone.transformMode', def: 'normal'),
+          transformMode: _bStr(
+              obj, _bkTransformMode, strings, 'bone.transformMode',
+              def: 'normal'),
         ));
       case _bnbSlot:
         flushPending();
         slots.add(SlotData(
           name: _bStr(obj, _bkName, strings, 'slot.name'),
           bone: _bStr(obj, _bkBone, strings, 'slot.bone'),
-          attachment: _bStr(obj, _bkAttachment, strings, 'slot.attachment', def: ''),
+          attachment:
+              _bStr(obj, _bkAttachment, strings, 'slot.attachment', def: ''),
         ));
       case _bnbRegion:
         flushPending();
@@ -1119,6 +1607,15 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
           target: _bStr(obj, _bkTarget, strings, 'path.target'),
           path: _bStr(obj, _bkPath, strings, 'path.path'),
           order: _bVarint(obj, _bkOrder, def: 0),
+          position: obj.props.containsKey(_bkPosition)
+              ? _bF32(obj, _bkPosition, 'path.position')
+              : null,
+          translateMix: obj.props.containsKey(_bkTranslateMix)
+              ? _bF32(obj, _bkTranslateMix, 'path.translateMix')
+              : null,
+          rotateMix: obj.props.containsKey(_bkRotateMix)
+              ? _bF32(obj, _bkRotateMix, 'path.rotateMix')
+              : null,
         ));
       case _bnbPathAttachment:
         flushPending();
@@ -1153,7 +1650,8 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
       case _bnbDeformer:
         flushPending();
         pendingId = _bStr(obj, _bkDefId, strings, 'deformer.id');
-        pendingParent = _bStr(obj, _bkParent, strings, 'deformer.parent', def: '');
+        pendingParent =
+            _bStr(obj, _bkParent, strings, 'deformer.parent', def: '');
         pendingOrder = _bVaruint(obj, _bkDefOrder, def: 0);
         final kindStr = _bStr(obj, _bkDefKind, strings, 'deformer.kind');
         if (kindStr == 'warp') {
@@ -1161,7 +1659,8 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
         } else if (kindStr == 'rotation') {
           pendingKind = DeformerKind.rotation;
         } else {
-          throw FormatException('.bnb deformer.kind must be warp or rotation: $kindStr');
+          throw FormatException(
+              '.bnb deformer.kind must be warp or rotation: $kindStr');
         }
         deformerPending = true;
         geometryReady = false;
@@ -1170,7 +1669,8 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
         pendingKeyforms = [];
       case _bnbWarpLattice:
         if (!deformerPending || pendingKind != DeformerKind.warp) {
-          throw const FormatException('.bnb warpLattice without preceding warp deformer');
+          throw const FormatException(
+              '.bnb warpLattice without preceding warp deformer');
         }
         pendingWarp = WarpLattice(
           rows: _bVaruint(obj, _bkWarpRows, def: 2),
@@ -1184,20 +1684,24 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
         geometryReady = true;
       case _bnbRotationDeformer:
         if (!deformerPending || pendingKind != DeformerKind.rotation) {
-          throw const FormatException('.bnb rotationDeformer without preceding rotation deformer');
+          throw const FormatException(
+              '.bnb rotationDeformer without preceding rotation deformer');
         }
         pendingRotation = RotationDeformerData(
           pivotX: _bF32(obj, _bkRotPivotX, 'rotationDeformer.pivotX'),
           pivotY: _bF32(obj, _bkRotPivotY, 'rotationDeformer.pivotY'),
-          angleDegrees: _bF32(obj, _bkRotAngle, 'rotationDeformer.angleDegrees'),
+          angleDegrees:
+              _bF32(obj, _bkRotAngle, 'rotationDeformer.angleDegrees'),
           scaleX: _bF32(obj, _bkRotScaleX, 'rotationDeformer.scaleX', def: 1.0),
           scaleY: _bF32(obj, _bkRotScaleY, 'rotationDeformer.scaleY', def: 1.0),
-          opacity: _bF32(obj, _bkRotOpacity, 'rotationDeformer.opacity', def: 1.0),
+          opacity:
+              _bF32(obj, _bkRotOpacity, 'rotationDeformer.opacity', def: 1.0),
         );
         geometryReady = true;
       case _bnbKeyformBlend:
         if (!deformerPending || !geometryReady) {
-          throw const FormatException('.bnb keyformBlend without preceding deformer geometry');
+          throw const FormatException(
+              '.bnb keyformBlend without preceding deformer geometry');
         }
         pendingBlendValueCount = _bVaruint(obj, _bkBlendValueCount, def: 0);
         pendingBlendAxes = _bBlendAxes(obj, strings, paramsByName);
@@ -1205,20 +1709,381 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
         blendPending = true;
       case _bnbKeyform:
         if (!blendPending) {
-          throw const FormatException('.bnb keyform without preceding keyformBlend');
+          throw const FormatException(
+              '.bnb keyform without preceding keyformBlend');
         }
-        final coordVals = _bF32Array(obj, _bkBlendCoords, pendingBlendAxes.length, 'keyform.coordinates');
-        final values = _bF32Array(obj, _bkBlendValues, pendingBlendValueCount, 'keyform.values');
+        final coordVals = _bF32Array(obj, _bkBlendCoords,
+            pendingBlendAxes.length, 'keyform.coordinates');
+        final values = _bF32Array(
+            obj, _bkBlendValues, pendingBlendValueCount, 'keyform.values');
         final coordinates = [
           for (var i = 0; i < pendingBlendAxes.length; i++)
-            ParameterSample(name: pendingBlendAxes[i].name, value: coordVals[i]),
+            ParameterSample(
+                name: pendingBlendAxes[i].name, value: coordVals[i]),
         ];
         pendingKeyforms.add(Keyform(coordinates: coordinates, values: values));
+      case _bnbAnimationClip:
+        flushPending();
+        flushAnimation();
+        currentAnimationName =
+            _bStr(obj, _bkName, strings, 'animationClip.name');
+      case _bnbBoneTimeline:
+        flushPending();
+        if (currentAnimationName.isEmpty)
+          throw const FormatException(
+              '.bnb boneTimeline without animationClip');
+        final boneIndex = _bVaruint(obj, _bkBoneIndex);
+        if (boneIndex < 0 || boneIndex >= bones.length) {
+          throw const FormatException(
+              '.bnb boneTimeline.boneIndex is out of range');
+        }
+        final payload = obj.props[_bkTimelineKeys];
+        if (payload == null)
+          throw const FormatException(
+              '.bnb boneTimeline.timelineKeys is required');
+        currentBoneTimelines.add(_bBoneTimelineKeys(
+          bones[boneIndex].name,
+          _bBoneTimelineKind(
+              _bRequiredVaruint(obj, _bkBoneTimelineKind, 'boneTimeline.kind')),
+          payload,
+          'boneTimeline.timelineKeys',
+        ));
+      case _bnbSlotTimeline:
+        flushPending();
+        if (currentAnimationName.isEmpty)
+          throw const FormatException(
+              '.bnb slotTimeline without animationClip');
+        final slotIndex = _bVaruint(obj, _bkSlotIndex);
+        if (slotIndex < 0 || slotIndex >= slots.length) {
+          throw const FormatException(
+              '.bnb slotTimeline.slotIndex is out of range');
+        }
+        final payload = obj.props[_bkTimelineKeys];
+        if (payload == null)
+          throw const FormatException(
+              '.bnb slotTimeline.timelineKeys is required');
+        currentSlotTimelines.add(_bSlotTimelineKeys(
+          slots[slotIndex].name,
+          _bSlotTimelineKind(
+              _bRequiredVaruint(obj, _bkSlotTimelineKind, 'slotTimeline.kind')),
+          payload,
+          regions,
+          'slotTimeline.timelineKeys',
+        ));
+      case _bnbStateMachine:
+        flushPending();
+        flushAnimation();
+        flushMachine();
+        currentMachineName = _bStr(obj, _bkName, strings, 'stateMachine.name');
+      case _bnbStateMachineInput:
+        flushPending();
+        flushLayer();
+        if (currentMachineName.isEmpty)
+          throw const FormatException(
+              '.bnb stateMachineInput without stateMachine');
+        final kindTag = _bRequiredVaruint(
+            obj, _bkStateMachineInputKind, 'stateMachineInput.kind');
+        final name = _bStr(obj, _bkName, strings, 'stateMachineInput.name');
+        switch (kindTag) {
+          case 0:
+            if (obj.props.containsKey(_bkInputDefaultNumber)) {
+              throw const FormatException(
+                  '.bnb bool input must not contain number default');
+            }
+            machineInputs.add(StateMachineInput(
+              name: name,
+              kind: StateMachineInputKind.bool_,
+              defaultBool: _bBool(obj, _bkInputDefaultBool),
+            ));
+          case 1:
+            if (obj.props.containsKey(_bkInputDefaultBool)) {
+              throw const FormatException(
+                  '.bnb number input must not contain bool default');
+            }
+            machineInputs.add(StateMachineInput(
+              name: name,
+              kind: StateMachineInputKind.number,
+              defaultNumber: _bF32(
+                  obj, _bkInputDefaultNumber, 'stateMachineInput.defaultNumber',
+                  def: 0.0),
+            ));
+          case 2:
+            if (obj.props.containsKey(_bkInputDefaultBool) ||
+                obj.props.containsKey(_bkInputDefaultNumber)) {
+              throw const FormatException(
+                  '.bnb trigger input must not contain defaults');
+            }
+            machineInputs.add(StateMachineInput(
+                name: name, kind: StateMachineInputKind.trigger));
+          default:
+            throw FormatException(
+                '.bnb stateMachineInput.kind is invalid: $kindTag');
+        }
+      case _bnbStateMachineLayer:
+        flushPending();
+        flushLayer();
+        if (currentMachineName.isEmpty)
+          throw const FormatException(
+              '.bnb stateMachineLayer without stateMachine');
+        currentLayerName =
+            _bStr(obj, _bkName, strings, 'stateMachineLayer.name');
+        currentLayerInitialIndex = _bVaruint(obj, _bkInitialStateIndex);
+      case _bnbStateMachineState:
+        flushPending();
+        flushTransition();
+        if (currentLayerName.isEmpty)
+          throw const FormatException('.bnb stateMachineState without layer');
+        final stateName =
+            _bStr(obj, _bkName, strings, 'stateMachineState.name');
+        final kindTag = _bRequiredVaruint(
+            obj, _bkStateMachineStateKind, 'stateMachineState.kind');
+        switch (kindTag) {
+          case 0:
+            if (obj.props.containsKey(_bkStateBlendInputIndex)) {
+              throw const FormatException(
+                  '.bnb clip state must not contain blend input');
+            }
+            final clipIndex = _bRequiredVaruint(
+                obj, _bkStateClipIndex, 'stateMachineState.clip');
+            if (clipIndex < 0 || clipIndex >= animations.length) {
+              throw const FormatException(
+                  '.bnb stateMachineState.clip index is out of range');
+            }
+            currentLayerStates.add(StateMachineState(
+              name: stateName,
+              kind: StateMachineStateKind.clip,
+              clipName: animations[clipIndex].name,
+              loop: _bBool(obj, _bkStateLoop),
+            ));
+          case 1:
+            if (obj.props.containsKey(_bkStateClipIndex) ||
+                obj.props.containsKey(_bkStateLoop)) {
+              throw const FormatException(
+                  '.bnb blend1d state must not contain direct clip fields');
+            }
+            final inputIndex = _bRequiredVaruint(
+                obj, _bkStateBlendInputIndex, 'stateMachineState.blendInput');
+            if (inputIndex < 0 || inputIndex >= machineInputs.length) {
+              throw const FormatException(
+                  '.bnb stateMachineState.blendInput index is out of range');
+            }
+            currentLayerStates.add(StateMachineState(
+              name: stateName,
+              kind: StateMachineStateKind.blend1d,
+              blendInput: machineInputs[inputIndex].name,
+              blendClips: <StateMachineBlendClip>[],
+            ));
+          default:
+            throw FormatException(
+                '.bnb stateMachineState.kind is invalid: $kindTag');
+        }
+      case _bnbStateMachineBlendClip:
+        flushPending();
+        if (currentLayerStates.isEmpty ||
+            currentLayerStates.last.kind != StateMachineStateKind.blend1d) {
+          throw const FormatException(
+              '.bnb stateMachineBlendClip without blend1d state');
+        }
+        final clipIndex = _bRequiredVaruint(
+            obj, _bkBlendClipAnimationIndex, 'stateMachineBlendClip.animation');
+        if (clipIndex < 0 || clipIndex >= animations.length) {
+          throw const FormatException(
+              '.bnb stateMachineBlendClip.animation index is out of range');
+        }
+        final previous = currentLayerStates.removeLast();
+        currentLayerStates.add(StateMachineState(
+          name: previous.name,
+          kind: previous.kind,
+          blendInput: previous.blendInput,
+          blendClips: [
+            ...previous.blendClips,
+            StateMachineBlendClip(
+              clipName: animations[clipIndex].name,
+              value:
+                  _bF32(obj, _bkBlendClipValue, 'stateMachineBlendClip.value'),
+              loop: _bBool(obj, _bkBlendClipLoop),
+            ),
+          ],
+        ));
+      case _bnbStateMachineTransition:
+        flushPending();
+        flushTransition();
+        if (currentLayerName.isEmpty)
+          throw const FormatException(
+              '.bnb stateMachineTransition without layer');
+        pendingTransitionFrom = stateNameAt(
+            currentLayerStates,
+            _bRequiredVaruint(obj, _bkTransitionFromStateIndex,
+                'stateMachineTransition.from'),
+            'stateMachineTransition.from');
+        pendingTransitionTo = stateNameAt(
+            currentLayerStates,
+            _bRequiredVaruint(
+                obj, _bkTransitionToStateIndex, 'stateMachineTransition.to'),
+            'stateMachineTransition.to');
+      case _bnbStateMachineCondition:
+        flushPending();
+        if (pendingTransitionFrom.isEmpty)
+          throw const FormatException(
+              '.bnb stateMachineCondition without transition');
+        final inputIndex = _bRequiredVaruint(
+            obj, _bkConditionInputIndex, 'stateMachineCondition.input');
+        if (inputIndex < 0 || inputIndex >= machineInputs.length) {
+          throw const FormatException(
+              '.bnb stateMachineCondition.input index is out of range');
+        }
+        final input = machineInputs[inputIndex];
+        final kindTag = _bRequiredVaruint(
+            obj, _bkStateMachineConditionKind, 'stateMachineCondition.kind');
+        switch (kindTag) {
+          case 0:
+            if (obj.props.containsKey(_bkConditionNumberValue)) {
+              throw const FormatException(
+                  '.bnb bool condition must not contain number value');
+            }
+            pendingConditions.add(StateMachineCondition(
+              input: input.name,
+              kind: StateMachineConditionKind.boolEquals,
+              boolValue: _bBool(obj, _bkConditionBoolValue, def: true),
+            ));
+          case 1:
+            if (obj.props.containsKey(_bkConditionBoolValue)) {
+              throw const FormatException(
+                  '.bnb number condition must not contain bool value');
+            }
+            pendingConditions.add(StateMachineCondition(
+                input: input.name,
+                kind: StateMachineConditionKind.numberEquals,
+                numberValue:
+                    _bF32(obj, _bkConditionNumberValue, 'condition.number')));
+          case 2:
+            if (obj.props.containsKey(_bkConditionBoolValue)) {
+              throw const FormatException(
+                  '.bnb number condition must not contain bool value');
+            }
+            pendingConditions.add(StateMachineCondition(
+                input: input.name,
+                kind: StateMachineConditionKind.numberGreater,
+                numberValue:
+                    _bF32(obj, _bkConditionNumberValue, 'condition.number')));
+          case 3:
+            if (obj.props.containsKey(_bkConditionBoolValue)) {
+              throw const FormatException(
+                  '.bnb number condition must not contain bool value');
+            }
+            pendingConditions.add(StateMachineCondition(
+                input: input.name,
+                kind: StateMachineConditionKind.numberGreaterOrEqual,
+                numberValue:
+                    _bF32(obj, _bkConditionNumberValue, 'condition.number')));
+          case 4:
+            if (obj.props.containsKey(_bkConditionBoolValue)) {
+              throw const FormatException(
+                  '.bnb number condition must not contain bool value');
+            }
+            pendingConditions.add(StateMachineCondition(
+                input: input.name,
+                kind: StateMachineConditionKind.numberLess,
+                numberValue:
+                    _bF32(obj, _bkConditionNumberValue, 'condition.number')));
+          case 5:
+            if (obj.props.containsKey(_bkConditionBoolValue)) {
+              throw const FormatException(
+                  '.bnb number condition must not contain bool value');
+            }
+            pendingConditions.add(StateMachineCondition(
+                input: input.name,
+                kind: StateMachineConditionKind.numberLessOrEqual,
+                numberValue:
+                    _bF32(obj, _bkConditionNumberValue, 'condition.number')));
+          case 6:
+            if (obj.props.containsKey(_bkConditionBoolValue) ||
+                obj.props.containsKey(_bkConditionNumberValue)) {
+              throw const FormatException(
+                  '.bnb trigger condition must not contain values');
+            }
+            pendingConditions.add(StateMachineCondition(
+                input: input.name, kind: StateMachineConditionKind.triggerSet));
+          default:
+            throw FormatException(
+                '.bnb stateMachineCondition.kind is invalid: $kindTag');
+        }
+      case _bnbStateMachineListener:
+        flushPending();
+        flushLayer();
+        if (currentMachineName.isEmpty)
+          throw const FormatException(
+              '.bnb stateMachineListener without stateMachine');
+        final listenerName =
+            _bStr(obj, _bkName, strings, 'stateMachineListener.name');
+        final layerIndex = _bRequiredVaruint(
+            obj, _bkListenerLayerIndex, 'stateMachineListener.layer');
+        if (layerIndex < 0 || layerIndex >= machineLayers.length) {
+          throw const FormatException(
+              '.bnb stateMachineListener.layer index is out of range');
+        }
+        final layer = machineLayers[layerIndex];
+        final kindTag = _bRequiredVaruint(
+            obj, _bkStateMachineListenerKind, 'stateMachineListener.kind');
+        switch (kindTag) {
+          case 0:
+            if (obj.props.containsKey(_bkListenerFromStateIndex)) {
+              throw const FormatException(
+                  '.bnb enter listener must not contain from state');
+            }
+            machineListeners.add(StateMachineListener(
+              name: listenerName,
+              kind: StateMachineListenerKind.stateEnter,
+              layer: layer.name,
+              toState: stateNameAt(
+                  layer.states,
+                  _bRequiredVaruint(
+                      obj, _bkListenerToStateIndex, 'stateMachineListener.to'),
+                  'stateMachineListener.to'),
+            ));
+          case 1:
+            if (obj.props.containsKey(_bkListenerToStateIndex)) {
+              throw const FormatException(
+                  '.bnb exit listener must not contain to state');
+            }
+            machineListeners.add(StateMachineListener(
+              name: listenerName,
+              kind: StateMachineListenerKind.stateExit,
+              layer: layer.name,
+              fromState: stateNameAt(
+                  layer.states,
+                  _bRequiredVaruint(obj, _bkListenerFromStateIndex,
+                      'stateMachineListener.from'),
+                  'stateMachineListener.from'),
+            ));
+          case 2:
+            machineListeners.add(StateMachineListener(
+              name: listenerName,
+              kind: StateMachineListenerKind.transition_,
+              layer: layer.name,
+              fromState: stateNameAt(
+                  layer.states,
+                  _bRequiredVaruint(obj, _bkListenerFromStateIndex,
+                      'stateMachineListener.from'),
+                  'stateMachineListener.from'),
+              toState: stateNameAt(
+                  layer.states,
+                  _bRequiredVaruint(
+                      obj, _bkListenerToStateIndex, 'stateMachineListener.to'),
+                  'stateMachineListener.to'),
+            ));
+          default:
+            throw FormatException(
+                '.bnb stateMachineListener.kind is invalid: $kindTag');
+        }
     }
   }
   flushPending();
+  flushAnimation();
+  flushMachine();
 
-  if (header == null) throw const FormatException('.bnb: missing skeleton object');
+  if (header == null)
+    throw const FormatException('.bnb: missing skeleton object');
   return SkeletonData(
     header: header,
     bones: bones,
@@ -1228,6 +2093,8 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
     pathAttachments: pathAttachments,
     parameters: parameters,
     deformers: deformers,
+    animations: animations,
+    stateMachines: stateMachines,
   );
 }
 
@@ -1239,18 +2106,22 @@ SkeletonData loadBonyBnb(Uint8List bytes) {
   final c = _BnbCur(bytes);
 
   c._need(4, '.bnb fingerprint');
-  if (c.data[0] != 0x42 || c.data[1] != 0x4f ||
-      c.data[2] != 0x4e || c.data[3] != 0x59) {
+  if (c.data[0] != 0x42 ||
+      c.data[1] != 0x4f ||
+      c.data[2] != 0x4e ||
+      c.data[3] != 0x59) {
     throw const FormatException('invalid .bnb fingerprint (expected BONY)');
   }
   c.pos = 4;
 
   final version = c.readVaruint();
   final major = (version >> 16) & 0xffff;
-  if (major != 0) throw FormatException('unsupported .bnb major version: $major');
+  if (major != 0)
+    throw FormatException('unsupported .bnb major version: $major');
 
   final flags = c.readVaruint();
-  if ((flags & ~0x3) != 0) throw const FormatException('unknown .bnb header flags');
+  if ((flags & ~0x3) != 0)
+    throw const FormatException('unknown .bnb header flags');
 
   // ToC: varuint count then (propKey, u8 backingType) pairs.
   // We read it to advance past it; actual type info is in the payload lengths.
@@ -1299,13 +2170,15 @@ StateMachineData _parseStateMachine(Map<String, dynamic> j) {
           defaultNumber: quantizeF32((m['default'] as num?)?.toDouble() ?? 0.0),
         );
       case 'trigger':
-        return StateMachineInput(name: iname, kind: StateMachineInputKind.trigger);
+        return StateMachineInput(
+            name: iname, kind: StateMachineInputKind.trigger);
       default:
         throw FormatException('unknown input kind: $kind');
     }
   }).toList();
 
-  final layersRaw = _required<List<dynamic>>(j['layers'], 'stateMachine.layers');
+  final layersRaw =
+      _required<List<dynamic>>(j['layers'], 'stateMachine.layers');
   final layers = layersRaw.map((l) {
     final lm = l as Map<String, dynamic>;
     final lname = _required<String>(lm['name'], 'layer.name');
@@ -1324,19 +2197,22 @@ StateMachineData _parseStateMachine(Map<String, dynamic> j) {
           loop: (sm['loop'] as bool?) ?? false,
         );
       } else if (kind == 'blend1d') {
-        final blendClipsRaw = _required<List<dynamic>>(sm['blendClips'], 'state.blendClips');
+        final blendClipsRaw =
+            _required<List<dynamic>>(sm['blendClips'], 'state.blendClips');
         final blendClips = blendClipsRaw.map((bc) {
           final bcm = bc as Map<String, dynamic>;
           return StateMachineBlendClip(
             clipName: _required<String>(bcm['clip'], 'blendClip.clip'),
-            value: quantizeF32(_required<num>(bcm['value'], 'blendClip.value').toDouble()),
+            value: quantizeF32(
+                _required<num>(bcm['value'], 'blendClip.value').toDouble()),
             loop: (bcm['loop'] as bool?) ?? false,
           );
         }).toList()
           ..sort((a, b) => a.value.compareTo(b.value));
         for (var bi = 1; bi < blendClips.length; bi++) {
           if (blendClips[bi].value == blendClips[bi - 1].value) {
-            throw FormatException('duplicate blend clip value: ${blendClips[bi].value}');
+            throw FormatException(
+                'duplicate blend clip value: ${blendClips[bi].value}');
           }
         }
         return StateMachineState(
@@ -1353,7 +2229,8 @@ StateMachineData _parseStateMachine(Map<String, dynamic> j) {
     final transitionsRaw = lm['transitions'] as List<dynamic>? ?? [];
     final transitions = transitionsRaw.map((t) {
       final tm = t as Map<String, dynamic>;
-      final conditionsRaw = _required<List<dynamic>>(tm['conditions'], 'transition.conditions');
+      final conditionsRaw =
+          _required<List<dynamic>>(tm['conditions'], 'transition.conditions');
       final conditions = conditionsRaw.map((c) {
         final cm = c as Map<String, dynamic>;
         final cinput = _required<String>(cm['input'], 'condition.input');
@@ -1369,31 +2246,36 @@ StateMachineData _parseStateMachine(Map<String, dynamic> j) {
             return StateMachineCondition(
               input: cinput,
               kind: StateMachineConditionKind.numberEquals,
-              numberValue: quantizeF32(_required<num>(cm['value'], 'condition.value').toDouble()),
+              numberValue: quantizeF32(
+                  _required<num>(cm['value'], 'condition.value').toDouble()),
             );
           case 'numberGreater':
             return StateMachineCondition(
               input: cinput,
               kind: StateMachineConditionKind.numberGreater,
-              numberValue: quantizeF32(_required<num>(cm['value'], 'condition.value').toDouble()),
+              numberValue: quantizeF32(
+                  _required<num>(cm['value'], 'condition.value').toDouble()),
             );
           case 'numberGreaterOrEqual':
             return StateMachineCondition(
               input: cinput,
               kind: StateMachineConditionKind.numberGreaterOrEqual,
-              numberValue: quantizeF32(_required<num>(cm['value'], 'condition.value').toDouble()),
+              numberValue: quantizeF32(
+                  _required<num>(cm['value'], 'condition.value').toDouble()),
             );
           case 'numberLess':
             return StateMachineCondition(
               input: cinput,
               kind: StateMachineConditionKind.numberLess,
-              numberValue: quantizeF32(_required<num>(cm['value'], 'condition.value').toDouble()),
+              numberValue: quantizeF32(
+                  _required<num>(cm['value'], 'condition.value').toDouble()),
             );
           case 'numberLessOrEqual':
             return StateMachineCondition(
               input: cinput,
               kind: StateMachineConditionKind.numberLessOrEqual,
-              numberValue: quantizeF32(_required<num>(cm['value'], 'condition.value').toDouble()),
+              numberValue: quantizeF32(
+                  _required<num>(cm['value'], 'condition.value').toDouble()),
             );
           case 'triggerSet':
             return StateMachineCondition(
@@ -1411,10 +2293,14 @@ StateMachineData _parseStateMachine(Map<String, dynamic> j) {
       );
     }).toList();
 
-    if (states.isEmpty) throw FormatException('state machine layer "$lname" must have at least one state');
-    final resolvedInitial = initialState.isEmpty ? states[0].name : initialState;
+    if (states.isEmpty)
+      throw FormatException(
+          'state machine layer "$lname" must have at least one state');
+    final resolvedInitial =
+        initialState.isEmpty ? states[0].name : initialState;
     if (!states.any((s) => s.name == resolvedInitial)) {
-      throw FormatException('state machine layer "$lname" initialState "$resolvedInitial" not found');
+      throw FormatException(
+          'state machine layer "$lname" initialState "$resolvedInitial" not found');
     }
     return StateMachineLayer(
       name: lname,
@@ -1528,7 +2414,9 @@ SkeletonData loadBonyJson(String jsonText) {
 
   final smRaw = root['stateMachines'];
   final stateMachines = smRaw is List<dynamic>
-      ? smRaw.map((sm) => _parseStateMachine(sm as Map<String, dynamic>)).toList()
+      ? smRaw
+          .map((sm) => _parseStateMachine(sm as Map<String, dynamic>))
+          .toList()
       : const <StateMachineData>[];
 
   final data = SkeletonData(

@@ -69,6 +69,9 @@ class PathConstraintData {
     required this.target,
     required this.path,
     required this.order,
+    this.position,
+    this.translateMix,
+    this.rotateMix,
   });
 
   final String name;
@@ -76,6 +79,12 @@ class PathConstraintData {
   final String target;
   final String path;
   final int order;
+  final double? position;
+  final double? translateMix;
+  final double? rotateMix;
+
+  bool get runtimeEvaluable =>
+      position != null || translateMix != null || rotateMix != null;
 }
 
 class PathAttachment {
@@ -246,8 +255,14 @@ class TimelineCurve {
     this.c2y = 1.0,
   });
 
-  factory TimelineCurve.bezier(double c1x, double c1y, double c2x, double c2y) =>
-      TimelineCurve._(kind: TimelineCurveKind.bezier, c1x: c1x, c1y: c1y, c2x: c2x, c2y: c2y);
+  factory TimelineCurve.bezier(
+          double c1x, double c1y, double c2x, double c2y) =>
+      TimelineCurve._(
+          kind: TimelineCurveKind.bezier,
+          c1x: c1x,
+          c1y: c1y,
+          c2x: c2x,
+          c2y: c2y);
 
   static const linear = TimelineCurve._(kind: TimelineCurveKind.linear);
   static const stepped = TimelineCurve._(kind: TimelineCurveKind.stepped);
@@ -284,7 +299,8 @@ enum SlotTimelineKind {
 enum SequenceMode { once, loop, pingpong, reverse, hold }
 
 class ColorRgba {
-  const ColorRgba({required this.r, required this.g, required this.b, required this.a});
+  const ColorRgba(
+      {required this.r, required this.g, required this.b, required this.a});
   final double r;
   final double g;
   final double b;
@@ -292,7 +308,11 @@ class ColorRgba {
 }
 
 class ColorRgba2 {
-  const ColorRgba2({required this.light, required this.darkR, required this.darkG, required this.darkB});
+  const ColorRgba2(
+      {required this.light,
+      required this.darkR,
+      required this.darkG,
+      required this.darkB});
   final ColorRgba light;
   final double darkR;
   final double darkG;
@@ -300,7 +320,10 @@ class ColorRgba2 {
 }
 
 class ScalarKeyframe {
-  const ScalarKeyframe({required this.time, required this.value, this.curve = TimelineCurve.linear});
+  const ScalarKeyframe(
+      {required this.time,
+      required this.value,
+      this.curve = TimelineCurve.linear});
   final double time;
   final double value;
   final TimelineCurve curve;
@@ -343,14 +366,20 @@ class AttachmentKeyframe {
 }
 
 class ColorKeyframe {
-  const ColorKeyframe({required this.time, required this.color, this.curve = TimelineCurve.linear});
+  const ColorKeyframe(
+      {required this.time,
+      required this.color,
+      this.curve = TimelineCurve.linear});
   final double time;
   final ColorRgba color;
   final TimelineCurve curve;
 }
 
 class Color2Keyframe {
-  const Color2Keyframe({required this.time, required this.color, this.curve = TimelineCurve.linear});
+  const Color2Keyframe(
+      {required this.time,
+      required this.color,
+      this.curve = TimelineCurve.linear});
   final double time;
   final ColorRgba2 color;
   final TimelineCurve curve;
