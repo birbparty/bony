@@ -22,6 +22,15 @@ SCHEMA_PATH = ROOT / "spec" / "bony.schema.json"
 NIM_WIRE_PATH = ROOT / "runtime-nim" / "src" / "bony" / "generated" / "wire.nim"
 DART_WIRE_PATH = ROOT / "runtime-dart" / "lib" / "src" / "generated" / "wire.dart"
 
+PACKED_BYTES_METADATA: dict[str, dict[str, Any]] = {
+    "timelineKeys": {
+        "payload": "animationTimelineKeys",
+        "layout": "docs/binary-animation-state-machine-object-families.md#keyframe-payloads",
+        "structuralSchema": "base64Only",
+        "validatedBy": "loader",
+    },
+}
+
 
 class SourceError(ValueError):
     pass
@@ -518,6 +527,8 @@ def schema_for_backing_type(backing_type: str) -> dict[str, Any]:
 
 def schema_for_property(property_id: str, backing_type: str) -> dict[str, Any]:
     schema = schema_for_backing_type(backing_type)
+    if backing_type == "bytes" and property_id in PACKED_BYTES_METADATA:
+        schema["x-bony-packedBytes"] = dict(PACKED_BYTES_METADATA[property_id])
     if property_id == "name":
         schema["minLength"] = 1
     if property_id == "transformMode":

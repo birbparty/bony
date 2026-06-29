@@ -849,7 +849,13 @@
         },
         "timelineKeys": {
           "type": "string",
-          "contentEncoding": "base64"
+          "contentEncoding": "base64",
+          "x-bony-packedBytes": {
+            "payload": "animationTimelineKeys",
+            "layout": "docs/binary-animation-state-machine-object-families.md#keyframe-payloads",
+            "structuralSchema": "base64Only",
+            "validatedBy": "loader"
+          }
         }
       },
       "required": [
@@ -872,7 +878,13 @@
         },
         "timelineKeys": {
           "type": "string",
-          "contentEncoding": "base64"
+          "contentEncoding": "base64",
+          "x-bony-packedBytes": {
+            "payload": "animationTimelineKeys",
+            "layout": "docs/binary-animation-state-machine-object-families.md#keyframe-payloads",
+            "structuralSchema": "base64Only",
+            "validatedBy": "loader"
+          }
         }
       },
       "required": [
