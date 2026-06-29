@@ -611,6 +611,21 @@
         "order": {
           "type": "integer",
           "default": 0
+        },
+        "position": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "translateMix": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "rotateMix": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
         }
       },
       "required": [

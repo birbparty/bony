@@ -888,6 +888,9 @@ def schema_for_property(property_id: str, backing_type: str) -> dict[str, Any]:
         ]
     if property_id in {"width", "height"}:
         schema["minimum"] = 0
+    if property_id in {"position", "translateMix", "rotateMix"}:
+        schema["minimum"] = 0
+        schema["maximum"] = 1
     return schema
 
 

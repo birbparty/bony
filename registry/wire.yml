@@ -552,6 +552,27 @@ propertyKeys:
     milestone: M5
     ownerBead: bony-8gs
     doc: Cubic path second endpoint y coordinate.
+  - id: position
+    key: 4011
+    backingType: f32
+    status: active
+    milestone: M5
+    ownerBead: bony-2il
+    doc: Runtime path constraint normalized position along the target path.
+  - id: translateMix
+    key: 4012
+    backingType: f32
+    status: active
+    milestone: M5
+    ownerBead: bony-2il
+    doc: Runtime path constraint translation blend amount.
+  - id: rotateMix
+    key: 4013
+    backingType: f32
+    status: active
+    milestone: M5
+    ownerBead: bony-2il
+    doc: Runtime path constraint tangent-rotation blend amount.
   - id: parameterMin
     key: 6000
     backingType: f32
@@ -937,6 +958,9 @@ objects:
       - target
       - path
       - order
+      - position
+      - translateMix
+      - rotateMix
     doc: Path constraint record loaded in source order.
   - type: pathAttachment
     properties:

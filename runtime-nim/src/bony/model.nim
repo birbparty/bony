@@ -80,6 +80,12 @@ type
     target: string
     path: string
     order: int
+    hasPosition: bool
+    position: float64
+    hasTranslateMix: bool
+    translateMix: float64
+    hasRotateMix: bool
+    rotateMix: float64
 
   ParameterAxis* = object
     name*: string
@@ -272,8 +278,38 @@ proc pathAttachmentData*(
   )
 
 
-proc pathConstraintData*(name, bone, target, path: string; order = 0): PathConstraintData =
-  PathConstraintData(name: name, bone: bone, target: target, path: path, order: order)
+proc pathConstraintData*(
+  name, bone, target, path: string;
+  order = 0;
+  hasPosition = false;
+  position = 0.0;
+  hasTranslateMix = false;
+  translateMix = 1.0;
+  hasRotateMix = false;
+  rotateMix = 0.0;
+): PathConstraintData =
+  let storedPosition = quantizeF32(position, "path.position")
+  let storedTranslateMix = quantizeF32(translateMix, "path.translateMix")
+  let storedRotateMix = quantizeF32(rotateMix, "path.rotateMix")
+  if storedPosition < 0.0 or storedPosition > 1.0:
+    raise newBonyLoadError(schemaViolation, "path.position must be in [0, 1]")
+  if storedTranslateMix < 0.0 or storedTranslateMix > 1.0:
+    raise newBonyLoadError(schemaViolation, "path.translateMix must be in [0, 1]")
+  if storedRotateMix < 0.0 or storedRotateMix > 1.0:
+    raise newBonyLoadError(schemaViolation, "path.rotateMix must be in [0, 1]")
+  PathConstraintData(
+    name: name,
+    bone: bone,
+    target: target,
+    path: path,
+    order: order,
+    hasPosition: hasPosition,
+    position: storedPosition,
+    hasTranslateMix: hasTranslateMix,
+    translateMix: storedTranslateMix,
+    hasRotateMix: hasRotateMix,
+    rotateMix: storedRotateMix,
+  )
 
 
 proc name*(header: SkeletonHeader): string = header.name
@@ -325,6 +361,14 @@ proc bone*(path: PathConstraintData): string = path.bone
 proc target*(path: PathConstraintData): string = path.target
 proc path*(path: PathConstraintData): string = path.path
 proc order*(path: PathConstraintData): int = path.order
+proc hasPosition*(path: PathConstraintData): bool = path.hasPosition
+proc position*(path: PathConstraintData): float64 = path.position
+proc hasTranslateMix*(path: PathConstraintData): bool = path.hasTranslateMix
+proc translateMix*(path: PathConstraintData): float64 = path.translateMix
+proc hasRotateMix*(path: PathConstraintData): bool = path.hasRotateMix
+proc rotateMix*(path: PathConstraintData): float64 = path.rotateMix
+proc runtimeEvaluable*(path: PathConstraintData): bool =
+  path.hasPosition or path.hasTranslateMix or path.hasRotateMix
 
 
 proc x*(local: LocalTransform): float64 = local.x

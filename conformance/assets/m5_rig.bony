@@ -39,8 +39,8 @@
     }
   ],
   "paths": [
-    {"name": "rider_follow", "bone": "rider", "target": "root", "path": "spine_path", "order": 0},
-    {"name": "arm_follow", "bone": "lower_arm", "target": "spine", "path": "spine_path", "order": 0},
-    {"name": "tail_follow", "bone": "tail_b", "target": "tail_a", "path": "spine_path", "order": 2}
+    {"name": "rider_follow", "bone": "rider", "target": "root", "path": "spine_path", "order": 0, "position": 0.75, "translateMix": 1.0},
+    {"name": "arm_follow", "bone": "lower_arm", "target": "spine", "path": "spine_path", "order": 0, "position": 0.5, "translateMix": 1.0, "rotateMix": 0.5},
+    {"name": "tail_follow", "bone": "tail_b", "target": "tail_a", "path": "spine_path", "order": 2, "position": 0.25, "translateMix": 1.0}
   ]
 }

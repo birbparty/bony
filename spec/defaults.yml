@@ -175,6 +175,21 @@ objectDefaults:
         omitWhenDefault: true
         applyOnLoad: true
         doc: Constraint order defaults to the first world-transform slot.
+      position:
+        value: 0.0
+        omitWhenDefault: true
+        applyOnLoad: false
+        doc: Runtime path solver opt-in normalized position along the path.
+      translateMix:
+        value: 1.0
+        omitWhenDefault: true
+        applyOnLoad: false
+        doc: Runtime path solver opt-in translation blend.
+      rotateMix:
+        value: 0.0
+        omitWhenDefault: true
+        applyOnLoad: false
+        doc: Runtime path solver opt-in tangent rotation blend.
   - object: pathAttachment
     ownerBead: bony-8gs
     properties: {}

@@ -10,6 +10,7 @@ type
     order*: int
     sourceIndex*: int
     writes*: seq[string]
+    reads*: seq[string]
     active*: bool
 
   ConstraintCacheEntryKind* = enum
@@ -29,10 +30,11 @@ proc constraintCacheDescriptor*(
   kind: ConstraintKind;
   order, sourceIndex: int;
   writes: openArray[string];
+  reads: openArray[string] = [];
   active = true;
 ): ConstraintCacheDescriptor =
   discard constraintOrderEntry(kind, order, sourceIndex)
-  ConstraintCacheDescriptor(kind: kind, order: order, sourceIndex: sourceIndex, writes: @writes, active: active)
+  ConstraintCacheDescriptor(kind: kind, order: order, sourceIndex: sourceIndex, writes: @writes, reads: @reads, active: active)
 
 
 proc parentIndexes(bones: openArray[BoneData]): seq[int] =
@@ -60,9 +62,46 @@ proc writeBoneIndexes(byName: Table[string, int]; writes: openArray[string]): se
     result.add byName[boneName]
 
 
+proc readBoneIndexes(byName: Table[string, int]; reads: openArray[string]): seq[int] =
+  for boneName in reads:
+    if boneName notin byName:
+      raise newBonyLoadError(unknownRequiredReference, "unknown constraint read bone: " & boneName)
+    result.add byName[boneName]
+
+
 proc emitBoneGroup(result: var seq[ConstraintUpdateCacheEntry]; bones: seq[int]) =
   if bones.len > 0:
     result.add ConstraintUpdateCacheEntry(kind: ccekBoneGroup, bones: bones)
+
+
+proc emitReadDependencies(
+  result: var seq[ConstraintUpdateCacheEntry];
+  bones: openArray[BoneData];
+  parents: openArray[int];
+  byName: Table[string, int];
+  writeBlockers: openArray[int];
+  emitted: var seq[bool];
+  reads: openArray[string];
+  itemIndex: int;
+) =
+  var group: seq[int]
+  for readIndex in readBoneIndexes(byName, reads):
+    var lineage: seq[int]
+    var cursor = readIndex
+    while cursor >= 0:
+      lineage.add cursor
+      cursor = parents[cursor]
+    lineage.reverse()
+    for index in lineage:
+      if index != readIndex and writeBlockers[index] >= itemIndex:
+        raise newBonyLoadError(
+          orderingViolation,
+          "constraint read bone ancestor cannot be emitted before later write: " & bones[readIndex].name,
+        )
+      if not emitted[index]:
+        group.add index
+        emitted[index] = true
+  result.emitBoneGroup(group)
 
 
 proc buildConstraintUpdateCache*(
@@ -95,6 +134,15 @@ proc buildConstraintUpdateCache*(
 
   var emitted = newSeq[bool](bones.len)
   for itemIndex, item in sortedEntries:
+    result.emitReadDependencies(
+      bones,
+      parents,
+      byName,
+      writeBlockers,
+      emitted,
+      item.descriptor.reads,
+      itemIndex,
+    )
     var group: seq[int]
     for index in 0 ..< bones.len:
       if not emitted[index] and releaseAfter[index] < itemIndex:
@@ -121,5 +169,6 @@ proc buildPhysicsConstraintOrder*(descriptors: openArray[ConstraintCacheDescript
 proc buildPathConstraintUpdateCache*(data: SkeletonData): seq[ConstraintUpdateCacheEntry] =
   var descriptors: seq[ConstraintCacheDescriptor]
   for index, path in data.paths:
-    descriptors.add constraintCacheDescriptor(ckPath, path.order, index, [path.bone])
+    let reads = if path.runtimeEvaluable: @[path.target] else: @[]
+    descriptors.add constraintCacheDescriptor(ckPath, path.order, index, [path.bone], reads = reads)
   buildConstraintUpdateCache(data.bones, descriptors)
