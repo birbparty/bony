@@ -170,9 +170,11 @@ Within each group:
   because state-machine clip and blend-clip references index the loaded
   animation sequence.
 - Timeline child objects are emitted immediately after their owning animation
-  object, in the owning animation's stored timeline order. Keyframes for the
-  current animation/state-machine slice are packed inside `timelineKeys` bytes
-  properties, so no separate keyframe child objects are emitted in this slice.
+  object. Within one animation, emit all `boneTimeline` records in loaded
+  `boneTimelines` order, then all `slotTimeline` records in loaded
+  `slotTimelines` order. Keyframes for the current animation/state-machine
+  slice are packed inside `timelineKeys` bytes properties, so no separate
+  keyframe child objects are emitted in this slice.
 - State-machine child records are emitted immediately after their owning parent
   record, recursively:
   1. `stateMachine`
@@ -198,27 +200,30 @@ Raw embedded atlas bytes are not object-stream entries. Atlas metadata objects,
 if present, use the `atlasMetadata` group above. The raw embedded atlas payload
 is emitted only in the post-EOF atlas section defined by File Section Order.
 
-## Packed Payload Traversal
+## Animation Packed Payload Traversal
 
-Packed `bytes` properties participate in canonical output even though their
-internal fields are not object-stream properties.
+Animation `timelineKeys` packed `bytes` properties participate in canonical
+output even though their internal fields are not object-stream properties.
 
 Rules:
 
-- Writers encode packed payload fields in the field order defined by the
-  contract that introduced the payload.
 - For `timelineKeys`, writers visit keys by ascending stored key index and then
   visit fields in the order shown in
   [binary-animation-state-machine-object-families.md](binary-animation-state-machine-object-families.md).
 - Curve payload fields are visited as `curveKind`, then Bezier control points
   `c1x`, `c1y`, `c2x`, `c2y` only when `curveKind` is Bezier.
-- If a future packed payload includes strings, those strings are interned at the
-  point they are visited by this packed field order. The current animation and
-  state-machine packed payloads use indices and numeric tags, not strings.
+- The current animation and state-machine packed payloads use indices and
+  numeric tags, not strings. If a future animation/state-machine packed payload
+  includes strings, those strings must be interned at the point they are visited
+  by that payload's explicitly declared packed field order.
 - Packed payload bytes compare by exact bytes for default omission and canonical
   equality. The default table may omit a `bytes` property only when the loaded
   semantic payload equals the default payload and the default entry sets
   `omitWhenDefault: true`.
+
+Packed `bytes` properties outside this animation/state-machine slice keep the
+traversal rules owned by their original contracts. This section does not change
+existing packed payloads such as deformer `blendAxes`.
 
 ## Property Emission
 
@@ -285,7 +290,8 @@ The M6 `bnb->json->bnb` byte-stability gate must include:
 - Falsey non-default values still emitted.
 - Object stream order follows the canonical group order.
 - Animation records emit before state-machine records.
-- Timeline records immediately follow their owning animation in stored timeline
+- Timeline records immediately follow their owning animation, with
+  `boneTimeline` records before `slotTimeline` records and each family in loaded
   order.
 - State-machine inputs, layers, states, blend clips, transitions, conditions,
   and listeners follow the recursive child-adjacency order defined above.
