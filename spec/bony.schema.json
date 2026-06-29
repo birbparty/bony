@@ -74,6 +74,72 @@
       "items": {
         "$ref": "#/$defs/keyform"
       }
+    },
+    "animationClips": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/animationClip"
+      }
+    },
+    "boneTimelines": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/boneTimeline"
+      }
+    },
+    "slotTimelines": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/slotTimeline"
+      }
+    },
+    "stateMachines": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/stateMachine"
+      }
+    },
+    "stateMachineInputs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/stateMachineInput"
+      }
+    },
+    "stateMachineLayers": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/stateMachineLayer"
+      }
+    },
+    "stateMachineStates": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/stateMachineState"
+      }
+    },
+    "stateMachineBlendClips": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/stateMachineBlendClip"
+      }
+    },
+    "stateMachineTransitions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/stateMachineTransition"
+      }
+    },
+    "stateMachineConditions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/stateMachineCondition"
+      }
+    },
+    "stateMachineListeners": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/stateMachineListener"
+      }
     }
   },
   "required": [
@@ -754,6 +820,243 @@
       "required": [
         "blendCoordinates",
         "blendValues"
+      ]
+    },
+    "animationClip": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "name"
+      ]
+    },
+    "boneTimeline": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "boneIndex": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "boneTimelineKind": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "timelineKeys": {
+          "type": "string",
+          "contentEncoding": "base64"
+        }
+      },
+      "required": [
+        "boneIndex",
+        "boneTimelineKind",
+        "timelineKeys"
+      ]
+    },
+    "slotTimeline": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "slotIndex": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "slotTimelineKind": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "timelineKeys": {
+          "type": "string",
+          "contentEncoding": "base64"
+        }
+      },
+      "required": [
+        "slotIndex",
+        "slotTimelineKind",
+        "timelineKeys"
+      ]
+    },
+    "stateMachine": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "name"
+      ]
+    },
+    "stateMachineInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "stateMachineInputKind": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "inputDefaultBool": {
+          "type": "boolean"
+        },
+        "inputDefaultNumber": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "name",
+        "stateMachineInputKind"
+      ]
+    },
+    "stateMachineLayer": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "initialStateIndex": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        }
+      },
+      "required": [
+        "name"
+      ]
+    },
+    "stateMachineState": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "stateMachineStateKind": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "stateClipIndex": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "stateLoop": {
+          "type": "boolean"
+        },
+        "stateBlendInputIndex": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "name",
+        "stateMachineStateKind"
+      ]
+    },
+    "stateMachineBlendClip": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "blendClipAnimationIndex": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "blendClipValue": {
+          "type": "number"
+        },
+        "blendClipLoop": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "required": [
+        "blendClipAnimationIndex",
+        "blendClipValue"
+      ]
+    },
+    "stateMachineTransition": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "transitionFromStateIndex": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "transitionToStateIndex": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "transitionFromStateIndex",
+        "transitionToStateIndex"
+      ]
+    },
+    "stateMachineCondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "conditionInputIndex": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "stateMachineConditionKind": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "conditionBoolValue": {
+          "type": "boolean"
+        },
+        "conditionNumberValue": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "conditionInputIndex",
+        "stateMachineConditionKind"
+      ]
+    },
+    "stateMachineListener": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "stateMachineListenerKind": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "listenerLayerIndex": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "listenerFromStateIndex": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "listenerToStateIndex": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "listenerLayerIndex",
+        "name",
+        "stateMachineListenerKind"
       ]
     }
   }

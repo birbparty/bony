@@ -11,7 +11,7 @@ copy of defaults once codegen exists.
 
 Default tables define:
 
-- The value synthesized when a known field is absent.
+- The value synthesized when a known field is absent and `applyOnLoad: true`.
 - Whether canonical JSON and binary writers omit the field when it equals the
   default. Omission is controlled by `omitWhenDefault`; default-valued fields
   with `omitWhenDefault: false` are still emitted.
@@ -34,7 +34,9 @@ Codegen and CI freshness checks must validate:
 - Every default property belongs to the object it is listed under.
 - Every default value is valid for the property's backing type and generated
   JSON schema type.
-- `omitWhenDefault: true` is paired with `applyOnLoad: true`.
+- `omitWhenDefault` and `applyOnLoad` are booleans. They may differ for
+  variant-specific fields where raw field presence must survive loader
+  validation.
 - Every registered object property appears exactly once in either
   `objectDefaults.properties` or object-scoped `requiredProperties`.
 - Every equality override is one of the closed `equalityModes` ids in
@@ -55,7 +57,6 @@ Forbidden changes:
 - Defining defaults for properties not declared in the registry.
 - Defining a default whose value cannot be represented by the property's backing
   type.
-- Omitting a field on serialize without applying the same default on load.
 - Leaving a registered object property out of both the default table and the
   object-scoped required/no-default table.
 
@@ -64,8 +65,11 @@ Forbidden changes:
 `docs/json-canonicalization.md` and `docs/binary-canonicalization.md` both rely
 on this source:
 
-- Loaders apply defaults before semantic validation that depends on field
-  values.
+- Loaders apply `applyOnLoad: true` defaults before semantic validation that
+  depends on field values.
+- Loaders must preserve raw field presence for `applyOnLoad: false` defaults
+  and may apply those values only after variant-specific presence and absence
+  checks have passed.
 - Canonical writers omit fields whose loaded semantic value equals the default
   only when the default entry sets `omitWhenDefault: true`.
 - F32-backed defaults compare after f32 quantization at the file boundary.
