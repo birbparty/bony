@@ -1,0 +1,4 @@
+interface:
+  display_name: "Next Milestone"
+  short_description: "Plan the next bony milestone"
+  default_prompt: "Use $next-milestone to plan the next bony milestone and generate grounded /big-change prompts."
