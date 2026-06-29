@@ -38,10 +38,10 @@ Current: `0.1.0` in both packages.
 ### Spec document version
 
 The spec document version is a human-facing label that tracks the format version.
-It is recorded as `major.minor` (no patch suffix). The JSON Schema header
-(`spec/bony.schema.json`) says "Generated from registry/wire.yml and
-spec/defaults.yml" — the schema itself has no independent version; it is always
-regenerated fresh from those sources.
+It is recorded as `major.minor` (no patch suffix). The JSON Schema headers
+(`spec/bony.schema.json` and `spec/bony-wire.schema.json`) say they are
+generated from `registry/wire.yml` and `spec/defaults.yml`; neither schema has an
+independent version, and both are always regenerated fresh from those sources.
 
 ## What v1.0 ships as
 
