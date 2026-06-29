@@ -8,7 +8,9 @@ committed numeric goldens in conformance/goldens/.
 
 Asset resolution: 'asset' field is a basename resolved to conformance/assets/.
 Setup golden resolution: {stem}_t{t_formatted}.json — e.g. m2_rig.bony + t=0.0 -> m2_rig_t0.json.
-State-machine golden resolution: {script_stem}_{sample_name}.json.
+State-machine golden resolution: {script_stem}_{sample_name}.json. State-machine
+scripts are replayed against the source .bony asset and, when present, the
+matching conformance/assets/bnb/<asset-stem>.bnb fixture using the same golden.
   t_formatted: '0' if t == 0.0, otherwise str(t) with trailing zeros stripped.
 
 This script is the canonical consumer of bony.input-script.v1. It validates
@@ -188,6 +190,7 @@ def main():
                 continue
 
             asset_stem = os.path.splitext(script["asset"])[0]
+            asset_ext = os.path.splitext(script["asset"])[1]
             script_stem = os.path.splitext(script_name)[0]
             asset_path = os.path.join(args.assets, script["asset"])
             if not os.path.isfile(asset_path):
@@ -233,19 +236,37 @@ def main():
                 if state_machine:
                     sample_name = sample["name"]
                     golden_path = os.path.join(args.goldens, f"{script_stem}_{sample_name}.json")
-                    actual_path = os.path.join(tmpdir, f"{script_stem}_{sample_name}_actual.json")
-                    label = f"{script_name}[{sample_name}] t={t}"
-                    outcome = run_sample(
-                        bony_bin,
-                        asset_path,
-                        t,
-                        golden_path,
-                        actual_path,
-                        label,
-                        state_machine=state_machine,
-                        input_script=script_path,
-                        sample_selector=sample_name,
-                    )
+                    replay_assets = [(asset_ext or ".bony", asset_path)]
+                    bnb_path = os.path.join(args.assets, "bnb", f"{asset_stem}.bnb")
+                    if not os.path.isfile(bnb_path):
+                        print(f"FAIL {script_name}[.bnb][{sample_name}]: asset not found: {bnb_path}")
+                        failed += 1
+                    else:
+                        replay_assets.append((".bnb", bnb_path))
+                    for replay_ext, replay_asset_path in replay_assets:
+                        actual_path = os.path.join(
+                            tmpdir,
+                            f"{script_stem}_{sample_name}_{replay_ext.lstrip('.')}_actual.json",
+                        )
+                        label = f"{script_name}[{replay_ext}][{sample_name}] t={t}"
+                        outcome = run_sample(
+                            bony_bin,
+                            replay_asset_path,
+                            t,
+                            golden_path,
+                            actual_path,
+                            label,
+                            state_machine=state_machine,
+                            input_script=script_path,
+                            sample_selector=sample_name,
+                        )
+                        if outcome == "pass":
+                            passed += 1
+                        elif outcome == "fail":
+                            failed += 1
+                        else:
+                            skipped += 1
+                    continue
                 else:
                     if inputs:
                         print(f"FAIL {script_name}[{i}]: inputs require stateMachine")

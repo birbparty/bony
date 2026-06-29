@@ -34,6 +34,7 @@ conformance/
 | M6 | `forward_compat.bnb` | Forward-compatibility: unknown future fields are silently dropped |
 | M7 | `m7_rig` | Deformers (warp, rotation, bone) |
 | M8 | `m8_rig` | Animation timelines (bone rotate/translate/scale/shear), state machines |
+| M9 | `m9_non_scalar_rig` | Non-scalar animation timelines and state-machine projection |
 
 ### Image goldens (Nim reference rasterizer only)
 
@@ -51,6 +52,7 @@ and do not need to be reproduced by Dart or other runtimes.
 | m6 | n/a (binary-only fixture — no .bony source) |
 | m7_rig | pending (gated on pixie rasterizer — bony-gzz) |
 | m8_rig | `m8_rig_play.png` |
+| m9_non_scalar_rig | pending |
 
 ---
 
@@ -125,6 +127,12 @@ Setup-pose scripts without `stateMachine` keep the legacy golden naming scheme:
 `m8_gesture_story_wave_on.json`, so multiple samples can share a time without
 colliding.
 
+For state-machine scripts, `input_script_run.py` replays the source `.bony`
+asset and, when a matching `conformance/assets/bnb/<asset-stem>.bnb` fixture
+exists, replays that `.bnb` fixture against the same committed golden. This
+keeps binary animation/state-machine playback in the cross-runtime contract
+without duplicating golden files by asset extension.
+
 ---
 
 ## CI gates
@@ -135,7 +143,7 @@ All gates run in `.github/workflows/ci.yml` after building the bony CLI binary.
 |------|--------|---------------|
 | numeric-golden | `scripts/ci/conformance_run.py` | `.bony` to golden JSON within tolerance; `.bnb` to same golden (M6 gate) |
 | image-golden | `scripts/ci/image_diff_check.py` | `.bony` to rendered PNG within pixel delta (Nim-only; requires Pillow) |
-| input-script | `scripts/ci/input_script_run.py` | Input-script schema + golden vectors (cross-runtime contract) |
+| input-script | `scripts/ci/input_script_run.py` | Input-script schema + `.bony`/matching `.bnb` state-machine golden vectors (cross-runtime contract) |
 | round-trip | `scripts/ci/round_trip_run.py` | json to bnb bytes match committed golden; bnb to json to bnb is byte-lossless |
 
 ### Running the full suite locally
