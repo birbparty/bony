@@ -84,6 +84,18 @@ runtime contracts and must not be used as implementation source.
 
 ---
 
+## Animation and State-Machine Provenance Notes
+
+Provenance and boundary notes for the `.bnb` animation/state-machine contract
+work.
+
+| Document | Scope |
+|----------|-------|
+| [animation-state-machine-contract-boundaries.md](animation-state-machine-contract-boundaries.md) | Inventory of current project-owned Nim/Dart animation and state-machine runtime and JSON surfaces |
+| [animation-state-machine-cleanroom-boundary.md](animation-state-machine-cleanroom-boundary.md) | Provenance and clean-room source boundary for designing `.bnb` animation/state-machine object families |
+
+---
+
 ## Runtime Design Notes (Deferred)
 
 Design notes for future runtime targets. No implementation in v1.
