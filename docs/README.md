@@ -40,6 +40,7 @@ the milestone-to-key-range table.
 |----------|----------------|
 | [binary-canonicalization.md](binary-canonicalization.md) | Canonical `.bnb` byte emission for round-trip tools and the M6 byte-stability gate |
 | [binary-toc-skip-semantics.md](binary-toc-skip-semantics.md) | `.bnb` table-of-contents skip rule for composite values (arrays of structs) |
+| [binary-animation-state-machine-contract.md](binary-animation-state-machine-contract.md) | Binding overview and cross-link map for preserving animations/state machines in `.bnb` |
 | [binary-animation-state-machine-object-families.md](binary-animation-state-machine-object-families.md) | Project-owned `.bnb` object-family decision for current animation and state-machine features |
 | [binary-animation-state-machine-reference-semantics.md](binary-animation-state-machine-reference-semantics.md) | Binary index/reference domains for loading animation and state-machine records into the project semantic graph |
 | [animation-state-machine-validation-ownership.md](animation-state-machine-validation-ownership.md) | Ownership matrix for animation/state-machine schema, decoding, loader validation, and runtime constructor checks |
