@@ -498,3 +498,90 @@ proc sample*(state: AnimationState): MixedPose =
   for value in sequences.values:
     result.sequences.add value
   result.sequences.sort(sequenceOrder)
+
+
+proc applyPose*(data: SkeletonData; pose: MixedPose): SkeletonData =
+  let hasScalars = pose.scalars.len > 0
+  let hasVectors = pose.vectors.len > 0
+  let hasInherits = pose.inherits.len > 0
+  let hasAttachments = pose.attachments.len > 0
+  if not hasScalars and not hasVectors and not hasInherits and not hasAttachments:
+    return data
+
+  var scalarLookup = initTable[string, float64]()
+  for value in pose.scalars:
+    scalarLookup[value.target & "\0" & $value.kind] = value.value
+
+  var vectorLookup = initTable[string, MixedVector]()
+  for value in pose.vectors:
+    vectorLookup[value.target & "\0" & $value.kind] = value
+
+  var inheritLookup = initTable[string, InheritKeyframe]()
+  for value in pose.inherits:
+    inheritLookup[value.target] = value.value
+
+  var attachmentLookup = initTable[string, string]()
+  for value in pose.attachments:
+    attachmentLookup[value.target] = value.attachment
+
+  proc scalarValue(bone: BoneData; kind: BoneTimelineKind; setup: float64): float64 =
+    scalarLookup.getOrDefault(bone.name & "\0" & $kind, setup)
+
+  proc vectorValue(bone: BoneData; kind: BoneTimelineKind): tuple[found: bool; x, y: float64] =
+    let key = bone.name & "\0" & $kind
+    if key in vectorLookup:
+      let value = vectorLookup[key]
+      return (true, value.x, value.y)
+    (false, 0.0, 0.0)
+
+  var bones: seq[BoneData]
+  for bone in data.bones:
+    let local = bone.local
+    let translate = vectorValue(bone, translateTimeline)
+    let scale = vectorValue(bone, scaleTimeline)
+    let shear = vectorValue(bone, shearTimeline)
+    let inherit = inheritLookup.getOrDefault(
+      bone.name,
+      InheritKeyframe(
+        inheritRotation: local.inheritRotation,
+        inheritScale: local.inheritScale,
+        inheritReflection: local.inheritReflection,
+        transformMode: local.transformMode,
+      ),
+    )
+    bones.add boneData(
+      bone.name,
+      bone.parent,
+      localTransform(
+        x = if translate.found: translate.x else: scalarValue(bone, translateXTimeline, local.x),
+        y = if translate.found: translate.y else: scalarValue(bone, translateYTimeline, local.y),
+        rotation = scalarValue(bone, rotateTimeline, local.rotation),
+        scaleX = if scale.found: scale.x else: scalarValue(bone, scaleXTimeline, local.scaleX),
+        scaleY = if scale.found: scale.y else: scalarValue(bone, scaleYTimeline, local.scaleY),
+        shearX = if shear.found: shear.x else: scalarValue(bone, shearXTimeline, local.shearX),
+        shearY = if shear.found: shear.y else: scalarValue(bone, shearYTimeline, local.shearY),
+        inheritRotation = inherit.inheritRotation,
+        inheritScale = inherit.inheritScale,
+        inheritReflection = inherit.inheritReflection,
+        transformMode = inherit.transformMode,
+      ),
+    )
+
+  var slots: seq[SlotData]
+  for slot in data.slots:
+    slots.add slotData(
+      slot.name,
+      slot.bone,
+      attachmentLookup.getOrDefault(slot.name, slot.attachment),
+    )
+
+  skeletonData(
+    data.header,
+    bones,
+    slots,
+    data.regions,
+    data.pathAttachments,
+    data.paths,
+    data.parameters,
+    data.deformers,
+  )

@@ -50,7 +50,7 @@ and do not need to be reproduced by Dart or other runtimes.
 | m5_rig | `m5_rig_play.png` |
 | m6 | n/a (binary-only fixture — no .bony source) |
 | m7_rig | pending (gated on pixie rasterizer — bony-gzz) |
-| m8_rig | pending (gated on pixie rasterizer — bony-vou) |
+| m8_rig | `m8_rig_play.png` |
 
 ---
 
@@ -101,8 +101,20 @@ Each `*_sample.json` file drives the numeric golden gate:
 ```
 
 - `asset`: filename resolved relative to `conformance/assets/`
-- `samples[].t`: evaluation time in seconds
-- `samples[].inputs`: state-machine inputs (reserved; currently ignored)
+- `stateMachine`: optional target state machine. When present, the script is
+  replayed through `golden-gen --state-machine ... --input-script ... --sample ...`.
+- `samples[].name`: stable sample identifier. Required by the conformance
+  runner for state-machine scripts.
+- `samples[].t`: absolute script time in seconds. State-machine execution
+  advances by the delta from the previous sample time.
+- `samples[].inputs`: typed input changes. Booleans target bool inputs, numbers
+  target number inputs, and the string `"fire"` targets trigger inputs.
+
+Setup-pose scripts without `stateMachine` keep the legacy golden naming scheme:
+`<asset-stem>_t<time>.json`. State-machine scripts use
+`<script-stem>_<sample-name>.json`, for example
+`m8_gesture_story_wave_on.json`, so multiple samples can share a time without
+colliding.
 
 ---
 

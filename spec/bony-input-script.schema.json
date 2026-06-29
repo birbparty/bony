@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://bony.local/spec/bony-input-script.schema.json",
   "title": "bony input script",
-  "description": "bony.input-script.v1: a JSON file that drives the golden-gen harness through one or more time-sampled poses, optionally with named state-machine inputs.",
+  "description": "bony.input-script.v1: a JSON file that drives the golden-gen harness through one or more time-sampled poses, optionally with project-owned state-machine inputs.",
   "type": "object",
   "additionalProperties": false,
   "required": ["format", "asset", "samples"],
@@ -17,23 +17,34 @@
       "minLength": 1,
       "description": "Basename of the conformance asset file (e.g. 'm2_rig.bony'). Resolved relative to the sibling assets/ directory: conformance/scripts/<asset> -> conformance/assets/<asset>."
     },
+    "stateMachine": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Optional target state-machine name for scripts that replay typed inputs. Scripts without this field keep the legacy setup-pose path."
+    },
     "samples": {
       "type": "array",
       "minItems": 1,
-      "description": "Ordered list of time samples to evaluate. Each sample drives one golden-gen invocation.",
+      "description": "Ordered list of time samples to evaluate. Each sample drives one golden-gen invocation; state-machine scripts use sample names for collision-free golden filenames.",
       "items": {
         "type": "object",
         "additionalProperties": false,
         "required": ["t"],
         "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_.-]+$",
+            "description": "Optional stable sample identifier. Required by the conformance runner when stateMachine is present."
+          },
           "t": {
             "type": "number",
             "minimum": 0.0,
-            "description": "Time in seconds at which to sample the skeleton. Passed as --t to golden-gen. Currently only t=0.0 (setup pose) is executable; non-zero values require an animation clip, which is not yet part of the format."
+            "description": "Absolute script time in seconds. Setup-pose scripts still require t=0.0; state-machine scripts apply sample inputs, advance by the delta from the previous sample time, and then evaluate."
           },
           "inputs": {
             "type": "object",
-            "description": "Named state-machine inputs at this sample. Keys are input names; values are booleans, numbers, or strings. Empty object ({}) means no inputs (setup pose evaluation only). Currently reserved: the consumer harness cannot forward inputs until state-machine support lands (M8).",
+            "description": "Named state-machine inputs at this sample. Boolean values target bool inputs, numeric values target number inputs, and the string \"fire\" targets trigger inputs. Empty object ({}) means no input changes.",
             "additionalProperties": {
               "oneOf": [
                 {"type": "boolean"},

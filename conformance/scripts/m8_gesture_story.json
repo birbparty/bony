@@ -1,0 +1,14 @@
+{
+  "format": "bony.input-script.v1",
+  "asset": "m8_rig.bony",
+  "stateMachine": "gesture",
+  "samples": [
+    {"name": "initial_idle", "t": 0.0, "inputs": {}},
+    {"name": "wave_on", "t": 0.1, "inputs": {"wave": true}},
+    {"name": "speed_mid", "t": 0.35, "inputs": {"speed": 0.75}},
+    {"name": "speed_fast", "t": 0.55, "inputs": {"speed": 1.0}},
+    {"name": "jump_trigger", "t": 0.7, "inputs": {"jump": "fire"}},
+    {"name": "wave_off", "t": 0.9, "inputs": {"wave": false}},
+    {"name": "settled_idle", "t": 1.1, "inputs": {}}
+  ]
+}

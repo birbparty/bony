@@ -1,0 +1,173 @@
+{
+  "format": "bony.numeric-golden.v1",
+  "skeleton": "m8-rig",
+  "version": "1.0.0",
+  "time": 0.3499999940395355,
+  "stateMachine": "gesture",
+  "sample": "speed_mid",
+  "inputs": [
+    {
+      "name": "wave",
+      "kind": "bool",
+      "value": true
+    },
+    {
+      "name": "speed",
+      "kind": "number",
+      "value": 0.75
+    },
+    {
+      "name": "jump",
+      "kind": "trigger",
+      "value": false
+    }
+  ],
+  "layers": [
+    {
+      "name": "body",
+      "state": "move",
+      "time": 0.25,
+      "pose": {
+        "scalars": [
+          {
+            "target": "root",
+            "kind": "rotate",
+            "value": 7.5
+          }
+        ],
+        "vectors": [],
+        "attachments": [],
+        "inherits": [],
+        "colors": [],
+        "colors2": [],
+        "sequences": []
+      }
+    },
+    {
+      "name": "face",
+      "state": "normal",
+      "time": 0.3499999940395355,
+      "pose": {
+        "scalars": [
+          {
+            "target": "root",
+            "kind": "rotate",
+            "value": 3.5
+          }
+        ],
+        "vectors": [],
+        "attachments": [],
+        "inherits": [],
+        "colors": [],
+        "colors2": [],
+        "sequences": []
+      }
+    }
+  ],
+  "events": [],
+  "bones": [
+    {
+      "name": "root",
+      "parent": "",
+      "world": {
+        "a": 0.9981347984218669,
+        "b": 0.06104853953485687,
+        "c": -0.06104853953485678,
+        "d": 0.998134798421867,
+        "tx": 0.0,
+        "ty": 0.0
+      }
+    },
+    {
+      "name": "head",
+      "parent": "root",
+      "world": {
+        "a": 0.9981347984218669,
+        "b": 0.06104853953485687,
+        "c": -0.061048539534856734,
+        "d": 0.9981347984218673,
+        "tx": 3.662912372091407,
+        "ty": -59.88808790531202
+      }
+    }
+  ],
+  "slots": [
+    {
+      "name": "head_slot",
+      "bone": "head",
+      "attachment": "head_open",
+      "r": 1.0,
+      "g": 1.0,
+      "b": 1.0,
+      "a": 1.0
+    }
+  ],
+  "drawBatches": [
+    {
+      "slot": "head_slot",
+      "bone": "head",
+      "attachment": "head_open",
+      "texturePage": "",
+      "blendMode": "normal",
+      "clipId": "",
+      "world": {
+        "a": 0.9981347984218669,
+        "b": 0.06104853953485687,
+        "c": -0.061048539534856734,
+        "d": 0.9981347984218673,
+        "tx": 3.662912372091407,
+        "ty": -59.88808790531202
+      },
+      "vertices": [
+        {
+          "x": -19.76424410008385,
+          "y": -86.36767135423013,
+          "u": 0.0,
+          "v": 0.0,
+          "r": 1.0,
+          "g": 1.0,
+          "b": 1.0,
+          "a": 1.0
+        },
+        {
+          "x": 30.142495821009497,
+          "y": -83.31524437748728,
+          "u": 1.0,
+          "v": 0.0,
+          "r": 1.0,
+          "g": 1.0,
+          "b": 1.0,
+          "a": 1.0
+        },
+        {
+          "x": 27.09006884426666,
+          "y": -33.40850445639391,
+          "u": 1.0,
+          "v": 1.0,
+          "r": 1.0,
+          "g": 1.0,
+          "b": 1.0,
+          "a": 1.0
+        },
+        {
+          "x": -22.816671076826687,
+          "y": -36.460931433136764,
+          "u": 0.0,
+          "v": 1.0,
+          "r": 1.0,
+          "g": 1.0,
+          "b": 1.0,
+          "a": 1.0
+        }
+      ],
+      "indices": [
+        0,
+        1,
+        2,
+        2,
+        3,
+        0
+      ]
+    }
+  ]
+}

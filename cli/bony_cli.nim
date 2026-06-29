@@ -15,8 +15,9 @@ proc usage(): string =
     "       bony import-lottie <input.json> <output.bony> --assets-dir images [--setup-only] [--origin center|top-left]\n" &
     "       bony import-dragonbones <input_ske.json> <output.bony> [--assets-dir images] [--setup-only] [--allow-multiple-armatures]\n" &
     "       bony golden-gen <input.bony|input.bnb> <output.json> [--t seconds]\n" &
+    "       bony golden-gen <input.bony> <output.json> --state-machine <name> --input-script <script.json> --sample <name-or-index>\n" &
     "       bony play <input.bony|input.bnb> --out frame.png [--t seconds] [--width px] [--height px] [--origin center|top-left]\n" &
-    "       bony play <input> --state-machine <name> --input-script <script.json> --out frame.png\n" &
+    "       bony play <input.bony> --state-machine <name> --input-script <script.json> --out frame.png [--width px] [--height px] [--origin center|top-left]\n" &
     "       bony pack-atlas <images-dir> --out-dir <dir> [--page-size 2048] [--padding 2]\n" &
     "       bony auto-weights <input.json> <output.json>"
 
@@ -59,6 +60,41 @@ type
     inFrame: float64
     outFrame: float64
     layers: seq[LottieLayer]
+
+  ScriptInputKind = enum
+    scriptBoolInput,
+    scriptNumberInput,
+    scriptTriggerInput
+
+  ScriptInput = object
+    name: string
+    kind: ScriptInputKind
+    boolValue: bool
+    numberValue: float64
+
+  InputScriptSample = object
+    name: string
+    time: float64
+    inputs: seq[ScriptInput]
+
+  InputScript = object
+    asset: string
+    stateMachine: string
+    samples: seq[InputScriptSample]
+
+  StateMachineRunSample = object
+    machine: string
+    sample: InputScriptSample
+    runtime: StateMachineRuntime
+    evaluated: EvaluatedStateMachine
+    posedData: SkeletonData
+
+  StateMachineGolden = object
+    present: bool
+    machine: string
+    sample: string
+    runtime: StateMachineRuntime
+    evaluated: EvaluatedStateMachine
 
 
 proc newLottieDiagnostic(code, target, capability, message: string): ref LottieDiagnostic =
@@ -126,14 +162,6 @@ proc requireSetupPoseTime(time: float64) =
     raise newBonyLoadError(
       schemaViolation,
       "--t is reserved until serialized animations are available; use --t 0 for setup-pose output",
-    )
-
-
-proc rejectStateMachineArgs(stateMachine, inputScript: string) =
-  if stateMachine.len != 0 or inputScript.len != 0:
-    raise newBonyLoadError(
-      schemaViolation,
-      "serialized state machines and input scripts are not available in the current .bony/.bnb model",
     )
 
 
@@ -1176,7 +1204,371 @@ proc deformerJson(rec: DeformerRecord; samples: seq[ParameterSample]): JsonNode 
     result["rotation"] = rotNode
 
 
-proc numericGoldenJson(data: SkeletonData; time: float64): string =
+proc validateBonyKeys(node: JsonNode; allowed: openArray[string]; context: string) =
+  if node.kind != JObject:
+    raise newBonyLoadError(schemaViolation, context & " must be an object")
+  for key in node.keys:
+    var found = false
+    for allowedKey in allowed:
+      if key == allowedKey:
+        found = true
+        break
+    if not found:
+      raise newBonyLoadError(schemaViolation, context & "." & key & " is not a recognized field")
+
+
+proc requireScriptObject(node: JsonNode; context: string): JsonNode =
+  if node.kind != JObject:
+    raise newBonyLoadError(schemaViolation, context & " must be an object")
+  node
+
+
+proc requireScriptArray(node: JsonNode; context: string): JsonNode =
+  if node.kind != JArray:
+    raise newBonyLoadError(schemaViolation, context & " must be an array")
+  node
+
+
+proc scriptString(node: JsonNode; key, context: string; required = false): string =
+  if not node.hasKey(key):
+    if required:
+      raise newBonyLoadError(schemaViolation, context & "." & key & " is required")
+    return ""
+  if node[key].kind != JString:
+    raise newBonyLoadError(schemaViolation, context & "." & key & " must be a string")
+  result = node[key].getStr()
+  if required and result.len == 0:
+    raise newBonyLoadError(schemaViolation, context & "." & key & " must not be empty")
+
+
+proc scriptTime(node: JsonNode; key, context: string): float64 =
+  if not node.hasKey(key):
+    raise newBonyLoadError(schemaViolation, context & "." & key & " is required")
+  if node[key].kind notin {JInt, JFloat}:
+    raise newBonyLoadError(schemaViolation, context & "." & key & " must be a number")
+  result = quantizeF32(node[key].getFloat(), context & "." & key)
+  if result < 0:
+    raise newBonyLoadError(schemaViolation, context & "." & key & " must be non-negative")
+
+
+proc safeSampleName(name: string): bool =
+  if name.len == 0:
+    return false
+  for ch in name:
+    if not (ch in {'a'..'z', 'A'..'Z', '0'..'9', '_', '-', '.'}):
+      return false
+  true
+
+
+proc parseInputScript(path: string): InputScript =
+  let parsed =
+    try:
+      parseJson(readFile(path))
+    except JsonParsingError as exc:
+      raise newBonyLoadError(schemaViolation, "invalid input script JSON: " & exc.msg)
+
+  let root = requireScriptObject(parsed, "inputScript")
+  validateBonyKeys(root, ["format", "asset", "stateMachine", "samples"], "inputScript")
+  if scriptString(root, "format", "inputScript", required = true) != "bony.input-script.v1":
+    raise newBonyLoadError(schemaViolation, "inputScript.format must be bony.input-script.v1")
+  result.asset = scriptString(root, "asset", "inputScript", required = true)
+  result.stateMachine = scriptString(root, "stateMachine", "inputScript")
+
+  if not root.hasKey("samples"):
+    raise newBonyLoadError(schemaViolation, "inputScript.samples is required")
+  let samplesNode = requireScriptArray(root["samples"], "inputScript.samples")
+  if samplesNode.elems.len == 0:
+    raise newBonyLoadError(schemaViolation, "inputScript.samples must not be empty")
+
+  for sampleIndex, item in samplesNode.elems:
+    let context = "inputScript.samples[" & $sampleIndex & "]"
+    let sampleObj = requireScriptObject(item, context)
+    validateBonyKeys(sampleObj, ["name", "t", "inputs"], context)
+    var sample = InputScriptSample(
+      name: scriptString(sampleObj, "name", context),
+      time: scriptTime(sampleObj, "t", context),
+    )
+    if sample.name.len > 0 and not sample.name.safeSampleName:
+      raise newBonyLoadError(schemaViolation, context & ".name must contain only letters, digits, _, -, or .")
+    if sampleObj.hasKey("inputs"):
+      let inputsObj = requireScriptObject(sampleObj["inputs"], context & ".inputs")
+      for inputName, inputValue in inputsObj.pairs:
+        if inputName.len == 0:
+          raise newBonyLoadError(schemaViolation, context & ".inputs key must not be empty")
+        case inputValue.kind
+        of JBool:
+          sample.inputs.add ScriptInput(name: inputName, kind: scriptBoolInput, boolValue: inputValue.getBool())
+        of JInt, JFloat:
+          sample.inputs.add ScriptInput(
+            name: inputName,
+            kind: scriptNumberInput,
+            numberValue: quantizeF32(inputValue.getFloat(), context & ".inputs." & inputName),
+          )
+        of JString:
+          if inputValue.getStr() != "fire":
+            raise newBonyLoadError(schemaViolation, context & ".inputs." & inputName & " string value must be \"fire\"")
+          sample.inputs.add ScriptInput(name: inputName, kind: scriptTriggerInput)
+        else:
+          raise newBonyLoadError(schemaViolation, context & ".inputs." & inputName & " must be bool, number, or \"fire\"")
+    result.samples.add sample
+
+
+proc validateStateMachineScript(script: InputScript; machineName: string) =
+  if machineName.len == 0:
+    raise newBonyLoadError(schemaViolation, "state-machine execution requires --state-machine or inputScript.stateMachine")
+  var names = initHashSet[string]()
+  var previousTime = 0.0
+  for index, sample in script.samples:
+    if sample.name.len == 0:
+      raise newBonyLoadError(schemaViolation, "state-machine input-script samples require name")
+    if sample.name in names:
+      raise newBonyLoadError(duplicateKey, "duplicate input-script sample name: " & sample.name)
+    names.incl(sample.name)
+    if index > 0 and sample.time < previousTime:
+      raise newBonyLoadError(schemaViolation, "state-machine input-script sample times must be non-decreasing")
+    previousTime = sample.time
+
+
+proc resolveStateMachineName(cliName: string; script: InputScript): string =
+  result = cliName
+  if result.len == 0:
+    result = script.stateMachine
+  elif script.stateMachine.len > 0 and script.stateMachine != result:
+    raise newBonyLoadError(schemaViolation, "--state-machine does not match inputScript.stateMachine")
+
+
+proc selectStateMachine(machines: openArray[StateMachine]; name: string): StateMachine =
+  for machine in machines:
+    if machine.name == name:
+      return machine
+  raise newBonyLoadError(unknownRequiredReference, "unknown state machine: " & name)
+
+
+proc applyScriptInputs(runtime: var StateMachineRuntime; inputs: openArray[ScriptInput]) =
+  for input in inputs:
+    case input.kind
+    of scriptBoolInput:
+      runtime.setBoolInput(input.name, input.boolValue)
+    of scriptNumberInput:
+      runtime.setNumberInput(input.name, input.numberValue)
+    of scriptTriggerInput:
+      runtime.fireTrigger(input.name)
+
+
+proc sampleMatches(sample: InputScriptSample; index: int; selector: string): bool =
+  if selector.len == 0:
+    return true
+  var parsedIndex: int
+  let consumed = parseInt(selector, parsedIndex)
+  if consumed == selector.len:
+    return index == parsedIndex
+  sample.name == selector
+
+
+proc executeStateMachineScript(
+  assetPath, stateMachineName, scriptPath, selector: string;
+): seq[StateMachineRunSample] =
+  if assetPath.toLowerAscii.endsWith(".bnb"):
+    raise newBonyLoadError(schemaViolation, "state-machine input scripts require .bony assets; .bnb playback is not supported")
+  let script = parseInputScript(scriptPath)
+  if extractFilename(assetPath) != script.asset:
+    raise newBonyLoadError(schemaViolation, "inputScript.asset does not match input asset")
+  let machineName = resolveStateMachineName(stateMachineName, script)
+  validateStateMachineScript(script, machineName)
+
+  let text = readFile(assetPath)
+  let data = loadBonyJson(text)
+  var dataRef = new(SkeletonData)
+  dataRef[] = data
+  var runtime = initStateMachineRuntime(selectStateMachine(loadBonyJsonStateMachines(text), machineName))
+  var previousTime = 0.0
+  var matched = false
+  for index, sample in script.samples:
+    runtime.applyScriptInputs(sample.inputs)
+    runtime.update(sample.time - previousTime)
+    let evaluated = runtime.evaluate(dataRef)
+    let posed = data.applyPose(evaluated.pose)
+    if sample.sampleMatches(index, selector):
+      matched = true
+      result.add StateMachineRunSample(
+        machine: machineName,
+        sample: sample,
+        runtime: runtime,
+        evaluated: evaluated,
+        posedData: posed,
+      )
+    previousTime = sample.time
+  if not matched:
+    raise newBonyLoadError(unknownRequiredReference, "unknown input-script sample: " & selector)
+
+
+proc boneTimelineKindJson(kind: BoneTimelineKind): string =
+  case kind
+  of rotateTimeline: "rotate"
+  of translateTimeline: "translate"
+  of translateXTimeline: "translateX"
+  of translateYTimeline: "translateY"
+  of scaleTimeline: "scale"
+  of scaleXTimeline: "scaleX"
+  of scaleYTimeline: "scaleY"
+  of shearTimeline: "shear"
+  of shearXTimeline: "shearX"
+  of shearYTimeline: "shearY"
+  of inheritTimeline: "inherit"
+
+
+proc slotTimelineKindJson(kind: SlotTimelineKind): string =
+  case kind
+  of attachmentTimeline: "attachment"
+  of rgbaTimeline: "rgba"
+  of rgbTimeline: "rgb"
+  of alphaTimeline: "alpha"
+  of rgba2Timeline: "rgba2"
+  of sequenceTimeline: "sequence"
+
+
+proc transformModeJson(mode: TransformMode): string =
+  case mode
+  of normal: "normal"
+  of onlyTranslation: "onlyTranslation"
+  of noRotationOrReflection: "noRotationOrReflection"
+  of noScale: "noScale"
+  of noScaleOrReflection: "noScaleOrReflection"
+
+
+proc inputKindJson(kind: StateMachineInputKind): string =
+  case kind
+  of boolInput: "bool"
+  of numberInput: "number"
+  of triggerInput: "trigger"
+
+
+proc listenerKindJson(kind: StateMachineListenerKind): string =
+  case kind
+  of stateEnterListener: "stateEnter"
+  of stateExitListener: "stateExit"
+  of transitionListener: "transition"
+
+
+proc colorJson(color: timelines.ColorRgba): JsonNode =
+  result = newJObject()
+  result["r"] = newJFloat(color.r)
+  result["g"] = newJFloat(color.g)
+  result["b"] = newJFloat(color.b)
+  result["a"] = newJFloat(color.a)
+
+
+proc poseJson(pose: MixedPose): JsonNode =
+  result = newJObject()
+  var scalars = newJArray()
+  for value in pose.scalars:
+    var node = newJObject()
+    node["target"] = newJString(value.target)
+    node["kind"] = newJString(boneTimelineKindJson(value.kind))
+    node["value"] = newJFloat(value.value)
+    scalars.add node
+  result["scalars"] = scalars
+
+  var vectors = newJArray()
+  for value in pose.vectors:
+    var node = newJObject()
+    node["target"] = newJString(value.target)
+    node["kind"] = newJString(boneTimelineKindJson(value.kind))
+    node["x"] = newJFloat(value.x)
+    node["y"] = newJFloat(value.y)
+    vectors.add node
+  result["vectors"] = vectors
+
+  var attachments = newJArray()
+  for value in pose.attachments:
+    var node = newJObject()
+    node["target"] = newJString(value.target)
+    node["attachment"] = newJString(value.attachment)
+    attachments.add node
+  result["attachments"] = attachments
+
+  var inherits = newJArray()
+  for value in pose.inherits:
+    var node = newJObject()
+    node["target"] = newJString(value.target)
+    node["inheritRotation"] = newJBool(value.value.inheritRotation)
+    node["inheritScale"] = newJBool(value.value.inheritScale)
+    node["inheritReflection"] = newJBool(value.value.inheritReflection)
+    node["transformMode"] = newJString(transformModeJson(value.value.transformMode))
+    inherits.add node
+  result["inherits"] = inherits
+
+  var colors = newJArray()
+  for value in pose.colors:
+    var node = newJObject()
+    node["target"] = newJString(value.target)
+    node["kind"] = newJString(slotTimelineKindJson(value.kind))
+    node["color"] = colorJson(value.color)
+    colors.add node
+  result["colors"] = colors
+
+  var colors2 = newJArray()
+  for value in pose.colors2:
+    var node = newJObject()
+    node["target"] = newJString(value.target)
+    node["light"] = colorJson(value.color.light)
+    node["darkR"] = newJFloat(value.color.darkR)
+    node["darkG"] = newJFloat(value.color.darkG)
+    node["darkB"] = newJFloat(value.color.darkB)
+    colors2.add node
+  result["colors2"] = colors2
+
+  var sequences = newJArray()
+  for value in pose.sequences:
+    var node = newJObject()
+    node["target"] = newJString(value.target)
+    node["index"] = newJInt(int(value.value.index))
+    node["delay"] = newJFloat(value.value.delay)
+    node["mode"] = newJString($value.value.mode)
+    sequences.add node
+  result["sequences"] = sequences
+
+
+proc stateMachineInputsJson(runtime: StateMachineRuntime): JsonNode =
+  result = newJArray()
+  for value in runtime.inputs:
+    var node = newJObject()
+    node["name"] = newJString(value.name)
+    node["kind"] = newJString(inputKindJson(value.kind))
+    case value.kind
+    of boolInput:
+      node["value"] = newJBool(value.boolValue)
+    of numberInput:
+      node["value"] = newJFloat(value.numberValue)
+    of triggerInput:
+      node["value"] = newJBool(value.boolValue)
+    result.add node
+
+
+proc stateMachineLayersJson(evaluated: EvaluatedStateMachine): JsonNode =
+  result = newJArray()
+  for layer in evaluated.layers:
+    var node = newJObject()
+    node["name"] = newJString(layer.layer)
+    node["state"] = newJString(layer.state)
+    node["time"] = newJFloat(layer.time)
+    node["pose"] = poseJson(layer.pose)
+    result.add node
+
+
+proc stateMachineEventsJson(runtime: StateMachineRuntime): JsonNode =
+  result = newJArray()
+  for event in runtime.events:
+    var node = newJObject()
+    node["listener"] = newJString(event.listener)
+    node["kind"] = newJString(listenerKindJson(event.kind))
+    node["layer"] = newJString(event.layer)
+    node["fromState"] = newJString(event.fromState)
+    node["toState"] = newJString(event.toState)
+    result.add node
+
+
+proc numericGoldenJson(data: SkeletonData; time: float64; state: StateMachineGolden = StateMachineGolden()): string =
   validateSkeletonData(data)
   let worlds = computeWorldTransforms(data)
   let baseBatches = buildDrawBatches(data)
@@ -1188,6 +1580,12 @@ proc numericGoldenJson(data: SkeletonData; time: float64): string =
   root["skeleton"] = newJString(data.header.name)
   root["version"] = newJString(data.header.version)
   root["time"] = newJFloat(time)
+  if state.present:
+    root["stateMachine"] = newJString(state.machine)
+    root["sample"] = newJString(state.sample)
+    root["inputs"] = stateMachineInputsJson(state.runtime)
+    root["layers"] = stateMachineLayersJson(state.evaluated)
+    root["events"] = stateMachineEventsJson(state.runtime)
 
   var bones = newJArray()
   let boneData = data.bones
@@ -1245,8 +1643,10 @@ proc writeNumericGolden(args: seq[string]) =
   if args.len < 2:
     quit(usage(), QuitFailure)
   var time = 0.0
+  var timeSet = false
   var stateMachine = ""
   var inputScript = ""
+  var sampleSelector = ""
   var index = 2
   while index < args.len:
     case args[index]
@@ -1254,6 +1654,7 @@ proc writeNumericGolden(args: seq[string]) =
       if index + 1 >= args.len:
         quit(usage(), QuitFailure)
       time = parseFloatArg(args[index + 1], "--t")
+      timeSet = true
       index += 2
     of "--state-machine":
       if index + 1 >= args.len:
@@ -1265,9 +1666,37 @@ proc writeNumericGolden(args: seq[string]) =
         quit(usage(), QuitFailure)
       inputScript = args[index + 1]
       index += 2
+    of "--sample":
+      if index + 1 >= args.len:
+        quit(usage(), QuitFailure)
+      sampleSelector = args[index + 1]
+      index += 2
     else:
       quit(usage(), QuitFailure)
-  rejectStateMachineArgs(stateMachine, inputScript)
+  if stateMachine.len != 0 or inputScript.len != 0:
+    if inputScript.len == 0:
+      raise newBonyLoadError(schemaViolation, "golden-gen state-machine execution requires --input-script")
+    if sampleSelector.len == 0:
+      raise newBonyLoadError(schemaViolation, "golden-gen state-machine execution requires --sample")
+    if timeSet:
+      raise newBonyLoadError(schemaViolation, "--t cannot be combined with --input-script; use sample t values in the script")
+    let samples = executeStateMachineScript(args[0], stateMachine, inputScript, sampleSelector)
+    if samples.len != 1:
+      raise newBonyLoadError(schemaViolation, "--sample must select exactly one input-script sample")
+    let sample = samples[0]
+    writeFile(args[1], numericGoldenJson(
+      sample.posedData,
+      sample.sample.time,
+      StateMachineGolden(
+        present: true,
+        machine: sample.machine,
+        sample: sample.sample.name,
+        runtime: sample.runtime,
+        evaluated: sample.evaluated,
+      ),
+    ))
+    return
+
   requireSetupPoseTime(time)
   let data = loadInputSkeleton(args[0])
   writeFile(args[1], numericGoldenJson(data, time))
@@ -1280,6 +1709,7 @@ proc renderSetupPose(args: seq[string]) =
   let inputPath = args[0]
   var outputPath = ""
   var time = 0.0
+  var timeSet = false
   var width = 256
   var height = 256
   var stateMachine = ""
@@ -1297,6 +1727,7 @@ proc renderSetupPose(args: seq[string]) =
       if index + 1 >= args.len:
         quit(usage(), QuitFailure)
       time = parseFloatArg(args[index + 1], "--t")
+      timeSet = true
       index += 2
     of "--width":
       if index + 1 >= args.len:
@@ -1330,7 +1761,23 @@ proc renderSetupPose(args: seq[string]) =
 
   if outputPath.len == 0:
     raise newBonyLoadError(schemaViolation, "play requires --out")
-  rejectStateMachineArgs(stateMachine, inputScript)
+  if stateMachine.len != 0 or inputScript.len != 0:
+    if inputScript.len == 0:
+      raise newBonyLoadError(schemaViolation, "play state-machine execution requires --input-script")
+    if timeSet:
+      raise newBonyLoadError(schemaViolation, "--t cannot be combined with --input-script; use sample t values in the script")
+    let samples = executeStateMachineScript(inputPath, stateMachine, inputScript, "")
+    let sheetWidth = width * samples.len
+    var sheet = newImage(sheetWidth, height)
+    sheet.fill(rgba(0, 0, 0, 0))
+    for sampleIndex, sample in samples:
+      let rawBatches = buildDrawBatches(sample.posedData)
+      let batches = if origin == "center": applyViewportTransform(rawBatches, width, height) else: rawBatches
+      let image = renderSoftware(batches, width, height)
+      sheet.draw(image, translate(vec2((sampleIndex * width).float32, 0.0.float32)))
+    sheet.writeFile(outputPath)
+    return
+
   requireSetupPoseTime(time)
   let data = loadInputSkeleton(inputPath)
   let rawBatches = buildDrawBatches(data)

@@ -4,6 +4,15 @@ import bddy
 import bony
 import pixie
 
+let repoRoot = parentDir(parentDir(parentDir(absolutePath(currentSourcePath()))))
+
+
+proc repoPath(parts: varargs[string]): string =
+  result = repoRoot
+  for part in parts:
+    result = result / part
+
+
 proc raisesBonyLoadError(input: string): bool =
   try:
     discard loadBonyJson(input)
@@ -433,7 +442,7 @@ spec "bony package":
       raisesBonyLoadError(proc() = discard loadKnownBonyBnb(bytes), schemaViolation)
 
   it "loads committed forward-compat fixture skipping the unknown object":
-    let path = "../conformance/assets/bnb/forward_compat.bnb"
+    let path = repoPath("conformance", "assets", "bnb", "forward_compat.bnb")
     let fixture = cast[seq[byte]](readFile(path))
     let data = loadBonyBnb(fixture)
     then:
@@ -443,7 +452,7 @@ spec "bony package":
       raisesBonyLoadError(proc() = discard loadKnownBonyBnb(fixture), schemaViolation)
 
   it "loads all committed m*_rig.bnb conformance fixtures":
-    let bnbDir = "../conformance/assets/bnb"
+    let bnbDir = repoPath("conformance", "assets", "bnb")
     var loaded = 0
     for entry in walkDir(bnbDir):
       if entry.kind == pcFile and entry.path.endsWith("_rig.bnb"):
@@ -1672,6 +1681,11 @@ spec "bony package":
     let goldenPath = "/tmp/bony_cli_harness_golden.json"
     let framePath = "/tmp/bony_cli_harness_frame.png"
     let frameTopLeftPath = "/tmp/bony_cli_harness_frame_top_left.png"
+    let stateAssetPath = repoPath("conformance", "assets", "m8_rig.bony")
+    let stateScriptPath = "/tmp/bony_cli_harness_state_script.json"
+    let badStateScriptPath = "/tmp/bony_cli_harness_bad_state_script.json"
+    let stateGoldenPath = "/tmp/bony_cli_harness_state_golden.json"
+    let stateFramePath = "/tmp/bony_cli_harness_state_frame.png"
     let lottiePath = "/tmp/bony_cli_harness_lottie.json"
     let lottieOutPath = "/tmp/bony_cli_harness_lottie.bony"
     let lottieBnbPath = "/tmp/bony_cli_harness_lottie.bnb"
@@ -1685,6 +1699,10 @@ spec "bony package":
       goldenPath,
       framePath,
       frameTopLeftPath,
+      stateScriptPath,
+      badStateScriptPath,
+      stateGoldenPath,
+      stateFramePath,
       lottiePath,
       lottieOutPath,
       lottieBnbPath,
@@ -1696,7 +1714,7 @@ spec "bony package":
       removeDir(lottieAssetsDir)
 
     let compileResult = execCmdEx(
-      "nim c --path:src --path:../../bddy/src -o:" & cliPath & " ../cli/bony_cli.nim",
+      "nim c --path:" & repoPath("runtime-nim", "src") & " -o:" & cliPath & " " & repoPath("cli", "bony_cli.nim"),
       options = {poStdErrToStdOut},
     )
     let fixture = skeletonData(
@@ -1716,15 +1734,78 @@ spec "bony package":
     let play = runProcess(cliPath, ["play", assetPath, "--out", framePath, "--width", "8", "--height", "8", "--t", "0"])
     let playTopLeft = runProcess(cliPath, ["play", assetPath, "--out", frameTopLeftPath, "--width", "8", "--height", "8", "--t", "0", "--origin", "top-left"])
     let playBadOrigin = runProcess(cliPath, ["play", assetPath, "--out", framePath, "--origin", "bad"])
-    let unsupportedPlayStateMachine = runProcess(
-      cliPath,
-      ["play", assetPath, "--state-machine", "main", "--input-script", assetPath, "--out", framePath],
-    )
-    let unsupportedGoldenStateMachine = runProcess(
-      cliPath,
-      ["golden-gen", assetPath, goldenPath, "--state-machine", "main", "--input-script", assetPath],
-    )
     let unsupportedTime = runProcess(cliPath, ["golden-gen", assetPath, goldenPath, "--t", "1.25"])
+    writeFile(stateScriptPath, """{
+  "format": "bony.input-script.v1",
+  "asset": "m8_rig.bony",
+  "stateMachine": "gesture",
+  "samples": [
+    {"name": "idle", "t": 0.0, "inputs": {}},
+    {"name": "move", "t": 0.1, "inputs": {"wave": true, "speed": 0.75}},
+    {"name": "jump", "t": 0.2, "inputs": {"jump": "fire"}},
+    {"name": "idle_again", "t": 0.3, "inputs": {"wave": false}}
+  ]
+}
+""")
+    writeFile(badStateScriptPath, """{
+  "format": "bony.input-script.v1",
+  "asset": "m8_rig.bony",
+  "stateMachine": "gesture",
+  "samples": [
+    {"t": 0.0, "inputs": {}}
+  ]
+}
+""")
+    let stateGolden = runProcess(
+      cliPath,
+      [
+        "golden-gen", stateAssetPath, stateGoldenPath,
+        "--state-machine", "gesture",
+        "--input-script", stateScriptPath,
+        "--sample", "move",
+      ],
+    )
+    let statePlay = runProcess(
+      cliPath,
+      [
+        "play", stateAssetPath,
+        "--state-machine", "gesture",
+        "--input-script", stateScriptPath,
+        "--out", stateFramePath,
+        "--width", "16",
+        "--height", "16",
+      ],
+    )
+    let missingStateScript = runProcess(
+      cliPath,
+      ["golden-gen", stateAssetPath, stateGoldenPath, "--state-machine", "gesture", "--sample", "move"],
+    )
+    let missingStateSample = runProcess(
+      cliPath,
+      [
+        "golden-gen", stateAssetPath, stateGoldenPath,
+        "--state-machine", "gesture",
+        "--input-script", stateScriptPath,
+        "--sample", "missing",
+      ],
+    )
+    let badStateScript = runProcess(
+      cliPath,
+      ["play", stateAssetPath, "--input-script", badStateScriptPath, "--out", stateFramePath],
+    )
+    let stateTimeArg = runProcess(
+      cliPath,
+      ["play", stateAssetPath, "--state-machine", "gesture", "--input-script", stateScriptPath, "--out", stateFramePath, "--t", "0"],
+    )
+    let bnbStateMachine = runProcess(
+      cliPath,
+      [
+        "golden-gen", bnbPath, stateGoldenPath,
+        "--state-machine", "gesture",
+        "--input-script", stateScriptPath,
+        "--sample", "move",
+      ],
+    )
     createDir(lottieAssetsDir)
     writeFile(lottieAssetsDir / "body.png", "not decoded by Tier 1")
     writeFile(lottieAssetsDir / "hand.png", "not decoded by Tier 1")
@@ -1803,6 +1884,8 @@ spec "bony package":
       ["import-lottie", rejectAnimatedPath, "/tmp/bony_cli_harness_lottie_bad.bony", "--assets-dir", lottieAssetsDir],
     )
     let goldenJson = parseJson(readFile(goldenPath))
+    let stateGoldenJson = if fileExists(stateGoldenPath): parseJson(readFile(stateGoldenPath)) else: newJObject()
+    let stateImage = if fileExists(stateFramePath): decodeImage(readFile(stateFramePath)) else: newImage(1, 1)
 
     then:
       compileResult.exitCode == 0
@@ -1813,13 +1896,32 @@ spec "bony package":
       playTopLeft.exitCode == 0
       playBadOrigin.exitCode != 0
       playBadOrigin.output.contains("origin must be center or top-left")
+      stateGolden.exitCode == 0
+      statePlay.exitCode == 0
+      stateGoldenJson["format"].getStr() == "bony.numeric-golden.v1"
+      stateGoldenJson["stateMachine"].getStr() == "gesture"
+      stateGoldenJson["sample"].getStr() == "move"
+      stateGoldenJson["inputs"].elems.len == 3
+      stateGoldenJson["layers"].elems.len == 2
+      stateGoldenJson["layers"].elems[0]["state"].getStr() == "move"
+      stateGoldenJson["events"].elems.len == 3
+      stateGoldenJson["events"].elems[0]["listener"].getStr() == "idle_exit"
+      closeTo(stateGoldenJson["layers"].elems[0]["pose"]["scalars"].elems[0]["value"].getFloat(), 10.0)
+      stateImage.width == 64
+      stateImage.height == 16
+      missingStateScript.exitCode != 0
+      missingStateScript.output.contains("requires --input-script")
+      missingStateSample.exitCode != 0
+      missingStateSample.output.contains("unknown input-script sample")
+      badStateScript.exitCode != 0
+      badStateScript.output.contains("samples require name")
+      stateTimeArg.exitCode != 0
+      stateTimeArg.output.contains("--t cannot be combined")
+      bnbStateMachine.exitCode != 0
+      bnbStateMachine.output.contains(".bnb playback is not supported")
       importLottie.exitCode == 0
       lottieJsonToBnb.exitCode == 0
       lottieBnbToJson.exitCode == 0
-      unsupportedPlayStateMachine.exitCode != 0
-      unsupportedPlayStateMachine.output.contains("serialized state machines")
-      unsupportedGoldenStateMachine.exitCode != 0
-      unsupportedGoldenStateMachine.output.contains("serialized state machines")
       unsupportedTime.exitCode != 0
       unsupportedTime.output.contains("--t is reserved")
       rejectedOpacity.exitCode != 0
@@ -1888,6 +1990,10 @@ spec "bony package":
       goldenPath,
       framePath,
       frameTopLeftPath,
+      stateScriptPath,
+      badStateScriptPath,
+      stateGoldenPath,
+      stateFramePath,
       lottiePath,
       lottieOutPath,
       lottieBnbPath,
@@ -1918,7 +2024,7 @@ spec "bony package":
         removeFile(path)
 
     let compileResult = execCmdEx(
-      "nim c --path:src --path:../../bddy/src -o:" & cliPath & " ../cli/bony_cli.nim",
+      "nim c --path:" & repoPath("runtime-nim", "src") & " -o:" & cliPath & " " & repoPath("cli", "bony_cli.nim"),
       options = {poStdErrToStdOut},
     )
 
@@ -5233,8 +5339,8 @@ spec "bony package":
       machines[0].layers[0].states[0].blendClips.len == 2
 
   it "loads m8_rig.bony conformance asset":
-    let data = loadBonyJson(readFile("../conformance/assets/m8_rig.bony"))
-    let machines = loadBonyJsonStateMachines(readFile("../conformance/assets/m8_rig.bony"))
+    let data = loadBonyJson(readFile(repoPath("conformance", "assets", "m8_rig.bony")))
+    let machines = loadBonyJsonStateMachines(readFile(repoPath("conformance", "assets", "m8_rig.bony")))
     then:
       data.header.name == "m8-rig"
       data.bones.len == 2
@@ -5250,8 +5356,8 @@ spec "bony package":
       machines[0].listeners.len == 3
 
   it "loads m9_non_scalar_rig.bony conformance asset":
-    let data = loadBonyJson(readFile("../conformance/assets/m9_non_scalar_rig.bony"))
-    let clips = loadBonyJsonAnimations(readFile("../conformance/assets/m9_non_scalar_rig.bony"))
+    let data = loadBonyJson(readFile(repoPath("conformance", "assets", "m9_non_scalar_rig.bony")))
+    let clips = loadBonyJsonAnimations(readFile(repoPath("conformance", "assets", "m9_non_scalar_rig.bony")))
     let clipCount = clips.len
     let slideKind = clips["slide"].boneTimelines[0].kind
     let slideVectorLen = clips["slide"].boneTimelines[0].vectorKeys.len

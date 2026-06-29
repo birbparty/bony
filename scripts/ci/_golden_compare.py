@@ -24,14 +24,47 @@ def _check_matrix(actual, expected, path, errors):
         _check_float(actual.get(key, 0.0), expected.get(key, 0.0), f"{path}.{key}", errors)
 
 
+def _check_json(actual, expected, path, errors):
+    if isinstance(expected, bool) or isinstance(actual, bool):
+        _check_exact(actual, expected, path, errors)
+    elif isinstance(expected, (int, float)) or isinstance(actual, (int, float)):
+        if not isinstance(actual, (int, float)) or not isinstance(expected, (int, float)):
+            errors.append(f"  {path}: actual={actual!r}, expected={expected!r}")
+        else:
+            _check_float(actual, expected, path, errors)
+    elif isinstance(expected, str) or isinstance(actual, str) or expected is None or actual is None:
+        _check_exact(actual, expected, path, errors)
+    elif isinstance(expected, list) and isinstance(actual, list):
+        if len(actual) != len(expected):
+            errors.append(f"  {path}: count {len(actual)} != expected {len(expected)}")
+            return
+        for index, (actual_item, expected_item) in enumerate(zip(actual, expected)):
+            _check_json(actual_item, expected_item, f"{path}[{index}]", errors)
+    elif isinstance(expected, dict) and isinstance(actual, dict):
+        actual_keys = set(actual)
+        expected_keys = set(expected)
+        for key in sorted(expected_keys - actual_keys):
+            errors.append(f"  {path}: missing key {key!r}")
+        for key in sorted(actual_keys - expected_keys):
+            errors.append(f"  {path}: unexpected key {key!r}")
+        for key in sorted(actual_keys & expected_keys):
+            _check_json(actual[key], expected[key], f"{path}.{key}", errors)
+    else:
+        _check_exact(actual, expected, path, errors)
+
+
 def compare_goldens(actual, expected):
     """Return list of error strings; empty list means PASS."""
     errors = []
 
-    for field in ("format", "skeleton", "version"):
+    for field in ("format", "skeleton", "version", "stateMachine", "sample"):
         _check_exact(actual.get(field), expected.get(field), field, errors)
 
     _check_float(actual.get("time", 0.0), expected.get("time", 0.0), "time", errors)
+
+    for field in ("inputs", "layers", "events"):
+        if field in actual or field in expected:
+            _check_json(actual.get(field), expected.get(field), field, errors)
 
     # Bones (keyed by name; order is defined, but name is the natural key)
     actual_bones = {b["name"]: b for b in actual.get("bones", [])}

@@ -7,7 +7,8 @@ drives the golden-gen CLI for every sample and compares the output against
 committed numeric goldens in conformance/goldens/.
 
 Asset resolution: 'asset' field is a basename resolved to conformance/assets/.
-Golden resolution: {stem}_t{t_formatted}.json — e.g. m2_rig.bony + t=0.0 -> m2_rig_t0.json.
+Setup golden resolution: {stem}_t{t_formatted}.json — e.g. m2_rig.bony + t=0.0 -> m2_rig_t0.json.
+State-machine golden resolution: {script_stem}_{sample_name}.json.
   t_formatted: '0' if t == 0.0, otherwise str(t) with trailing zeros stripped.
 
 This script is the canonical consumer of bony.input-script.v1. It validates
@@ -27,6 +28,7 @@ import argparse
 import glob
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -43,6 +45,9 @@ except ImportError:
 from _golden_compare import compare_goldens
 
 
+SAMPLE_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
+
+
 def _format_t(t):
     """Format a time value to the golden filename suffix.
 
@@ -54,7 +59,18 @@ def _format_t(t):
     return s.rstrip("0").rstrip(".")
 
 
-def run_sample(bony_bin, asset_path, t, golden_path, actual_path, label):
+def run_sample(
+    bony_bin,
+    asset_path,
+    t,
+    golden_path,
+    actual_path,
+    label,
+    *,
+    state_machine=None,
+    input_script=None,
+    sample_selector=None,
+):
     """Run golden-gen for one sample and compare against golden.
 
     Returns "pass", "fail", or "skip" (no committed golden).
@@ -64,8 +80,22 @@ def run_sample(bony_bin, asset_path, t, golden_path, actual_path, label):
         return "skip"
 
     try:
+        cmd = [bony_bin, "golden-gen", asset_path, actual_path]
+        if state_machine:
+            cmd.extend(
+                [
+                    "--state-machine",
+                    state_machine,
+                    "--input-script",
+                    input_script,
+                    "--sample",
+                    sample_selector,
+                ]
+            )
+        else:
+            cmd.extend(["--t", str(t)])
         result = subprocess.run(
-            [bony_bin, "golden-gen", asset_path, actual_path, "--t", str(t)],
+            cmd,
             capture_output=True,
             text=True,
         )
@@ -141,26 +171,74 @@ def main():
                 continue
 
             asset_stem = os.path.splitext(script["asset"])[0]
+            script_stem = os.path.splitext(script_name)[0]
             asset_path = os.path.join(args.assets, script["asset"])
             if not os.path.isfile(asset_path):
                 print(f"FAIL {script_name}: asset not found: {asset_path}")
                 failed += 1
                 continue
 
+            state_machine = script.get("stateMachine")
+            if state_machine:
+                seen_names = set()
+                previous_t = 0.0
+                script_valid = True
+                for i, sample in enumerate(script["samples"]):
+                    sample_name = sample.get("name")
+                    if not sample_name:
+                        print(f"FAIL {script_name}[{i}]: state-machine samples require name")
+                        failed += 1
+                        script_valid = False
+                        continue
+                    if not SAMPLE_NAME_RE.match(sample_name):
+                        print(f"FAIL {script_name}[{i}]: invalid sample name: {sample_name!r}")
+                        failed += 1
+                        script_valid = False
+                        continue
+                    if sample_name in seen_names:
+                        print(f"FAIL {script_name}[{i}]: duplicate sample name: {sample_name}")
+                        failed += 1
+                        script_valid = False
+                        continue
+                    seen_names.add(sample_name)
+                    t = sample["t"]
+                    if i > 0 and t < previous_t:
+                        print(f"FAIL {script_name}[{i}]: sample times must be non-decreasing")
+                        failed += 1
+                        script_valid = False
+                    previous_t = t
+                if not script_valid:
+                    continue
+
             for i, sample in enumerate(script["samples"]):
                 t = sample["t"]
                 inputs = sample.get("inputs") or {}
-                if inputs:
-                    print(
-                        f"warning: {script_name}[{i}]: non-empty inputs are reserved "
-                        f"(state-machine support not yet available); inputs will be ignored"
+                if state_machine:
+                    sample_name = sample["name"]
+                    golden_path = os.path.join(args.goldens, f"{script_stem}_{sample_name}.json")
+                    actual_path = os.path.join(tmpdir, f"{script_stem}_{sample_name}_actual.json")
+                    label = f"{script_name}[{sample_name}] t={t}"
+                    outcome = run_sample(
+                        bony_bin,
+                        asset_path,
+                        t,
+                        golden_path,
+                        actual_path,
+                        label,
+                        state_machine=state_machine,
+                        input_script=script_path,
+                        sample_selector=sample_name,
                     )
-                t_suffix = _format_t(t)
-                golden_path = os.path.join(args.goldens, f"{asset_stem}_t{t_suffix}.json")
-                actual_path = os.path.join(tmpdir, f"{asset_stem}_sample{i}_actual.json")
-                label = f"{script_name}[{i}] t={t}"
-
-                outcome = run_sample(bony_bin, asset_path, t, golden_path, actual_path, label)
+                else:
+                    if inputs:
+                        print(f"FAIL {script_name}[{i}]: inputs require stateMachine")
+                        failed += 1
+                        continue
+                    t_suffix = _format_t(t)
+                    golden_path = os.path.join(args.goldens, f"{asset_stem}_t{t_suffix}.json")
+                    actual_path = os.path.join(tmpdir, f"{asset_stem}_sample{i}_actual.json")
+                    label = f"{script_name}[{i}] t={t}"
+                    outcome = run_sample(bony_bin, asset_path, t, golden_path, actual_path, label)
                 if outcome == "pass":
                     passed += 1
                 elif outcome == "fail":

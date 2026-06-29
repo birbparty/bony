@@ -1,0 +1,195 @@
+{
+  "format": "bony.numeric-golden.v1",
+  "skeleton": "m8-rig",
+  "version": "1.0.0",
+  "time": 0.10000000149011612,
+  "stateMachine": "gesture",
+  "sample": "wave_on",
+  "inputs": [
+    {
+      "name": "wave",
+      "kind": "bool",
+      "value": true
+    },
+    {
+      "name": "speed",
+      "kind": "number",
+      "value": 0.0
+    },
+    {
+      "name": "jump",
+      "kind": "trigger",
+      "value": false
+    }
+  ],
+  "layers": [
+    {
+      "name": "body",
+      "state": "move",
+      "time": 0.0,
+      "pose": {
+        "scalars": [
+          {
+            "target": "root",
+            "kind": "rotate",
+            "value": 5.0
+          }
+        ],
+        "vectors": [],
+        "attachments": [],
+        "inherits": [],
+        "colors": [],
+        "colors2": [],
+        "sequences": []
+      }
+    },
+    {
+      "name": "face",
+      "state": "normal",
+      "time": 0.10000000149011612,
+      "pose": {
+        "scalars": [
+          {
+            "target": "root",
+            "kind": "rotate",
+            "value": 1.0
+          }
+        ],
+        "vectors": [],
+        "attachments": [],
+        "inherits": [],
+        "colors": [],
+        "colors2": [],
+        "sequences": []
+      }
+    }
+  ],
+  "events": [
+    {
+      "listener": "idle_exit",
+      "kind": "stateExit",
+      "layer": "body",
+      "fromState": "idle",
+      "toState": "move"
+    },
+    {
+      "listener": "idle_to_move",
+      "kind": "transition",
+      "layer": "body",
+      "fromState": "idle",
+      "toState": "move"
+    },
+    {
+      "listener": "move_enter",
+      "kind": "stateEnter",
+      "layer": "body",
+      "fromState": "idle",
+      "toState": "move"
+    }
+  ],
+  "bones": [
+    {
+      "name": "root",
+      "parent": "",
+      "world": {
+        "a": 0.9998476951563913,
+        "b": 0.01745240643728351,
+        "c": -0.017452406437283477,
+        "d": 0.9998476951563913,
+        "tx": 0.0,
+        "ty": 0.0
+      }
+    },
+    {
+      "name": "head",
+      "parent": "root",
+      "world": {
+        "a": 0.9998476951563913,
+        "b": 0.01745240643728351,
+        "c": -0.017452406437283415,
+        "d": 0.9998476951563913,
+        "tx": 1.0471443862370087,
+        "ty": -59.99086170938347
+      }
+    }
+  ],
+  "slots": [
+    {
+      "name": "head_slot",
+      "bone": "head",
+      "attachment": "head_open",
+      "r": 1.0,
+      "g": 1.0,
+      "b": 1.0,
+      "a": 1.0
+    }
+  ],
+  "drawBatches": [
+    {
+      "slot": "head_slot",
+      "bone": "head",
+      "attachment": "head_open",
+      "texturePage": "",
+      "blendMode": "normal",
+      "clipId": "",
+      "world": {
+        "a": 0.9998476951563913,
+        "b": 0.01745240643728351,
+        "c": -0.017452406437283415,
+        "d": 0.9998476951563913,
+        "tx": 1.0471443862370087,
+        "ty": -59.99086170938347
+      },
+      "vertices": [
+        {
+          "x": -23.51273783174069,
+          "y": -85.42336424922534,
+          "u": 0.0,
+          "v": 0.0,
+          "r": 1.0,
+          "g": 1.0,
+          "b": 1.0,
+          "a": 1.0
+        },
+        {
+          "x": 26.479646926078875,
+          "y": -84.55074392736117,
+          "u": 1.0,
+          "v": 0.0,
+          "r": 1.0,
+          "g": 1.0,
+          "b": 1.0,
+          "a": 1.0
+        },
+        {
+          "x": 25.607026604214706,
+          "y": -34.5583591695416,
+          "u": 1.0,
+          "v": 1.0,
+          "r": 1.0,
+          "g": 1.0,
+          "b": 1.0,
+          "a": 1.0
+        },
+        {
+          "x": -24.38535815360486,
+          "y": -35.43097949140578,
+          "u": 0.0,
+          "v": 1.0,
+          "r": 1.0,
+          "g": 1.0,
+          "b": 1.0,
+          "a": 1.0
+        }
+      ],
+      "indices": [
+        0,
+        1,
+        2,
+        2,
+        3,
+        0
+      ]
+    }
+  ]
+}
