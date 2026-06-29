@@ -71,7 +71,7 @@ proc readJsonString(text: string; index: var int): string =
   raise newBonyLoadError(schemaViolation, "unterminated JSON string")
 
 
-proc rejectDuplicateObjectKeys(text: string) =
+proc rejectDuplicateObjectKeys*(text: string) =
   type JsonContext = object
     isObject: bool
     keys: HashSet[string]

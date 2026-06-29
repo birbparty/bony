@@ -62,8 +62,21 @@ def compare_goldens(actual, expected):
 
     _check_float(actual.get("time", 0.0), expected.get("time", 0.0), "time", errors)
 
+    state_machine_golden = (
+        actual.get("stateMachine") is not None
+        or expected.get("stateMachine") is not None
+        or actual.get("sample") is not None
+        or expected.get("sample") is not None
+    )
     for field in ("inputs", "layers", "events"):
-        if field in actual or field in expected:
+        if state_machine_golden:
+            if field not in actual:
+                errors.append(f"  {field}: missing from actual state-machine golden")
+            if field not in expected:
+                errors.append(f"  {field}: missing from expected state-machine golden")
+            if field in actual and field in expected:
+                _check_json(actual[field], expected[field], field, errors)
+        elif field in actual or field in expected:
             _check_json(actual.get(field), expected.get(field), field, errors)
 
     # Bones (keyed by name; order is defined, but name is the natural key)

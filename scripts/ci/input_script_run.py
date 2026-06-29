@@ -45,7 +45,21 @@ except ImportError:
 from _golden_compare import compare_goldens
 
 
-SAMPLE_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
+SAMPLE_NAME_RE = re.compile(r"^(?=.*[^0-9])[A-Za-z0-9_.-]+$")
+
+
+def _object_without_duplicate_keys(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON object key: {key}")
+        result[key] = value
+    return result
+
+
+def _load_json_without_duplicate_keys(path):
+    with open(path) as f:
+        return json.load(f, object_pairs_hook=_object_without_duplicate_keys)
 
 
 def _format_t(t):
@@ -144,8 +158,7 @@ def main():
         print(f"error: schema not found: {schema_path}", file=sys.stderr)
         sys.exit(2)
 
-    with open(schema_path) as f:
-        schema = json.load(f)
+    schema = _load_json_without_duplicate_keys(schema_path)
 
     script_files = sorted(glob.glob(os.path.join(args.scripts, "*.json")))
     if not script_files:
@@ -159,8 +172,12 @@ def main():
     with tempfile.TemporaryDirectory() as tmpdir:
         for script_path in script_files:
             script_name = os.path.basename(script_path)
-            with open(script_path) as f:
-                script = json.load(f)
+            try:
+                script = _load_json_without_duplicate_keys(script_path)
+            except ValueError as exc:
+                print(f"FAIL {script_name}: JSON validation: {exc}")
+                failed += 1
+                continue
 
             # Validate schema
             try:
@@ -191,7 +208,7 @@ def main():
                         script_valid = False
                         continue
                     if not SAMPLE_NAME_RE.match(sample_name):
-                        print(f"FAIL {script_name}[{i}]: invalid sample name: {sample_name!r}")
+                        print(f"FAIL {script_name}[{i}]: invalid or numeric-only sample name: {sample_name!r}")
                         failed += 1
                         script_valid = False
                         continue

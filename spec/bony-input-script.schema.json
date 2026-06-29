@@ -6,6 +6,22 @@
   "type": "object",
   "additionalProperties": false,
   "required": ["format", "asset", "samples"],
+  "allOf": [
+    {
+      "if": {
+        "required": ["stateMachine"]
+      },
+      "then": {
+        "properties": {
+          "samples": {
+            "items": {
+              "required": ["name", "t"]
+            }
+          }
+        }
+      }
+    }
+  ],
   "properties": {
     "format": {
       "type": "string",
@@ -35,7 +51,8 @@
             "type": "string",
             "minLength": 1,
             "pattern": "^[A-Za-z0-9_.-]+$",
-            "description": "Optional stable sample identifier. Required by the conformance runner when stateMachine is present."
+            "not": {"pattern": "^[0-9]+$"},
+            "description": "Optional stable sample identifier. Required by the conformance runner when stateMachine is present. Numeric-only names are reserved for CLI sample indexes."
           },
           "t": {
             "type": "number",
@@ -49,7 +66,7 @@
               "oneOf": [
                 {"type": "boolean"},
                 {"type": "number"},
-                {"type": "string"}
+                {"type": "string", "const": "fire"}
               ]
             }
           }

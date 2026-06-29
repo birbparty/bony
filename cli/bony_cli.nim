@@ -1254,16 +1254,23 @@ proc scriptTime(node: JsonNode; key, context: string): float64 =
 proc safeSampleName(name: string): bool =
   if name.len == 0:
     return false
+  var hasNonDigit = false
   for ch in name:
     if not (ch in {'a'..'z', 'A'..'Z', '0'..'9', '_', '-', '.'}):
       return false
+    if ch notin {'0'..'9'}:
+      hasNonDigit = true
+  if not hasNonDigit:
+    return false
   true
 
 
 proc parseInputScript(path: string): InputScript =
+  let text = readFile(path)
+  rejectDuplicateObjectKeys(text)
   let parsed =
     try:
-      parseJson(readFile(path))
+      parseJson(text)
     except JsonParsingError as exc:
       raise newBonyLoadError(schemaViolation, "invalid input script JSON: " & exc.msg)
 
@@ -1289,7 +1296,7 @@ proc parseInputScript(path: string): InputScript =
       time: scriptTime(sampleObj, "t", context),
     )
     if sample.name.len > 0 and not sample.name.safeSampleName:
-      raise newBonyLoadError(schemaViolation, context & ".name must contain only letters, digits, _, -, or .")
+      raise newBonyLoadError(schemaViolation, context & ".name must contain only letters, digits, _, -, or . and must not be numeric-only")
     if sampleObj.hasKey("inputs"):
       let inputsObj = requireScriptObject(sampleObj["inputs"], context & ".inputs")
       for inputName, inputValue in inputsObj.pairs:
@@ -1365,6 +1372,14 @@ proc sampleMatches(sample: InputScriptSample; index: int; selector: string): boo
   sample.name == selector
 
 
+proc rejectUnsupportedRenderablePose(pose: MixedPose; context: string) =
+  if pose.colors.len > 0 or pose.colors2.len > 0 or pose.sequences.len > 0:
+    raise newBonyLoadError(
+      schemaViolation,
+      "state-machine " & context & " contains color, color2, or sequence channels that are not yet projected into slots/drawBatches",
+    )
+
+
 proc executeStateMachineScript(
   assetPath, stateMachineName, scriptPath, selector: string;
 ): seq[StateMachineRunSample] =
@@ -1387,6 +1402,7 @@ proc executeStateMachineScript(
     runtime.applyScriptInputs(sample.inputs)
     runtime.update(sample.time - previousTime)
     let evaluated = runtime.evaluate(dataRef)
+    rejectUnsupportedRenderablePose(evaluated.pose, sample.name)
     let posed = data.applyPose(evaluated.pose)
     if sample.sampleMatches(index, selector):
       matched = true
@@ -1673,7 +1689,7 @@ proc writeNumericGolden(args: seq[string]) =
       index += 2
     else:
       quit(usage(), QuitFailure)
-  if stateMachine.len != 0 or inputScript.len != 0:
+  if stateMachine.len != 0 or inputScript.len != 0 or sampleSelector.len != 0:
     if inputScript.len == 0:
       raise newBonyLoadError(schemaViolation, "golden-gen state-machine execution requires --input-script")
     if sampleSelector.len == 0:

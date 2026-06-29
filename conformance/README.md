@@ -104,11 +104,16 @@ Each `*_sample.json` file drives the numeric golden gate:
 - `stateMachine`: optional target state machine. When present, the script is
   replayed through `golden-gen --state-machine ... --input-script ... --sample ...`.
 - `samples[].name`: stable sample identifier. Required by the conformance
-  runner for state-machine scripts.
+  runner for state-machine scripts. Numeric-only names are reserved for CLI
+  sample indexes.
 - `samples[].t`: absolute script time in seconds. State-machine execution
   advances by the delta from the previous sample time.
 - `samples[].inputs`: typed input changes. Booleans target bool inputs, numbers
   target number inputs, and the string `"fire"` targets trigger inputs.
+
+State-machine numeric/render execution currently fails if the sampled pose
+contains color, color2, or sequence channels, because those channels are not yet
+projected into the top-level slot/draw-batch output contract.
 
 Setup-pose scripts without `stateMachine` keep the legacy golden naming scheme:
 `<asset-stem>_t<time>.json`. State-machine scripts use

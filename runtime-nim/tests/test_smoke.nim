@@ -1684,6 +1684,10 @@ spec "bony package":
     let stateAssetPath = repoPath("conformance", "assets", "m8_rig.bony")
     let stateScriptPath = "/tmp/bony_cli_harness_state_script.json"
     let badStateScriptPath = "/tmp/bony_cli_harness_bad_state_script.json"
+    let duplicateStateScriptPath = "/tmp/bony_cli_harness_duplicate_state_script.json"
+    let numericStateScriptPath = "/tmp/bony_cli_harness_numeric_state_script.json"
+    let colorStateAssetPath = "/tmp/bony_cli_harness_color_state.bony"
+    let colorStateScriptPath = "/tmp/bony_cli_harness_color_state_script.json"
     let stateGoldenPath = "/tmp/bony_cli_harness_state_golden.json"
     let stateFramePath = "/tmp/bony_cli_harness_state_frame.png"
     let lottiePath = "/tmp/bony_cli_harness_lottie.json"
@@ -1701,6 +1705,10 @@ spec "bony package":
       frameTopLeftPath,
       stateScriptPath,
       badStateScriptPath,
+      duplicateStateScriptPath,
+      numericStateScriptPath,
+      colorStateAssetPath,
+      colorStateScriptPath,
       stateGoldenPath,
       stateFramePath,
       lottiePath,
@@ -1756,6 +1764,63 @@ spec "bony package":
   ]
 }
 """)
+    writeFile(duplicateStateScriptPath, """{
+  "format": "bony.input-script.v1",
+  "asset": "m8_rig.bony",
+  "stateMachine": "gesture",
+  "samples": [
+    {"name": "dup", "t": 0.0, "inputs": {"wave": true, "wave": false}}
+  ]
+}
+""")
+    writeFile(numericStateScriptPath, """{
+  "format": "bony.input-script.v1",
+  "asset": "m8_rig.bony",
+  "stateMachine": "gesture",
+  "samples": [
+    {"name": "1", "t": 0.0, "inputs": {}}
+  ]
+}
+""")
+    writeFile(colorStateAssetPath, """{
+  "skeleton": {"name": "color-sm"},
+  "bones": [{"name": "root"}],
+  "slots": [{"name": "body", "bone": "root", "attachment": "body"}],
+  "regions": [{"name": "body", "width": 2, "height": 2}],
+  "animations": [
+    {
+      "name": "alpha",
+      "slotTimelines": [
+        {
+          "slot": "body",
+          "property": "alpha",
+          "keyframes": [{"t": 0.0, "a": 0.5}]
+        }
+      ]
+    }
+  ],
+  "stateMachines": [
+    {
+      "name": "color",
+      "layers": [
+        {
+          "name": "base",
+          "states": [{"name": "alpha", "kind": "clip", "clip": "alpha"}]
+        }
+      ]
+    }
+  ]
+}
+""")
+    writeFile(colorStateScriptPath, """{
+  "format": "bony.input-script.v1",
+  "asset": "bony_cli_harness_color_state.bony",
+  "stateMachine": "color",
+  "samples": [
+    {"name": "alpha", "t": 0.0, "inputs": {}}
+  ]
+}
+""")
     let stateGolden = runProcess(
       cliPath,
       [
@@ -1793,9 +1858,40 @@ spec "bony package":
       cliPath,
       ["play", stateAssetPath, "--input-script", badStateScriptPath, "--out", stateFramePath],
     )
+    let duplicateStateScript = runProcess(
+      cliPath,
+      [
+        "golden-gen", stateAssetPath, stateGoldenPath,
+        "--state-machine", "gesture",
+        "--input-script", duplicateStateScriptPath,
+        "--sample", "dup",
+      ],
+    )
+    let numericStateScript = runProcess(
+      cliPath,
+      [
+        "golden-gen", stateAssetPath, stateGoldenPath,
+        "--state-machine", "gesture",
+        "--input-script", numericStateScriptPath,
+        "--sample", "1",
+      ],
+    )
+    let unsupportedColorState = runProcess(
+      cliPath,
+      [
+        "golden-gen", colorStateAssetPath, stateGoldenPath,
+        "--state-machine", "color",
+        "--input-script", colorStateScriptPath,
+        "--sample", "alpha",
+      ],
+    )
     let stateTimeArg = runProcess(
       cliPath,
       ["play", stateAssetPath, "--state-machine", "gesture", "--input-script", stateScriptPath, "--out", stateFramePath, "--t", "0"],
+    )
+    let sampleWithoutInputScript = runProcess(
+      cliPath,
+      ["golden-gen", assetPath, goldenPath, "--t", "0", "--sample", "ignored"],
     )
     let bnbStateMachine = runProcess(
       cliPath,
@@ -1915,8 +2011,16 @@ spec "bony package":
       missingStateSample.output.contains("unknown input-script sample")
       badStateScript.exitCode != 0
       badStateScript.output.contains("samples require name")
+      duplicateStateScript.exitCode != 0
+      duplicateStateScript.output.contains("duplicate JSON object key: wave")
+      numericStateScript.exitCode != 0
+      numericStateScript.output.contains("numeric-only")
+      unsupportedColorState.exitCode != 0
+      unsupportedColorState.output.contains("color, color2, or sequence channels")
       stateTimeArg.exitCode != 0
       stateTimeArg.output.contains("--t cannot be combined")
+      sampleWithoutInputScript.exitCode != 0
+      sampleWithoutInputScript.output.contains("requires --input-script")
       bnbStateMachine.exitCode != 0
       bnbStateMachine.output.contains(".bnb playback is not supported")
       importLottie.exitCode == 0
@@ -1992,6 +2096,10 @@ spec "bony package":
       frameTopLeftPath,
       stateScriptPath,
       badStateScriptPath,
+      duplicateStateScriptPath,
+      numericStateScriptPath,
+      colorStateAssetPath,
+      colorStateScriptPath,
       stateGoldenPath,
       stateFramePath,
       lottiePath,

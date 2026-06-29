@@ -30,6 +30,9 @@ The input script owns sample times and typed inputs. The emitted JSON extends
 `bony.numeric-golden.v1` with `stateMachine`, `sample`, `inputs`, `layers`, and
 `events` fields so the numeric gate verifies active states, sampled layer poses,
 trigger consumption, and listener event order.
+State-machine samples containing color, color2, or sequence channels fail
+explicitly until those channels are projected into the top-level slot and
+draw-batch output contract.
 
 `play` renders the current setup pose through the Nim software rasterizer. PNG
 image output is a reference-runtime convenience path, not the cross-runtime
