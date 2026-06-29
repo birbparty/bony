@@ -32,7 +32,9 @@ Each IK constraint object has exactly these fields (names and casing are frozen)
 `requiredProperties` = `[bones, name, target]`; `order`/`mix`/`bendPositive` are
 defaulted. The registry object property order is
 `[name, bones, target, order, mix, bendPositive]`. Type key: `ikConstraint`
-= 4002 (M5 band 4000–4999).
+= 4002 (M5 band 4000–4999). Note that type keys and property keys live in
+**separate namespaces**, so the `ikConstraint` type key 4002 and the reused
+`order` property key 4002 are not a collision.
 
 ## 2. `bones` packed-bytes wire layout (append-only)
 
