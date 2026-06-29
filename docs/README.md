@@ -41,6 +41,7 @@ the milestone-to-key-range table.
 | [binary-canonicalization.md](binary-canonicalization.md) | Canonical `.bnb` byte emission for round-trip tools and the M6 byte-stability gate |
 | [binary-toc-skip-semantics.md](binary-toc-skip-semantics.md) | `.bnb` table-of-contents skip rule for composite values (arrays of structs) |
 | [binary-animation-state-machine-object-families.md](binary-animation-state-machine-object-families.md) | Project-owned `.bnb` object-family decision for current animation and state-machine features |
+| [nim-loaded-asset-shape.md](nim-loaded-asset-shape.md) | Nim aggregate loaded-asset shape for preserving animation/state-machine data while keeping `SkeletonData` APIs static |
 | [header-hash-bounds.md](header-hash-bounds.md) | v1 decision for `SkeletonData.header.hash` and `header.bounds` |
 
 ---
