@@ -274,6 +274,72 @@ typeKeys:
     milestone: M7
     ownerBead: bony-rmg
     doc: Single keyform record within a keyformBlend; coordinates and values packed as f32 bytes.
+  - id: animationClip
+    key: 2000
+    status: active
+    milestone: M3
+    ownerBead: bony-cl8.9
+    doc: Animation clip parent record; followed by owned boneTimeline and slotTimeline records.
+  - id: boneTimeline
+    key: 2001
+    status: active
+    milestone: M3
+    ownerBead: bony-cl8.9
+    doc: Bone animation timeline child record owned by the most recent animationClip.
+  - id: slotTimeline
+    key: 2002
+    status: active
+    milestone: M3
+    ownerBead: bony-cl8.9
+    doc: Slot animation timeline child record owned by the most recent animationClip.
+  - id: stateMachine
+    key: 7000
+    status: active
+    milestone: M8
+    ownerBead: bony-cl8.9
+    doc: State-machine parent record; followed by owned inputs, layers, and listeners.
+  - id: stateMachineInput
+    key: 7001
+    status: active
+    milestone: M8
+    ownerBead: bony-cl8.9
+    doc: Typed state-machine input child record owned by the most recent stateMachine.
+  - id: stateMachineLayer
+    key: 7002
+    status: active
+    milestone: M8
+    ownerBead: bony-cl8.9
+    doc: State-machine layer child record owned by the most recent stateMachine.
+  - id: stateMachineState
+    key: 7003
+    status: active
+    milestone: M8
+    ownerBead: bony-cl8.9
+    doc: State-machine state child record owned by the most recent stateMachineLayer.
+  - id: stateMachineBlendClip
+    key: 7004
+    status: active
+    milestone: M8
+    ownerBead: bony-cl8.9
+    doc: Blend1d clip child record owned by the most recent blend1d stateMachineState.
+  - id: stateMachineTransition
+    key: 7005
+    status: active
+    milestone: M8
+    ownerBead: bony-cl8.9
+    doc: State-machine transition child record owned by the most recent stateMachineLayer.
+  - id: stateMachineCondition
+    key: 7006
+    status: active
+    milestone: M8
+    ownerBead: bony-cl8.9
+    doc: Transition condition child record owned by the most recent stateMachineTransition.
+  - id: stateMachineListener
+    key: 7007
+    status: active
+    milestone: M8
+    ownerBead: bony-cl8.9
+    doc: State-machine listener child record owned by the most recent stateMachine.
 
 propertyKeys:
   - id: name
@@ -647,6 +713,188 @@ propertyKeys:
     milestone: M7
     ownerBead: bony-rmg
     doc: Keyform deformed values; packed as valueCount f32 values.
+  - id: boneIndex
+    key: 2000
+    backingType: varuint
+    status: active
+    milestone: M3
+    ownerBead: bony-cl8.9
+    doc: Index of the target bone in loaded bone order.
+  - id: boneTimelineKind
+    key: 2001
+    backingType: varuint
+    status: active
+    milestone: M3
+    ownerBead: bony-cl8.9
+    doc: Project-owned tag for the local bone timeline kind.
+  - id: slotIndex
+    key: 2002
+    backingType: varuint
+    status: active
+    milestone: M3
+    ownerBead: bony-cl8.9
+    doc: Index of the target slot in loaded slot order.
+  - id: slotTimelineKind
+    key: 2003
+    backingType: varuint
+    status: active
+    milestone: M3
+    ownerBead: bony-cl8.9
+    doc: Project-owned tag for the local slot timeline kind.
+  - id: timelineKeys
+    key: 2004
+    backingType: bytes
+    status: active
+    milestone: M3
+    ownerBead: bony-cl8.9
+    doc: Packed timeline keyframe payload; see docs/binary-animation-state-machine-object-families.md.
+  - id: stateMachineInputKind
+    key: 7000
+    backingType: varuint
+    status: active
+    milestone: M8
+    ownerBead: bony-cl8.9
+    doc: Project-owned tag for bool, number, or trigger state-machine inputs.
+  - id: inputDefaultBool
+    key: 7001
+    backingType: bool
+    status: active
+    milestone: M8
+    ownerBead: bony-cl8.9
+    doc: Bool input default value; valid only for bool inputs when active.
+  - id: inputDefaultNumber
+    key: 7002
+    backingType: f32
+    status: active
+    milestone: M8
+    ownerBead: bony-cl8.9
+    doc: Number input default value; valid only for number inputs when active.
+  - id: initialStateIndex
+    key: 7010
+    backingType: varuint
+    status: active
+    milestone: M8
+    ownerBead: bony-cl8.9
+    doc: Layer-local initial state index; omitted value resolves to state index 0.
+  - id: stateMachineStateKind
+    key: 7020
+    backingType: varuint
+    status: active
+    milestone: M8
+    ownerBead: bony-cl8.9
+    doc: Project-owned tag for clip or blend1d state-machine states.
+  - id: stateClipIndex
+    key: 7021
+    backingType: varuint
+    status: active
+    milestone: M8
+    ownerBead: bony-cl8.9
+    doc: Animation index for clip states.
+  - id: stateLoop
+    key: 7022
+    backingType: bool
+    status: active
+    milestone: M8
+    ownerBead: bony-cl8.9
+    doc: Direct clip-state loop flag; omitted when false.
+  - id: stateBlendInputIndex
+    key: 7023
+    backingType: varuint
+    status: active
+    milestone: M8
+    ownerBead: bony-cl8.9
+    doc: State-machine-local number input index for blend1d states.
+  - id: blendClipAnimationIndex
+    key: 7030
+    backingType: varuint
+    status: active
+    milestone: M8
+    ownerBead: bony-cl8.9
+    doc: Animation index referenced by a blend clip.
+  - id: blendClipValue
+    key: 7031
+    backingType: f32
+    status: active
+    milestone: M8
+    ownerBead: bony-cl8.9
+    doc: Blend1d coordinate for a blend clip.
+  - id: blendClipLoop
+    key: 7032
+    backingType: bool
+    status: active
+    milestone: M8
+    ownerBead: bony-cl8.9
+    doc: Blend clip loop flag; omitted when false.
+  - id: transitionFromStateIndex
+    key: 7040
+    backingType: varuint
+    status: active
+    milestone: M8
+    ownerBead: bony-cl8.9
+    doc: Layer-local transition source state index.
+  - id: transitionToStateIndex
+    key: 7041
+    backingType: varuint
+    status: active
+    milestone: M8
+    ownerBead: bony-cl8.9
+    doc: Layer-local transition target state index.
+  - id: conditionInputIndex
+    key: 7050
+    backingType: varuint
+    status: active
+    milestone: M8
+    ownerBead: bony-cl8.9
+    doc: State-machine-local condition input index.
+  - id: stateMachineConditionKind
+    key: 7051
+    backingType: varuint
+    status: active
+    milestone: M8
+    ownerBead: bony-cl8.9
+    doc: Project-owned tag for condition comparison kind.
+  - id: conditionBoolValue
+    key: 7052
+    backingType: bool
+    status: active
+    milestone: M8
+    ownerBead: bony-cl8.9
+    doc: Bool condition comparison value; valid only for boolEquals.
+  - id: conditionNumberValue
+    key: 7053
+    backingType: f32
+    status: active
+    milestone: M8
+    ownerBead: bony-cl8.9
+    doc: Numeric condition comparison value; valid only for numeric conditions.
+  - id: stateMachineListenerKind
+    key: 7060
+    backingType: varuint
+    status: active
+    milestone: M8
+    ownerBead: bony-cl8.9
+    doc: Project-owned tag for stateEnter, stateExit, or transition listeners.
+  - id: listenerLayerIndex
+    key: 7061
+    backingType: varuint
+    status: active
+    milestone: M8
+    ownerBead: bony-cl8.9
+    doc: State-machine-local listener layer index.
+  - id: listenerFromStateIndex
+    key: 7062
+    backingType: varuint
+    status: active
+    milestone: M8
+    ownerBead: bony-cl8.9
+    doc: Layer-local listener source state index.
+  - id: listenerToStateIndex
+    key: 7063
+    backingType: varuint
+    status: active
+    milestone: M8
+    ownerBead: bony-cl8.9
+    doc: Layer-local listener target state index.
 
 objects:
   - type: skeleton
@@ -745,3 +993,69 @@ objects:
       - blendCoordinates
       - blendValues
     doc: Single keyform record within a keyformBlend; coordinates and values packed as f32 bytes.
+  - type: animationClip
+    properties:
+      - name
+    doc: Animation clip parent record; followed immediately by owned boneTimeline and slotTimeline records.
+  - type: boneTimeline
+    properties:
+      - boneIndex
+      - boneTimelineKind
+      - timelineKeys
+    doc: Bone timeline child record owned by the most recent animationClip.
+  - type: slotTimeline
+    properties:
+      - slotIndex
+      - slotTimelineKind
+      - timelineKeys
+    doc: Slot timeline child record owned by the most recent animationClip.
+  - type: stateMachine
+    properties:
+      - name
+    doc: State-machine parent record; followed immediately by inputs, layers, and listeners.
+  - type: stateMachineInput
+    properties:
+      - name
+      - stateMachineInputKind
+      - inputDefaultBool
+      - inputDefaultNumber
+    doc: State-machine input child record owned by the most recent stateMachine.
+  - type: stateMachineLayer
+    properties:
+      - name
+      - initialStateIndex
+    doc: State-machine layer child record owned by the most recent stateMachine.
+  - type: stateMachineState
+    properties:
+      - name
+      - stateMachineStateKind
+      - stateClipIndex
+      - stateLoop
+      - stateBlendInputIndex
+    doc: State-machine state child record owned by the most recent stateMachineLayer.
+  - type: stateMachineBlendClip
+    properties:
+      - blendClipAnimationIndex
+      - blendClipValue
+      - blendClipLoop
+    doc: Blend clip child record owned by the most recent blend1d stateMachineState.
+  - type: stateMachineTransition
+    properties:
+      - transitionFromStateIndex
+      - transitionToStateIndex
+    doc: State-machine transition child record owned by the most recent stateMachineLayer.
+  - type: stateMachineCondition
+    properties:
+      - conditionInputIndex
+      - stateMachineConditionKind
+      - conditionBoolValue
+      - conditionNumberValue
+    doc: Transition condition child record owned by the most recent stateMachineTransition.
+  - type: stateMachineListener
+    properties:
+      - name
+      - stateMachineListenerKind
+      - listenerLayerIndex
+      - listenerFromStateIndex
+      - listenerToStateIndex
+    doc: State-machine listener child record owned by the most recent stateMachine.

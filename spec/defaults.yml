@@ -236,6 +236,94 @@ objectDefaults:
   - object: keyform
     ownerBead: bony-rmg
     properties: {}
+  - object: animationClip
+    ownerBead: bony-cl8.9
+    properties: {}
+  - object: boneTimeline
+    ownerBead: bony-cl8.9
+    properties: {}
+  - object: slotTimeline
+    ownerBead: bony-cl8.9
+    properties: {}
+  - object: stateMachine
+    ownerBead: bony-cl8.9
+    properties: {}
+  - object: stateMachineInput
+    ownerBead: bony-cl8.9
+    properties:
+      inputDefaultBool:
+        value: false
+        omitWhenDefault: true
+        applyOnLoad: true
+        doc: Bool input default is omitted when false; loader validation rejects inactive default fields before default application.
+      inputDefaultNumber:
+        value: 0.0
+        omitWhenDefault: true
+        applyOnLoad: true
+        doc: Number input default is omitted when zero; loader validation rejects inactive default fields before default application.
+  - object: stateMachineLayer
+    ownerBead: bony-cl8.9
+    properties:
+      initialStateIndex:
+        value: 0
+        omitWhenDefault: true
+        applyOnLoad: true
+        doc: Omitted initial state resolves to the first loaded state in the layer.
+  - object: stateMachineState
+    ownerBead: bony-cl8.9
+    properties:
+      stateClipIndex:
+        value: 0
+        omitWhenDefault: true
+        applyOnLoad: true
+        doc: Clip state animation index default; loader validation owns state-kind-specific presence.
+      stateLoop:
+        value: false
+        omitWhenDefault: true
+        applyOnLoad: true
+        doc: Direct clip state loop defaults to false.
+      stateBlendInputIndex:
+        value: 0
+        omitWhenDefault: true
+        applyOnLoad: true
+        doc: Blend state input index default; loader validation owns state-kind-specific presence.
+  - object: stateMachineBlendClip
+    ownerBead: bony-cl8.9
+    properties:
+      blendClipLoop:
+        value: false
+        omitWhenDefault: true
+        applyOnLoad: true
+        doc: Blend clip loop defaults to false.
+  - object: stateMachineTransition
+    ownerBead: bony-cl8.9
+    properties: {}
+  - object: stateMachineCondition
+    ownerBead: bony-cl8.9
+    properties:
+      conditionBoolValue:
+        value: true
+        omitWhenDefault: true
+        applyOnLoad: true
+        doc: Bool-equals condition value defaults to true; loader validation owns condition-kind-specific presence.
+      conditionNumberValue:
+        value: 0.0
+        omitWhenDefault: true
+        applyOnLoad: true
+        doc: Numeric condition value default; loader validation owns condition-kind-specific presence.
+  - object: stateMachineListener
+    ownerBead: bony-cl8.9
+    properties:
+      listenerFromStateIndex:
+        value: 0
+        omitWhenDefault: true
+        applyOnLoad: true
+        doc: Listener source state default; loader validation owns listener-kind-specific presence.
+      listenerToStateIndex:
+        value: 0
+        omitWhenDefault: true
+        applyOnLoad: true
+        doc: Listener target state default; loader validation owns listener-kind-specific presence.
 
 requiredProperties:
   - object: skeleton
@@ -386,3 +474,91 @@ requiredProperties:
     property: blendValues
     reason: Keyform needs packed deformed values for blending.
     ownerBead: bony-rmg
+  - object: animationClip
+    property: name
+    reason: Animation clips are referenced by stable unique names.
+    ownerBead: bony-cl8.9
+  - object: boneTimeline
+    property: boneIndex
+    reason: Bone timelines must resolve to a loaded bone.
+    ownerBead: bony-cl8.9
+  - object: boneTimeline
+    property: boneTimelineKind
+    reason: Bone timeline kind selects the packed key payload shape.
+    ownerBead: bony-cl8.9
+  - object: boneTimeline
+    property: timelineKeys
+    reason: Bone timelines need packed keyframe data.
+    ownerBead: bony-cl8.9
+  - object: slotTimeline
+    property: slotIndex
+    reason: Slot timelines must resolve to a loaded slot.
+    ownerBead: bony-cl8.9
+  - object: slotTimeline
+    property: slotTimelineKind
+    reason: Slot timeline kind selects the packed key payload shape.
+    ownerBead: bony-cl8.9
+  - object: slotTimeline
+    property: timelineKeys
+    reason: Slot timelines need packed keyframe data.
+    ownerBead: bony-cl8.9
+  - object: stateMachine
+    property: name
+    reason: State machines are referenced by stable unique names.
+    ownerBead: bony-cl8.9
+  - object: stateMachineInput
+    property: name
+    reason: State-machine inputs are referenced by conditions and blend states.
+    ownerBead: bony-cl8.9
+  - object: stateMachineInput
+    property: stateMachineInputKind
+    reason: Input kind determines default and condition compatibility.
+    ownerBead: bony-cl8.9
+  - object: stateMachineLayer
+    property: name
+    reason: State-machine layers are referenced by listeners.
+    ownerBead: bony-cl8.9
+  - object: stateMachineState
+    property: name
+    reason: State-machine states are referenced by transitions and listeners after binary load.
+    ownerBead: bony-cl8.9
+  - object: stateMachineState
+    property: stateMachineStateKind
+    reason: State kind determines whether clip or blend fields are active.
+    ownerBead: bony-cl8.9
+  - object: stateMachineBlendClip
+    property: blendClipAnimationIndex
+    reason: Blend clips must resolve to a loaded animation clip.
+    ownerBead: bony-cl8.9
+  - object: stateMachineBlendClip
+    property: blendClipValue
+    reason: Blend clips need a numeric blend coordinate.
+    ownerBead: bony-cl8.9
+  - object: stateMachineTransition
+    property: transitionFromStateIndex
+    reason: Transitions need a layer-local source state.
+    ownerBead: bony-cl8.9
+  - object: stateMachineTransition
+    property: transitionToStateIndex
+    reason: Transitions need a layer-local target state.
+    ownerBead: bony-cl8.9
+  - object: stateMachineCondition
+    property: conditionInputIndex
+    reason: Conditions must resolve to a state-machine input.
+    ownerBead: bony-cl8.9
+  - object: stateMachineCondition
+    property: stateMachineConditionKind
+    reason: Condition kind determines value interpretation and input compatibility.
+    ownerBead: bony-cl8.9
+  - object: stateMachineListener
+    property: name
+    reason: State-machine listeners are surfaced by stable names.
+    ownerBead: bony-cl8.9
+  - object: stateMachineListener
+    property: stateMachineListenerKind
+    reason: Listener kind determines active state-reference fields.
+    ownerBead: bony-cl8.9
+  - object: stateMachineListener
+    property: listenerLayerIndex
+    reason: Listeners must resolve to a state-machine layer.
+    ownerBead: bony-cl8.9
