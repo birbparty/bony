@@ -667,7 +667,9 @@
           "default": 0
         },
         "mix": {
-          "type": "number"
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
         },
         "bendPositive": {
           "type": "boolean"
