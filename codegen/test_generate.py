@@ -138,6 +138,10 @@ class GeneratorValidationTests(unittest.TestCase):
 
         self.assertEqual(timeline_keys["contentEncoding"], "base64")
         self.assertEqual(timeline_keys["x-bony-packedBytes"]["payload"], "animationTimelineKeys")
+        self.assertEqual(
+            timeline_keys["x-bony-packedBytes"]["layout"],
+            "docs/binary-animation-state-machine-object-families.md#keyframe-payloads",
+        )
         self.assertEqual(timeline_keys["x-bony-packedBytes"]["structuralSchema"], "base64Only")
         self.assertEqual(timeline_keys["x-bony-packedBytes"]["validatedBy"], "loader")
 
