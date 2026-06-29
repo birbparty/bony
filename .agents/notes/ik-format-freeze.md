@@ -139,15 +139,15 @@ realizes them.*
 These two edits are part of the binding contract: the registry+defaults edits
 alone produce a schema that **contradicts** §2/§3. Both belong to bony-b5d.3.
 
-- **C1 — `mix` JSON-schema range.** `schema_for_property` (generate.py:875-894)
-  only attaches `minimum:0`/`maximum:1` for `property_id in {"position",
-  "translateMix", "rotateMix"}` (generate.py:891). A new id `mix` would otherwise
-  emit a rangeless `{"type":"number"}`. **Add `"mix"` to that set** so the schema
-  matches §2. (This is a *separate* mechanism from the runtime `requireMix` [0,1]
-  guard at ik.nim:49 / the model constructor — the runtime check does NOT make the
-  schema edit unnecessary; both are required.) This gap is silent: regen stays
-  green and `--check` passes while the schema diverges, unless a conformance test
-  asserts the `mix` range.
+- **C1 — `mix` JSON-schema range (wire schema).** `schema_for_property`
+  (generate.py:875-894) only attaches `minimum:0`/`maximum:1` for `property_id in
+  {"position", "translateMix", "rotateMix"}` (generate.py:891). A new id `mix` would
+  otherwise emit a rangeless `{"type":"number"}`. **Add `"mix"` to that set** so the
+  *wire* schema matches §2. (This is a *separate* mechanism from the runtime
+  `requireMix` [0,1] guard at ik.nim:49 / the model constructor — the runtime check
+  does NOT make the schema edit unnecessary; both are required.) This gap is silent:
+  regen stays green and `--check` passes while the schema diverges, unless a
+  conformance test asserts the `mix` range.
 - **C2 — `bones` authored-JSON array.** A `bytes` property auto-generates to
   base64 (generate.py:868); the array-of-strings shape in §3 exists only via an
   override. **Add a `canonical_json_overrides["ikConstraint"]` entry** (mirroring
@@ -155,6 +155,17 @@ alone produce a schema that **contradicts** §2/§3. Both belong to bony-b5d.3.
   object with `bones: {type: array, minItems: 1, items: {type: string, minLength:
   1}}` plus the other five fields. Without it `bones` ships as the only base64
   field in `bony.schema.json`, contradicting §3 and the `bones: seq[string]` model.
+- **C1↔C2 interaction — the override must ALSO carry the `mix` range.** Because
+  `generate_schema` does `schema["$defs"].update(canonical_json_overrides())`
+  (generate.py:449), the C2 override **fully replaces** the authored `ikConstraint`
+  `$def` — so C1's `schema_for_property` edit reaches only the *wire* schema, not
+  `bony.schema.json`. The C2 override must therefore itself declare
+  `mix: {type: number, minimum: 0, maximum: 1, default: 1.0}` (and the other field
+  ranges/defaults it wants), or the authored schema lacks the `mix` range despite
+  C1. Precedent to NOT blindly copy: `rotationDeformer.opacity` (generate.py:633) is
+  `{type: number, default: 1.0}` with no min/max even though its field is 0..1 — an
+  override that silently drops a range. Set the range in **both** C1 (wire) and the
+  C2 override (authored).
 - **Optional (S1):** `bones` does *not* strictly need a `PACKED_BYTES_METADATA`
   entry (generate.py:26) to match the `blendAxes` precedent — `blendAxes` itself is
   not listed there. Add `PACKED_BYTES_METADATA["bones"]` only if the team wants the
