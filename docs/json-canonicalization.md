@@ -74,7 +74,10 @@ below.
 Serializers omit fields whose loaded value equals the documented default table
 only when that default entry sets `omitWhenDefault: true` in
 `spec/defaults.yml`. Deserializers apply defaults before validation that depends
-on field values.
+on field values only for entries with `applyOnLoad: true`. Variant-specific
+defaults with `applyOnLoad: false` are write-omission rules; loaders must
+preserve raw field presence until variant-specific presence and absence checks
+pass.
 
 Idempotency is therefore defined on loaded values, not byte-for-byte source
 JSON:

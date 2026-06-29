@@ -11,10 +11,10 @@ The current Nim CLI entry point is `cli/bony_cli.nim`.
 nim c -o:bony --path:runtime-nim/src cli/bony_cli.nim
 ./bony json-to-bnb input.bony output.bnb
 ./bony bnb-to-json input.bnb output.bony
-./bony golden-gen input.bony output.numeric.json --t 0.5
+./bony golden-gen input.bony output.numeric.json --t 0
 ./bony golden-gen input.bony output.numeric.json \
   --state-machine gesture --input-script script.json --sample wave_on
-./bony play input.bony --t 0.5 --out frame.png --width 256 --height 256
+./bony play input.bony --t 0 --out frame.png --width 256 --height 256
 ./bony play input.bony --state-machine gesture --input-script script.json --out story.png
 ```
 
@@ -40,8 +40,11 @@ numeric conformance source. With `--state-machine` and `--input-script`, `play`
 renders a horizontal contact sheet: one cell per script sample, using the same
 input replay semantics as `golden-gen`.
 
-The M6 commands cover the currently registered `SkeletonData` objects:
-`skeleton`, `bone`, `slot`, and `region`.
+The setup-pose `.bnb` commands cover the currently implemented static
+`SkeletonData` path. The binary registry and contracts now reserve
+animation/state-machine records for preservation, but the CLI conversion path
+must not advertise lossless `.bnb` animation/state-machine round trips until the
+aggregate asset implementation is wired through the runtime.
 
 `bnb-to-json` is intentionally strict: it rejects embedded atlas payloads,
 unknown object types, and unknown property keys because the current `.bony`
@@ -50,5 +53,6 @@ domain for `bnb -> json -> bnb` is canonical known-model `.bnb` emitted by the
 current writer.
 
 State-machine input scripts currently require `.bony` assets. `.bnb` playback
-continues to support the setup-pose path only until the binary contract includes
-animation and state-machine data.
+continues to support the setup-pose path only; it must keep rejecting
+state-machine input scripts until a dedicated runtime implementation accepts
+`.bnb` animation/state-machine playback with tests.

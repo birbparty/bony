@@ -56,6 +56,11 @@ the milestone-to-key-range table.
 | [json-canonicalization.md](json-canonicalization.md) | Canonical `.bony` JSON for authoring output and the M6 `json→bnb→json` idempotency gate |
 | [load-validation-contract.md](load-validation-contract.md) | Load-time validation pass shared by JSON and binary loaders and the M6 fuzz gate |
 
+`spec/bony.schema.json` describes the canonical `.bony` JSON surface. The flat
+binary registry-object schema lives in `spec/bony-wire.schema.json`; see
+[binary-animation-state-machine-contract.md](binary-animation-state-machine-contract.md)
+for the animation/state-machine preservation-vs-playback boundary.
+
 ---
 
 ## Renderer Contracts
