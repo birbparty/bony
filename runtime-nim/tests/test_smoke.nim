@@ -95,10 +95,10 @@ spec "bony package":
       bonyRegistryVersion == 1
       bonyBackingTypes.len == 8
       bonyBackingTypes[0].id == "varuint"
-      bonyTypeKeys.len == 12
-      bonyPropertyKeys.len == 53
-      bonyPropertyDefaults.len == 23
-      bonyRequiredProperties.len == 37
+      bonyTypeKeys.len == 23
+      bonyPropertyKeys.len == 79
+      bonyPropertyDefaults.len == 34
+      bonyRequiredProperties.len == 59
 
   it "encodes and rejects .bnb varints canonically":
     var bytes: seq[byte]
@@ -1688,6 +1688,8 @@ spec "bony package":
     let numericStateScriptPath = "/tmp/bony_cli_harness_numeric_state_script.json"
     let colorStateAssetPath = "/tmp/bony_cli_harness_color_state.bony"
     let colorStateScriptPath = "/tmp/bony_cli_harness_color_state_script.json"
+    let colorStateGoldenPath = "/tmp/bony_cli_harness_color_state_golden.json"
+    let colorStateFramePath = "/tmp/bony_cli_harness_color_state_frame.png"
     let stateGoldenPath = "/tmp/bony_cli_harness_state_golden.json"
     let stateFramePath = "/tmp/bony_cli_harness_state_frame.png"
     let lottiePath = "/tmp/bony_cli_harness_lottie.json"
@@ -1709,6 +1711,8 @@ spec "bony package":
       numericStateScriptPath,
       colorStateAssetPath,
       colorStateScriptPath,
+      colorStateGoldenPath,
+      colorStateFramePath,
       stateGoldenPath,
       stateFramePath,
       lottiePath,
@@ -1784,9 +1788,23 @@ spec "bony package":
 """)
     writeFile(colorStateAssetPath, """{
   "skeleton": {"name": "color-sm"},
-  "bones": [{"name": "root"}],
-  "slots": [{"name": "body", "bone": "root", "attachment": "body"}],
-  "regions": [{"name": "body", "width": 2, "height": 2}],
+  "bones": [
+    {"name": "root"},
+    {"name": "body_bone", "parent": "root", "x": -4},
+    {"name": "glow_bone", "parent": "root"},
+    {"name": "fx_bone", "parent": "root", "x": 4}
+  ],
+  "slots": [
+    {"name": "body", "bone": "body_bone", "attachment": "body"},
+    {"name": "glow", "bone": "glow_bone", "attachment": "glow"},
+    {"name": "fx", "bone": "fx_bone", "attachment": "fx_0"}
+  ],
+  "regions": [
+    {"name": "body", "width": 2, "height": 2},
+    {"name": "glow", "width": 2, "height": 2},
+    {"name": "fx_0", "width": 2, "height": 2},
+    {"name": "fx_1", "width": 2, "height": 2}
+  ],
   "animations": [
     {
       "name": "alpha",
@@ -1795,6 +1813,29 @@ spec "bony package":
           "slot": "body",
           "property": "alpha",
           "keyframes": [{"t": 0.0, "a": 0.5}]
+        }
+      ]
+    },
+    {
+      "name": "two_color",
+      "slotTimelines": [
+        {
+          "slot": "glow",
+          "property": "rgba2",
+          "keyframes": [{"t": 0.0, "r": 0.25, "g": 0.5, "b": 0.75, "a": 0.8, "dr": 0.1, "dg": 0.2, "db": 0.3}]
+        }
+      ]
+    },
+    {
+      "name": "sequence",
+      "slotTimelines": [
+        {
+          "slot": "fx",
+          "property": "sequence",
+          "keyframes": [
+            {"t": 0.0, "index": 0, "delay": 0.1, "mode": "loop"},
+            {"t": 0.2, "index": 0, "delay": 0.1, "mode": "loop"}
+          ]
         }
       ]
     }
@@ -1806,6 +1847,14 @@ spec "bony package":
         {
           "name": "base",
           "states": [{"name": "alpha", "kind": "clip", "clip": "alpha"}]
+        },
+        {
+          "name": "light",
+          "states": [{"name": "two_color", "kind": "clip", "clip": "two_color"}]
+        },
+        {
+          "name": "fx",
+          "states": [{"name": "sequence", "kind": "clip", "clip": "sequence"}]
         }
       ]
     }
@@ -1817,7 +1866,7 @@ spec "bony package":
   "asset": "bony_cli_harness_color_state.bony",
   "stateMachine": "color",
   "samples": [
-    {"name": "alpha", "t": 0.0, "inputs": {}}
+    {"name": "alpha", "t": 0.1, "inputs": {}}
   ]
 }
 """)
@@ -1876,13 +1925,24 @@ spec "bony package":
         "--sample", "1",
       ],
     )
-    let unsupportedColorState = runProcess(
+    let colorStateGolden = runProcess(
       cliPath,
       [
-        "golden-gen", colorStateAssetPath, stateGoldenPath,
+        "golden-gen", colorStateAssetPath, colorStateGoldenPath,
         "--state-machine", "color",
         "--input-script", colorStateScriptPath,
         "--sample", "alpha",
+      ],
+    )
+    let colorStatePlay = runProcess(
+      cliPath,
+      [
+        "play", colorStateAssetPath,
+        "--state-machine", "color",
+        "--input-script", colorStateScriptPath,
+        "--out", colorStateFramePath,
+        "--width", "16",
+        "--height", "16",
       ],
     )
     let stateTimeArg = runProcess(
@@ -1981,7 +2041,9 @@ spec "bony package":
     )
     let goldenJson = parseJson(readFile(goldenPath))
     let stateGoldenJson = if fileExists(stateGoldenPath): parseJson(readFile(stateGoldenPath)) else: newJObject()
+    let colorStateGoldenJson = if fileExists(colorStateGoldenPath): parseJson(readFile(colorStateGoldenPath)) else: newJObject()
     let stateImage = if fileExists(stateFramePath): decodeImage(readFile(stateFramePath)) else: newImage(1, 1)
+    let colorStateImage = if fileExists(colorStateFramePath): decodeImage(readFile(colorStateFramePath)) else: newImage(1, 1)
 
     then:
       compileResult.exitCode == 0
@@ -2015,8 +2077,24 @@ spec "bony package":
       duplicateStateScript.output.contains("duplicate JSON object key: wave")
       numericStateScript.exitCode != 0
       numericStateScript.output.contains("numeric-only")
-      unsupportedColorState.exitCode != 0
-      unsupportedColorState.output.contains("color, color2, or sequence channels")
+      colorStateGolden.exitCode == 0
+      colorStatePlay.exitCode == 0
+      colorStateGoldenJson["slots"].elems[0]["name"].getStr() == "body"
+      closeTo(colorStateGoldenJson["slots"].elems[0]["a"].getFloat(), 0.5)
+      closeTo(colorStateGoldenJson["drawBatches"].elems[0]["vertices"].elems[0]["a"].getFloat(), 0.5)
+      colorStateGoldenJson["slots"].elems[1]["name"].getStr() == "glow"
+      closeTo(colorStateGoldenJson["slots"].elems[1]["r"].getFloat(), 0.25)
+      closeTo(colorStateGoldenJson["slots"].elems[1]["g"].getFloat(), 0.5)
+      closeTo(colorStateGoldenJson["slots"].elems[1]["b"].getFloat(), 0.75)
+      closeWithin(colorStateGoldenJson["slots"].elems[1]["a"].getFloat(), 0.8, 1e-6)
+      closeWithin(colorStateGoldenJson["slots"].elems[1]["darkB"].getFloat(), 0.3, 1e-6)
+      colorStateGoldenJson["slots"].elems[2]["name"].getStr() == "fx"
+      colorStateGoldenJson["slots"].elems[2]["attachment"].getStr() == "fx_1"
+      colorStateGoldenJson["slots"].elems[2]["sequenceIndex"].getInt() == 1
+      colorStateGoldenJson["drawBatches"].elems[2]["attachment"].getStr() == "fx_1"
+      colorStateImage.width == 16
+      colorStateImage.height == 16
+      colorStateImage[4, 8].a == 128
       stateTimeArg.exitCode != 0
       stateTimeArg.output.contains("--t cannot be combined")
       sampleWithoutInputScript.exitCode != 0
@@ -2100,6 +2178,8 @@ spec "bony package":
       numericStateScriptPath,
       colorStateAssetPath,
       colorStateScriptPath,
+      colorStateGoldenPath,
+      colorStateFramePath,
       stateGoldenPath,
       stateFramePath,
       lottiePath,

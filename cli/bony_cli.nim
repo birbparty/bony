@@ -96,6 +96,20 @@ type
     runtime: StateMachineRuntime
     evaluated: EvaluatedStateMachine
 
+  RenderSlotState = object
+    r: float64
+    g: float64
+    b: float64
+    a: float64
+    hasDark: bool
+    darkR: float64
+    darkG: float64
+    darkB: float64
+    hasSequence: bool
+    sequenceIndex: uint32
+    sequenceDelay: float64
+    sequenceMode: SequenceMode
+
 
 proc newLottieDiagnostic(code, target, capability, message: string): ref LottieDiagnostic =
   new(result)
@@ -1372,12 +1386,62 @@ proc sampleMatches(sample: InputScriptSample; index: int; selector: string): boo
   sample.name == selector
 
 
-proc rejectUnsupportedRenderablePose(pose: MixedPose; context: string) =
-  if pose.colors.len > 0 or pose.colors2.len > 0 or pose.sequences.len > 0:
-    raise newBonyLoadError(
-      schemaViolation,
-      "state-machine " & context & " contains color, color2, or sequence channels that are not yet projected into slots/drawBatches",
-    )
+proc regionNames(data: SkeletonData): HashSet[string] =
+  result = initHashSet[string]()
+  for region in data.regions:
+    result.incl(region.name)
+
+
+proc sequenceAttachmentName(attachment: string; index: uint32): string =
+  if attachment.len == 0:
+    return attachment
+  var suffixStart = attachment.len
+  while suffixStart > 0 and attachment[suffixStart - 1].isDigit:
+    dec suffixStart
+  let suffix =
+    if suffixStart == attachment.len:
+      $index
+    else:
+      align($index, attachment.len - suffixStart, '0')
+  attachment[0 ..< suffixStart] & suffix
+
+
+proc applySequencePose(data: SkeletonData; pose: MixedPose): SkeletonData =
+  if pose.sequences.len == 0:
+    return data
+
+  var sequenceLookup = initTable[string, MixedSequence]()
+  for value in pose.sequences:
+    sequenceLookup[value.target] = value
+
+  let knownRegions = data.regionNames()
+  var slots: seq[SlotData]
+  for slot in data.slots:
+    var attachment = slot.attachment
+    if slot.name in sequenceLookup:
+      let sequence = sequenceLookup[slot.name]
+      attachment = sequenceAttachmentName(attachment, sequence.value.index)
+      if attachment.len > 0 and attachment notin knownRegions:
+        raise newBonyLoadError(
+          unknownRequiredReference,
+          "unknown sequence frame attachment for slot " & slot.name & ": " & attachment,
+        )
+    slots.add slotData(slot.name, slot.bone, attachment)
+
+  skeletonData(
+    data.header,
+    data.bones,
+    slots,
+    data.regions,
+    data.pathAttachments,
+    data.paths,
+    data.parameters,
+    data.deformers,
+  )
+
+
+proc applyRenderablePose(data: SkeletonData; pose: MixedPose): SkeletonData =
+  data.applyPose(pose).applySequencePose(pose)
 
 
 proc executeStateMachineScript(
@@ -1402,8 +1466,7 @@ proc executeStateMachineScript(
     runtime.applyScriptInputs(sample.inputs)
     runtime.update(sample.time - previousTime)
     let evaluated = runtime.evaluate(dataRef)
-    rejectUnsupportedRenderablePose(evaluated.pose, sample.name)
-    let posed = data.applyPose(evaluated.pose)
+    let posed = data.applyRenderablePose(evaluated.pose)
     if sample.sampleMatches(index, selector):
       matched = true
       result.add StateMachineRunSample(
@@ -1472,6 +1535,66 @@ proc colorJson(color: timelines.ColorRgba): JsonNode =
   result["g"] = newJFloat(color.g)
   result["b"] = newJFloat(color.b)
   result["a"] = newJFloat(color.a)
+
+
+proc defaultRenderSlotStates(data: SkeletonData): Table[string, RenderSlotState] =
+  result = initTable[string, RenderSlotState]()
+  for slot in data.slots:
+    result[slot.name] = RenderSlotState(r: 1.0, g: 1.0, b: 1.0, a: 1.0)
+
+
+proc renderSlotStates(data: SkeletonData; pose: MixedPose): Table[string, RenderSlotState] =
+  result = data.defaultRenderSlotStates()
+  for value in pose.colors:
+    var state = result.getOrDefault(value.target, RenderSlotState(r: 1.0, g: 1.0, b: 1.0, a: 1.0))
+    case value.kind
+    of rgbTimeline:
+      state.r = value.color.r
+      state.g = value.color.g
+      state.b = value.color.b
+    of alphaTimeline:
+      state.a = value.color.a
+    of rgbaTimeline:
+      state.r = value.color.r
+      state.g = value.color.g
+      state.b = value.color.b
+      state.a = value.color.a
+    else:
+      discard
+    result[value.target] = state
+
+  for value in pose.colors2:
+    var state = result.getOrDefault(value.target, RenderSlotState(r: 1.0, g: 1.0, b: 1.0, a: 1.0))
+    state.r = value.color.light.r
+    state.g = value.color.light.g
+    state.b = value.color.light.b
+    state.a = value.color.light.a
+    state.hasDark = true
+    state.darkR = value.color.darkR
+    state.darkG = value.color.darkG
+    state.darkB = value.color.darkB
+    result[value.target] = state
+
+  for value in pose.sequences:
+    var state = result.getOrDefault(value.target, RenderSlotState(r: 1.0, g: 1.0, b: 1.0, a: 1.0))
+    state.hasSequence = true
+    state.sequenceIndex = value.value.index
+    state.sequenceDelay = value.value.delay
+    state.sequenceMode = value.value.mode
+    result[value.target] = state
+
+
+proc applyRenderSlotStates(batches: seq[DrawBatch]; states: Table[string, RenderSlotState]): seq[DrawBatch] =
+  result = batches
+  for batchIndex in 0 ..< result.len:
+    if result[batchIndex].slot notin states:
+      continue
+    let state = states[result[batchIndex].slot]
+    for vertexIndex in 0 ..< result[batchIndex].vertices.len:
+      result[batchIndex].vertices[vertexIndex].r = state.r
+      result[batchIndex].vertices[vertexIndex].g = state.g
+      result[batchIndex].vertices[vertexIndex].b = state.b
+      result[batchIndex].vertices[vertexIndex].a = state.a
 
 
 proc poseJson(pose: MixedPose): JsonNode =
@@ -1590,7 +1713,13 @@ proc numericGoldenJson(data: SkeletonData; time: float64; state: StateMachineGol
   let baseBatches = buildDrawBatches(data)
   let samples = defaultParamSamples(data)
   let efDefs = effectiveDeformers(data, samples)
-  let batches = applyDeformersToDrawBatches(baseBatches, efDefs)
+  var batches = applyDeformersToDrawBatches(baseBatches, efDefs)
+  let slotStates =
+    if state.present:
+      renderSlotStates(data, state.evaluated.pose)
+    else:
+      defaultRenderSlotStates(data)
+  batches = applyRenderSlotStates(batches, slotStates)
   var root = newJObject()
   root["format"] = newJString("bony.numeric-golden.v1")
   root["skeleton"] = newJString(data.header.name)
@@ -1619,10 +1748,19 @@ proc numericGoldenJson(data: SkeletonData; time: float64; state: StateMachineGol
     node["name"] = newJString(slot.name)
     node["bone"] = newJString(slot.bone)
     node["attachment"] = newJString(slot.attachment)
-    node["r"] = newJFloat(1.0)
-    node["g"] = newJFloat(1.0)
-    node["b"] = newJFloat(1.0)
-    node["a"] = newJFloat(1.0)
+    let slotState = slotStates.getOrDefault(slot.name, RenderSlotState(r: 1.0, g: 1.0, b: 1.0, a: 1.0))
+    node["r"] = newJFloat(slotState.r)
+    node["g"] = newJFloat(slotState.g)
+    node["b"] = newJFloat(slotState.b)
+    node["a"] = newJFloat(slotState.a)
+    if slotState.hasDark:
+      node["darkR"] = newJFloat(slotState.darkR)
+      node["darkG"] = newJFloat(slotState.darkG)
+      node["darkB"] = newJFloat(slotState.darkB)
+    if slotState.hasSequence:
+      node["sequenceIndex"] = newJInt(int(slotState.sequenceIndex))
+      node["sequenceDelay"] = newJFloat(slotState.sequenceDelay)
+      node["sequenceMode"] = newJString($slotState.sequenceMode)
     slots.add node
   root["slots"] = slots
 
@@ -1788,7 +1926,8 @@ proc renderSetupPose(args: seq[string]) =
     sheet.fill(rgba(0, 0, 0, 0))
     for sampleIndex, sample in samples:
       let rawBatches = buildDrawBatches(sample.posedData)
-      let batches = if origin == "center": applyViewportTransform(rawBatches, width, height) else: rawBatches
+      let coloredBatches = applyRenderSlotStates(rawBatches, renderSlotStates(sample.posedData, sample.evaluated.pose))
+      let batches = if origin == "center": applyViewportTransform(coloredBatches, width, height) else: coloredBatches
       let image = renderSoftware(batches, width, height)
       sheet.draw(image, translate(vec2((sampleIndex * width).float32, 0.0.float32)))
     sheet.writeFile(outputPath)

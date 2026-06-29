@@ -1,0 +1,8 @@
+{
+  "format": "bony.input-script.v1",
+  "asset": "m9_non_scalar_rig.bony",
+  "stateMachine": "non_scalar",
+  "samples": [
+    {"name": "projected", "t": 0.25, "inputs": {}}
+  ]
+}
