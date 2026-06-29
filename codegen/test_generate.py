@@ -94,10 +94,15 @@ class GeneratorValidationTests(unittest.TestCase):
         self.assertIn("BonyObjectSpec", generate.generate_dart(registry, defaults))
         schema_text = generate.generate_schema(registry, defaults)
         schema = json.loads(schema_text)
+        self.assertEqual(schema["$id"], "https://bony.local/spec/bony.schema.json")
         self.assertEqual(list(schema["properties"].keys()), ["bones"])
         self.assertEqual(schema["required"], ["bones"])
         self.assertFalse(schema["$defs"]["bone"]["additionalProperties"])
         self.assertEqual(schema["$defs"]["bone"]["properties"]["name"]["minLength"], 1)
+
+        wire_schema = json.loads(generate.generate_wire_schema(registry, defaults))
+        self.assertEqual(wire_schema["$id"], "https://bony.local/spec/bony-wire.schema.json")
+        self.assertEqual(list(wire_schema["properties"].keys()), ["bones"])
 
     def test_project_schema_contains_m2_runtime_constraints(self) -> None:
         registry = generate.load_yaml_subset(generate.ROOT / "registry" / "wire.yml")
@@ -118,6 +123,18 @@ class GeneratorValidationTests(unittest.TestCase):
         self.assertEqual(schema["$defs"]["region"]["properties"]["width"]["minimum"], 0)
         self.assertIn("allOf", schema["$defs"]["bone"])
         self.assertEqual(schema["required"], ["skeleton", "bones"])
+        self.assertIn("animations", schema["properties"])
+        self.assertIn("stateMachines", schema["properties"])
+        self.assertNotIn("animationClips", schema["properties"])
+        self.assertNotIn("boneTimelines", schema["properties"])
+        self.assertNotIn("stateMachineInputs", schema["properties"])
+        self.assertNotIn("warpLattices", schema["properties"])
+        self.assertNotIn("keyformBlends", schema["properties"])
+        self.assertIn("min", schema["$defs"]["parameter"]["properties"])
+        self.assertNotIn("parameterMin", schema["$defs"]["parameter"]["properties"])
+        self.assertIn("warp", schema["$defs"]["deformer"]["properties"])
+        self.assertIn("boneTimelines", schema["$defs"]["animationClip"]["properties"])
+        self.assertIn("layers", schema["$defs"]["stateMachine"]["properties"])
 
     def test_apply_on_load_false_default_is_not_schema_default(self) -> None:
         registry = sample_registry()
@@ -133,7 +150,7 @@ class GeneratorValidationTests(unittest.TestCase):
         registry = generate.load_yaml_subset(generate.ROOT / "registry" / "wire.yml")
         defaults = generate.load_yaml_subset(generate.ROOT / "spec" / "defaults.yml")
 
-        schema = json.loads(generate.generate_schema(registry, defaults))
+        schema = json.loads(generate.generate_wire_schema(registry, defaults))
         timeline_keys = schema["$defs"]["boneTimeline"]["properties"]["timelineKeys"]
 
         self.assertEqual(timeline_keys["contentEncoding"], "base64")
@@ -144,6 +161,15 @@ class GeneratorValidationTests(unittest.TestCase):
         )
         self.assertEqual(timeline_keys["x-bony-packedBytes"]["structuralSchema"], "base64Only")
         self.assertEqual(timeline_keys["x-bony-packedBytes"]["validatedBy"], "loader")
+
+    def test_project_schema_keeps_packed_timeline_keys_out_of_canonical_json(self) -> None:
+        registry = generate.load_yaml_subset(generate.ROOT / "registry" / "wire.yml")
+        defaults = generate.load_yaml_subset(generate.ROOT / "spec" / "defaults.yml")
+
+        schema = json.loads(generate.generate_schema(registry, defaults))
+
+        self.assertNotIn("timelineKeys", schema["$defs"]["boneTimeline"]["properties"])
+        self.assertIn("keyframes", schema["$defs"]["boneTimeline"]["properties"])
 
     def test_invalid_default_type_is_rejected(self) -> None:
         registry = sample_registry()

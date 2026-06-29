@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://bony.local/spec/bony.schema.json",
-  "title": "bony JSON",
-  "description": "Generated canonical .bony JSON schema from registry/wire.yml and spec/defaults.yml.",
+  "$id": "https://bony.local/spec/bony-wire.schema.json",
+  "title": "bony wire registry objects",
+  "description": "Generated flat registry-object schema from registry/wire.yml and spec/defaults.yml.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -51,16 +51,94 @@
         "$ref": "#/$defs/deformer"
       }
     },
-    "animations": {
+    "warpLattices": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/warpLattice"
+      }
+    },
+    "rotationDeformers": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/rotationDeformer"
+      }
+    },
+    "keyformBlends": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/keyformBlend"
+      }
+    },
+    "keyforms": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/keyform"
+      }
+    },
+    "animationClips": {
       "type": "array",
       "items": {
         "$ref": "#/$defs/animationClip"
+      }
+    },
+    "boneTimelines": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/boneTimeline"
+      }
+    },
+    "slotTimelines": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/slotTimeline"
       }
     },
     "stateMachines": {
       "type": "array",
       "items": {
         "$ref": "#/$defs/stateMachine"
+      }
+    },
+    "stateMachineInputs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/stateMachineInput"
+      }
+    },
+    "stateMachineLayers": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/stateMachineLayer"
+      }
+    },
+    "stateMachineStates": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/stateMachineState"
+      }
+    },
+    "stateMachineBlendClips": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/stateMachineBlendClip"
+      }
+    },
+    "stateMachineTransitions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/stateMachineTransition"
+      }
+    },
+    "stateMachineConditions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/stateMachineCondition"
+      }
+    },
+    "stateMachineListeners": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/stateMachineListener"
       }
     }
   },
@@ -595,179 +673,153 @@
           "type": "string",
           "minLength": 1
         },
-        "min": {
+        "parameterMin": {
           "type": "number"
         },
-        "max": {
+        "parameterMax": {
           "type": "number"
         },
-        "default": {
+        "parameterDefault": {
           "type": "number",
           "default": 0.0
         }
       },
       "required": [
-        "max",
-        "min",
-        "name"
+        "name",
+        "parameterMax",
+        "parameterMin"
       ]
     },
     "deformer": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "id": {
-          "type": "string",
-          "minLength": 1
+        "deformerId": {
+          "type": "string"
         },
         "parent": {
           "type": "string",
           "default": ""
         },
-        "order": {
+        "deformerOrder": {
           "type": "integer",
+          "minimum": 0,
           "default": 0
         },
-        "kind": {
-          "type": "string",
-          "enum": [
-            "warp",
-            "rotation"
-          ]
-        },
-        "warp": {
-          "$ref": "#/$defs/warpLattice"
-        },
-        "rotation": {
-          "$ref": "#/$defs/rotationDeformer"
-        },
-        "keyformBlend": {
-          "$ref": "#/$defs/keyformBlend"
+        "deformerKind": {
+          "type": "string"
         }
       },
       "required": [
-        "id",
-        "kind"
+        "deformerId",
+        "deformerKind"
       ]
     },
     "warpLattice": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "rows": {
+        "warpRows": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "default": 2
         },
-        "cols": {
+        "warpCols": {
           "type": "integer",
-          "minimum": 0
+          "minimum": 0,
+          "default": 2
         },
-        "minX": {
+        "warpMinX": {
           "type": "number"
         },
-        "minY": {
+        "warpMinY": {
           "type": "number"
         },
-        "maxX": {
+        "warpMaxX": {
           "type": "number"
         },
-        "maxY": {
+        "warpMaxY": {
           "type": "number"
         },
-        "controlPoints": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/deformerPoint"
-          }
+        "warpControlPoints": {
+          "type": "string",
+          "contentEncoding": "base64"
         }
       },
       "required": [
-        "cols",
-        "controlPoints",
-        "maxX",
-        "maxY",
-        "minX",
-        "minY",
-        "rows"
+        "warpControlPoints",
+        "warpMaxX",
+        "warpMaxY",
+        "warpMinX",
+        "warpMinY"
       ]
     },
     "rotationDeformer": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "pivotX": {
+        "rotationPivotX": {
           "type": "number"
         },
-        "pivotY": {
+        "rotationPivotY": {
           "type": "number"
         },
-        "angleDegrees": {
+        "rotationAngleDegrees": {
           "type": "number"
         },
-        "scaleX": {
+        "rotationScaleX": {
           "type": "number",
           "default": 1.0
         },
-        "scaleY": {
+        "rotationScaleY": {
           "type": "number",
           "default": 1.0
         },
-        "opacity": {
+        "rotationOpacity": {
           "type": "number",
           "default": 1.0
         }
       },
       "required": [
-        "angleDegrees",
-        "pivotX",
-        "pivotY"
+        "rotationAngleDegrees",
+        "rotationPivotX",
+        "rotationPivotY"
       ]
     },
     "keyformBlend": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "axes": {
-          "type": "array",
-          "minItems": 1,
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
+        "blendValueCount": {
+          "type": "integer",
+          "minimum": 0
         },
-        "keyforms": {
-          "type": "array",
-          "minItems": 1,
-          "items": {
-            "$ref": "#/$defs/keyform"
-          }
+        "blendAxes": {
+          "type": "string",
+          "contentEncoding": "base64"
         }
       },
       "required": [
-        "axes",
-        "keyforms"
+        "blendAxes",
+        "blendValueCount"
       ]
     },
     "keyform": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "coordinates": {
-          "type": "object",
-          "additionalProperties": {
-            "type": "number"
-          }
+        "blendCoordinates": {
+          "type": "string",
+          "contentEncoding": "base64"
         },
-        "values": {
-          "type": "array",
-          "items": {
-            "type": "number"
-          }
+        "blendValues": {
+          "type": "string",
+          "contentEncoding": "base64"
         }
       },
       "required": [
-        "coordinates",
-        "values"
+        "blendCoordinates",
+        "blendValues"
       ]
     },
     "animationClip": {
@@ -777,20 +829,6 @@
         "name": {
           "type": "string",
           "minLength": 1
-        },
-        "boneTimelines": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/boneTimeline"
-          },
-          "default": []
-        },
-        "slotTimelines": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/slotTimeline"
-          },
-          "default": []
         }
       },
       "required": [
@@ -801,89 +839,58 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "bone": {
-          "type": "string",
-          "minLength": 1
+        "boneIndex": {
+          "type": "integer",
+          "minimum": 0
         },
-        "property": {
-          "type": "string",
-          "enum": [
-            "rotate",
-            "translateX",
-            "translateY",
-            "scaleX",
-            "scaleY",
-            "shearX",
-            "shearY",
-            "translate",
-            "scale",
-            "shear",
-            "inherit"
-          ]
+        "boneTimelineKind": {
+          "type": "integer",
+          "minimum": 0
         },
-        "keyframes": {
-          "type": "array",
-          "minItems": 1,
-          "items": {
-            "type": "object",
-            "additionalProperties": true,
-            "properties": {
-              "t": {
-                "type": "number"
-              }
-            },
-            "required": [
-              "t"
-            ]
+        "timelineKeys": {
+          "type": "string",
+          "contentEncoding": "base64",
+          "x-bony-packedBytes": {
+            "payload": "animationTimelineKeys",
+            "layout": "docs/binary-animation-state-machine-object-families.md#keyframe-payloads",
+            "structuralSchema": "base64Only",
+            "validatedBy": "loader"
           }
         }
       },
       "required": [
-        "bone",
-        "keyframes",
-        "property"
+        "boneIndex",
+        "boneTimelineKind",
+        "timelineKeys"
       ]
     },
     "slotTimeline": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "slot": {
-          "type": "string",
-          "minLength": 1
+        "slotIndex": {
+          "type": "integer",
+          "minimum": 0
         },
-        "property": {
-          "type": "string",
-          "enum": [
-            "attachment",
-            "rgba",
-            "rgb",
-            "alpha",
-            "rgba2",
-            "sequence"
-          ]
+        "slotTimelineKind": {
+          "type": "integer",
+          "minimum": 0
         },
-        "keyframes": {
-          "type": "array",
-          "minItems": 1,
-          "items": {
-            "type": "object",
-            "additionalProperties": true,
-            "properties": {
-              "t": {
-                "type": "number"
-              }
-            },
-            "required": [
-              "t"
-            ]
+        "timelineKeys": {
+          "type": "string",
+          "contentEncoding": "base64",
+          "x-bony-packedBytes": {
+            "payload": "animationTimelineKeys",
+            "layout": "docs/binary-animation-state-machine-object-families.md#keyframe-payloads",
+            "structuralSchema": "base64Only",
+            "validatedBy": "loader"
           }
         }
       },
       "required": [
-        "keyframes",
-        "property",
-        "slot"
+        "slotIndex",
+        "slotTimelineKind",
+        "timelineKeys"
       ]
     },
     "stateMachine": {
@@ -893,31 +900,9 @@
         "name": {
           "type": "string",
           "minLength": 1
-        },
-        "inputs": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/stateMachineInput"
-          },
-          "default": []
-        },
-        "layers": {
-          "type": "array",
-          "minItems": 1,
-          "items": {
-            "$ref": "#/$defs/stateMachineLayer"
-          }
-        },
-        "listeners": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/stateMachineListener"
-          },
-          "default": []
         }
       },
       "required": [
-        "layers",
         "name"
       ]
     },
@@ -929,24 +914,20 @@
           "type": "string",
           "minLength": 1
         },
-        "kind": {
-          "type": "string",
-          "enum": [
-            "bool",
-            "number",
-            "trigger"
-          ]
+        "stateMachineInputKind": {
+          "type": "integer",
+          "minimum": 0
         },
-        "default": {
-          "type": [
-            "boolean",
-            "number"
-          ]
+        "inputDefaultBool": {
+          "type": "boolean"
+        },
+        "inputDefaultNumber": {
+          "type": "number"
         }
       },
       "required": [
-        "kind",
-        "name"
+        "name",
+        "stateMachineInputKind"
       ]
     },
     "stateMachineLayer": {
@@ -957,28 +938,14 @@
           "type": "string",
           "minLength": 1
         },
-        "initialState": {
-          "type": "string",
-          "minLength": 1
-        },
-        "states": {
-          "type": "array",
-          "minItems": 1,
-          "items": {
-            "$ref": "#/$defs/stateMachineState"
-          }
-        },
-        "transitions": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/stateMachineTransition"
-          },
-          "default": []
+        "initialStateIndex": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
         }
       },
       "required": [
-        "name",
-        "states"
+        "name"
       ]
     },
     "stateMachineState": {
@@ -989,115 +956,88 @@
           "type": "string",
           "minLength": 1
         },
-        "kind": {
-          "type": "string",
-          "enum": [
-            "clip",
-            "blend1d"
-          ]
+        "stateMachineStateKind": {
+          "type": "integer",
+          "minimum": 0
         },
-        "clip": {
-          "type": "string",
-          "minLength": 1
+        "stateClipIndex": {
+          "type": "integer",
+          "minimum": 0
         },
-        "loop": {
-          "type": "boolean",
-          "default": false
+        "stateLoop": {
+          "type": "boolean"
         },
-        "blendInput": {
-          "type": "string",
-          "minLength": 1
-        },
-        "blendClips": {
-          "type": "array",
-          "minItems": 1,
-          "items": {
-            "$ref": "#/$defs/stateMachineBlendClip"
-          }
+        "stateBlendInputIndex": {
+          "type": "integer",
+          "minimum": 0
         }
       },
       "required": [
-        "kind",
-        "name"
+        "name",
+        "stateMachineStateKind"
       ]
     },
     "stateMachineBlendClip": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "clip": {
-          "type": "string",
-          "minLength": 1
+        "blendClipAnimationIndex": {
+          "type": "integer",
+          "minimum": 0
         },
-        "value": {
+        "blendClipValue": {
           "type": "number"
         },
-        "loop": {
+        "blendClipLoop": {
           "type": "boolean",
           "default": false
         }
       },
       "required": [
-        "clip",
-        "value"
+        "blendClipAnimationIndex",
+        "blendClipValue"
       ]
     },
     "stateMachineTransition": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "fromState": {
-          "type": "string",
-          "minLength": 1
+        "transitionFromStateIndex": {
+          "type": "integer",
+          "minimum": 0
         },
-        "toState": {
-          "type": "string",
-          "minLength": 1
-        },
-        "conditions": {
-          "type": "array",
-          "minItems": 1,
-          "items": {
-            "$ref": "#/$defs/stateMachineCondition"
-          }
+        "transitionToStateIndex": {
+          "type": "integer",
+          "minimum": 0
         }
       },
       "required": [
-        "conditions",
-        "fromState",
-        "toState"
+        "transitionFromStateIndex",
+        "transitionToStateIndex"
       ]
     },
     "stateMachineCondition": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "input": {
-          "type": "string",
-          "minLength": 1
+        "conditionInputIndex": {
+          "type": "integer",
+          "minimum": 0
         },
-        "kind": {
-          "type": "string",
-          "enum": [
-            "boolEquals",
-            "numberEquals",
-            "numberGreater",
-            "numberGreaterOrEqual",
-            "numberLess",
-            "numberLessOrEqual",
-            "triggerSet"
-          ]
+        "stateMachineConditionKind": {
+          "type": "integer",
+          "minimum": 0
         },
-        "value": {
-          "type": [
-            "boolean",
-            "number"
-          ]
+        "conditionBoolValue": {
+          "type": "boolean"
+        },
+        "conditionNumberValue": {
+          "type": "number"
         }
       },
       "required": [
-        "input",
-        "kind"
+        "conditionInputIndex",
+        "stateMachineConditionKind"
       ]
     },
     "stateMachineListener": {
@@ -1108,47 +1048,27 @@
           "type": "string",
           "minLength": 1
         },
-        "kind": {
-          "type": "string",
-          "enum": [
-            "stateEnter",
-            "stateExit",
-            "transition"
-          ]
+        "stateMachineListenerKind": {
+          "type": "integer",
+          "minimum": 0
         },
-        "layer": {
-          "type": "string",
-          "minLength": 1
+        "listenerLayerIndex": {
+          "type": "integer",
+          "minimum": 0
         },
-        "fromState": {
-          "type": "string",
-          "minLength": 1
+        "listenerFromStateIndex": {
+          "type": "integer",
+          "minimum": 0
         },
-        "toState": {
-          "type": "string",
-          "minLength": 1
+        "listenerToStateIndex": {
+          "type": "integer",
+          "minimum": 0
         }
       },
       "required": [
-        "kind",
-        "layer",
-        "name"
-      ]
-    },
-    "deformerPoint": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "x": {
-          "type": "number"
-        },
-        "y": {
-          "type": "number"
-        }
-      },
-      "required": [
-        "x",
-        "y"
+        "listenerLayerIndex",
+        "name",
+        "stateMachineListenerKind"
       ]
     }
   }

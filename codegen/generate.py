@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 REGISTRY_PATH = ROOT / "registry" / "wire.yml"
 DEFAULTS_PATH = ROOT / "spec" / "defaults.yml"
 SCHEMA_PATH = ROOT / "spec" / "bony.schema.json"
+WIRE_SCHEMA_PATH = ROOT / "spec" / "bony-wire.schema.json"
 NIM_WIRE_PATH = ROOT / "runtime-nim" / "src" / "bony" / "generated" / "wire.nim"
 DART_WIRE_PATH = ROOT / "runtime-dart" / "lib" / "src" / "generated" / "wire.dart"
 
@@ -439,6 +440,57 @@ def validate_default_value(object_id: str, property_id: str, backing_type: str, 
 
 
 def generate_schema(registry: dict[str, Any], defaults: dict[str, Any]) -> str:
+    schema = json.loads(generate_wire_schema(registry, defaults))
+    schema["$id"] = "https://bony.local/spec/bony.schema.json"
+    schema["title"] = "bony JSON"
+    schema["description"] = (
+        "Generated canonical .bony JSON schema from registry/wire.yml and spec/defaults.yml."
+    )
+    schema["$defs"].update(canonical_json_overrides())
+
+    root_properties: dict[str, Any] = {}
+    required_root: list[str] = []
+    hidden_binary_children = {
+        "boneTimeline",
+        "slotTimeline",
+        "stateMachineInput",
+        "stateMachineLayer",
+        "stateMachineState",
+        "stateMachineBlendClip",
+        "stateMachineTransition",
+        "stateMachineCondition",
+        "stateMachineListener",
+        "warpLattice",
+        "rotationDeformer",
+        "keyformBlend",
+        "keyform",
+    }
+    root_collection_overrides = {
+        "animationClip": "animations",
+        "stateMachine": "stateMachines",
+    }
+    for entry in require_list(registry, "typeKeys"):
+        object_id = entry["id"]
+        if object_id in hidden_binary_children:
+            continue
+        if object_id == "skeleton":
+            root_properties["skeleton"] = {"$ref": "#/$defs/skeleton"}
+            required_root.append("skeleton")
+            continue
+        collection_id = root_collection_overrides.get(object_id, object_id + "s")
+        root_properties[collection_id] = {
+            "type": "array",
+            "items": {"$ref": f"#/$defs/{object_id}"},
+        }
+        if object_id == "bone":
+            required_root.append(collection_id)
+
+    schema["properties"] = root_properties
+    schema["required"] = required_root
+    return json.dumps(schema, indent=2) + "\n"
+
+
+def generate_wire_schema(registry: dict[str, Any], defaults: dict[str, Any]) -> str:
     type_keys = require_list(registry, "typeKeys")
     property_keys = require_list(registry, "propertyKeys")
     objects = require_list(registry, "objects")
@@ -490,9 +542,9 @@ def generate_schema(registry: dict[str, Any], defaults: dict[str, Any]) -> str:
 
     schema: dict[str, Any] = {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$id": "https://bony.local/spec/bony.schema.json",
-        "title": "bony",
-        "description": "Generated from registry/wire.yml and spec/defaults.yml.",
+        "$id": "https://bony.local/spec/bony-wire.schema.json",
+        "title": "bony wire registry objects",
+        "description": "Generated flat registry-object schema from registry/wire.yml and spec/defaults.yml.",
         "type": "object",
         "additionalProperties": False,
         "properties": root_properties,
@@ -502,6 +554,301 @@ def generate_schema(registry: dict[str, Any], defaults: dict[str, Any]) -> str:
     if not type_keys:
         schema["not"] = {}
     return json.dumps(schema, indent=2) + "\n"
+
+
+def canonical_json_overrides() -> dict[str, Any]:
+    named_string = {"type": "string", "minLength": 1}
+    number = {"type": "number"}
+    keyframes = {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+            "type": "object",
+            "additionalProperties": True,
+            "properties": {"t": {"type": "number"}},
+            "required": ["t"],
+        },
+    }
+    return {
+        "parameter": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "name": named_string,
+                "min": number,
+                "max": number,
+                "default": {"type": "number", "default": 0.0},
+            },
+            "required": ["max", "min", "name"],
+        },
+        "deformer": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "id": named_string,
+                "parent": {"type": "string", "default": ""},
+                "order": {"type": "integer", "default": 0},
+                "kind": {"type": "string", "enum": ["warp", "rotation"]},
+                "warp": {"$ref": "#/$defs/warpLattice"},
+                "rotation": {"$ref": "#/$defs/rotationDeformer"},
+                "keyformBlend": {"$ref": "#/$defs/keyformBlend"},
+            },
+            "required": ["id", "kind"],
+        },
+        "warpLattice": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "rows": {"type": "integer", "minimum": 0},
+                "cols": {"type": "integer", "minimum": 0},
+                "minX": number,
+                "minY": number,
+                "maxX": number,
+                "maxY": number,
+                "controlPoints": {
+                    "type": "array",
+                    "items": {"$ref": "#/$defs/deformerPoint"},
+                },
+            },
+            "required": ["cols", "controlPoints", "maxX", "maxY", "minX", "minY", "rows"],
+        },
+        "deformerPoint": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "x": number,
+                "y": number,
+            },
+            "required": ["x", "y"],
+        },
+        "rotationDeformer": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "pivotX": number,
+                "pivotY": number,
+                "angleDegrees": number,
+                "scaleX": {"type": "number", "default": 1.0},
+                "scaleY": {"type": "number", "default": 1.0},
+                "opacity": {"type": "number", "default": 1.0},
+            },
+            "required": ["angleDegrees", "pivotX", "pivotY"],
+        },
+        "keyformBlend": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "axes": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": named_string,
+                },
+                "keyforms": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {"$ref": "#/$defs/keyform"},
+                },
+            },
+            "required": ["axes", "keyforms"],
+        },
+        "keyform": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "coordinates": {
+                    "type": "object",
+                    "additionalProperties": {"type": "number"},
+                },
+                "values": {
+                    "type": "array",
+                    "items": number,
+                },
+            },
+            "required": ["coordinates", "values"],
+        },
+        "animationClip": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "name": named_string,
+                "boneTimelines": {
+                    "type": "array",
+                    "items": {"$ref": "#/$defs/boneTimeline"},
+                    "default": [],
+                },
+                "slotTimelines": {
+                    "type": "array",
+                    "items": {"$ref": "#/$defs/slotTimeline"},
+                    "default": [],
+                },
+            },
+            "required": ["name"],
+        },
+        "boneTimeline": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "bone": named_string,
+                "property": {
+                    "type": "string",
+                    "enum": [
+                        "rotate",
+                        "translateX",
+                        "translateY",
+                        "scaleX",
+                        "scaleY",
+                        "shearX",
+                        "shearY",
+                        "translate",
+                        "scale",
+                        "shear",
+                        "inherit",
+                    ],
+                },
+                "keyframes": keyframes,
+            },
+            "required": ["bone", "keyframes", "property"],
+        },
+        "slotTimeline": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "slot": named_string,
+                "property": {
+                    "type": "string",
+                    "enum": ["attachment", "rgba", "rgb", "alpha", "rgba2", "sequence"],
+                },
+                "keyframes": keyframes,
+            },
+            "required": ["keyframes", "property", "slot"],
+        },
+        "stateMachine": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "name": named_string,
+                "inputs": {
+                    "type": "array",
+                    "items": {"$ref": "#/$defs/stateMachineInput"},
+                    "default": [],
+                },
+                "layers": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {"$ref": "#/$defs/stateMachineLayer"},
+                },
+                "listeners": {
+                    "type": "array",
+                    "items": {"$ref": "#/$defs/stateMachineListener"},
+                    "default": [],
+                },
+            },
+            "required": ["layers", "name"],
+        },
+        "stateMachineInput": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "name": named_string,
+                "kind": {"type": "string", "enum": ["bool", "number", "trigger"]},
+                "default": {"type": ["boolean", "number"]},
+            },
+            "required": ["kind", "name"],
+        },
+        "stateMachineLayer": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "name": named_string,
+                "initialState": named_string,
+                "states": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {"$ref": "#/$defs/stateMachineState"},
+                },
+                "transitions": {
+                    "type": "array",
+                    "items": {"$ref": "#/$defs/stateMachineTransition"},
+                    "default": [],
+                },
+            },
+            "required": ["name", "states"],
+        },
+        "stateMachineState": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "name": named_string,
+                "kind": {"type": "string", "enum": ["clip", "blend1d"]},
+                "clip": named_string,
+                "loop": {"type": "boolean", "default": False},
+                "blendInput": named_string,
+                "blendClips": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {"$ref": "#/$defs/stateMachineBlendClip"},
+                },
+            },
+            "required": ["kind", "name"],
+        },
+        "stateMachineBlendClip": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "clip": named_string,
+                "value": {"type": "number"},
+                "loop": {"type": "boolean", "default": False},
+            },
+            "required": ["clip", "value"],
+        },
+        "stateMachineTransition": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "fromState": named_string,
+                "toState": named_string,
+                "conditions": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {"$ref": "#/$defs/stateMachineCondition"},
+                },
+            },
+            "required": ["conditions", "fromState", "toState"],
+        },
+        "stateMachineCondition": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "input": named_string,
+                "kind": {
+                    "type": "string",
+                    "enum": [
+                        "boolEquals",
+                        "numberEquals",
+                        "numberGreater",
+                        "numberGreaterOrEqual",
+                        "numberLess",
+                        "numberLessOrEqual",
+                        "triggerSet",
+                    ],
+                },
+                "value": {"type": ["boolean", "number"]},
+            },
+            "required": ["input", "kind"],
+        },
+        "stateMachineListener": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "name": named_string,
+                "kind": {"type": "string", "enum": ["stateEnter", "stateExit", "transition"]},
+                "layer": named_string,
+                "fromState": named_string,
+                "toState": named_string,
+            },
+            "required": ["kind", "layer", "name"],
+        },
+    }
 
 
 def schema_for_backing_type(backing_type: str) -> dict[str, Any]:
@@ -912,6 +1259,7 @@ def main() -> int:
         validate_sources(registry, defaults)
         changed: list[Path] = []
         write_or_check(SCHEMA_PATH, generate_schema(registry, defaults), args.check, changed)
+        write_or_check(WIRE_SCHEMA_PATH, generate_wire_schema(registry, defaults), args.check, changed)
         write_or_check(NIM_WIRE_PATH, generate_nim(registry, defaults), args.check, changed)
         write_or_check(DART_WIRE_PATH, generate_dart(registry, defaults), args.check, changed)
     except SourceError as exc:

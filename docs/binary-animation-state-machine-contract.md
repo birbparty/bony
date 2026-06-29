@@ -106,13 +106,21 @@ emit.
 
 ## Generated Schema Limits
 
-The generated JSON Schema represents `timelineKeys` as a base64 `bytes` carrier
-with a `x-bony-packedBytes` annotation that points back to
+The generated wire schema, `spec/bony-wire.schema.json`, represents
+`timelineKeys` as a base64 `bytes` carrier with a `x-bony-packedBytes`
+annotation that points back to
 [binary-animation-state-machine-object-families.md](binary-animation-state-machine-object-families.md).
 It intentionally does not inline the keyframe subformat as JSON Schema because
 the payload shape depends on `boneTimelineKind` or `slotTimelineKind`, loader
 reference domains, f32 quantization, curve tags, and complete byte consumption.
 Those checks remain loader-owned validation.
+
+The canonical `.bony` JSON schema, `spec/bony.schema.json`, exposes
+authoring/runtime names: top-level `animations` with nested `boneTimelines` and
+`slotTimelines`, and top-level `stateMachines` with nested inputs, layers,
+states, transitions, conditions, blend clips, and listeners. It does not expose
+flat binary child-record arrays such as top-level `boneTimelines` or
+`stateMachineInputs`.
 
 ## Reference Semantics
 
