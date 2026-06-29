@@ -52,7 +52,10 @@ an index against a different domain even when another domain has the same count.
 The asset animation sequence is the ordered `BonyAsset.animations` sequence
 chosen by [nim-loaded-asset-shape.md](nim-loaded-asset-shape.md). JSON loading
 collects this sequence from source `animations` array order. Binary loading
-collects it from canonical binary animation object order.
+collects it from known `animationClip` records in object-stream order after
+same-major skip rules. Canonical writers emit that loaded sequence in canonical
+object order, but non-canonical loaders must still resolve indices against the
+known object-stream order they accepted.
 
 ## Name Reconstruction
 
@@ -157,8 +160,9 @@ Layer/state references:
 - Transition listeners must match an existing transition in the referenced
   layer after both source and target state indices resolve.
 
-Names remain the runtime identity after resolution. Duplicate input, layer,
-state, and listener names in their owning scopes are rejected as `duplicateKey`.
+Names remain the runtime identity after resolution. Duplicate state-machine,
+input, layer, state, and listener names in their owning scopes are rejected as
+`duplicateKey`.
 
 ## Unknown Object Handling
 
@@ -172,6 +176,13 @@ Allowed:
   payload lengths are valid.
 - Known references may continue to resolve by ordinal among known objects when
   skipped unknown objects are outside the target domain.
+
+Known reference fields index the old-reader known-object projection. Future
+same-major extensions that need references to new/unknown domain members must
+not encode those references by inserting unknown objects into an existing known
+index domain and expecting old loaders to count them. Such extensions must use
+new reference fields, new known object families, or required extension markers
+that old loaders reject instead of silently rebasing indices.
 
 Rejected:
 
