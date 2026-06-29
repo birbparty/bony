@@ -74,7 +74,23 @@ on this source:
   only when the default entry sets `omitWhenDefault: true`.
 - F32-backed defaults compare after f32 quantization at the file boundary.
 
-Because the current registry has no concrete object/property entries yet,
-`spec/defaults.yml` starts with an empty `objectDefaults` list. Later registry
-feature beads must append defaults in the same change that introduces the
-corresponding properties.
+Registry feature beads must append defaults in the same change that introduces
+the corresponding properties, so that the cross-checks above stay satisfied on
+every merge to a green tree.
+
+## Object Default Values (informative)
+
+This section is a human-facing summary of selected object defaults. It is
+**secondary** — `spec/defaults.yml` remains the authoritative source consumed by
+codegen; if the two ever disagree, `spec/defaults.yml` wins.
+
+### IK constraint (`ikConstraint`)
+
+- `order` = `0` (`applyOnLoad: true`) — the constraint's world-transform slot
+  defaults to the first position, matching the path constraint precedent.
+- `mix` = `1.0` (`applyOnLoad: false`) — full IK influence by default; the
+  runtime solver opts in to a lower blend.
+- `bendPositive` = `true` (`applyOnLoad: false`) — two-bone bend direction
+  defaults to positive (ignored by the one-bone and chain solvers).
+
+`name`, `bones`, and `target` are required and therefore have no default.
