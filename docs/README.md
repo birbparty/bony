@@ -93,6 +93,7 @@ work.
 |----------|-------|
 | [animation-state-machine-contract-boundaries.md](animation-state-machine-contract-boundaries.md) | Inventory of current project-owned Nim/Dart animation and state-machine runtime and JSON surfaces |
 | [animation-state-machine-cleanroom-boundary.md](animation-state-machine-cleanroom-boundary.md) | Provenance and clean-room source boundary for designing `.bnb` animation/state-machine object families |
+| [binary-animation-state-machine-object-families.md](binary-animation-state-machine-object-families.md) | Project-owned `.bnb` object-family decision for current animation and state-machine features |
 
 ---
 
