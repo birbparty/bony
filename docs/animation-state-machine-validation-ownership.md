@@ -47,15 +47,15 @@ Category mapping for this slice:
 | Non-finite f32/f64, f32 overflow, numeric domain outside the authored contract | `numericOutOfRange` |
 | Duplicate animation, state-machine, layer, state, input, listener, or duplicate blend value | `duplicateKey` |
 | Unknown bone, slot, region attachment, animation clip, input, layer, state, transition, or known reference to skipped unknown binary content | `unknownRequiredReference` |
-| Non-increasing timeline key times or rejected canonical child/order rule | `orderingViolation` when owned by ordering contract; otherwise `schemaViolation` for constructor parity |
-| Packed payload trailing bytes or known-property byte length mismatch | `lengthMismatch` for shared conformance fixtures; Nim may currently surface `schemaViolation` until the binary implementation adds a dedicated kind |
+| Non-increasing timeline key times or rejected canonical child/order rule | `orderingViolation` for file loaders/shared fixtures |
+| Packed payload trailing bytes, under-consumption, over-consumption, or known-property byte length mismatch | `lengthMismatch` for shared conformance fixtures; Nim implementation must add this kind before binary animation/state-machine loaders are expected to emit it |
 | Count or payload exceeds conformance limits | `resourceLimitExceeded` |
 
 The current Nim constructors often use `schemaViolation` for negative values,
-channel ranges, and sorted-key failures. The file loader should prefer the
-shared category table above for cross-runtime fixtures when it can distinguish
-the failure before calling constructors. Constructor category choices are
-acceptable for direct programmatic API calls.
+channel ranges, and sorted-key failures. The file loader must prefer the shared
+category table above for cross-runtime fixtures when it can distinguish the
+failure before calling constructors. Constructor category choices are acceptable
+for direct programmatic API calls.
 
 ## Animation Clip Ownership
 
@@ -78,16 +78,18 @@ source duration field as authoritative for binary output.
 | Timeline target index is present and in range | Loader reference validation | `unknownRequiredReference` |
 | Timeline kind tag is known and belongs to the object family | Registry/default decoding | `schemaViolation` |
 | `timelineKeys` is present for each known timeline | Schema/loader | `schemaViolation` |
-| Packed key payload is fully consumed | Loader byte/payload validation | `lengthMismatch` |
-| Key payload shape matches the timeline kind | Loader semantic validation | `schemaViolation` |
+| Packed key payload is fully consumed, with no short reads or trailing bytes | Loader byte/payload validation | `lengthMismatch` once Nim adds the shared category |
+| Decoded key payload fields match the timeline kind after byte consumption succeeds | Loader semantic validation | `schemaViolation` |
 | Key count is at least one | Loader semantic validation | `schemaViolation` |
-| Key times are f32, finite, non-negative, and strictly increasing | Registry/default decoding plus loader semantic validation | `numericOutOfRange` for non-finite/out-of-domain time; `schemaViolation` or `orderingViolation` for non-increasing order |
+| Key times are f32, finite, non-negative, and strictly increasing | Registry/default decoding plus loader semantic validation | `numericOutOfRange` for non-finite/out-of-domain time; `orderingViolation` for non-increasing order in file loaders |
 | Bone/slot/attachment references resolve to known static domains | Loader reference validation | `unknownRequiredReference` |
 
 Runtime timeline constructors in `runtime-nim/src/bony/anim/timelines.nim`
 remain a defensive backstop for target names, key counts, sorted times, and
 kind/payload mismatch. Binary loaders still own index resolution and packed
-payload validation before constructing runtime timelines.
+payload validation before constructing runtime timelines. Direct constructor
+calls may continue surfacing non-increasing key times as `schemaViolation`; file
+loaders and shared fixtures must use `orderingViolation`.
 
 ## Keyframe And Curve Ownership
 
@@ -120,7 +122,7 @@ violations.
 | Input/layer/state/listener names are present and non-empty | Schema/loader | `schemaViolation` |
 | Input, layer, state, and listener names are unique in their owning scopes | Loader semantic validation | `duplicateKey` |
 | Input kind is bool, number, or trigger | Registry/default decoding | `schemaViolation` |
-| Inactive input default fields are absent/defaulted | Schema/loader | `schemaViolation` |
+| Inactive input default fields are absent before default application, even when equal to default values | Schema/loader | `schemaViolation` |
 | Number input default is finite f32 | Registry/default decoding | `numericOutOfRange` |
 | Layer `initialStateIndex` resolves, or omitted value resolves to state `0` | Loader reference validation | `unknownRequiredReference` |
 | A layer owns at least one state | Loader semantic validation | `schemaViolation` |
