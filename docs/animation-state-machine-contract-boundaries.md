@@ -80,9 +80,25 @@ Keyframe validation boundaries:
 - Animation duration is derived from the greatest last key time across bone,
   slot, and event timelines.
 
-Event data exists in the Nim timeline model (`EventData`, `EventKeyframe`,
-`EventTimeline`) and is included in `AnimationClip`, but the current JSON parser
-does not load an `eventTimelines` field.
+Event data exists in the Nim timeline model and is included in `AnimationClip`,
+but the current JSON parser does not load an `eventTimelines` field.
+
+Event timeline boundaries:
+
+- `EventData` stores `name`, `intValue`, `floatValue`, `stringValue`,
+  `audioPath`, `volume`, and `balance`.
+- Event names must be non-empty.
+- Event `floatValue`, `volume`, and `balance` are f32-quantized.
+- `EventKeyframe` stores a non-negative time and an event payload. Overloads can
+  override the event's `intValue`, `floatValue`, and/or `stringValue` at the
+  keyframe.
+- Event timeline key times are non-decreasing, unlike the strictly increasing
+  non-event timeline keys.
+- Event timelines contribute to `AnimationClip.duration`.
+- Dart currently has no `EventData`, `EventKeyframe`, or `EventTimeline`
+  equivalent on `AnimationClip`; Dart `anim.dart` exposes an events list and
+  `eventThreshold`, but event dispatch is placeholder-only until event
+  timelines are ported.
 
 ## Nim State-Machine Surface
 
@@ -132,10 +148,14 @@ Runtime behavior to preserve:
 
 - Runtime layers initialize to each layer's resolved initial state.
 - Runtime inputs initialize from declared defaults.
-- `update(dt)` rejects negative/non-finite time through f32 quantization,
-  advances layer times, applies at most the first matching transition per layer,
-  emits exit/transition/enter listener events, resets transitioned layer time,
-  and consumes triggers used by matched transitions.
+- `update(dt)` rejects negative/non-finite time through f32 quantization and
+  advances layer times before transition matching.
+- Transition matching uses a pre-transition runtime snapshot, collects at most
+  the first matching transition per layer, then applies all matches in layer
+  order.
+- Applying a matched transition emits state-exit, transition, and state-enter
+  listener events in that order, resets the transitioned layer time, and only
+  then consumes trigger inputs used by the matched transitions.
 - Evaluation samples clip states by loop/clamp time, samples blend1D states by
   number input, and overlays later layers over earlier layers per channel key.
 
@@ -252,6 +272,7 @@ Dart animation data mirrors the Nim concepts with Dart names:
 - `SlotTimelineKind.attachment`, `rgba`, `rgb`, `alpha`, `rgba2`, `sequence`
 - `SequenceMode.once`, `loop`, `pingpong`, `reverse`, `hold`
 - `AnimationClip` stores name, duration, bone timelines, and slot timelines.
+- `AnimationClip` does not store event timelines on Dart today.
 
 Dart state-machine data mirrors the Nim JSON-level representation:
 
@@ -264,10 +285,13 @@ Dart state-machine data mirrors the Nim JSON-level representation:
 
 ## Dart JSON And Binary Boundary
 
-`runtime-dart/lib/src/loader.dart` JSON loading:
+`runtime-dart/lib/src/loader.dart` JSON loading parses and preserves:
 
 - Parses `animations` into `SkeletonData.animations`.
 - Parses `stateMachines` into `SkeletonData.stateMachines`.
+
+Dart JSON loading validates:
+
 - Validates animation bone/slot references against static skeleton names.
 - Validates state-machine references against loaded animation names, inputs,
   layer states, and listener target layers/states.
@@ -281,9 +305,25 @@ The Dart JSON validation is not identical to Nim:
   strict `validateKnownKeys` behavior used by Nim.
 - Dart sequence mode parsing defaults unknown or missing values to `once`;
   Nim rejects unknown sequence modes.
+- Dart animation validation checks timeline bone and slot targets, but it does
+  not validate non-empty attachment timeline attachment names against regions the
+  way Nim does.
+- Dart state-machine validation does not currently enforce all Nim non-empty and
+  duplicate-name constraints for machines, layers, states, inputs, and
+  listeners.
+- Dart validation does not reject zero-layer state machines with the same
+  explicit `state machine must contain at least one layer` boundary as Nim.
+- Dart transition parsing does not reject empty condition arrays before runtime
+  validation the same way Nim constructors do.
+- Dart validates listener layers and endpoint states, but it does not require a
+  transition listener to target an existing transition.
+- Dart validates that blend inputs exist, but not that the referenced input is a
+  number input.
 - Nim validates condition input type compatibility during machine construction;
   Dart currently validates condition input existence, but not all condition
   kind/input-kind combinations at load time.
+- Dart currently lacks event timeline storage and dispatch, while Nim has an
+  event timeline model even though JSON loading does not populate it.
 
 `loadBonyBnb` currently omits animations and state machines entirely:
 
@@ -295,6 +335,10 @@ The Dart JSON validation is not identical to Nim:
   states, transitions, conditions, listeners, or blend clips.
 - `_bnbDecode` constructs `SkeletonData` without `animations` or
   `stateMachines`, so the default empty lists are used.
+- Binary references are index/range checked after byte-level validation.
+  Unknown skipped objects and properties are not semantic targets, and a known
+  reference to skipped unknown binary content must remain a load error rather
+  than an implicit extension-preservation mechanism.
 
 ## Dart Runtime Boundary
 
@@ -332,6 +376,10 @@ The next binary contract decisions must preserve these boundaries:
 
 - Assign object families for animation clips, bone timelines, slot timelines,
   keyframes, and the currently modelled event timeline shape.
+- Treat event timelines as an explicit compatibility decision: either defer
+  `.bnb` event families until JSON/model/runtime parity exists, or define the
+  JSON import/export and Dart model/runtime behavior before binary starts
+  preserving event payloads.
 - Decide whether keyframes are child objects, packed arrays, or composite
   property payloads. The choice must preserve per-kind key ownership and sorted
   time validation.
@@ -342,7 +390,10 @@ The next binary contract decisions must preserve these boundaries:
   state-machine conditions/listeners resolve to declared inputs/layers/states.
 - Decide Nim asset ownership before implementing `.bnb` load preservation:
   either extend `SkeletonData` to carry animations/state machines or introduce a
-  separate loaded asset wrapper used by JSON and binary loaders.
+  separate loaded asset wrapper used by JSON and binary loaders. The decision
+  also needs to cover conversion/export APIs such as `toBonyJson`; binary
+  preservation alone will not make round trips complete if JSON emission still
+  serializes only static `SkeletonData`.
 - Keep JSON and `.bnb` loader semantics aligned. The current Dart/Nim
   differences above should be treated as open compatibility decisions, not as
   accidental details to encode permanently.
