@@ -238,6 +238,12 @@ typeKeys:
     milestone: M5
     ownerBead: bony-8gs
     doc: Cubic path attachment sampled by path constraints.
+  - id: ikConstraint
+    key: 4002
+    status: active
+    milestone: M5
+    ownerBead: bony-b5d.3
+    doc: Inverse-kinematics constraint record participating in the world-transform constraint pass.
   - id: parameter
     key: 6000
     status: active
@@ -573,6 +579,27 @@ propertyKeys:
     milestone: M5
     ownerBead: bony-2il
     doc: Runtime path constraint tangent-rotation blend amount.
+  - id: bones
+    key: 4014
+    backingType: bytes
+    status: active
+    milestone: M5
+    ownerBead: bony-b5d.3
+    doc: IK constraint bone chain (root to tip); packed as varuint count followed by count*(varuint string-table index for bone name).
+  - id: mix
+    key: 4015
+    backingType: f32
+    status: active
+    milestone: M5
+    ownerBead: bony-b5d.3
+    doc: IK constraint blend amount in [0, 1] mixing solved rotations toward the setup pose.
+  - id: bendPositive
+    key: 4016
+    backingType: bool
+    status: active
+    milestone: M5
+    ownerBead: bony-b5d.3
+    doc: IK two-bone bend direction; true selects positive bend (loaded for all IK constraints, applied only by the two-bone solver).
   - id: parameterMin
     key: 6000
     backingType: f32
@@ -962,6 +989,15 @@ objects:
       - translateMix
       - rotateMix
     doc: Path constraint record loaded in source order.
+  - type: ikConstraint
+    properties:
+      - name
+      - bones
+      - target
+      - order
+      - mix
+      - bendPositive
+    doc: IK constraint record loaded in source order.
   - type: pathAttachment
     properties:
       - name

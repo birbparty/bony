@@ -30,6 +30,12 @@ PACKED_BYTES_METADATA: dict[str, dict[str, Any]] = {
         "structuralSchema": "base64Only",
         "validatedBy": "loader",
     },
+    "bones": {
+        "payload": "ikConstraintBones",
+        "layout": ".agents/notes/ik-format-freeze.md#3-bones-wire-encoding",
+        "structuralSchema": "base64Only",
+        "validatedBy": "loader",
+    },
 }
 
 
@@ -570,6 +576,19 @@ def canonical_json_overrides() -> dict[str, Any]:
         },
     }
     return {
+        "ikConstraint": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "name": named_string,
+                "bones": {"type": "array", "minItems": 1, "items": named_string},
+                "target": {"type": "string"},
+                "order": {"type": "integer", "default": 0},
+                "mix": {"type": "number", "minimum": 0, "maximum": 1, "default": 1.0},
+                "bendPositive": {"type": "boolean", "default": True},
+            },
+            "required": ["bones", "name", "target"],
+        },
         "parameter": {
             "type": "object",
             "additionalProperties": False,
