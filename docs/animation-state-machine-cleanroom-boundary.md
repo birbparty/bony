@@ -12,13 +12,11 @@ This slice may derive implementation and binary-contract details only from:
 - The local binding spec at
   `/Users/punk1290/Downloads/bony-2d-skeletal-format-spec.md`, especially its
   clean-room mandate.
-- Project-owned local behavior in the current repository, including
-  `runtime-nim/src/bony/anim/timelines.nim`,
-  `runtime-nim/src/bony/statemachine/core.nim`,
-  `runtime-nim/src/bony/jsonio.nim`, `runtime-nim/src/bony/model.nim`,
-  `runtime-dart/lib/src/model.dart`, `runtime-dart/lib/src/loader.dart`,
-  `runtime-dart/lib/src/anim.dart`, and
-  `runtime-dart/lib/src/statemachine.dart`.
+- Project-owned runtime behavior only after it is recorded in project-owned
+  design or contract documents, such as
+  [animation-state-machine-contract-boundaries.md](animation-state-machine-contract-boundaries.md).
+  Direct runtime files may be inspected to verify that inventory, but they are
+  not direct binding sources for binary-contract details.
 - Project-owned contracts in `docs/`, `spec/`, `registry/`, generated code
   produced from those project sources, and conformance assets already committed
   to this repository.
@@ -84,11 +82,11 @@ The next binary animation/state-machine contract may use:
 
 - The project-owned JSON/runtime inventory in
   [animation-state-machine-contract-boundaries.md](animation-state-machine-contract-boundaries.md).
-- Current Nim validation boundaries for timeline kind ownership, key sorting,
-  quantization, references, state-machine layers, inputs, transitions, listeners,
-  and runtime transition ordering.
-- Current Dart preservation and validation gaps, including the fact that Dart
-  preserves animations/state machines in `SkeletonData` while Nim does not.
+- Nim validation boundaries recorded there for timeline kind ownership, key
+  sorting, quantization, references, state-machine layers, inputs, transitions,
+  listeners, and runtime transition ordering.
+- Dart preservation and validation gaps recorded there, including the fact that
+  Dart preserves animations/state machines in `SkeletonData` while Nim does not.
 - Current `.bnb` validation and skip semantics from project-owned docs,
   especially binary ToC/property skipping, canonicalization, and load-time
   validation contracts.

@@ -84,9 +84,10 @@ runtime contracts and must not be used as implementation source.
 
 ---
 
-## Animation and State-Machine Design Notes
+## Animation and State-Machine Provenance Notes
 
-Informational notes for the `.bnb` animation/state-machine contract work.
+Provenance and boundary notes for the `.bnb` animation/state-machine contract
+work.
 
 | Document | Scope |
 |----------|-------|
