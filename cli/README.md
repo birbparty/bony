@@ -24,7 +24,7 @@ vertex and index buffers. It intentionally does not depend on a rasterizer.
 For setup-pose execution, `--t` must be `0`; non-zero values fail rather than
 emitting misleading setup-pose output.
 
-For `.bony` state-machine execution, `golden-gen` requires
+For `.bony` or `.bnb` state-machine execution, `golden-gen` requires
 `--state-machine <name> --input-script <script.json> --sample <name-or-index>`.
 The input script owns sample times and typed inputs. The emitted JSON extends
 `bony.numeric-golden.v1` with `stateMachine`, `sample`, `inputs`, `layers`, and
@@ -40,11 +40,10 @@ numeric conformance source. With `--state-machine` and `--input-script`, `play`
 renders a horizontal contact sheet: one cell per script sample, using the same
 input replay semantics as `golden-gen`.
 
-The setup-pose `.bnb` commands cover the currently implemented static
-`SkeletonData` path. The binary registry and contracts now reserve
-animation/state-machine records for preservation, but the CLI conversion path
-must not advertise lossless `.bnb` animation/state-machine round trips until the
-aggregate asset implementation is wired through the runtime.
+The `.bnb` conversion commands preserve static setup data plus the local
+animation and state-machine records supported by the aggregate asset loader.
+State-machine input-script replay uses the same semantics for `.bony` and
+`.bnb` assets when the binary contains the requested machine and clips.
 
 `bnb-to-json` is intentionally strict: it rejects embedded atlas payloads,
 unknown object types, and unknown property keys because the current `.bony`
@@ -52,7 +51,6 @@ JSON surface has no preservation bucket for those bytes. The byte-stability
 domain for `bnb -> json -> bnb` is canonical known-model `.bnb` emitted by the
 current writer.
 
-State-machine input scripts currently require `.bony` assets. `.bnb` playback
-continues to support the setup-pose path only; it must keep rejecting
-state-machine input scripts until a dedicated runtime implementation accepts
-`.bnb` animation/state-machine playback with tests.
+State-machine input scripts may target `.bnb` assets generated from the named
+`.bony` source in the script. Missing binary animation or state-machine records
+fail with the same unknown-reference diagnostics as missing JSON data.

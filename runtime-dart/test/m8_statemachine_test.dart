@@ -8,21 +8,70 @@ import 'package:bony/bony.dart';
 
 void main() {
   late SkeletonData data;
+  late SkeletonData bnbData;
   late StateMachineData sm;
+  late StateMachineData bnbSm;
 
   setUpAll(() {
     data = loadBonyJson(
       File('../conformance/assets/m8_rig.bony').readAsStringSync(),
     );
-    expect(data.stateMachines, hasLength(1), reason: 'expected one state machine');
+    bnbData = loadBonyBnb(
+      File('../conformance/assets/bnb/m8_rig.bnb').readAsBytesSync(),
+    );
+    expect(data.stateMachines, hasLength(1),
+        reason: 'expected one state machine');
+    expect(bnbData.stateMachines, hasLength(1),
+        reason: 'expected one binary state machine');
     sm = data.stateMachines[0];
+    bnbSm = bnbData.stateMachines[0];
   });
 
   // --- Parsing ---
 
+  List<String> _inputSurface(StateMachineData machine) => [
+        for (final input in machine.inputs)
+          '${input.name}:${input.kind.name}:${input.defaultBool}:${input.defaultNumber}',
+      ];
+
+  List<String> _layerSurface(StateMachineData machine) => [
+        for (final layer in machine.layers)
+          '${layer.name}:${layer.initialState}',
+      ];
+
+  List<String> _stateSurface(StateMachineData machine) => [
+        for (final layer in machine.layers)
+          for (final state in layer.states)
+            '${layer.name}:${state.name}:${state.kind.name}:${state.clipName}:${state.loop}:${state.blendInput}:'
+                '${state.blendClips.map((c) => '${c.clipName}/${c.value}/${c.loop}').join('|')}',
+      ];
+
+  List<String> _transitionSurface(StateMachineData machine) => [
+        for (final layer in machine.layers)
+          for (final transition in layer.transitions)
+            '${layer.name}:${transition.fromState}->${transition.toState}:'
+                '${transition.conditions.map((c) => '${c.input}/${c.kind.name}/${c.boolValue}/${c.numberValue}').join('|')}',
+      ];
+
+  List<String> _listenerSurface(StateMachineData machine) => [
+        for (final listener in machine.listeners)
+          '${listener.name}:${listener.kind.name}:${listener.layer}:${listener.fromState}:${listener.toState}',
+      ];
+
   group('M8 state machine parsed', () {
     test('machine name', () {
       expect(sm.name, 'gesture');
+    });
+
+    test('.bnb machine graph matches JSON', () {
+      expect(bnbData.animations.map((a) => a.name),
+          data.animations.map((a) => a.name));
+      expect(bnbSm.name, sm.name);
+      expect(_inputSurface(bnbSm), _inputSurface(sm));
+      expect(_layerSurface(bnbSm), _layerSurface(sm));
+      expect(_stateSurface(bnbSm), _stateSurface(sm));
+      expect(_transitionSurface(bnbSm), _transitionSurface(sm));
+      expect(_listenerSurface(bnbSm), _listenerSurface(sm));
     });
 
     test('3 inputs', () {
@@ -263,8 +312,7 @@ void main() {
   group('M8 cross-reference validation', () {
     // Minimal fixture with two animations, two inputs, two layers, and a listener.
     // Each test breaks exactly one cross-reference.
-    const base =
-        '{"skeleton":{"name":"xref"},"bones":[{"name":"root"}],'
+    const base = '{"skeleton":{"name":"xref"},"bones":[{"name":"root"}],'
         '"animations":[{"name":"idle","boneTimelines":[]},{"name":"walk","boneTimelines":[]}],'
         '"stateMachines":[{"name":"m",'
         '"inputs":[{"name":"wave","kind":"bool"},{"name":"speed","kind":"number"}],'
@@ -284,49 +332,56 @@ void main() {
 
     test('rejects unknown animation in clip state', () {
       expect(
-        () => loadBonyJson(base.replaceFirst('"clip":"idle"', '"clip":"missing"')),
+        () => loadBonyJson(
+            base.replaceFirst('"clip":"idle"', '"clip":"missing"')),
         throwsFormatException,
       );
     });
 
     test('rejects unknown animation in blendClip', () {
       expect(
-        () => loadBonyJson(base.replaceFirst('"clip":"walk"', '"clip":"missing"')),
+        () => loadBonyJson(
+            base.replaceFirst('"clip":"walk"', '"clip":"missing"')),
         throwsFormatException,
       );
     });
 
     test('rejects unknown input in blendInput', () {
       expect(
-        () => loadBonyJson(base.replaceFirst('"blendInput":"speed"', '"blendInput":"missing"')),
+        () => loadBonyJson(base.replaceFirst(
+            '"blendInput":"speed"', '"blendInput":"missing"')),
         throwsFormatException,
       );
     });
 
     test('rejects unknown fromState in transition', () {
       expect(
-        () => loadBonyJson(base.replaceFirst('"fromState":"idle"', '"fromState":"missing"')),
+        () => loadBonyJson(
+            base.replaceFirst('"fromState":"idle"', '"fromState":"missing"')),
         throwsFormatException,
       );
     });
 
     test('rejects unknown toState in transition', () {
       expect(
-        () => loadBonyJson(base.replaceFirst('"toState":"move","conditions"', '"toState":"missing","conditions"')),
+        () => loadBonyJson(base.replaceFirst('"toState":"move","conditions"',
+            '"toState":"missing","conditions"')),
         throwsFormatException,
       );
     });
 
     test('rejects unknown input in condition', () {
       expect(
-        () => loadBonyJson(base.replaceFirst('"input":"wave"', '"input":"missing"')),
+        () => loadBonyJson(
+            base.replaceFirst('"input":"wave"', '"input":"missing"')),
         throwsFormatException,
       );
     });
 
     test('rejects unknown layer in listener', () {
       expect(
-        () => loadBonyJson(base.replaceFirst('"layer":"body"', '"layer":"missing"')),
+        () => loadBonyJson(
+            base.replaceFirst('"layer":"body"', '"layer":"missing"')),
         throwsFormatException,
       );
     });
@@ -334,8 +389,7 @@ void main() {
     test('rejects unknown toState in stateEnter listener', () {
       // Use a self-contained fixture so replaceFirst can't accidentally hit
       // the transition's toState (which also appears in `base`).
-      final json =
-          '{"skeleton":{"name":"xref"},"bones":[{"name":"root"}],'
+      final json = '{"skeleton":{"name":"xref"},"bones":[{"name":"root"}],'
           '"animations":[{"name":"idle","boneTimelines":[]}],'
           '"stateMachines":[{"name":"m","inputs":[],'
           '"layers":[{"name":"body","states":[{"name":"idle","kind":"clip","clip":"idle"}],"transitions":[]}],'
@@ -344,8 +398,7 @@ void main() {
     });
 
     test('rejects unknown fromState in stateExit listener', () {
-      final json =
-          '{"skeleton":{"name":"xref"},"bones":[{"name":"root"}],'
+      final json = '{"skeleton":{"name":"xref"},"bones":[{"name":"root"}],'
           '"animations":[{"name":"idle","boneTimelines":[]}],'
           '"stateMachines":[{"name":"m","inputs":[],'
           '"layers":[{"name":"body","states":[{"name":"idle","kind":"clip","clip":"idle"}],"transitions":[]}],'
@@ -354,8 +407,7 @@ void main() {
     });
 
     test('rejects unknown fromState in transition listener', () {
-      final json =
-          '{"skeleton":{"name":"xref"},"bones":[{"name":"root"}],'
+      final json = '{"skeleton":{"name":"xref"},"bones":[{"name":"root"}],'
           '"animations":[{"name":"idle","boneTimelines":[]}],'
           '"stateMachines":[{"name":"m","inputs":[],'
           '"layers":[{"name":"body","states":[{"name":"idle","kind":"clip","clip":"idle"},{"name":"move","kind":"clip","clip":"idle"}],"transitions":[]}],'
@@ -364,8 +416,7 @@ void main() {
     });
 
     test('rejects unknown toState in transition listener', () {
-      final json =
-          '{"skeleton":{"name":"xref"},"bones":[{"name":"root"}],'
+      final json = '{"skeleton":{"name":"xref"},"bones":[{"name":"root"}],'
           '"animations":[{"name":"idle","boneTimelines":[]}],'
           '"stateMachines":[{"name":"m","inputs":[],'
           '"layers":[{"name":"body","states":[{"name":"idle","kind":"clip","clip":"idle"},{"name":"move","kind":"clip","clip":"idle"}],"transitions":[]}],'

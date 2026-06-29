@@ -1,12 +1,15 @@
 ## M6/M7 semantic .bnb encoder/decoder for the current SkeletonData model.
 
-import std/[json, strutils, tables]
+import std/[json, sets, strutils, tables]
 
+import bony/anim/timelines
+import bony/asset
 import bony/binary/framing
 import bony/generated/wire
 import bony/model
 import bony/deform/deformers
 import bony/deform/keyforms
+import bony/statemachine/core
 
 const
   skeletonTypeKey = 1'u64
@@ -15,6 +18,17 @@ const
   regionTypeKey = 1001'u64
   pathTypeKey = 4000'u64
   pathAttachmentTypeKey = 4001'u64
+  animationClipTypeKey = 2000'u64
+  boneTimelineTypeKey = 2001'u64
+  slotTimelineTypeKey = 2002'u64
+  stateMachineTypeKey = 7000'u64
+  stateMachineInputTypeKey = 7001'u64
+  stateMachineLayerTypeKey = 7002'u64
+  stateMachineStateTypeKey = 7003'u64
+  stateMachineBlendClipTypeKey = 7004'u64
+  stateMachineTransitionTypeKey = 7005'u64
+  stateMachineConditionTypeKey = 7006'u64
+  stateMachineListenerTypeKey = 7007'u64
 
   nameKey = 1'u64
   versionKey = 2'u64
@@ -48,6 +62,32 @@ const
   positionKey = 4011'u64
   translateMixKey = 4012'u64
   rotateMixKey = 4013'u64
+  boneIndexKey = 2000'u64
+  boneTimelineKindKey = 2001'u64
+  slotIndexKey = 2002'u64
+  slotTimelineKindKey = 2003'u64
+  timelineKeysKey = 2004'u64
+  stateMachineInputKindKey = 7000'u64
+  inputDefaultBoolKey = 7001'u64
+  inputDefaultNumberKey = 7002'u64
+  initialStateIndexKey = 7010'u64
+  stateMachineStateKindKey = 7020'u64
+  stateClipIndexKey = 7021'u64
+  stateLoopKey = 7022'u64
+  stateBlendInputIndexKey = 7023'u64
+  blendClipAnimationIndexKey = 7030'u64
+  blendClipValueKey = 7031'u64
+  blendClipLoopKey = 7032'u64
+  transitionFromStateIndexKey = 7040'u64
+  transitionToStateIndexKey = 7041'u64
+  conditionInputIndexKey = 7050'u64
+  stateMachineConditionKindKey = 7051'u64
+  conditionBoolValueKey = 7052'u64
+  conditionNumberValueKey = 7053'u64
+  stateMachineListenerKindKey = 7060'u64
+  listenerLayerIndexKey = 7061'u64
+  listenerFromStateIndexKey = 7062'u64
+  listenerToStateIndexKey = 7063'u64
 
   parameterTypeKey = 6000'u64
   deformerTypeKey = 6001'u64
@@ -450,6 +490,314 @@ proc readRequiredUintProperty(
   uint32(val)
 
 
+proc addUintIfNeeded(
+  properties: var seq[BnbPropertyRecord];
+  toc: var Table[uint64, uint8];
+  propertyKey: uint64;
+  value: uint64;
+  defaultValue = 0'u64;
+  required = false;
+) =
+  if required or value != defaultValue:
+    properties.addProperty(toc, propertyKey, writeVaruintPayload(value))
+
+
+proc writeF32To(result: var seq[byte]; value: float64) =
+  result.add writeF32Payload(value)
+
+
+proc readF32From(payload: openArray[byte]; index: var int; context: string): float64 =
+  if index + 4 > payload.len:
+    raise newBonyLoadError(schemaViolation, ".bnb " & context & " f32 payload is truncated")
+  result = readF32Payload(payload[index ..< index + 4], context)
+  index += 4
+
+
+proc readBoolFrom(payload: openArray[byte]; index: var int; context: string): bool =
+  if index >= payload.len:
+    raise newBonyLoadError(schemaViolation, ".bnb " & context & " bool payload is truncated")
+  result = readBoolPayload(payload[index ..< index + 1], context)
+  inc index
+
+
+proc curveTag(curve: TimelineCurve): uint64 =
+  case curve.kind
+  of linearCurve: 0
+  of steppedCurve: 1
+  of bezierCurve: 2
+
+
+proc curveFromTag(tag: uint64; payload: openArray[byte]; index: var int; context: string): TimelineCurve =
+  case tag
+  of 0: linearTimelineCurve
+  of 1: steppedTimelineCurve
+  of 2:
+    bezierTimelineCurve(
+      payload.readF32From(index, context & ".c1x"),
+      payload.readF32From(index, context & ".c1y"),
+      payload.readF32From(index, context & ".c2x"),
+      payload.readF32From(index, context & ".c2y"),
+    )
+  else:
+    raise newBonyLoadError(schemaViolation, ".bnb " & context & " curve kind is invalid")
+
+
+proc writeCurve(result: var seq[byte]; curve: TimelineCurve) =
+  result.writeVaruint(curve.curveTag)
+  if curve.kind == bezierCurve:
+    result.writeF32To(curve.c1x)
+    result.writeF32To(curve.c1y)
+    result.writeF32To(curve.c2x)
+    result.writeF32To(curve.c2y)
+
+
+proc readCurve(payload: openArray[byte]; index: var int; context: string): TimelineCurve =
+  curveFromTag(payload.readVaruint(index), payload, index, context)
+
+
+proc boneTimelineKindTag(kind: BoneTimelineKind): uint64 = uint64(ord(kind))
+proc slotTimelineKindTag(kind: SlotTimelineKind): uint64 = uint64(ord(kind))
+proc inputKindTag(kind: StateMachineInputKind): uint64 = uint64(ord(kind))
+proc stateKindTag(kind: StateMachineStateKind): uint64 = uint64(ord(kind))
+proc conditionKindTag(kind: StateMachineConditionKind): uint64 = uint64(ord(kind))
+proc listenerKindTag(kind: StateMachineListenerKind): uint64 = uint64(ord(kind))
+
+
+proc boneTimelineKindFromTag(tag: uint64): BoneTimelineKind =
+  if tag > uint64(ord(high(BoneTimelineKind))):
+    raise newBonyLoadError(schemaViolation, ".bnb boneTimeline.kind is invalid")
+  BoneTimelineKind(tag)
+
+
+proc slotTimelineKindFromTag(tag: uint64): SlotTimelineKind =
+  if tag > uint64(ord(high(SlotTimelineKind))):
+    raise newBonyLoadError(schemaViolation, ".bnb slotTimeline.kind is invalid")
+  SlotTimelineKind(tag)
+
+
+proc inputKindFromTag(tag: uint64): StateMachineInputKind =
+  if tag > uint64(ord(high(StateMachineInputKind))):
+    raise newBonyLoadError(schemaViolation, ".bnb stateMachineInput.kind is invalid")
+  StateMachineInputKind(tag)
+
+
+proc stateKindFromTag(tag: uint64): StateMachineStateKind =
+  if tag > uint64(ord(high(StateMachineStateKind))):
+    raise newBonyLoadError(schemaViolation, ".bnb stateMachineState.kind is invalid")
+  StateMachineStateKind(tag)
+
+
+proc conditionKindFromTag(tag: uint64): StateMachineConditionKind =
+  if tag > uint64(ord(high(StateMachineConditionKind))):
+    raise newBonyLoadError(schemaViolation, ".bnb stateMachineCondition.kind is invalid")
+  StateMachineConditionKind(tag)
+
+
+proc listenerKindFromTag(tag: uint64): StateMachineListenerKind =
+  if tag > uint64(ord(high(StateMachineListenerKind))):
+    raise newBonyLoadError(schemaViolation, ".bnb stateMachineListener.kind is invalid")
+  StateMachineListenerKind(tag)
+
+
+proc sequenceModeTag(mode: SequenceMode): uint64 = uint64(ord(mode))
+
+
+proc sequenceModeFromTag(tag: uint64): SequenceMode =
+  if tag > uint64(ord(high(SequenceMode))):
+    raise newBonyLoadError(schemaViolation, ".bnb sequence mode is invalid")
+  SequenceMode(tag)
+
+
+proc transformModeTag(mode: TransformMode): uint64 = uint64(ord(mode))
+
+
+proc transformModeFromTag(tag: uint64): TransformMode =
+  if tag > uint64(ord(high(TransformMode))):
+    raise newBonyLoadError(schemaViolation, ".bnb inherit transformMode is invalid")
+  TransformMode(tag)
+
+
+proc writeTimelineKeys(timeline: BoneTimeline): seq[byte] =
+  case timeline.kind
+  of inheritTimeline:
+    result.writeVaruint(uint64(timeline.inheritKeys.len))
+    for key in timeline.inheritKeys:
+      result.writeF32To(key.time)
+      result.add writeBoolPayload(key.inheritRotation)
+      result.add writeBoolPayload(key.inheritScale)
+      result.add writeBoolPayload(key.inheritReflection)
+      result.writeVaruint(key.transformMode.transformModeTag)
+  of translateTimeline, scaleTimeline, shearTimeline:
+    result.writeVaruint(uint64(timeline.vectorKeys.len))
+    for key in timeline.vectorKeys:
+      result.writeF32To(key.time)
+      result.writeF32To(key.x)
+      result.writeF32To(key.y)
+      result.writeCurve(key.curveX)
+      result.writeCurve(key.curveY)
+  else:
+    result.writeVaruint(uint64(timeline.scalarKeys.len))
+    for key in timeline.scalarKeys:
+      result.writeF32To(key.time)
+      result.writeF32To(key.value)
+      result.writeCurve(key.curve)
+
+
+proc writeTimelineKeys(timeline: SlotTimeline; regionIndexes: Table[string, int]): seq[byte] =
+  case timeline.kind
+  of attachmentTimeline:
+    result.writeVaruint(uint64(timeline.attachmentKeys.len))
+    for key in timeline.attachmentKeys:
+      result.writeF32To(key.time)
+      if key.attachment.len == 0:
+        result.writeVaruint(0)
+      else:
+        if key.attachment notin regionIndexes:
+          raise newBonyLoadError(unknownRequiredReference, ".bnb slot attachment timeline references unknown region: " & key.attachment)
+        result.writeVaruint(uint64(regionIndexes[key.attachment] + 1))
+  of rgbaTimeline, rgbTimeline, alphaTimeline:
+    result.writeVaruint(uint64(timeline.colorKeys.len))
+    for key in timeline.colorKeys:
+      result.writeF32To(key.time)
+      result.writeF32To(key.color.r)
+      result.writeF32To(key.color.g)
+      result.writeF32To(key.color.b)
+      result.writeF32To(key.color.a)
+      result.writeCurve(key.curve)
+  of rgba2Timeline:
+    result.writeVaruint(uint64(timeline.color2Keys.len))
+    for key in timeline.color2Keys:
+      result.writeF32To(key.time)
+      result.writeF32To(key.color.light.r)
+      result.writeF32To(key.color.light.g)
+      result.writeF32To(key.color.light.b)
+      result.writeF32To(key.color.light.a)
+      result.writeF32To(key.color.darkR)
+      result.writeF32To(key.color.darkG)
+      result.writeF32To(key.color.darkB)
+      result.writeCurve(key.curve)
+  of sequenceTimeline:
+    result.writeVaruint(uint64(timeline.sequenceKeys.len))
+    for key in timeline.sequenceKeys:
+      result.writeF32To(key.time)
+      result.writeVaruint(uint64(key.index))
+      result.writeF32To(key.delay)
+      result.writeVaruint(key.mode.sequenceModeTag)
+
+
+proc readBoneTimelineKeys(kind: BoneTimelineKind; payload: openArray[byte]; context: string): BoneTimeline =
+  var index = 0
+  let count = payload.readVaruint(index)
+  if count == 0:
+    raise newBonyLoadError(schemaViolation, ".bnb " & context & " must contain at least one key")
+  case kind
+  of inheritTimeline:
+    var keys: seq[InheritKeyframe]
+    for _ in 0'u64 ..< count:
+      keys.add inheritKeyframe(
+        payload.readF32From(index, context & ".time"),
+        payload.readBoolFrom(index, context & ".inheritRotation"),
+        payload.readBoolFrom(index, context & ".inheritScale"),
+        payload.readBoolFrom(index, context & ".inheritReflection"),
+        payload.readVaruint(index).transformModeFromTag,
+      )
+    result = boneInheritTimeline("__pending__", keys)
+  of translateTimeline, scaleTimeline, shearTimeline:
+    var keys: seq[Vector2Keyframe]
+    for _ in 0'u64 ..< count:
+      keys.add vector2Keyframe(
+        payload.readF32From(index, context & ".time"),
+        payload.readF32From(index, context & ".x"),
+        payload.readF32From(index, context & ".y"),
+        payload.readCurve(index, context & ".curveX"),
+        payload.readCurve(index, context & ".curveY"),
+      )
+    result = boneVectorTimeline("__pending__", kind, keys)
+  else:
+    var keys: seq[ScalarKeyframe]
+    for _ in 0'u64 ..< count:
+      keys.add scalarKeyframe(
+        payload.readF32From(index, context & ".time"),
+        payload.readF32From(index, context & ".value"),
+        payload.readCurve(index, context & ".curve"),
+      )
+    result = boneScalarTimeline("__pending__", kind, keys)
+  if index != payload.len:
+    raise newBonyLoadError(schemaViolation, ".bnb " & context & " has trailing bytes")
+
+
+proc readSlotTimelineKeys(
+  kind: SlotTimelineKind;
+  payload: openArray[byte];
+  regions: openArray[RegionAttachment];
+  context: string;
+): SlotTimeline =
+  var index = 0
+  let count = payload.readVaruint(index)
+  if count == 0:
+    raise newBonyLoadError(schemaViolation, ".bnb " & context & " must contain at least one key")
+  case kind
+  of attachmentTimeline:
+    var keys: seq[AttachmentKeyframe]
+    for _ in 0'u64 ..< count:
+      let time = payload.readF32From(index, context & ".time")
+      let tag = payload.readVaruint(index)
+      if tag == 0:
+        keys.add attachmentKeyframe(time, "")
+      else:
+        if tag - 1 >= uint64(regions.len):
+          raise newBonyLoadError(unknownRequiredReference, ".bnb " & context & " attachment index is out of range")
+        keys.add attachmentKeyframe(time, regions[int(tag - 1)].name)
+    result = slotAttachmentTimeline("__pending__", keys)
+  of rgbaTimeline, rgbTimeline, alphaTimeline:
+    var keys: seq[ColorKeyframe]
+    for _ in 0'u64 ..< count:
+      keys.add colorKeyframe(
+        payload.readF32From(index, context & ".time"),
+        colorRgba(
+          payload.readF32From(index, context & ".r"),
+          payload.readF32From(index, context & ".g"),
+          payload.readF32From(index, context & ".b"),
+          payload.readF32From(index, context & ".a"),
+        ),
+        payload.readCurve(index, context & ".curve"),
+      )
+    result = slotColorTimeline("__pending__", kind, keys)
+  of rgba2Timeline:
+    var keys: seq[Color2Keyframe]
+    for _ in 0'u64 ..< count:
+      let time = payload.readF32From(index, context & ".time")
+      let light = colorRgba(
+        payload.readF32From(index, context & ".r"),
+        payload.readF32From(index, context & ".g"),
+        payload.readF32From(index, context & ".b"),
+        payload.readF32From(index, context & ".a"),
+      )
+      keys.add color2Keyframe(
+        time,
+        colorRgba2(
+          light,
+          payload.readF32From(index, context & ".darkR"),
+          payload.readF32From(index, context & ".darkG"),
+          payload.readF32From(index, context & ".darkB"),
+        ),
+        payload.readCurve(index, context & ".curve"),
+      )
+    result = slotColor2Timeline("__pending__", keys)
+  of sequenceTimeline:
+    var keys: seq[SequenceKeyframe]
+    for _ in 0'u64 ..< count:
+      keys.add sequenceKeyframe(
+        payload.readF32From(index, context & ".time"),
+        uint32(payload.readVaruint(index)),
+        payload.readF32From(index, context & ".delay"),
+        payload.readVaruint(index).sequenceModeFromTag,
+      )
+    result = slotSequenceTimeline("__pending__", keys)
+  if index != payload.len:
+    raise newBonyLoadError(schemaViolation, ".bnb " & context & " has trailing bytes")
+
+
 proc tocEntries(toc: Table[uint64, uint8]): seq[BnbTocEntry] =
   for propertyKey, backingTypeCode in toc:
     result.add BnbTocEntry(propertyKey: propertyKey, backingTypeCode: backingTypeCode)
@@ -605,6 +953,157 @@ proc buildObjectRecords(data: SkeletonData; table: var BnbStringTable; toc: var 
         result.add BnbObjectRecord(typeKey: keyformTypeKey, properties: kfProperties)
 
 
+proc indexByBoneName(data: SkeletonData): Table[string, int] =
+  for index, bone in data.bones:
+    result[bone.name] = index
+
+
+proc indexBySlotName(data: SkeletonData): Table[string, int] =
+  for index, slot in data.slots:
+    result[slot.name] = index
+
+
+proc indexByRegionName(data: SkeletonData): Table[string, int] =
+  for index, region in data.regions:
+    result[region.name] = index
+
+
+proc indexByAnimationName(animations: openArray[AnimationClip]): Table[string, int] =
+  for index, clip in animations:
+    result[clip.name] = index
+
+
+proc indexByInputName(inputs: openArray[StateMachineInput]): Table[string, int] =
+  for index, input in inputs:
+    result[input.name] = index
+
+
+proc indexByLayerName(layers: openArray[StateMachineLayer]): Table[string, int] =
+  for index, layer in layers:
+    result[layer.name] = index
+
+
+proc indexByStateName(states: openArray[StateMachineState]): Table[string, int] =
+  for index, state in states:
+    result[state.name] = index
+
+
+proc requiredIndex(indexes: Table[string, int]; name, context: string): int =
+  if name notin indexes:
+    raise newBonyLoadError(unknownRequiredReference, ".bnb " & context & " references unknown name: " & name)
+  indexes[name]
+
+
+proc buildObjectRecords(asset: BonyAsset; table: var BnbStringTable; toc: var Table[uint64, uint8]): seq[BnbObjectRecord] =
+  result = buildObjectRecords(asset.skeleton, table, toc)
+  let boneIndexes = asset.skeleton.indexByBoneName()
+  let slotIndexes = asset.skeleton.indexBySlotName()
+  let regionIndexes = asset.skeleton.indexByRegionName()
+  let animationIndexes = asset.animations.indexByAnimationName()
+
+  for clip in asset.animations:
+    var clipProperties: seq[BnbPropertyRecord]
+    clipProperties.addStringIfNeeded(toc, table, nameKey, clip.name, "", required = true)
+    result.add BnbObjectRecord(typeKey: animationClipTypeKey, properties: clipProperties)
+    for timeline in clip.boneTimelines:
+      if timeline.target notin boneIndexes:
+        raise newBonyLoadError(unknownRequiredReference, ".bnb bone timeline references unknown bone: " & timeline.target)
+      var properties: seq[BnbPropertyRecord]
+      properties.addUintIfNeeded(toc, boneIndexKey, uint64(boneIndexes[timeline.target]), required = true)
+      properties.addUintIfNeeded(toc, boneTimelineKindKey, timeline.kind.boneTimelineKindTag, required = true)
+      properties.addProperty(toc, timelineKeysKey, timeline.writeTimelineKeys())
+      result.add BnbObjectRecord(typeKey: boneTimelineTypeKey, properties: properties)
+    for timeline in clip.slotTimelines:
+      if timeline.target notin slotIndexes:
+        raise newBonyLoadError(unknownRequiredReference, ".bnb slot timeline references unknown slot: " & timeline.target)
+      var properties: seq[BnbPropertyRecord]
+      properties.addUintIfNeeded(toc, slotIndexKey, uint64(slotIndexes[timeline.target]), required = true)
+      properties.addUintIfNeeded(toc, slotTimelineKindKey, timeline.kind.slotTimelineKindTag, required = true)
+      properties.addProperty(toc, timelineKeysKey, timeline.writeTimelineKeys(regionIndexes))
+      result.add BnbObjectRecord(typeKey: slotTimelineTypeKey, properties: properties)
+
+  for machine in asset.stateMachines:
+    var machineProperties: seq[BnbPropertyRecord]
+    machineProperties.addStringIfNeeded(toc, table, nameKey, machine.name, "", required = true)
+    result.add BnbObjectRecord(typeKey: stateMachineTypeKey, properties: machineProperties)
+    let inputIndexes = machine.inputs.indexByInputName()
+    let layerIndexes = machine.layers.indexByLayerName()
+    for input in machine.inputs:
+      var properties: seq[BnbPropertyRecord]
+      properties.addStringIfNeeded(toc, table, nameKey, input.name, "", required = true)
+      properties.addUintIfNeeded(toc, stateMachineInputKindKey, input.kind.inputKindTag, required = true)
+      case input.kind
+      of boolInput:
+        properties.addBoolIfNeeded(toc, inputDefaultBoolKey, input.defaultBool, defaultBool("stateMachineInput", "inputDefaultBool"))
+      of numberInput:
+        properties.addFloatIfNeeded(toc, inputDefaultNumberKey, input.defaultNumber, defaultFloat("stateMachineInput", "inputDefaultNumber"))
+      of triggerInput:
+        discard
+      result.add BnbObjectRecord(typeKey: stateMachineInputTypeKey, properties: properties)
+
+    for layer in machine.layers:
+      let stateIndexes = layer.states.indexByStateName()
+      var layerProperties: seq[BnbPropertyRecord]
+      layerProperties.addStringIfNeeded(toc, table, nameKey, layer.name, "", required = true)
+      layerProperties.addUintIfNeeded(toc, initialStateIndexKey, uint64(stateIndexes.requiredIndex(layer.initialState, "stateMachineLayer.initialState")), uint64(defaultInt("stateMachineLayer", "initialStateIndex")))
+      result.add BnbObjectRecord(typeKey: stateMachineLayerTypeKey, properties: layerProperties)
+
+      for state in layer.states:
+        var stateProperties: seq[BnbPropertyRecord]
+        stateProperties.addStringIfNeeded(toc, table, nameKey, state.name, "", required = true)
+        stateProperties.addUintIfNeeded(toc, stateMachineStateKindKey, state.kind.stateKindTag, required = true)
+        case state.kind
+        of clipState:
+          stateProperties.addUintIfNeeded(toc, stateClipIndexKey, uint64(animationIndexes.requiredIndex(state.clip.name, "stateMachineState.clip")), required = true)
+          stateProperties.addBoolIfNeeded(toc, stateLoopKey, state.loop, defaultBool("stateMachineState", "stateLoop"))
+        of blend1DState:
+          stateProperties.addUintIfNeeded(toc, stateBlendInputIndexKey, uint64(inputIndexes.requiredIndex(state.blendInput, "stateMachineState.blendInput")), required = true)
+        result.add BnbObjectRecord(typeKey: stateMachineStateTypeKey, properties: stateProperties)
+        if state.kind == blend1DState:
+          for blendClip in state.blendClips:
+            var properties: seq[BnbPropertyRecord]
+            properties.addUintIfNeeded(toc, blendClipAnimationIndexKey, uint64(animationIndexes.requiredIndex(blendClip.clip.name, "stateMachineBlendClip.animation")), required = true)
+            properties.addFloatIfNeeded(toc, blendClipValueKey, blendClip.value, 0.0, required = true)
+            properties.addBoolIfNeeded(toc, blendClipLoopKey, blendClip.loop, defaultBool("stateMachineBlendClip", "blendClipLoop"))
+            result.add BnbObjectRecord(typeKey: stateMachineBlendClipTypeKey, properties: properties)
+
+      for transition in layer.transitions:
+        var transitionProperties: seq[BnbPropertyRecord]
+        transitionProperties.addUintIfNeeded(toc, transitionFromStateIndexKey, uint64(stateIndexes.requiredIndex(transition.fromState, "stateMachineTransition.from")), required = true)
+        transitionProperties.addUintIfNeeded(toc, transitionToStateIndexKey, uint64(stateIndexes.requiredIndex(transition.toState, "stateMachineTransition.to")), required = true)
+        result.add BnbObjectRecord(typeKey: stateMachineTransitionTypeKey, properties: transitionProperties)
+        for condition in transition.conditions:
+          var properties: seq[BnbPropertyRecord]
+          properties.addUintIfNeeded(toc, conditionInputIndexKey, uint64(inputIndexes.requiredIndex(condition.input, "stateMachineCondition.input")), required = true)
+          properties.addUintIfNeeded(toc, stateMachineConditionKindKey, condition.kind.conditionKindTag, required = true)
+          case condition.kind
+          of boolEqualsCondition:
+            properties.addBoolIfNeeded(toc, conditionBoolValueKey, condition.boolValue, defaultBool("stateMachineCondition", "conditionBoolValue"))
+          of numberEqualsCondition, numberGreaterCondition, numberGreaterOrEqualCondition, numberLessCondition, numberLessOrEqualCondition:
+            properties.addFloatIfNeeded(toc, conditionNumberValueKey, condition.numberValue, defaultFloat("stateMachineCondition", "conditionNumberValue"), required = true)
+          of triggerSetCondition:
+            discard
+          result.add BnbObjectRecord(typeKey: stateMachineConditionTypeKey, properties: properties)
+
+    for listener in machine.listeners:
+      var properties: seq[BnbPropertyRecord]
+      properties.addStringIfNeeded(toc, table, nameKey, listener.name, "", required = true)
+      properties.addUintIfNeeded(toc, stateMachineListenerKindKey, listener.kind.listenerKindTag, required = true)
+      let listenerLayerIndex = layerIndexes.requiredIndex(listener.layer, "stateMachineListener.layer")
+      properties.addUintIfNeeded(toc, listenerLayerIndexKey, uint64(listenerLayerIndex), required = true)
+      let layer = machine.layers[listenerLayerIndex]
+      let stateIndexes = layer.states.indexByStateName()
+      case listener.kind
+      of stateEnterListener:
+        properties.addUintIfNeeded(toc, listenerToStateIndexKey, uint64(stateIndexes.requiredIndex(listener.toState, "stateMachineListener.to")), required = true)
+      of stateExitListener:
+        properties.addUintIfNeeded(toc, listenerFromStateIndexKey, uint64(stateIndexes.requiredIndex(listener.fromState, "stateMachineListener.from")), required = true)
+      of transitionListener:
+        properties.addUintIfNeeded(toc, listenerFromStateIndexKey, uint64(stateIndexes.requiredIndex(listener.fromState, "stateMachineListener.from")), required = true)
+        properties.addUintIfNeeded(toc, listenerToStateIndexKey, uint64(stateIndexes.requiredIndex(listener.toState, "stateMachineListener.to")), required = true)
+      result.add BnbObjectRecord(typeKey: stateMachineListenerTypeKey, properties: properties)
+
+
 proc writeBonyBnb*(output: var seq[byte]; data: SkeletonData; embeddedAtlas: openArray[byte] = []) =
   var table = initStringTable()
   var toc = initTable[uint64, uint8]()
@@ -625,6 +1124,28 @@ proc writeBonyBnb*(output: var seq[byte]; data: SkeletonData; embeddedAtlas: ope
 
 proc toBonyBnb*(data: SkeletonData; embeddedAtlas: openArray[byte] = []): seq[byte] =
   result.writeBonyBnb(data, embeddedAtlas)
+
+
+proc writeBonyBnb*(output: var seq[byte]; asset: BonyAsset; embeddedAtlas: openArray[byte] = []) =
+  var table = initStringTable()
+  var toc = initTable[uint64, uint8]()
+  let records = buildObjectRecords(asset, table, toc)
+  var flags = bnbStringTableFlag
+  if embeddedAtlas.len > 0:
+    flags = flags or bnbEmbeddedAtlasFlag
+
+  output.writeHeader(flags = flags)
+  output.writeToc(toc.tocEntries)
+  output.writeStringTable(table)
+  for record in records:
+    output.writeObjectRecord(record.typeKey, record.properties)
+  output.writeObjectStreamTerminator()
+  if embeddedAtlas.len > 0:
+    output.writeEmbeddedAtlas(embeddedAtlas)
+
+
+proc toBonyBnb*(asset: BonyAsset; embeddedAtlas: openArray[byte] = []): seq[byte] =
+  result.writeBonyBnb(asset, embeddedAtlas)
 
 
 proc emitPendingDeformer(
@@ -899,6 +1420,270 @@ proc decodeSkeletonObjects(objects: openArray[BnbObjectRecord]; strings: BnbStri
   skeletonData(headerValue, bones, slots, regions, pathAttachments, paths, loadedParameters, loadedDeformers)
 
 
+proc withTarget(timeline: BoneTimeline; target: string): BoneTimeline =
+  case timeline.kind
+  of inheritTimeline:
+    boneInheritTimeline(target, timeline.inheritKeys)
+  of translateTimeline, scaleTimeline, shearTimeline:
+    boneVectorTimeline(target, timeline.kind, timeline.vectorKeys)
+  else:
+    boneScalarTimeline(target, timeline.kind, timeline.scalarKeys)
+
+
+proc withTarget(timeline: SlotTimeline; target: string): SlotTimeline =
+  case timeline.kind
+  of attachmentTimeline:
+    slotAttachmentTimeline(target, timeline.attachmentKeys)
+  of rgbaTimeline, rgbTimeline, alphaTimeline:
+    slotColorTimeline(target, timeline.kind, timeline.colorKeys)
+  of rgba2Timeline:
+    slotColor2Timeline(target, timeline.color2Keys)
+  of sequenceTimeline:
+    slotSequenceTimeline(target, timeline.sequenceKeys)
+
+
+proc decodeAnimationObjects(
+  objects: openArray[BnbObjectRecord];
+  strings: BnbStringTable;
+  skeleton: SkeletonData;
+): seq[AnimationClip] =
+  var currentName = ""
+  var currentBoneTimelines: seq[BoneTimeline]
+  var currentSlotTimelines: seq[SlotTimeline]
+  var seen = initHashSet[string]()
+
+  template flushAnimation() =
+    if currentName.len > 0:
+      if currentName in seen:
+        raise newBonyLoadError(duplicateKey, "duplicate animation name: " & currentName)
+      seen.incl(currentName)
+      result.add animationClip(skeleton, currentName, currentBoneTimelines, currentSlotTimelines)
+      currentName = ""
+      currentBoneTimelines = @[]
+      currentSlotTimelines = @[]
+
+  for record in objects:
+    case record.typeKey
+    of animationClipTypeKey:
+      flushAnimation()
+      let properties = record.propertyMap([nameKey])
+      currentName = properties.readStringProperty(strings, nameKey, "animationClip.name")
+    of boneTimelineTypeKey:
+      if currentName.len == 0:
+        raise newBonyLoadError(schemaViolation, ".bnb boneTimeline record without animationClip")
+      let properties = record.propertyMap([boneIndexKey, boneTimelineKindKey, timelineKeysKey])
+      let boneIndex = int(properties.readRequiredUintProperty(boneIndexKey, "boneTimeline.boneIndex"))
+      if boneIndex < 0 or boneIndex >= skeleton.bones.len:
+        raise newBonyLoadError(unknownRequiredReference, ".bnb boneTimeline boneIndex is out of range")
+      if timelineKeysKey notin properties:
+        raise newBonyLoadError(schemaViolation, ".bnb boneTimeline.timelineKeys is required")
+      let kind = boneTimelineKindFromTag(properties.readRequiredUintProperty(boneTimelineKindKey, "boneTimeline.kind"))
+      currentBoneTimelines.add readBoneTimelineKeys(kind, properties[timelineKeysKey], "boneTimeline.timelineKeys").withTarget(skeleton.bones[boneIndex].name)
+    of slotTimelineTypeKey:
+      if currentName.len == 0:
+        raise newBonyLoadError(schemaViolation, ".bnb slotTimeline record without animationClip")
+      let properties = record.propertyMap([slotIndexKey, slotTimelineKindKey, timelineKeysKey])
+      let slotIndex = int(properties.readRequiredUintProperty(slotIndexKey, "slotTimeline.slotIndex"))
+      if slotIndex < 0 or slotIndex >= skeleton.slots.len:
+        raise newBonyLoadError(unknownRequiredReference, ".bnb slotTimeline slotIndex is out of range")
+      if timelineKeysKey notin properties:
+        raise newBonyLoadError(schemaViolation, ".bnb slotTimeline.timelineKeys is required")
+      let kind = slotTimelineKindFromTag(properties.readRequiredUintProperty(slotTimelineKindKey, "slotTimeline.kind"))
+      currentSlotTimelines.add readSlotTimelineKeys(kind, properties[timelineKeysKey], skeleton.regions, "slotTimeline.timelineKeys").withTarget(skeleton.slots[slotIndex].name)
+    of stateMachineTypeKey:
+      flushAnimation()
+    else:
+      discard
+  flushAnimation()
+
+
+proc animationByIndex(animations: openArray[AnimationClip]; index: uint32; context: string): AnimationClip =
+  if int(index) >= animations.len:
+    raise newBonyLoadError(unknownRequiredReference, ".bnb " & context & " animation index is out of range")
+  animations[int(index)]
+
+
+proc inputByIndex(inputs: openArray[StateMachineInput]; index: uint32; context: string): StateMachineInput =
+  if int(index) >= inputs.len:
+    raise newBonyLoadError(unknownRequiredReference, ".bnb " & context & " input index is out of range")
+  inputs[int(index)]
+
+
+proc stateNameByIndex(states: openArray[StateMachineState]; index: uint32; context: string): string =
+  if int(index) >= states.len:
+    raise newBonyLoadError(unknownRequiredReference, ".bnb " & context & " state index is out of range")
+  states[int(index)].name
+
+
+proc decodeStateMachineObjects(
+  objects: openArray[BnbObjectRecord];
+  strings: BnbStringTable;
+  animations: openArray[AnimationClip];
+): seq[StateMachine] =
+  var machineName = ""
+  var inputs: seq[StateMachineInput]
+  var layers: seq[StateMachineLayer]
+  var listeners: seq[StateMachineListener]
+  var layerName = ""
+  var layerInitialIndex = 0'u32
+  var layerStates: seq[StateMachineState]
+  var layerTransitions: seq[StateMachineTransition]
+  var pendingTransitionFrom = ""
+  var pendingTransitionTo = ""
+  var pendingConditions: seq[StateMachineCondition]
+  var seenMachines = initHashSet[string]()
+
+  template flushTransition() =
+    if pendingTransitionFrom.len > 0:
+      layerTransitions.add stateMachineTransition(pendingTransitionFrom, pendingTransitionTo, pendingConditions)
+      pendingTransitionFrom = ""
+      pendingTransitionTo = ""
+      pendingConditions = @[]
+
+  template flushLayer() =
+    if layerName.len > 0:
+      flushTransition()
+      layers.add stateMachineLayer(layerName, layerStates, stateNameByIndex(layerStates, layerInitialIndex, "stateMachineLayer.initialStateIndex"), layerTransitions)
+      layerName = ""
+      layerInitialIndex = 0'u32
+      layerStates = @[]
+      layerTransitions = @[]
+
+  template flushMachine() =
+    if machineName.len > 0:
+      flushLayer()
+      if machineName in seenMachines:
+        raise newBonyLoadError(duplicateKey, "duplicate state machine name: " & machineName)
+      seenMachines.incl(machineName)
+      result.add stateMachine(machineName, layers, inputs, listeners)
+      machineName = ""
+      inputs = @[]
+      layers = @[]
+      listeners = @[]
+
+  for record in objects:
+    case record.typeKey
+    of stateMachineTypeKey:
+      flushMachine()
+      let properties = record.propertyMap([nameKey])
+      machineName = properties.readStringProperty(strings, nameKey, "stateMachine.name")
+    of stateMachineInputTypeKey:
+      if machineName.len == 0:
+        raise newBonyLoadError(schemaViolation, ".bnb stateMachineInput record without stateMachine")
+      flushLayer()
+      let properties = record.propertyMap([nameKey, stateMachineInputKindKey, inputDefaultBoolKey, inputDefaultNumberKey])
+      let name = properties.readStringProperty(strings, nameKey, "stateMachineInput.name")
+      let kind = inputKindFromTag(properties.readRequiredUintProperty(stateMachineInputKindKey, "stateMachineInput.kind"))
+      case kind
+      of boolInput:
+        if inputDefaultNumberKey in properties:
+          raise newBonyLoadError(schemaViolation, ".bnb bool input must not contain number default")
+        inputs.add stateMachineBoolInput(name, properties.readOptionalBoolProperty(inputDefaultBoolKey, defaultBool("stateMachineInput", "inputDefaultBool"), "stateMachineInput.defaultBool"))
+      of numberInput:
+        if inputDefaultBoolKey in properties:
+          raise newBonyLoadError(schemaViolation, ".bnb number input must not contain bool default")
+        inputs.add stateMachineNumberInput(name, properties.readOptionalFloatProperty(inputDefaultNumberKey, defaultFloat("stateMachineInput", "inputDefaultNumber"), "stateMachineInput.defaultNumber"))
+      of triggerInput:
+        if inputDefaultBoolKey in properties or inputDefaultNumberKey in properties:
+          raise newBonyLoadError(schemaViolation, ".bnb trigger input must not contain defaults")
+        inputs.add stateMachineTriggerInput(name)
+    of stateMachineLayerTypeKey:
+      if machineName.len == 0:
+        raise newBonyLoadError(schemaViolation, ".bnb stateMachineLayer record without stateMachine")
+      flushLayer()
+      let properties = record.propertyMap([nameKey, initialStateIndexKey])
+      layerName = properties.readStringProperty(strings, nameKey, "stateMachineLayer.name")
+      layerInitialIndex = properties.readOptionalUintProperty(initialStateIndexKey, uint32(defaultInt("stateMachineLayer", "initialStateIndex")), "stateMachineLayer.initialStateIndex")
+    of stateMachineStateTypeKey:
+      if layerName.len == 0:
+        raise newBonyLoadError(schemaViolation, ".bnb stateMachineState record without stateMachineLayer")
+      flushTransition()
+      let properties = record.propertyMap([nameKey, stateMachineStateKindKey, stateClipIndexKey, stateLoopKey, stateBlendInputIndexKey])
+      let name = properties.readStringProperty(strings, nameKey, "stateMachineState.name")
+      let kind = stateKindFromTag(properties.readRequiredUintProperty(stateMachineStateKindKey, "stateMachineState.kind"))
+      case kind
+      of clipState:
+        if stateBlendInputIndexKey in properties:
+          raise newBonyLoadError(schemaViolation, ".bnb clip state must not contain blend input")
+        let clip = animationByIndex(animations, properties.readRequiredUintProperty(stateClipIndexKey, "stateMachineState.clip"), "stateMachineState.clip")
+        layerStates.add stateMachineState(name, clip, properties.readOptionalBoolProperty(stateLoopKey, defaultBool("stateMachineState", "stateLoop"), "stateMachineState.loop"))
+      of blend1DState:
+        if stateClipIndexKey in properties or stateLoopKey in properties:
+          raise newBonyLoadError(schemaViolation, ".bnb blend1d state must not contain direct clip fields")
+        let input = inputByIndex(inputs, properties.readRequiredUintProperty(stateBlendInputIndexKey, "stateMachineState.blendInput"), "stateMachineState.blendInput")
+        layerStates.add StateMachineState(name: name, kind: blend1DState, blendInput: input.name)
+    of stateMachineBlendClipTypeKey:
+      if layerStates.len == 0 or layerStates[^1].kind != blend1DState:
+        raise newBonyLoadError(schemaViolation, ".bnb stateMachineBlendClip record without blend1d state")
+      let properties = record.propertyMap([blendClipAnimationIndexKey, blendClipValueKey, blendClipLoopKey])
+      let clip = animationByIndex(animations, properties.readRequiredUintProperty(blendClipAnimationIndexKey, "stateMachineBlendClip.animation"), "stateMachineBlendClip.animation")
+      let value = properties.readFloatProperty(blendClipValueKey, "stateMachineBlendClip.value")
+      let loop = properties.readOptionalBoolProperty(blendClipLoopKey, defaultBool("stateMachineBlendClip", "blendClipLoop"), "stateMachineBlendClip.loop")
+      layerStates[^1].blendClips.add stateMachineBlendClip(clip, value, loop)
+    of stateMachineTransitionTypeKey:
+      if layerName.len == 0:
+        raise newBonyLoadError(schemaViolation, ".bnb stateMachineTransition record without stateMachineLayer")
+      flushTransition()
+      let properties = record.propertyMap([transitionFromStateIndexKey, transitionToStateIndexKey])
+      pendingTransitionFrom = stateNameByIndex(layerStates, properties.readRequiredUintProperty(transitionFromStateIndexKey, "stateMachineTransition.from"), "stateMachineTransition.from")
+      pendingTransitionTo = stateNameByIndex(layerStates, properties.readRequiredUintProperty(transitionToStateIndexKey, "stateMachineTransition.to"), "stateMachineTransition.to")
+    of stateMachineConditionTypeKey:
+      if pendingTransitionFrom.len == 0:
+        raise newBonyLoadError(schemaViolation, ".bnb stateMachineCondition record without stateMachineTransition")
+      let properties = record.propertyMap([conditionInputIndexKey, stateMachineConditionKindKey, conditionBoolValueKey, conditionNumberValueKey])
+      let input = inputByIndex(inputs, properties.readRequiredUintProperty(conditionInputIndexKey, "stateMachineCondition.input"), "stateMachineCondition.input")
+      let kind = conditionKindFromTag(properties.readRequiredUintProperty(stateMachineConditionKindKey, "stateMachineCondition.kind"))
+      case kind
+      of boolEqualsCondition:
+        if conditionNumberValueKey in properties:
+          raise newBonyLoadError(schemaViolation, ".bnb bool condition must not contain number value")
+        pendingConditions.add stateMachineBoolCondition(input.name, properties.readOptionalBoolProperty(conditionBoolValueKey, defaultBool("stateMachineCondition", "conditionBoolValue"), "stateMachineCondition.bool"))
+      of numberEqualsCondition, numberGreaterCondition, numberGreaterOrEqualCondition, numberLessCondition, numberLessOrEqualCondition:
+        if conditionBoolValueKey in properties:
+          raise newBonyLoadError(schemaViolation, ".bnb number condition must not contain bool value")
+        pendingConditions.add stateMachineNumberCondition(input.name, kind, properties.readFloatProperty(conditionNumberValueKey, "stateMachineCondition.number"))
+      of triggerSetCondition:
+        if conditionBoolValueKey in properties or conditionNumberValueKey in properties:
+          raise newBonyLoadError(schemaViolation, ".bnb trigger condition must not contain values")
+        pendingConditions.add stateMachineTriggerCondition(input.name)
+    of stateMachineListenerTypeKey:
+      if machineName.len == 0:
+        raise newBonyLoadError(schemaViolation, ".bnb stateMachineListener record without stateMachine")
+      flushLayer()
+      let properties = record.propertyMap([nameKey, stateMachineListenerKindKey, listenerLayerIndexKey, listenerFromStateIndexKey, listenerToStateIndexKey])
+      let name = properties.readStringProperty(strings, nameKey, "stateMachineListener.name")
+      let kind = listenerKindFromTag(properties.readRequiredUintProperty(stateMachineListenerKindKey, "stateMachineListener.kind"))
+      let layerIndex = int(properties.readRequiredUintProperty(listenerLayerIndexKey, "stateMachineListener.layer"))
+      if layerIndex >= layers.len:
+        raise newBonyLoadError(unknownRequiredReference, ".bnb stateMachineListener.layer is out of range")
+      let layer = layers[layerIndex]
+      case kind
+      of stateEnterListener:
+        if listenerFromStateIndexKey in properties:
+          raise newBonyLoadError(schemaViolation, ".bnb enter listener must not contain from state")
+        listeners.add stateMachineStateEnterListener(name, layer.name, stateNameByIndex(layer.states, properties.readRequiredUintProperty(listenerToStateIndexKey, "stateMachineListener.to"), "stateMachineListener.to"))
+      of stateExitListener:
+        if listenerToStateIndexKey in properties:
+          raise newBonyLoadError(schemaViolation, ".bnb exit listener must not contain to state")
+        listeners.add stateMachineStateExitListener(name, layer.name, stateNameByIndex(layer.states, properties.readRequiredUintProperty(listenerFromStateIndexKey, "stateMachineListener.from"), "stateMachineListener.from"))
+      of transitionListener:
+        listeners.add stateMachineTransitionListener(
+          name,
+          layer.name,
+          stateNameByIndex(layer.states, properties.readRequiredUintProperty(listenerFromStateIndexKey, "stateMachineListener.from"), "stateMachineListener.from"),
+          stateNameByIndex(layer.states, properties.readRequiredUintProperty(listenerToStateIndexKey, "stateMachineListener.to"), "stateMachineListener.to"),
+        )
+    else:
+      discard
+  flushMachine()
+
+
+proc decodeAssetObjects(objects: openArray[BnbObjectRecord]; strings: BnbStringTable): BonyAsset =
+  let skeleton = decodeSkeletonObjects(objects, strings)
+  let animations = decodeAnimationObjects(objects, strings, skeleton)
+  bonyAsset(skeleton, animations, decodeStateMachineObjects(objects, strings, animations))
+
+
 proc loadBonyBnb*(input: openArray[byte]): SkeletonData =
   var index = 0
   let header = input.readHeader(index)
@@ -911,6 +1696,20 @@ proc loadBonyBnb*(input: openArray[byte]): SkeletonData =
   let objects = input.readObjectStream(index, toc)
   discard input.readEmbeddedAtlas(index, header)
   decodeSkeletonObjects(objects, strings)
+
+
+proc loadBonyBnbAsset*(input: openArray[byte]): BonyAsset =
+  var index = 0
+  let header = input.readHeader(index)
+  let toc = input.readToc(index)
+  let strings =
+    if (header.flags and bnbStringTableFlag) != 0:
+      input.readStringTable(index)
+    else:
+      initStringTable()
+  let objects = input.readObjectStream(index, toc)
+  discard input.readEmbeddedAtlas(index, header)
+  decodeAssetObjects(objects, strings)
 
 
 proc readKnownObjectStream(input: openArray[byte]; index: var int; toc: openArray[BnbTocEntry]): seq[BnbObjectRecord] =
@@ -947,3 +1746,19 @@ proc loadKnownBonyBnb*(input: openArray[byte]): SkeletonData =
   let objects = input.readKnownObjectStream(index, toc)
   discard input.readEmbeddedAtlas(index, header)
   decodeSkeletonObjects(objects, strings)
+
+
+proc loadKnownBonyBnbAsset*(input: openArray[byte]): BonyAsset =
+  var index = 0
+  let header = input.readHeader(index)
+  if (header.flags and bnbEmbeddedAtlasFlag) != 0:
+    raise newBonyLoadError(schemaViolation, ".bnb JSON conversion cannot preserve embedded atlas bytes")
+  let toc = input.readToc(index)
+  let strings =
+    if (header.flags and bnbStringTableFlag) != 0:
+      input.readStringTable(index)
+    else:
+      initStringTable()
+  let objects = input.readKnownObjectStream(index, toc)
+  discard input.readEmbeddedAtlas(index, header)
+  decodeAssetObjects(objects, strings)
