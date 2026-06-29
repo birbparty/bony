@@ -132,7 +132,7 @@
       "name": "alpha_pulse",
       "slotTimelines": [
         {
-          "slot": "body_slot",
+          "slot": "head_slot",
           "property": "alpha",
           "keyframes": [
             {"t": 0.0, "r": 1.0, "g": 1.0, "b": 1.0, "a": 1.0},
@@ -229,6 +229,25 @@
             {"t": 0.5, "r": 0.5, "g": 0.8, "b": 1.0, "a": 0.8},
             {"t": 1.0, "r": 1.0, "g": 1.0, "b": 1.0, "a": 1.0}
           ]
+        }
+      ]
+    }
+  ],
+  "stateMachines": [
+    {
+      "name": "non_scalar",
+      "layers": [
+        {
+          "name": "head",
+          "states": [{"name": "alpha_pulse", "kind": "clip", "clip": "alpha_pulse"}]
+        },
+        {
+          "name": "light",
+          "states": [{"name": "two_color", "kind": "clip", "clip": "two_color"}]
+        },
+        {
+          "name": "fx",
+          "states": [{"name": "fx_sequence", "kind": "clip", "clip": "fx_sequence"}]
         }
       ]
     }

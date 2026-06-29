@@ -67,7 +67,7 @@ Each `*_t0.json` file has the format:
     {"name": "root", "a": 1.0, "b": 0.0, "c": 0.0, "d": 1.0, "tx": 0.0, "ty": 0.0}
   ],
   "slots": [
-    {"name": "head_slot", "attachment": "head"}
+    {"name": "head_slot", "attachment": "head", "r": 1.0, "g": 1.0, "b": 1.0, "a": 1.0}
   ],
   "drawBatches": [
     {"slot": "head_slot", "vertices": [[-25.0, -25.0], [25.0, -25.0], [25.0, 25.0], [-25.0, 25.0]]}
@@ -78,6 +78,9 @@ Each `*_t0.json` file has the format:
 Fields:
 - `bones[].{a,b,c,d,tx,ty}` — world transform matrix (column-major 2x3)
 - `slots[].attachment` — active attachment name (or `null`)
+- `slots[].{r,g,b,a}` — projected light color used by draw-batch vertices
+- `slots[].{darkR,darkG,darkB}` — optional projected dark color for two-color timelines
+- `slots[].{sequenceIndex,sequenceDelay,sequenceMode}` — optional sampled sequence metadata
 - `drawBatches` — world-space vertex quads in draw order
 - `deformers` — present only when deformers affect the pose (M7+)
 
@@ -111,9 +114,10 @@ Each `*_sample.json` file drives the numeric golden gate:
 - `samples[].inputs`: typed input changes. Booleans target bool inputs, numbers
   target number inputs, and the string `"fire"` targets trigger inputs.
 
-State-machine numeric/render execution currently fails if the sampled pose
-contains color, color2, or sequence channels, because those channels are not yet
-projected into the top-level slot/draw-batch output contract.
+State-machine numeric/render execution projects sampled slot channels into the
+top-level output contract: `rgb`, `alpha`, `rgba`, and `rgba2` update slot
+colors and draw-batch vertex colors, while `sequence` resolves the slot's
+current attachment by replacing its numeric suffix with the sampled index.
 
 Setup-pose scripts without `stateMachine` keep the legacy golden naming scheme:
 `<asset-stem>_t<time>.json`. State-machine scripts use
