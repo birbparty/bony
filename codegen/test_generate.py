@@ -13,6 +13,64 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import generate
 
 
+M3_M8_OBJECTS = [
+    "animationClip",
+    "boneTimeline",
+    "slotTimeline",
+    "stateMachine",
+    "stateMachineInput",
+    "stateMachineLayer",
+    "stateMachineState",
+    "stateMachineBlendClip",
+    "stateMachineTransition",
+    "stateMachineCondition",
+    "stateMachineListener",
+]
+
+M3_M8_TYPE_KEYS = {
+    "animationClip": 2000,
+    "boneTimeline": 2001,
+    "slotTimeline": 2002,
+    "stateMachine": 7000,
+    "stateMachineInput": 7001,
+    "stateMachineLayer": 7002,
+    "stateMachineState": 7003,
+    "stateMachineBlendClip": 7004,
+    "stateMachineTransition": 7005,
+    "stateMachineCondition": 7006,
+    "stateMachineListener": 7007,
+}
+
+M3_M8_PROPERTY_KEYS = {
+    "boneIndex": 2000,
+    "boneTimelineKind": 2001,
+    "slotIndex": 2002,
+    "slotTimelineKind": 2003,
+    "timelineKeys": 2004,
+    "stateMachineInputKind": 7000,
+    "inputDefaultBool": 7001,
+    "inputDefaultNumber": 7002,
+    "initialStateIndex": 7010,
+    "stateMachineStateKind": 7020,
+    "stateClipIndex": 7021,
+    "stateLoop": 7022,
+    "stateBlendInputIndex": 7023,
+    "blendClipAnimationIndex": 7030,
+    "blendClipValue": 7031,
+    "blendClipLoop": 7032,
+    "transitionFromStateIndex": 7040,
+    "transitionToStateIndex": 7041,
+    "conditionInputIndex": 7050,
+    "stateMachineConditionKind": 7051,
+    "conditionBoolValue": 7052,
+    "conditionNumberValue": 7053,
+    "stateMachineListenerKind": 7060,
+    "listenerLayerIndex": 7061,
+    "listenerFromStateIndex": 7062,
+    "listenerToStateIndex": 7063,
+}
+
+
 def sample_registry() -> dict:
     return {
         "format": "bony-wire-registry",
@@ -84,6 +142,11 @@ def sample_defaults() -> dict:
 
 
 class GeneratorValidationTests(unittest.TestCase):
+    def project_sources(self) -> tuple[dict, dict]:
+        registry = generate.load_yaml_subset(generate.ROOT / "registry" / "wire.yml")
+        defaults = generate.load_yaml_subset(generate.ROOT / "spec" / "defaults.yml")
+        return registry, defaults
+
     def test_valid_non_empty_sources_generate_runtime_metadata(self) -> None:
         registry = sample_registry()
         defaults = sample_defaults()
@@ -105,8 +168,7 @@ class GeneratorValidationTests(unittest.TestCase):
         self.assertEqual(list(wire_schema["properties"].keys()), ["bones"])
 
     def test_project_schema_contains_m2_runtime_constraints(self) -> None:
-        registry = generate.load_yaml_subset(generate.ROOT / "registry" / "wire.yml")
-        defaults = generate.load_yaml_subset(generate.ROOT / "spec" / "defaults.yml")
+        registry, defaults = self.project_sources()
 
         schema = json.loads(generate.generate_schema(registry, defaults))
 
@@ -135,6 +197,109 @@ class GeneratorValidationTests(unittest.TestCase):
         self.assertIn("warp", schema["$defs"]["deformer"]["properties"])
         self.assertIn("boneTimelines", schema["$defs"]["animationClip"]["properties"])
         self.assertIn("layers", schema["$defs"]["stateMachine"]["properties"])
+
+    def test_project_m3_m8_keys_are_in_reserved_bands(self) -> None:
+        registry, defaults = self.project_sources()
+        generate.validate_sources(registry, defaults)
+
+        type_keys = {entry["id"]: entry["key"] for entry in registry["typeKeys"]}
+        property_keys = {entry["id"]: entry["key"] for entry in registry["propertyKeys"]}
+
+        self.assertEqual({key: type_keys[key] for key in M3_M8_TYPE_KEYS}, M3_M8_TYPE_KEYS)
+        self.assertEqual(
+            {key: property_keys[key] for key in M3_M8_PROPERTY_KEYS},
+            M3_M8_PROPERTY_KEYS,
+        )
+        self.assertTrue(
+            all(2000 <= type_keys[key] <= 2999 for key in ["animationClip", "boneTimeline", "slotTimeline"])
+        )
+        self.assertTrue(
+            all(7000 <= type_keys[key] <= 7999 for key in M3_M8_TYPE_KEYS if key.startswith("stateMachine"))
+        )
+        m3_property_ids = {
+            "boneIndex",
+            "boneTimelineKind",
+            "slotIndex",
+            "slotTimelineKind",
+            "timelineKeys",
+        }
+        self.assertTrue(all(2000 <= property_keys[key] <= 2999 for key in m3_property_ids))
+        self.assertTrue(
+            all(7000 <= property_keys[key] <= 7999 for key in M3_M8_PROPERTY_KEYS if key not in m3_property_ids)
+        )
+
+    def test_project_m3_m8_registry_entries_are_append_only(self) -> None:
+        registry, _ = self.project_sources()
+
+        type_ids = [entry["id"] for entry in registry["typeKeys"]]
+        property_ids = [entry["id"] for entry in registry["propertyKeys"]]
+        object_ids = [entry["type"] for entry in registry["objects"]]
+
+        self.assertEqual(type_ids[-len(M3_M8_OBJECTS):], M3_M8_OBJECTS)
+        self.assertEqual(
+            property_ids[-len(M3_M8_PROPERTY_KEYS):],
+            list(M3_M8_PROPERTY_KEYS.keys()),
+        )
+        self.assertEqual(object_ids[-len(M3_M8_OBJECTS):], M3_M8_OBJECTS)
+
+    def test_project_m3_m8_defaults_cover_every_property_once(self) -> None:
+        registry, defaults = self.project_sources()
+        generate.validate_sources(registry, defaults)
+
+        object_properties = {entry["type"]: set(entry["properties"]) for entry in registry["objects"]}
+        defaulted = {
+            entry["object"]: set((entry.get("properties") or {}).keys())
+            for entry in defaults["objectDefaults"]
+        }
+        required: dict[str, set[str]] = {}
+        for entry in defaults["requiredProperties"]:
+            required.setdefault(entry["object"], set()).add(entry["property"])
+
+        for object_id in M3_M8_OBJECTS:
+            default_set = defaulted.get(object_id, set())
+            required_set = required.get(object_id, set())
+            self.assertFalse(default_set & required_set, object_id)
+            self.assertEqual(default_set | required_set, object_properties[object_id], object_id)
+
+    def test_project_generated_runtime_metadata_exposes_m3_m8_entries(self) -> None:
+        registry, defaults = self.project_sources()
+
+        nim = generate.generate_nim(registry, defaults)
+        dart = generate.generate_dart(registry, defaults)
+
+        for object_id, key in M3_M8_TYPE_KEYS.items():
+            self.assertIn(f'id: "{object_id}", key: {key}.uint64', nim)
+            self.assertIn(f"id: '{object_id}', key: {key}", dart)
+        for property_id, key in M3_M8_PROPERTY_KEYS.items():
+            self.assertIn(f'id: "{property_id}", key: {key}.uint64', nim)
+            self.assertIn(f"id: '{property_id}', key: {key}", dart)
+
+    def test_project_schema_root_orders_animations_before_state_machines(self) -> None:
+        registry, defaults = self.project_sources()
+
+        schema = json.loads(generate.generate_schema(registry, defaults))
+        root_keys = list(schema["properties"].keys())
+
+        self.assertLess(root_keys.index("animations"), root_keys.index("stateMachines"))
+        self.assertNotIn("animationClips", root_keys)
+        self.assertNotIn("stateMachineInputs", root_keys)
+        self.assertIn("animationClips", json.loads(generate.generate_wire_schema(registry, defaults))["properties"])
+
+    def test_project_conformance_assets_validate_against_generated_schema(self) -> None:
+        try:
+            import jsonschema
+        except ModuleNotFoundError:
+            self.skipTest("jsonschema is not installed")
+
+        registry, defaults = self.project_sources()
+        schema = json.loads(generate.generate_schema(registry, defaults))
+        validator = jsonschema.Draft202012Validator(schema)
+
+        asset_paths = sorted((generate.ROOT / "conformance" / "assets").glob("*.bony"))
+        self.assertGreater(len(asset_paths), 0)
+        for path in asset_paths:
+            with self.subTest(path=path.name):
+                validator.validate(json.loads(path.read_text(encoding="utf-8")))
 
     def test_apply_on_load_false_default_is_not_schema_default(self) -> None:
         registry = sample_registry()
