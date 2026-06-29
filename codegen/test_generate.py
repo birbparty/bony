@@ -119,6 +119,16 @@ class GeneratorValidationTests(unittest.TestCase):
         self.assertIn("allOf", schema["$defs"]["bone"])
         self.assertEqual(schema["required"], ["skeleton", "bones"])
 
+    def test_apply_on_load_false_default_is_not_schema_default(self) -> None:
+        registry = sample_registry()
+        defaults = sample_defaults()
+        defaults["objectDefaults"][0]["properties"]["visible"]["applyOnLoad"] = False
+
+        generate.validate_sources(registry, defaults)
+
+        schema = json.loads(generate.generate_schema(registry, defaults))
+        self.assertNotIn("default", schema["$defs"]["bone"]["properties"]["visible"])
+
     def test_invalid_default_type_is_rejected(self) -> None:
         registry = sample_registry()
         defaults = sample_defaults()

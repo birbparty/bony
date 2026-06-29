@@ -907,12 +907,10 @@
           "minimum": 0
         },
         "inputDefaultBool": {
-          "type": "boolean",
-          "default": false
+          "type": "boolean"
         },
         "inputDefaultNumber": {
-          "type": "number",
-          "default": 0.0
+          "type": "number"
         }
       },
       "required": [
@@ -952,17 +950,14 @@
         },
         "stateClipIndex": {
           "type": "integer",
-          "minimum": 0,
-          "default": 0
+          "minimum": 0
         },
         "stateLoop": {
-          "type": "boolean",
-          "default": false
+          "type": "boolean"
         },
         "stateBlendInputIndex": {
           "type": "integer",
-          "minimum": 0,
-          "default": 0
+          "minimum": 0
         }
       },
       "required": [
@@ -1022,12 +1017,10 @@
           "minimum": 0
         },
         "conditionBoolValue": {
-          "type": "boolean",
-          "default": true
+          "type": "boolean"
         },
         "conditionNumberValue": {
-          "type": "number",
-          "default": 0.0
+          "type": "number"
         }
       },
       "required": [
@@ -1053,13 +1046,11 @@
         },
         "listenerFromStateIndex": {
           "type": "integer",
-          "minimum": 0,
-          "default": 0
+          "minimum": 0
         },
         "listenerToStateIndex": {
           "type": "integer",
-          "minimum": 0,
-          "default": 0
+          "minimum": 0
         }
       },
       "required": [

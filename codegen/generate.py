@@ -278,9 +278,6 @@ def validate_sources(registry: dict[str, Any], defaults: dict[str, Any]) -> None
                 default.get("equality"),
                 equality_modes,
             )
-            if omit_when_default is True and apply_on_load is not True:
-                raise SourceError(f"default {object_id}.{property_id} omits without applyOnLoad")
-
     required_by_object: dict[str, set[str]] = {}
     for entry in require_list(defaults, "requiredProperties"):
         object_id = required(entry, "object", "requiredProperties entry")
@@ -451,7 +448,8 @@ def generate_schema(registry: dict[str, Any], defaults: dict[str, Any]) -> str:
         properties: dict[str, Any] = {}
         for property_id in entry["properties"]:
             property_schema = schema_for_property(property_id, property_backing[property_id])
-            if property_id in default_map.get(object_id, {}):
+            default_entry = default_map.get(object_id, {}).get(property_id)
+            if default_entry is not None and default_entry["applyOnLoad"] is True:
                 property_schema["default"] = default_map[object_id][property_id]["value"]
             properties[property_id] = property_schema
         definitions[object_id] = {

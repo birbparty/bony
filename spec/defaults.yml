@@ -61,7 +61,7 @@ validationRules:
   - every property key in objectDefaults.properties must exist in registry/wire.yml propertyKeys
   - every defaulted property must be valid for the owning object
   - every default value must match the property's registry backing type and JSON schema type
-  - omitWhenDefault true requires applyOnLoad true
+  - omitWhenDefault and applyOnLoad may differ when raw field presence must survive loader validation
   - every object property must appear exactly once in either objectDefaults.properties or requiredProperties
   - requiredProperties entries must reference properties valid for the owning object
   - changing an existing default requires the owner bead to update conformance expectations
@@ -254,13 +254,13 @@ objectDefaults:
       inputDefaultBool:
         value: false
         omitWhenDefault: true
-        applyOnLoad: true
-        doc: Bool input default is omitted when false; loader validation rejects inactive default fields before default application.
+        applyOnLoad: false
+        doc: Bool input default is omitted when false; loaders validate input kind and raw presence before applying active-kind defaults.
       inputDefaultNumber:
         value: 0.0
         omitWhenDefault: true
-        applyOnLoad: true
-        doc: Number input default is omitted when zero; loader validation rejects inactive default fields before default application.
+        applyOnLoad: false
+        doc: Number input default is omitted when zero; loaders validate input kind and raw presence before applying active-kind defaults.
   - object: stateMachineLayer
     ownerBead: bony-cl8.9
     properties:
@@ -275,18 +275,18 @@ objectDefaults:
       stateClipIndex:
         value: 0
         omitWhenDefault: true
-        applyOnLoad: true
-        doc: Clip state animation index default; loader validation owns state-kind-specific presence.
+        applyOnLoad: false
+        doc: Clip state animation index can be omitted when zero, but loaders must validate state-kind-specific presence from the raw record.
       stateLoop:
         value: false
         omitWhenDefault: true
-        applyOnLoad: true
-        doc: Direct clip state loop defaults to false.
+        applyOnLoad: false
+        doc: Direct clip state loop can be omitted when false, but loaders must not synthesize it before state-kind validation.
       stateBlendInputIndex:
         value: 0
         omitWhenDefault: true
-        applyOnLoad: true
-        doc: Blend state input index default; loader validation owns state-kind-specific presence.
+        applyOnLoad: false
+        doc: Blend state input index can be omitted when zero, but loaders must validate state-kind-specific presence from the raw record.
   - object: stateMachineBlendClip
     ownerBead: bony-cl8.9
     properties:
@@ -304,26 +304,26 @@ objectDefaults:
       conditionBoolValue:
         value: true
         omitWhenDefault: true
-        applyOnLoad: true
-        doc: Bool-equals condition value defaults to true; loader validation owns condition-kind-specific presence.
+        applyOnLoad: false
+        doc: Bool-equals condition value can be omitted when true, but loaders must validate condition-kind-specific presence from the raw record.
       conditionNumberValue:
         value: 0.0
         omitWhenDefault: true
-        applyOnLoad: true
-        doc: Numeric condition value default; loader validation owns condition-kind-specific presence.
+        applyOnLoad: false
+        doc: Numeric condition value can be omitted when zero, but loaders must validate condition-kind-specific presence from the raw record.
   - object: stateMachineListener
     ownerBead: bony-cl8.9
     properties:
       listenerFromStateIndex:
         value: 0
         omitWhenDefault: true
-        applyOnLoad: true
-        doc: Listener source state default; loader validation owns listener-kind-specific presence.
+        applyOnLoad: false
+        doc: Listener source state index can be omitted when zero, but loaders must validate listener-kind-specific presence from the raw record.
       listenerToStateIndex:
         value: 0
         omitWhenDefault: true
-        applyOnLoad: true
-        doc: Listener target state default; loader validation owns listener-kind-specific presence.
+        applyOnLoad: false
+        doc: Listener target state index can be omitted when zero, but loaders must validate listener-kind-specific presence from the raw record.
 
 requiredProperties:
   - object: skeleton
