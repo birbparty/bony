@@ -42,6 +42,7 @@ the milestone-to-key-range table.
 | [binary-toc-skip-semantics.md](binary-toc-skip-semantics.md) | `.bnb` table-of-contents skip rule for composite values (arrays of structs) |
 | [binary-animation-state-machine-object-families.md](binary-animation-state-machine-object-families.md) | Project-owned `.bnb` object-family decision for current animation and state-machine features |
 | [binary-animation-state-machine-reference-semantics.md](binary-animation-state-machine-reference-semantics.md) | Binary index/reference domains for loading animation and state-machine records into the project semantic graph |
+| [animation-state-machine-validation-ownership.md](animation-state-machine-validation-ownership.md) | Ownership matrix for animation/state-machine schema, decoding, loader validation, and runtime constructor checks |
 | [nim-loaded-asset-shape.md](nim-loaded-asset-shape.md) | Nim aggregate loaded-asset shape for preserving animation/state-machine data while keeping `SkeletonData` APIs static |
 | [header-hash-bounds.md](header-hash-bounds.md) | v1 decision for `SkeletonData.header.hash` and `header.bounds` |
 
