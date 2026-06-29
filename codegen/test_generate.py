@@ -129,6 +129,18 @@ class GeneratorValidationTests(unittest.TestCase):
         schema = json.loads(generate.generate_schema(registry, defaults))
         self.assertNotIn("default", schema["$defs"]["bone"]["properties"]["visible"])
 
+    def test_project_schema_marks_timeline_keys_as_packed_bytes(self) -> None:
+        registry = generate.load_yaml_subset(generate.ROOT / "registry" / "wire.yml")
+        defaults = generate.load_yaml_subset(generate.ROOT / "spec" / "defaults.yml")
+
+        schema = json.loads(generate.generate_schema(registry, defaults))
+        timeline_keys = schema["$defs"]["boneTimeline"]["properties"]["timelineKeys"]
+
+        self.assertEqual(timeline_keys["contentEncoding"], "base64")
+        self.assertEqual(timeline_keys["x-bony-packedBytes"]["payload"], "animationTimelineKeys")
+        self.assertEqual(timeline_keys["x-bony-packedBytes"]["structuralSchema"], "base64Only")
+        self.assertEqual(timeline_keys["x-bony-packedBytes"]["validatedBy"], "loader")
+
     def test_invalid_default_type_is_rejected(self) -> None:
         registry = sample_registry()
         defaults = sample_defaults()

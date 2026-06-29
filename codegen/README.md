@@ -28,3 +28,13 @@ same generator then emits the matching runtime metadata and schema from those
 source files. Runtime outputs include backing type, type key, property key,
 object membership, default-table, required-property, and generated encode/decode
 dispatch surfaces.
+
+## Packed Bytes
+
+Generated JSON Schema maps `bytes` properties to base64 strings. Some bytes
+properties carry packed binary subformats that cannot be expressed structurally
+without duplicating loader logic. For those properties, codegen may add a
+`x-bony-packedBytes` annotation that names the payload contract and the document
+that owns the byte layout. The schema still validates only the base64 carrier;
+loaders validate payload length, kind-specific shape, numeric domains, and
+reference resolution.
