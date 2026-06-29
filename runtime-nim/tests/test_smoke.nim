@@ -96,8 +96,8 @@ spec "bony package":
       bonyBackingTypes.len == 8
       bonyBackingTypes[0].id == "varuint"
       bonyTypeKeys.len == 23
-      bonyPropertyKeys.len == 79
-      bonyPropertyDefaults.len == 34
+      bonyPropertyKeys.len == 82
+      bonyPropertyDefaults.len == 37
       bonyRequiredProperties.len == 59
 
   it "encodes and rejects .bnb varints canonically":
@@ -1335,6 +1335,98 @@ spec "bony package":
       raisesBonyLoadError(proc() =
         discard applyPathPositionConstraint(pathPoint(0.0, 0.0), curve, 0.0, 1.1)
       , schemaViolation)
+
+  it "evaluates runtime-enabled path constraints in world transforms":
+    let path = pathAttachmentData(
+      "line",
+      0.0, 0.0,
+      3.3333333333333335, 0.0,
+      6.666666666666667, 0.0,
+      10.0, 0.0,
+    )
+    let base = skeletonData(
+      skeletonHeader("paths", "0.1.0"),
+      @[
+        boneData("root", ""),
+        boneData("follower", "root", localTransform(x = 2.0, y = 3.0, rotation = 90.0)),
+      ],
+      pathAttachments = @[path],
+      paths = @[pathConstraintData("follow", "follower", "root", "line")],
+    )
+    let runtime = skeletonData(
+      skeletonHeader("paths", "0.1.0"),
+      @[
+        boneData("root", ""),
+        boneData("follower", "root", localTransform(x = 2.0, y = 3.0, rotation = 90.0)),
+      ],
+      pathAttachments = @[path],
+      paths = @[
+        pathConstraintData(
+          "follow", "follower", "root", "line",
+          hasPosition = true,
+          position = 1.0,
+          hasTranslateMix = true,
+          translateMix = 1.0,
+          hasRotateMix = true,
+          rotateMix = 0.5,
+        ),
+      ],
+    )
+    let baseWorlds = computeWorldTransforms(base)
+    let runtimeWorlds = computeWorldTransforms(runtime)
+
+    then:
+      closeTo(baseWorlds[1].tx, 2.0)
+      closeTo(baseWorlds[1].ty, 3.0)
+      closeTo(runtimeWorlds[1].tx, 10.0)
+      closeTo(runtimeWorlds[1].ty, 0.0)
+      closeTo(arctan2(runtimeWorlds[1].b, runtimeWorlds[1].a) * 180.0 / PI, 45.0)
+
+  it "rejects runtime path constraints with singular active parent conversion":
+    let path = pathAttachmentData("line", 0.0, 0.0, 3.0, 0.0, 6.0, 0.0, 9.0, 0.0)
+    let data = skeletonData(
+      skeletonHeader("paths", "0.1.0"),
+      @[
+        boneData("root", "", localTransform(scaleX = 0.0)),
+        boneData("follower", "root"),
+      ],
+      pathAttachments = @[path],
+      paths = @[
+        pathConstraintData("follow", "follower", "root", "line", hasPosition = true, position = 0.5),
+      ],
+    )
+
+    then:
+      raisesBonyLoadError(proc() = discard computeWorldTransforms(data), schemaViolation)
+
+  it "emits runtime path targets before later target-writing constraints":
+    let path = pathAttachmentData(
+      "line",
+      0.0, 0.0,
+      3.3333333333333335, 0.0,
+      6.666666666666667, 0.0,
+      10.0, 0.0,
+    )
+    let data = skeletonData(
+      skeletonHeader("paths", "0.1.0"),
+      @[
+        boneData("root", ""),
+        boneData("target", "root", localTransform(x = 5.0)),
+        boneData("follower", "root"),
+      ],
+      pathAttachments = @[path],
+      paths = @[
+        pathConstraintData("follower_follow", "follower", "target", "line", hasPosition = true, position = 1.0),
+        pathConstraintData("target_follow", "target", "root", "line", order = 1, hasPosition = true, position = 1.0),
+      ],
+    )
+    let worlds = computeWorldTransforms(data)
+
+    then:
+      closeTo(worlds[2].tx, 15.0)
+      closeTo(worlds[2].ty, 0.0)
+      closeTo(worlds[1].tx, 10.0)
+      closeTo(worlds[1].ty, 0.0)
 
   it "integrates physics constraints with fixed substeps and reset policy":
     let params = physicsParams(gravity = 60.0)

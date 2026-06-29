@@ -432,13 +432,19 @@ proc loadBonyJson*(text: string): SkeletonData =
     for index, pathNode in pathsNode.elems:
       let context = "paths[" & $index & "]"
       let pathObject = requireObject(pathNode, context)
-      validateKnownKeys(pathObject, ["name", "bone", "target", "path", "order"], context)
+      validateKnownKeys(pathObject, ["name", "bone", "target", "path", "order", "position", "translateMix", "rotateMix"], context)
       loadedPaths.add pathConstraintData(
         requiredString(pathObject, "name", context),
         requiredString(pathObject, "bone", context),
         requiredString(pathObject, "target", context),
         requiredString(pathObject, "path", context),
         optionalInt(pathObject, "order", defaultInt(pathTypeId, "order"), context),
+        hasPosition = pathObject.hasKey("position"),
+        position = optionalFloat(pathObject, "position", defaultFloat(pathTypeId, "position"), context),
+        hasTranslateMix = pathObject.hasKey("translateMix"),
+        translateMix = optionalFloat(pathObject, "translateMix", defaultFloat(pathTypeId, "translateMix"), context),
+        hasRotateMix = pathObject.hasKey("rotateMix"),
+        rotateMix = optionalFloat(pathObject, "rotateMix", defaultFloat(pathTypeId, "rotateMix"), context),
       )
 
   var loadedParameters: seq[ParameterAxis] = @[]
@@ -1060,6 +1066,12 @@ proc toBonyJson*(data: SkeletonData): string =
       result.addStringField("path", path.path, 3, first)
       if path.order != defaultInt(pathTypeId, "order"):
         result.addIntField("order", path.order, 3, first)
+      if path.hasPosition:
+        result.addNumberField("position", path.position, 3, first)
+      if path.hasTranslateMix:
+        result.addNumberField("translateMix", path.translateMix, 3, first)
+      if path.hasRotateMix:
+        result.addNumberField("rotateMix", path.rotateMix, 3, first)
       result.add "\n"
       result.addIndent(2)
       result.add "}"

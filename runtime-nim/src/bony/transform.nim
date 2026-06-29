@@ -2,6 +2,8 @@
 
 import std/[math, tables]
 
+import bony/constraints/path_constraints
+import bony/constraints/update_cache
 import bony/model
 
 const basisEpsilon = 1e-12
@@ -109,7 +111,50 @@ proc worldForBone(parent: Affine2; bone: BoneData; hasParent: bool): Affine2 =
   affine(worldLinear, tx, ty)
 
 
+proc pathByName(data: SkeletonData): Table[string, PathAttachmentData]
+proc boneIndexes(data: SkeletonData): Table[string, int]
+proc applyRuntimePathConstraint(
+  data: SkeletonData;
+  path: PathConstraintData;
+  locals: var seq[LocalTransform];
+  worlds: var seq[Affine2];
+  computed: var seq[bool];
+  indexes: Table[string, int];
+  attachments: Table[string, PathAttachmentData];
+)
+
+
 proc computeWorldTransforms*(data: SkeletonData): seq[Affine2] =
+  var hasRuntimePaths = false
+  for path in data.paths:
+    if path.runtimeEvaluable:
+      hasRuntimePaths = true
+      break
+  if hasRuntimePaths:
+    let indexes = data.boneIndexes()
+    let attachments = data.pathByName()
+    let cache = buildPathConstraintUpdateCache(data)
+    var locals: seq[LocalTransform]
+    for bone in data.bones:
+      locals.add bone.local
+    result = newSeq[Affine2](data.bones.len)
+    var computed = newSeq[bool](data.bones.len)
+    for entry in cache:
+      case entry.kind
+      of ccekBoneGroup:
+        for index in entry.bones:
+          let bone = data.bones[index]
+          if bone.parent.len == 0:
+            result[index] = worldForBone(Affine2(a: 1.0, d: 1.0), boneData(bone.name, "", locals[index]), false)
+          else:
+            let parentIndex = indexes[bone.parent]
+            result[index] = worldForBone(result[parentIndex], boneData(bone.name, bone.parent, locals[index]), true)
+          computed[index] = true
+      of ccekConstraint:
+        let path = data.paths[entry.constraint.sourceIndex]
+        data.applyRuntimePathConstraint(path, locals, result, computed, indexes, attachments)
+    return
+
   var byName = initTable[string, int]()
   let bones = data.bones
   result = newSeq[Affine2](bones.len)
@@ -127,6 +172,156 @@ proc transformPoint(world: Affine2; x, y: float64): tuple[x: float64, y: float64
     x: world.a * x + world.c * y + world.tx,
     y: world.b * x + world.d * y + world.ty,
   )
+
+
+proc transformVector(world: Affine2; x, y: float64): tuple[x: float64, y: float64] =
+  (
+    x: world.a * x + world.c * y,
+    y: world.b * x + world.d * y,
+  )
+
+
+proc inverseAffine(world: Affine2): tuple[ok: bool; inverse: Affine2] =
+  let det = world.a * world.d - world.b * world.c
+  if abs(det) <= basisEpsilon:
+    return (false, Affine2())
+  let invA = world.d / det
+  let invB = -world.b / det
+  let invC = -world.c / det
+  let invD = world.a / det
+  (
+    true,
+    Affine2(
+      a: invA,
+      b: invB,
+      c: invC,
+      d: invD,
+      tx: -(invA * world.tx + invC * world.ty),
+      ty: -(invB * world.tx + invD * world.ty),
+    ),
+  )
+
+
+proc shortestAngleDelta(fromAngle, toAngle: float64): float64 =
+  var delta = (toAngle - fromAngle) mod 360.0
+  if delta > 180.0:
+    delta -= 360.0
+  elif delta < -180.0:
+    delta += 360.0
+  delta
+
+
+proc pathByName(data: SkeletonData): Table[string, PathAttachmentData] =
+  result = initTable[string, PathAttachmentData]()
+  for attachment in data.pathAttachments:
+    result[attachment.name] = attachment
+
+
+proc boneIndexes(data: SkeletonData): Table[string, int] =
+  result = initTable[string, int]()
+  for index, bone in data.bones:
+    result[bone.name] = index
+
+
+proc pathCubicInWorld(attachment: PathAttachmentData; targetWorld: Affine2): PathCubic =
+  let p0 = transformPoint(targetWorld, attachment.p0x, attachment.p0y)
+  let p1 = transformPoint(targetWorld, attachment.p1x, attachment.p1y)
+  let p2 = transformPoint(targetWorld, attachment.p2x, attachment.p2y)
+  let p3 = transformPoint(targetWorld, attachment.p3x, attachment.p3y)
+  pathCubic(
+    pathPoint(p0.x, p0.y),
+    pathPoint(p1.x, p1.y),
+    pathPoint(p2.x, p2.y),
+    pathPoint(p3.x, p3.y),
+  )
+
+
+proc pathPosition(path: PathConstraintData): float64 =
+  if path.hasPosition: path.position else: 0.0
+
+
+proc pathTranslateMix(path: PathConstraintData): float64 =
+  if path.hasTranslateMix: path.translateMix else: 1.0
+
+
+proc pathRotateMix(path: PathConstraintData): float64 =
+  if path.hasRotateMix: path.rotateMix else: 0.0
+
+
+proc applyRuntimePathConstraint(
+  data: SkeletonData;
+  path: PathConstraintData;
+  locals: var seq[LocalTransform];
+  worlds: var seq[Affine2];
+  computed: var seq[bool];
+  indexes: Table[string, int];
+  attachments: Table[string, PathAttachmentData];
+) =
+  if not path.runtimeEvaluable:
+    return
+
+  let boneIndex = indexes[path.bone]
+  let targetIndex = indexes[path.target]
+  if not computed[targetIndex]:
+    raise newBonyLoadError(orderingViolation, "runtime path target must be emitted before constraint: " & path.name)
+
+  let parent = data.bones[boneIndex].parent
+  let hasParent = parent.len > 0
+  var parentWorld = Affine2(a: 1.0, d: 1.0)
+  if hasParent:
+    let parentIndex = indexes[parent]
+    if not computed[parentIndex]:
+      raise newBonyLoadError(orderingViolation, "runtime path parent must be emitted before constraint: " & path.name)
+    parentWorld = worlds[parentIndex]
+
+  let translateMix = path.pathTranslateMix()
+  let rotateMix = path.pathRotateMix()
+  let inverse = inverseAffine(parentWorld)
+  if (translateMix > 0.0 or rotateMix > 0.0) and not inverse.ok:
+    raise newBonyLoadError(schemaViolation, "runtime path parent transform is singular: " & path.name)
+
+  let curve = pathCubicInWorld(attachments[path.path], worlds[targetIndex])
+  let table = buildPathArcLengthTable(curve)
+  let sample = samplePathByDistance(curve, path.pathPosition() * table.totalLength)
+  var local = locals[boneIndex]
+
+  if translateMix > 0.0:
+    let sampledLocal = transformPoint(inverse.inverse, sample.position.x, sample.position.y)
+    local = localTransform(
+      x = local.x + (sampledLocal.x - local.x) * translateMix,
+      y = local.y + (sampledLocal.y - local.y) * translateMix,
+      rotation = local.rotation,
+      scaleX = local.scaleX,
+      scaleY = local.scaleY,
+      shearX = local.shearX,
+      shearY = local.shearY,
+      inheritRotation = local.inheritRotation,
+      inheritScale = local.inheritScale,
+      inheritReflection = local.inheritReflection,
+      transformMode = local.transformMode,
+    )
+
+  if rotateMix > 0.0:
+    let tangentAngleRadians = degToRad(sample.tangentAngle)
+    let tangentLocal = transformVector(inverse.inverse, cos(tangentAngleRadians), sin(tangentAngleRadians))
+    let targetRotation = tangentAngle(pathPoint(tangentLocal.x, tangentLocal.y), local.rotation)
+    local = localTransform(
+      x = local.x,
+      y = local.y,
+      rotation = local.rotation + shortestAngleDelta(local.rotation, targetRotation) * rotateMix,
+      scaleX = local.scaleX,
+      scaleY = local.scaleY,
+      shearX = local.shearX,
+      shearY = local.shearY,
+      inheritRotation = local.inheritRotation,
+      inheritScale = local.inheritScale,
+      inheritReflection = local.inheritReflection,
+      transformMode = local.transformMode,
+    )
+
+  locals[boneIndex] = local
+  worlds[boneIndex] = worldForBone(parentWorld, boneData(data.bones[boneIndex].name, parent, local), hasParent)
+  computed[boneIndex] = true
 
 
 proc vertex(world: Affine2; x, y, u, v: float64): DrawVertex =

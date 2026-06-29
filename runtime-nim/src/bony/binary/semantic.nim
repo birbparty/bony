@@ -45,6 +45,9 @@ const
   p2yKey = 4008'u64
   p3xKey = 4009'u64
   p3yKey = 4010'u64
+  positionKey = 4011'u64
+  translateMixKey = 4012'u64
+  rotateMixKey = 4013'u64
 
   parameterTypeKey = 6000'u64
   deformerTypeKey = 6001'u64
@@ -529,6 +532,9 @@ proc buildObjectRecords(data: SkeletonData; table: var BnbStringTable; toc: var 
     properties.addStringIfNeeded(toc, table, targetKey, path.target, "", required = true)
     properties.addStringIfNeeded(toc, table, pathKey, path.path, "", required = true)
     properties.addIntIfNeeded(toc, orderKey, path.order, defaultInt("path", "order"))
+    properties.addFloatIfNeeded(toc, positionKey, path.position, defaultFloat("path", "position"), required = path.hasPosition)
+    properties.addFloatIfNeeded(toc, translateMixKey, path.translateMix, defaultFloat("path", "translateMix"), required = path.hasTranslateMix)
+    properties.addFloatIfNeeded(toc, rotateMixKey, path.rotateMix, defaultFloat("path", "rotateMix"), required = path.hasRotateMix)
     result.add BnbObjectRecord(typeKey: pathTypeKey, properties: properties)
 
   for param in data.parameters:
@@ -774,13 +780,19 @@ proc decodeSkeletonObjects(objects: openArray[BnbObjectRecord]; strings: BnbStri
       )
     of pathTypeKey:
       flushPendingIfAny()
-      let properties = record.propertyMap([nameKey, boneKey, targetKey, pathKey, orderKey])
+      let properties = record.propertyMap([nameKey, boneKey, targetKey, pathKey, orderKey, positionKey, translateMixKey, rotateMixKey])
       paths.add pathConstraintData(
         properties.readStringProperty(strings, nameKey, "path.name"),
         properties.readStringProperty(strings, boneKey, "path.bone"),
         properties.readStringProperty(strings, targetKey, "path.target"),
         properties.readStringProperty(strings, pathKey, "path.path"),
         properties.readOptionalIntProperty(orderKey, defaultInt("path", "order"), "path.order"),
+        hasPosition = positionKey in properties,
+        position = properties.readOptionalFloatProperty(positionKey, defaultFloat("path", "position"), "path.position"),
+        hasTranslateMix = translateMixKey in properties,
+        translateMix = properties.readOptionalFloatProperty(translateMixKey, defaultFloat("path", "translateMix"), "path.translateMix"),
+        hasRotateMix = rotateMixKey in properties,
+        rotateMix = properties.readOptionalFloatProperty(rotateMixKey, defaultFloat("path", "rotateMix"), "path.rotateMix"),
       )
     of parameterTypeKey:
       flushPendingIfAny()
