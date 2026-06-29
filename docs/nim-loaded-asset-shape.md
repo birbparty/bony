@@ -88,14 +88,16 @@ round-trip tools a lossless asset-level path.
 `loadBonyJsonAsset` should parse the same source once into:
 
 - `skeleton`: the result of the existing static JSON load path.
-- `animations`: the animation clips currently returned by
-  `loadBonyJsonAnimations`, preserving source order rather than table iteration
-  order.
+- `animations`: an ordered `seq[AnimationClip]` collected directly from the
+  source JSON `animations` array order.
 - `stateMachines`: the machines currently returned by
   `loadBonyJsonStateMachines`, preserving source order.
 
-The implementation may share parser internals with existing `jsonio.nim`, but
-the observable aggregate behavior must be:
+The implementation may share parser internals with existing `jsonio.nim`, but it
+must not derive aggregate animation order by iterating the current
+`loadBonyJsonAnimations` table result. It may build a temporary name lookup from
+the ordered animation sequence for state-machine clip reference validation. The
+observable aggregate behavior must be:
 
 ```text
 loadBonyJsonAsset(.bony).skeleton == loadBonyJson(.bony)
@@ -106,8 +108,10 @@ loadBonyJsonAsset(.bony).stateMachines == parsed state machines in source order
 `toBonyJson(BonyAsset)` should emit the existing static JSON fields plus
 `animations` and `stateMachines` when the corresponding sequences are non-empty.
 It should continue using canonical static `toBonyJson(SkeletonData)` rules for
-setup/deformer fields, then append aggregate-owned fields using the canonical
-ordering chosen by the binary/JSON contract follow-up.
+setup/deformer fields, while emitting one top-level object in canonical schema
+order. Aggregate-owned fields such as `animations` and `stateMachines` must be
+placed at their canonical top-level positions rather than appended to an already
+complete static JSON string.
 
 ## Binary Preservation
 
@@ -128,9 +132,12 @@ references after static objects and animation clips are known:
   owning machine scopes.
 
 Existing `loadBonyBnb` / `loadKnownBonyBnb` can remain static-data APIs. Once
-animation/state-machine records exist, they may internally call
-`loadBonyBnbAsset(input).skeleton` or continue using a static-only decoder, but
-their return value must remain `SkeletonData` for compatibility.
+animation/state-machine records exist, they may share static-object decoding with
+`loadBonyBnbAsset` or continue using a static-only decoder, but their observable
+behavior must remain setup/deformer-only. Static binary APIs must not require
+animation/state-machine semantic validity and must not fail solely because
+aggregate-only records contain invalid animation or state-machine references.
+Their return value must remain `SkeletonData` for compatibility.
 
 ## Conversion Path
 
