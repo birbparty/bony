@@ -11,10 +11,10 @@ The current Nim CLI entry point is `cli/bony_cli.nim`.
 nim c -o:bony --path:runtime-nim/src cli/bony_cli.nim
 ./bony json-to-bnb input.bony output.bnb
 ./bony bnb-to-json input.bnb output.bony
-./bony golden-gen input.bony output.numeric.json --t 0.5
+./bony golden-gen input.bony output.numeric.json --t 0
 ./bony golden-gen input.bony output.numeric.json \
   --state-machine gesture --input-script script.json --sample wave_on
-./bony play input.bony --t 0.5 --out frame.png --width 256 --height 256
+./bony play input.bony --t 0 --out frame.png --width 256 --height 256
 ./bony play input.bony --state-machine gesture --input-script script.json --out story.png
 ```
 
