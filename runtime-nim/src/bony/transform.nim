@@ -134,17 +134,17 @@ proc applyRuntimeIk(
 
 
 proc computeWorldTransforms*(data: SkeletonData): seq[Affine2] =
-  var hasRuntimePaths = false
+  var hasRuntimeConstraints = false
   for path in data.paths:
     if path.runtimeEvaluable:
-      hasRuntimePaths = true
+      hasRuntimeConstraints = true
       break
-  if not hasRuntimePaths:
+  if not hasRuntimeConstraints:
     for ik in data.ikConstraints:
       if ik.runtimeEvaluable:
-        hasRuntimePaths = true
+        hasRuntimeConstraints = true
         break
-  if hasRuntimePaths:
+  if hasRuntimeConstraints:
     let indexes = data.boneIndexes()
     let attachments = data.pathByName()
     let cache = buildRuntimeConstraintUpdateCache(data)
@@ -403,6 +403,13 @@ proc applyRuntimeIk(
   ## solveTwoBoneIk's child is RELATIVE to its parent — but the unified
   ## absolute-angle write-back below normalizes that (the child's absolute angle
   ## is parentRotation + childRotation).
+  ##
+  ## Known limitations (per the M5 contract, tracked separately):
+  ## - The chain anchors at the REST-pose origin, so a rig whose chain root has a
+  ##   moved (animated) parent aims from the rest anchor rather than the live one.
+  ## - A chain whose root's external parent is written by a LATER-ordered
+  ##   constraint raises an orderingViolation rather than reading a pre-constraint
+  ##   world — the same ordering model as applyRuntimePathConstraint.
   if not ik.runtimeEvaluable:
     return
 
@@ -488,7 +495,10 @@ proc applyRuntimeIk(
         parentWorld = worlds[chainIndexes[i - 1]]
       else:
         parentWorld = worlds[indexes[parent]]
-    let parentRotation = if hasParent: worldRotationDegrees(parentWorld) else: 0.0
+    # A bone that does not inherit its parent's rotation has world rotation equal
+    # to its own local rotation, so no parent angle is subtracted in that case.
+    let inheritsRotation = locals[boneIndex].inheritRotation
+    let parentRotation = if hasParent and inheritsRotation: worldRotationDegrees(parentWorld) else: 0.0
     let newLocal = withRotation(locals[boneIndex], solvedWorldAngles[i] - parentRotation)
     locals[boneIndex] = newLocal
     worlds[boneIndex] = worldForBone(parentWorld, boneData(data.bones[boneIndex].name, parent, newLocal), hasParent)
