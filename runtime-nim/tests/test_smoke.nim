@@ -41,6 +41,10 @@ proc closeTo(actual, expected: float64): bool =
 proc closeWithin(actual, expected, tolerance: float64): bool =
   abs(actual - expected) <= tolerance
 
+proc ikWorldRot(w: Affine2): float64 =
+  ## World rotation (degrees) of an affine basis, for IK integration assertions.
+  radToDeg(arctan2(w.b, w.a))
+
 proc runProcess(binary: string; args: openArray[string]): tuple[output: string; exitCode: int] =
   let process = startProcess(binary, args = args, options = {poStdErrToStdOut})
   let output = process.outputStream.readAll()
@@ -1142,6 +1146,106 @@ spec "bony package":
       raisesBonyLoadError(proc() =
         discard solveChainIk(@[IkPoint(x: NaN, y: 0.0), ikPoint(1.0, 0.0)], @[1.0], ikPoint(1.0, 0.0))
       , numericOutOfRange)
+
+  it "evaluates one-bone IK reach and mix interpolation in the pose pass":
+    # b0 pivots at (10,0); goal sits straight above at (10,20) -> world rot 90.
+    proc oneBoneRig(m: float64; hasMix: bool): seq[Affine2] =
+      let data = skeletonData(
+        skeletonHeader("one", "1.0.0"),
+        @[
+          boneData("root", ""),
+          boneData("b0", "root", localTransform(x = 10.0, y = 0.0)),
+          boneData("goal", "root", localTransform(x = 10.0, y = 20.0)),
+        ],
+        ikConstraints = @[ikConstraintData("ik", "goal", @["b0"], hasMix = hasMix, mix = m)],
+      )
+      computeWorldTransforms(data)
+    let full = oneBoneRig(1.0, true)
+    let half = oneBoneRig(0.5, true)
+    let zero = oneBoneRig(0.0, true)
+
+    then:
+      # mix=1 points exactly at the target.
+      closeWithin(ikWorldRot(full[1]), 90.0, 1e-4)
+      # mix=0.5 applies the blend ONCE: lerp(0,90,0.5)=45, not mix^2=22.5.
+      closeWithin(ikWorldRot(half[1]), 45.0, 1e-4)
+      # mix=0 is a no-op (runtimeEvaluable is false): the rest pose is kept.
+      closeWithin(ikWorldRot(zero[1]), 0.0, 1e-4)
+
+  it "evaluates two-bone IK reach for both bend signs":
+    proc twoBoneRig(bendPositive: bool): seq[Affine2] =
+      let data = skeletonData(
+        skeletonHeader("two", "1.0.0"),
+        @[
+          boneData("root", ""),
+          boneData("b0", "root", localTransform(x = 0.0, y = 0.0)),
+          boneData("b1", "b0", localTransform(x = 10.0, y = 0.0)),
+          boneData("goal", "root", localTransform(x = 10.0, y = 10.0)),
+        ],
+        ikConstraints = @[ikConstraintData("ik", "goal", @["b0", "b1"],
+          hasBendPositive = true, bendPositive = bendPositive)],
+      )
+      computeWorldTransforms(data)
+    let childLength = 10.0
+    let pos = twoBoneRig(true)
+    let neg = twoBoneRig(false)
+    # End-effector = b1 origin + childLength along b1's world direction.
+    let posTipX = pos[2].tx + cos(degToRad(ikWorldRot(pos[2]))) * childLength
+    let posTipY = pos[2].ty + sin(degToRad(ikWorldRot(pos[2]))) * childLength
+    let negTipX = neg[2].tx + cos(degToRad(ikWorldRot(neg[2]))) * childLength
+    let negTipY = neg[2].ty + sin(degToRad(ikWorldRot(neg[2]))) * childLength
+
+    then:
+      # Both bend signs reach the same reachable target...
+      closeWithin(posTipX, 10.0, 1e-4)
+      closeWithin(posTipY, 10.0, 1e-4)
+      closeWithin(negTipX, 10.0, 1e-4)
+      closeWithin(negTipY, 10.0, 1e-4)
+      # ...but the elbow (b1 origin) bends to opposite sides of the root->target line.
+      abs(pos[2].ty - neg[2].ty) > 1.0 or abs(pos[2].tx - neg[2].tx) > 1.0
+
+  it "evaluates an N-bone chain IK reach in the pose pass":
+    let data = skeletonData(
+      skeletonHeader("chain", "1.0.0"),
+      @[
+        boneData("root", ""),
+        boneData("b0", "root", localTransform(x = 0.0, y = 0.0)),
+        boneData("b1", "b0", localTransform(x = 10.0, y = 0.0)),
+        boneData("b2", "b1", localTransform(x = 10.0, y = 0.0)),
+        boneData("goal", "root", localTransform(x = 15.0, y = 15.0)),
+      ],
+      ikConstraints = @[ikConstraintData("ik", "goal", @["b0", "b1", "b2"])],
+    )
+    let worlds = computeWorldTransforms(data)
+    # last segment length = |goalRest(15,15) - b2Rest(20,0)|.
+    let tipLen = sqrt((15.0 - 20.0) * (15.0 - 20.0) + (15.0 - 0.0) * (15.0 - 0.0))
+    let tipX = worlds[3].tx + cos(degToRad(ikWorldRot(worlds[3]))) * tipLen
+    let tipY = worlds[3].ty + sin(degToRad(ikWorldRot(worlds[3]))) * tipLen
+
+    then:
+      # Target distance ~21.2 < total reach 30, so the chain reaches it.
+      closeWithin(tipX, 15.0, 1e-2)
+      closeWithin(tipY, 15.0, 1e-2)
+
+  it "keeps a degenerate unreachable IK target non-fatal":
+    # Target far beyond total reach (20): the chain extends straight, no error.
+    let data = skeletonData(
+      skeletonHeader("far", "1.0.0"),
+      @[
+        boneData("root", ""),
+        boneData("b0", "root", localTransform(x = 0.0, y = 0.0)),
+        boneData("b1", "b0", localTransform(x = 10.0, y = 0.0)),
+        boneData("goal", "root", localTransform(x = 100.0, y = 0.0)),
+      ],
+      ikConstraints = @[ikConstraintData("ik", "goal", @["b0", "b1"])],
+    )
+    let worlds = computeWorldTransforms(data)
+
+    then:
+      worlds.len == 4
+      # Straight along +x toward the unreachable target: both bones at ~0 deg.
+      closeWithin(ikWorldRot(worlds[1]), 0.0, 1e-4)
+      closeWithin(ikWorldRot(worlds[2]), 0.0, 1e-4)
 
   it "decomposes and recomposes transform constraint poses":
     let pose = TransformConstraintPose(
