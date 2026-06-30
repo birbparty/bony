@@ -18,6 +18,7 @@ const
   regionTypeKey = 1001'u64
   pathTypeKey = 4000'u64
   pathAttachmentTypeKey = 4001'u64
+  ikConstraintTypeKey = 4002'u64
   animationClipTypeKey = 2000'u64
   boneTimelineTypeKey = 2001'u64
   slotTimelineTypeKey = 2002'u64
@@ -62,6 +63,9 @@ const
   positionKey = 4011'u64
   translateMixKey = 4012'u64
   rotateMixKey = 4013'u64
+  bonesKey = 4014'u64
+  mixKey = 4015'u64
+  bendPositiveKey = 4016'u64
   boneIndexKey = 2000'u64
   boneTimelineKindKey = 2001'u64
   slotIndexKey = 2002'u64
@@ -447,6 +451,26 @@ proc readBlendAxesPayload(
     result.add paramsByName[axisName]
   if index != payload.len:
     raise newBonyLoadError(schemaViolation, ".bnb blendAxes payload has trailing bytes")
+
+
+proc writeBonesPayload(bones: openArray[string]; table: var BnbStringTable): seq[byte] =
+  ## Frozen IK bones layout (contract §2): varuint count followed by
+  ## count * (varuint string-table index for the bone name), chain root->tip.
+  ## Same string-table packing as blendAxes (key 6041); indices are string-table
+  ## indices, NOT skeleton bone-order indices.
+  result.writeVaruint(uint64(bones.len))
+  for bone in bones:
+    result.writeVaruint(table.intern(bone))
+
+
+proc readBonesPayload(payload: openArray[byte]; table: BnbStringTable): seq[string] =
+  var index = 0
+  let count = payload.readVaruint(index)
+  for _ in 0'u64 ..< count:
+    let nameIndex = payload.readVaruint(index)
+    result.add table.stringAt(nameIndex)
+  if index != payload.len:
+    raise newBonyLoadError(schemaViolation, ".bnb ikConstraint bones payload has trailing bytes")
 
 
 proc writeBlendF32sPayload(values: openArray[float64]): seq[byte] =
@@ -873,6 +897,22 @@ proc buildObjectRecords(data: SkeletonData; table: var BnbStringTable; toc: var 
     properties.addF64Required(toc, p3yKey, pathAttachment.p3y, "pathAttachment.p3y")
     result.add BnbObjectRecord(typeKey: pathAttachmentTypeKey, properties: properties)
 
+  # IK section: canonical object-stream position is after attachments and before
+  # paths (docs/binary-canonicalization.md). Emitted only when non-empty so
+  # existing IK-free fixtures stay byte-identical. mix/bendPositive are
+  # presence-gated (applyOnLoad:false) to stay symmetric with the JSON emitter;
+  # order is value-gated (applyOnLoad:true).
+  for ik in data.ikConstraints:
+    var properties: seq[BnbPropertyRecord]
+    properties.addStringIfNeeded(toc, table, nameKey, ik.name, "", required = true)
+    properties.addProperty(toc, bonesKey, writeBonesPayload(ik.bones, table))
+    properties.addStringIfNeeded(toc, table, targetKey, ik.target, "", required = true)
+    properties.addIntIfNeeded(toc, orderKey, ik.order, defaultInt("ikConstraint", "order"))
+    properties.addFloatIfNeeded(toc, mixKey, ik.mix, defaultFloat("ikConstraint", "mix"), required = ik.hasMix)
+    if ik.hasBendPositive:
+      properties.addProperty(toc, bendPositiveKey, writeBoolPayload(ik.bendPositive))
+    result.add BnbObjectRecord(typeKey: ikConstraintTypeKey, properties: properties)
+
   for path in data.paths:
     var properties: seq[BnbPropertyRecord]
     properties.addStringIfNeeded(toc, table, nameKey, path.name, "", required = true)
@@ -1183,6 +1223,7 @@ proc decodeSkeletonObjects(objects: openArray[BnbObjectRecord]; strings: BnbStri
   var regions: seq[RegionAttachment]
   var pathAttachments: seq[PathAttachmentData]
   var paths: seq[PathConstraintData]
+  var ikConstraints: seq[IkConstraintData]
   var loadedParameters: seq[ParameterAxis]
   var loadedDeformers: seq[DeformerRecord]
 
@@ -1315,6 +1356,21 @@ proc decodeSkeletonObjects(objects: openArray[BnbObjectRecord]; strings: BnbStri
         hasRotateMix = rotateMixKey in properties,
         rotateMix = properties.readOptionalFloatProperty(rotateMixKey, defaultFloat("path", "rotateMix"), "path.rotateMix"),
       )
+    of ikConstraintTypeKey:
+      flushPendingIfAny()
+      let properties = record.propertyMap([nameKey, bonesKey, targetKey, orderKey, mixKey, bendPositiveKey])
+      if bonesKey notin properties:
+        raise newBonyLoadError(schemaViolation, ".bnb ikConstraint.bones is required")
+      ikConstraints.add ikConstraintData(
+        properties.readStringProperty(strings, nameKey, "ikConstraint.name"),
+        properties.readStringProperty(strings, targetKey, "ikConstraint.target"),
+        readBonesPayload(properties[bonesKey], strings),
+        order = properties.readOptionalIntProperty(orderKey, defaultInt("ikConstraint", "order"), "ikConstraint.order"),
+        hasMix = mixKey in properties,
+        mix = properties.readOptionalFloatProperty(mixKey, defaultFloat("ikConstraint", "mix"), "ikConstraint.mix"),
+        hasBendPositive = bendPositiveKey in properties,
+        bendPositive = properties.readOptionalBoolProperty(bendPositiveKey, defaultBool("ikConstraint", "bendPositive"), "ikConstraint.bendPositive"),
+      )
     of parameterTypeKey:
       flushPendingIfAny()
       let properties = record.propertyMap([nameKey, parameterMinKey, parameterMaxKey, parameterDefaultKey])
@@ -1417,7 +1473,7 @@ proc decodeSkeletonObjects(objects: openArray[BnbObjectRecord]; strings: BnbStri
 
   if not hasSkeleton:
     raise newBonyLoadError(schemaViolation, ".bnb skeleton object is required")
-  skeletonData(headerValue, bones, slots, regions, pathAttachments, paths, loadedParameters, loadedDeformers)
+  skeletonData(headerValue, bones, slots, regions, pathAttachments, paths, loadedParameters, loadedDeformers, ikConstraints)
 
 
 proc withTarget(timeline: BoneTimeline; target: string): BoneTimeline =
