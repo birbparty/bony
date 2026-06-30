@@ -507,6 +507,7 @@ proc validateSkeletonData*(
   paths: openArray[PathConstraintData] = [];
   parameters: openArray[ParameterAxis] = [];
   deformers: openArray[DeformerRecord] = [];
+  ikConstraints: openArray[IkConstraintData] = [];
 ) =
   if header.name.len == 0:
     raise newBonyLoadError(schemaViolation, "skeleton.name must not be empty")
@@ -592,6 +593,22 @@ proc validateSkeletonData*(
       raise newBonyLoadError(unknownRequiredReference, "unknown path constraint path: " & path.path)
     allPathNames.incl(path.name)
 
+  var allIkNames = initHashSet[string]()
+  for index, ik in ikConstraints:
+    let context = "ikConstraints[" & $index & "]"
+    if ik.name.len == 0:
+      raise newBonyLoadError(schemaViolation, context & ".name must not be empty")
+    if ik.name in allIkNames:
+      raise newBonyLoadError(duplicateKey, "duplicate ik constraint name: " & ik.name)
+    if ik.bones.len == 0:
+      raise newBonyLoadError(schemaViolation, context & ".bones must not be empty")
+    for boneIndex, boneName in ik.bones:
+      if boneName notin allNames:
+        raise newBonyLoadError(unknownRequiredReference, "unknown ik constraint bone: " & boneName)
+    if ik.target notin allNames:
+      raise newBonyLoadError(unknownRequiredReference, "unknown ik constraint target: " & ik.target)
+    allIkNames.incl(ik.name)
+
   var paramNames = initHashSet[string]()
   for index, param in parameters:
     let context = "parameters[" & $index & "]"
@@ -647,8 +664,11 @@ proc skeletonData*(
   paths: openArray[PathConstraintData] = [];
   parameters: openArray[ParameterAxis] = [];
   deformers: openArray[DeformerRecord] = [];
+  ikConstraints: openArray[IkConstraintData] = [];
 ): SkeletonData =
-  validateSkeletonData(header, bones, slots, regions, pathAttachments, paths, parameters, deformers)
+  validateSkeletonData(
+    header, bones, slots, regions, pathAttachments, paths, parameters, deformers, ikConstraints,
+  )
   result.header = header
   result.bones = @bones
   result.slots = @slots
@@ -657,12 +677,13 @@ proc skeletonData*(
   result.paths = @paths
   result.parameters = @parameters
   result.deformers = @deformers
+  result.ikConstraints = @ikConstraints
 
 
 proc validateSkeletonData*(data: SkeletonData) =
   validateSkeletonData(
     data.header, data.bones, data.slots, data.regions, data.pathAttachments, data.paths,
-    data.parameters, data.deformers,
+    data.parameters, data.deformers, data.ikConstraints,
   )
 
 
