@@ -593,6 +593,10 @@ proc validateSkeletonData*(
       raise newBonyLoadError(unknownRequiredReference, "unknown path constraint path: " & path.path)
     allPathNames.incl(path.name)
 
+  var boneParentByName = initTable[string, string]()
+  for bone in bones:
+    boneParentByName[bone.name] = bone.parent
+
   var allIkNames = initHashSet[string]()
   for index, ik in ikConstraints:
     let context = "ikConstraints[" & $index & "]"
@@ -605,6 +609,15 @@ proc validateSkeletonData*(
     for boneName in ik.bones:
       if boneName notin allNames:
         raise newBonyLoadError(unknownRequiredReference, "unknown ik constraint bone: " & boneName)
+    # The chain must be contiguous root->tip: each bone after the first is the
+    # direct child of the preceding one. The solver FK-composes consecutive
+    # origins, so a gapped chain has no well-defined geometry (and would surface
+    # only as a confusing draw-time ordering error). Reject it cleanly here.
+    for chainPos in 1 ..< ik.bones.len:
+      if boneParentByName.getOrDefault(ik.bones[chainPos], "") != ik.bones[chainPos - 1]:
+        raise newBonyLoadError(schemaViolation,
+          context & ".bones must form a contiguous parent-to-child chain (root to tip): " &
+          ik.bones[chainPos] & " is not a child of " & ik.bones[chainPos - 1])
     if ik.target notin allNames:
       raise newBonyLoadError(unknownRequiredReference, "unknown ik constraint target: " & ik.target)
     allIkNames.incl(ik.name)
