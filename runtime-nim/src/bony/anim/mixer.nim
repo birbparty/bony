@@ -623,4 +623,5 @@ proc applyPose*(data: SkeletonData; pose: MixedPose): SkeletonData =
     data.paths,
     data.parameters,
     data.deformers,
+    data.ikConstraints,
   )

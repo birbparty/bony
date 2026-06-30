@@ -602,7 +602,7 @@ proc validateSkeletonData*(
       raise newBonyLoadError(duplicateKey, "duplicate ik constraint name: " & ik.name)
     if ik.bones.len == 0:
       raise newBonyLoadError(schemaViolation, context & ".bones must not be empty")
-    for boneIndex, boneName in ik.bones:
+    for boneName in ik.bones:
       if boneName notin allNames:
         raise newBonyLoadError(unknownRequiredReference, "unknown ik constraint bone: " & boneName)
     if ik.target notin allNames:
