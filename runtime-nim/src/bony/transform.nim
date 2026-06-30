@@ -4,6 +4,7 @@ import std/[math, tables]
 
 import bony/constraints/path_constraints
 import bony/constraints/update_cache
+import bony/constraints/ik
 import bony/model
 
 const basisEpsilon = 1e-12
@@ -122,6 +123,14 @@ proc applyRuntimePathConstraint(
   indexes: Table[string, int];
   attachments: Table[string, PathAttachmentData];
 )
+proc applyRuntimeIk(
+  data: SkeletonData;
+  ik: IkConstraintData;
+  locals: var seq[LocalTransform];
+  worlds: var seq[Affine2];
+  computed: var seq[bool];
+  indexes: Table[string, int];
+)
 
 
 proc computeWorldTransforms*(data: SkeletonData): seq[Affine2] =
@@ -130,6 +139,11 @@ proc computeWorldTransforms*(data: SkeletonData): seq[Affine2] =
     if path.runtimeEvaluable:
       hasRuntimePaths = true
       break
+  if not hasRuntimePaths:
+    for ik in data.ikConstraints:
+      if ik.runtimeEvaluable:
+        hasRuntimePaths = true
+        break
   if hasRuntimePaths:
     let indexes = data.boneIndexes()
     let attachments = data.pathByName()
@@ -155,10 +169,11 @@ proc computeWorldTransforms*(data: SkeletonData): seq[Affine2] =
         of ckPath:
           let path = data.paths[entry.constraint.sourceIndex]
           data.applyRuntimePathConstraint(path, locals, result, computed, indexes, attachments)
+        of ckIk:
+          let ik = data.ikConstraints[entry.constraint.sourceIndex]
+          data.applyRuntimeIk(ik, locals, result, computed, indexes)
         else:
-          # ckIk dispatch (applyRuntimeIk) arrives with bony-me5.6; until then an
-          # IK entry is a no-op and its chain bones compute via normal FK bone
-          # groups. Other constraint kinds are out of scope for this slice.
+          # ckTransform / ckPhysics are out of scope for this slice.
           discard
     return
 
@@ -329,6 +344,155 @@ proc applyRuntimePathConstraint(
   locals[boneIndex] = local
   worlds[boneIndex] = worldForBone(parentWorld, boneData(data.bones[boneIndex].name, parent, local), hasParent)
   computed[boneIndex] = true
+
+
+proc worldRotationDegrees(world: Affine2): float64 =
+  radToDeg(arctan2(world.b, world.a))
+
+
+proc ikDistance(a, b: IkPoint): float64 =
+  hypot(b.x - a.x, b.y - a.y)
+
+
+proc restWorldFor(
+  data: SkeletonData;
+  boneIndex: int;
+  indexes: Table[string, int];
+  memo: var Table[int, Affine2];
+): Affine2 =
+  ## Rest-pose world transform of a bone, FK-composed over its UNMUTATED rest
+  ## locals (data.bones[*].local), independent of the animated `locals` array.
+  if boneIndex in memo:
+    return memo[boneIndex]
+  let bone = data.bones[boneIndex]
+  let hasParent = bone.parent.len > 0
+  var parentWorld = Affine2(a: 1.0, d: 1.0)
+  if hasParent:
+    parentWorld = restWorldFor(data, indexes[bone.parent], indexes, memo)
+  result = worldForBone(parentWorld, bone, hasParent)
+  memo[boneIndex] = result
+
+
+proc withRotation(local: LocalTransform; rotation: float64): LocalTransform =
+  ## Copy a local transform, replacing only its rotation (degrees).
+  localTransform(
+    x = local.x, y = local.y, rotation = rotation,
+    scaleX = local.scaleX, scaleY = local.scaleY,
+    shearX = local.shearX, shearY = local.shearY,
+    inheritRotation = local.inheritRotation,
+    inheritScale = local.inheritScale,
+    inheritReflection = local.inheritReflection,
+    transformMode = local.transformMode,
+  )
+
+
+proc applyRuntimeIk(
+  data: SkeletonData;
+  ik: IkConstraintData;
+  locals: var seq[LocalTransform];
+  worlds: var seq[Affine2];
+  computed: var seq[bool];
+  indexes: Table[string, int];
+) =
+  ## Evaluate one IK constraint and write its solved rotations back into the
+  ## chain bones. Geometry per docs/ik-constraint-format-contract.md §3-§5:
+  ## fixed segment lengths + chain joint origins come from the REST pose; the
+  ## bones' CURRENT world rotations feed the solver; the target's CURRENT world
+  ## position is the goal. `mix` is applied ONCE inside the solver. Output
+  ## conventions differ per solver — 1-bone/chain return ABSOLUTE world angles,
+  ## solveTwoBoneIk's child is RELATIVE to its parent — but the unified
+  ## absolute-angle write-back below normalizes that (the child's absolute angle
+  ## is parentRotation + childRotation).
+  if not ik.runtimeEvaluable:
+    return
+
+  let targetIndex = indexes[ik.target]
+  if not computed[targetIndex]:
+    raise newBonyLoadError(orderingViolation, "runtime ik target must be emitted before constraint: " & ik.name)
+  let target = IkPoint(x: worlds[targetIndex].tx, y: worlds[targetIndex].ty)
+
+  var chainIndexes = newSeq[int](ik.bones.len)
+  for i, boneName in ik.bones:
+    chainIndexes[i] = indexes[boneName]
+
+  # Rest-pose geometry (fixed segment lengths / joint origins).
+  var restMemo = initTable[int, Affine2]()
+  var restOrigins = newSeq[IkPoint](ik.bones.len)
+  for i, boneIndex in chainIndexes:
+    let rw = restWorldFor(data, boneIndex, indexes, restMemo)
+    restOrigins[i] = IkPoint(x: rw.tx, y: rw.ty)
+  let targetRest = restWorldFor(data, targetIndex, indexes, restMemo)
+  let targetRestPoint = IkPoint(x: targetRest.tx, y: targetRest.ty)
+
+  # Current FK worlds of the chain, captured BEFORE mutating, FK-composed from
+  # bone[0]'s external parent forward so the solver sees current rotations.
+  var currentWorlds = newSeq[Affine2](ik.bones.len)
+  for i, boneIndex in chainIndexes:
+    let parent = data.bones[boneIndex].parent
+    let hasParent = parent.len > 0
+    var parentWorld = Affine2(a: 1.0, d: 1.0)
+    if hasParent:
+      if i > 0 and parent == ik.bones[i - 1]:
+        parentWorld = currentWorlds[i - 1]
+      else:
+        let parentIndex = indexes[parent]
+        if not computed[parentIndex]:
+          raise newBonyLoadError(orderingViolation, "runtime ik bone parent must be emitted before constraint: " & ik.name)
+        parentWorld = worlds[parentIndex]
+    currentWorlds[i] = worldForBone(parentWorld, data.bones[boneIndex], hasParent)
+
+  let storedMix = ik.mix
+  let bendSign = if ik.bendPositive: 1.0 else: -1.0
+
+  # Solved ABSOLUTE world angle (degrees) per constrained bone, chain order.
+  var solvedWorldAngles = newSeq[float64](ik.bones.len)
+  case ik.bones.len
+  of 1:
+    let length = ikDistance(restOrigins[0], targetRestPoint)
+    let currentRotation = worldRotationDegrees(currentWorlds[0])
+    let solved = solveOneBoneIk(restOrigins[0], length, currentRotation, target, storedMix)
+    solvedWorldAngles[0] = solved.rotation
+  of 2:
+    let parentLength = ikDistance(restOrigins[0], restOrigins[1])
+    let childLength = ikDistance(restOrigins[1], targetRestPoint)
+    let parentRotation = worldRotationDegrees(currentWorlds[0])
+    # solveTwoBoneIk lerps the child toward a RELATIVE bend angle, so its
+    # childRotation input must be the child's current rotation relative to the
+    # parent (current child world rotation minus current parent world rotation),
+    # not an absolute world rotation.
+    let childRotation = worldRotationDegrees(currentWorlds[1]) - parentRotation
+    let solved = solveTwoBoneIk(restOrigins[0], parentLength, childLength, parentRotation, childRotation, target, bendSign, storedMix)
+    solvedWorldAngles[0] = solved.parentRotation
+    solvedWorldAngles[1] = solved.parentRotation + solved.childRotation
+  else:
+    var points = newSeq[IkPoint](ik.bones.len + 1)
+    for i in 0 ..< ik.bones.len:
+      points[i] = restOrigins[i]
+    points[^1] = targetRestPoint
+    var lengths = newSeq[float64](ik.bones.len)
+    for i in 0 ..< ik.bones.len:
+      lengths[i] = ikDistance(points[i], points[i + 1])
+    let solved = solveChainIk(points, lengths, target, storedMix)
+    for i in 0 ..< ik.bones.len:
+      solvedWorldAngles[i] = solved.rotations[i]
+
+  # Sequential FK write-back: convert each solved absolute world angle to the
+  # bone's LOCAL rotation against its (already re-worlded) parent, then re-world
+  # the bone so it serves as the next chain bone's parent world.
+  for i, boneIndex in chainIndexes:
+    let parent = data.bones[boneIndex].parent
+    let hasParent = parent.len > 0
+    var parentWorld = Affine2(a: 1.0, d: 1.0)
+    if hasParent:
+      if i > 0 and parent == ik.bones[i - 1]:
+        parentWorld = worlds[chainIndexes[i - 1]]
+      else:
+        parentWorld = worlds[indexes[parent]]
+    let parentRotation = if hasParent: worldRotationDegrees(parentWorld) else: 0.0
+    let newLocal = withRotation(locals[boneIndex], solvedWorldAngles[i] - parentRotation)
+    locals[boneIndex] = newLocal
+    worlds[boneIndex] = worldForBone(parentWorld, boneData(data.bones[boneIndex].name, parent, newLocal), hasParent)
+    computed[boneIndex] = true
 
 
 proc vertex(world: Affine2; x, y, u, v: float64): DrawVertex =
