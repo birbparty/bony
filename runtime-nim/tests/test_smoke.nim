@@ -1195,14 +1195,25 @@ spec "bony package":
     let negTipX = neg[2].tx + cos(degToRad(ikWorldRot(neg[2]))) * childLength
     let negTipY = neg[2].ty + sin(degToRad(ikWorldRot(neg[2]))) * childLength
 
+    # The elbow (b1 world origin) is a circle intersection: |elbow-b0|=10 and
+    # |tip-elbow|=10 with tip=(10,10) gives exactly (10,0) or (0,10). The two
+    # bend signs must land on these two DISTINCT solutions (opposite sides of the
+    # root->target diagonal), not merely "differ".
+    proc nearXY(x, y, ex, ey: float64): bool =
+      closeWithin(x, ex, 1e-3) and closeWithin(y, ey, 1e-3)
+    let posElbowA = nearXY(pos[2].tx, pos[2].ty, 10.0, 0.0)
+    let posElbowB = nearXY(pos[2].tx, pos[2].ty, 0.0, 10.0)
+    let negElbowA = nearXY(neg[2].tx, neg[2].ty, 10.0, 0.0)
+    let negElbowB = nearXY(neg[2].tx, neg[2].ty, 0.0, 10.0)
+
     then:
       # Both bend signs reach the same reachable target...
       closeWithin(posTipX, 10.0, 1e-4)
       closeWithin(posTipY, 10.0, 1e-4)
       closeWithin(negTipX, 10.0, 1e-4)
       closeWithin(negTipY, 10.0, 1e-4)
-      # ...but the elbow (b1 origin) bends to opposite sides of the root->target line.
-      abs(pos[2].ty - neg[2].ty) > 1.0 or abs(pos[2].tx - neg[2].tx) > 1.0
+      # ...with elbows at the two distinct valid intersections, one each.
+      (posElbowA and negElbowB) or (posElbowB and negElbowA)
 
   it "evaluates an N-bone chain IK reach in the pose pass":
     let data = skeletonData(
@@ -1227,25 +1238,37 @@ spec "bony package":
       closeWithin(tipX, 15.0, 1e-2)
       closeWithin(tipY, 15.0, 1e-2)
 
-  it "keeps a degenerate unreachable IK target non-fatal":
-    # Target far beyond total reach (20): the chain extends straight, no error.
+  it "keeps a degenerate collapsed IK target non-fatal":
+    # A genuinely UNREACHABLE target cannot be built from a STATIC rig: the
+    # contract sizes the last segment as |target_rest - bone1_rest|, so by the
+    # triangle inequality |target - bone0| <= parentLength + childLength always
+    # holds for a static pose (solver-level over-extension is already covered by
+    # the chain-solver test above). The constructible integration degeneracy is a
+    # target COINCIDENT with the chain origin: the chain must fold without raising
+    # or producing NaN, and the end-effector still returns to the target.
     let data = skeletonData(
-      skeletonHeader("far", "1.0.0"),
+      skeletonHeader("deg", "1.0.0"),
       @[
         boneData("root", ""),
         boneData("b0", "root", localTransform(x = 0.0, y = 0.0)),
         boneData("b1", "b0", localTransform(x = 10.0, y = 0.0)),
-        boneData("goal", "root", localTransform(x = 100.0, y = 0.0)),
+        boneData("goal", "root", localTransform(x = 0.0, y = 0.0)),
       ],
       ikConstraints = @[ikConstraintData("ik", "goal", @["b0", "b1"])],
     )
     let worlds = computeWorldTransforms(data)
+    let childLength = 10.0
+    let tipX = worlds[2].tx + cos(degToRad(ikWorldRot(worlds[2]))) * childLength
+    let tipY = worlds[2].ty + sin(degToRad(ikWorldRot(worlds[2]))) * childLength
 
     then:
       worlds.len == 4
-      # Straight along +x toward the unreachable target: both bones at ~0 deg.
-      closeWithin(ikWorldRot(worlds[1]), 0.0, 1e-4)
-      closeWithin(ikWorldRot(worlds[2]), 0.0, 1e-4)
+      # Finite (NaN != NaN) — the solver fallback prevented a blow-up...
+      worlds[1].a == worlds[1].a and worlds[2].a == worlds[2].a
+      worlds[2].tx == worlds[2].tx and worlds[2].ty == worlds[2].ty
+      # ...and the folded chain still returns the end-effector to the target.
+      closeWithin(tipX, 0.0, 1e-4)
+      closeWithin(tipY, 0.0, 1e-4)
 
   it "decomposes and recomposes transform constraint poses":
     let pose = TransformConstraintPose(
