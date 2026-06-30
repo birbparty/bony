@@ -61,8 +61,38 @@ conversion. One-bone + chain results convert absolute→local via the parent-inv
 machinery; the two-bone CHILD is already relative-to-parent. `mix` is applied ONCE
 inside the solver (do not re-blend — that yields mix²).
 
+## E. Model foundation seam (for bony-me5.2) — `runtime-nim/src/bony/model.nim`
+
+Verified state on `main` so the next bead does not have to re-discover it:
+
+- `IkConstraintData` exists (model.nim:90–98) but its fields are UNEXPORTED
+  (`name`/`bones`/`target`/`order`/`hasMix`/`mix`/`hasBendPositive`/`bendPositive`,
+  no `*`). `SkeletonData.ikConstraints` exists (model.nim:199) and is also
+  UNEXPORTED. There is NO `ikConstraints*(data)` collection accessor (contrast
+  `proc paths*` at model.nim:437) and NO IK field accessors.
+- `runtimeEvaluable*(path: PathConstraintData)` lives at model.nim:405 and checks
+  ONLY constraint-local flags (`hasPosition or hasTranslateMix or hasRotateMix`) —
+  no skeleton access. The IK overload does NOT exist yet.
+- **Decision (plan §Description line 49, form (a)):** add
+  `runtimeEvaluable*(ik: IkConstraintData): bool` as the constraint-only form
+  `mix > 0` (and `bones.len >= 1`), mirroring the path predicate's purity. Move
+  bone/target name resolution to the apply path, where `boneIndexes()` already
+  raises/skips unknown bones. Keep degenerate IK non-fatal.
+
+**Entry-gate gotcha (transform.nim:127–133):** `computeWorldTransforms` sets
+`hasRuntimePaths` by scanning `data.paths` ONLY, then gates the entire
+constraint-applying branch on it. A pure-IK rig with no runtime-evaluable path
+falls through to the plain branch and silently never evaluates — the plan calls
+this "the single easiest defect to ship." The core-eval bead MUST extend this gate
+to also fire on a `runtimeEvaluable` IK constraint. (Covered by the plan; recorded
+here so it is not lost between beads.)
+
 ## Outcome
 
-All claims CONFIRMED. The step-2 plan is grounded; downstream beads bony-me5.2
-(model accessors + `runtimeEvaluable`) and bony-me5.9 (Dart parity) are unblocked
-to proceed against these verified seams.
+All claims in §A–§D CONFIRMED against source; §E records the model.nim foundation
+state and the resolved `runtimeEvaluable*(ik)` signature decision. The step-2 plan
+is grounded. Downstream: bony-me5.2 has the verified model.nim seam + signature
+decision it needs; bony-me5.9 (Dart parity) depends only on the frozen keys (§A)
+and contract (§B), both confirmed. Binary/transform/jsonio seams beyond what is
+cited above were NOT independently audited here — defer to the plan's per-bead
+line-number citations for those.
