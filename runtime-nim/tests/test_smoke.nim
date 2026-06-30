@@ -897,7 +897,7 @@ spec "bony package":
       constraintCacheDescriptor(ckPath, 2, 1, ["fx"]),
       constraintCacheDescriptor(ckPhysics, -10, 0, ["root"]),
     ])
-    let pathCache = buildPathConstraintUpdateCache(data)
+    let pathCache = buildRuntimeConstraintUpdateCache(data)
     let physicsOrder = buildPhysicsConstraintOrder(@[
       constraintCacheDescriptor(ckPhysics, 3, 2, ["root"]),
       constraintCacheDescriptor(ckPhysics, -1, 0, ["root"]),

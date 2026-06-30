@@ -166,9 +166,18 @@ proc buildPhysicsConstraintOrder*(descriptors: openArray[ConstraintCacheDescript
   result.sort(compareConstraintEntries)
 
 
-proc buildPathConstraintUpdateCache*(data: SkeletonData): seq[ConstraintUpdateCacheEntry] =
+proc buildRuntimeConstraintUpdateCache*(data: SkeletonData): seq[ConstraintUpdateCacheEntry] =
+  ## Single combined builder for every runtime-evaluable constraint kind, so the
+  ## generic buildConstraintUpdateCache orders them together (ckIk before ckPath
+  ## per docs/constraint-total-order.md). Do NOT build a second independent IK
+  ## cache. IK descriptors set writes = the constrained bone chain and
+  ## reads = @[target] only — the bones' parent lineage is walked automatically
+  ## by emitReadDependencies, exactly as for paths.
   var descriptors: seq[ConstraintCacheDescriptor]
   for index, path in data.paths:
     let reads = if path.runtimeEvaluable: @[path.target] else: @[]
     descriptors.add constraintCacheDescriptor(ckPath, path.order, index, [path.bone], reads = reads)
+  for index, ik in data.ikConstraints:
+    let reads = if ik.runtimeEvaluable: @[ik.target] else: @[]
+    descriptors.add constraintCacheDescriptor(ckIk, ik.order, index, ik.bones, reads = reads)
   buildConstraintUpdateCache(data.bones, descriptors)

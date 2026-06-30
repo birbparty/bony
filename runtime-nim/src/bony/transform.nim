@@ -133,7 +133,7 @@ proc computeWorldTransforms*(data: SkeletonData): seq[Affine2] =
   if hasRuntimePaths:
     let indexes = data.boneIndexes()
     let attachments = data.pathByName()
-    let cache = buildPathConstraintUpdateCache(data)
+    let cache = buildRuntimeConstraintUpdateCache(data)
     var locals: seq[LocalTransform]
     for bone in data.bones:
       locals.add bone.local
@@ -151,8 +151,15 @@ proc computeWorldTransforms*(data: SkeletonData): seq[Affine2] =
             result[index] = worldForBone(result[parentIndex], boneData(bone.name, bone.parent, locals[index]), true)
           computed[index] = true
       of ccekConstraint:
-        let path = data.paths[entry.constraint.sourceIndex]
-        data.applyRuntimePathConstraint(path, locals, result, computed, indexes, attachments)
+        case entry.constraint.kind
+        of ckPath:
+          let path = data.paths[entry.constraint.sourceIndex]
+          data.applyRuntimePathConstraint(path, locals, result, computed, indexes, attachments)
+        else:
+          # ckIk dispatch (applyRuntimeIk) arrives with bony-me5.6; until then an
+          # IK entry is a no-op and its chain bones compute via normal FK bone
+          # groups. Other constraint kinds are out of scope for this slice.
+          discard
     return
 
   var byName = initTable[string, int]()
