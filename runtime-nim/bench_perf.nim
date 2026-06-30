@@ -10,7 +10,7 @@
 ##   newSkeletonInstance:          < 200 µs
 ##   computeWorldTransforms:       < 100 µs
 ##   buildConstraintUpdateCache:   < 50 µs
-##   buildPathConstraintUpdateCache: < 50 µs
+##   buildRuntimeConstraintUpdateCache: < 50 µs
 ##   buildDrawBatches:             < 200 µs
 ##
 ## Usage (from runtime-nim/ directory):
@@ -143,8 +143,8 @@ proc main() =
     # When path constraints are the only constraint type (pre-M10), this row and
     # the one above use an identical descriptor set; the delta reveals descriptor
     # build overhead.
-    let t3 = measureNs(proc() = discard buildPathConstraintUpdateCache(data))
-    printRow("buildPathConstraintUpdateCache", rigName, t3)
+    let t3 = measureNs(proc() = discard buildRuntimeConstraintUpdateCache(data))
+    printRow("buildRuntimeConstraintUpdateCache", rigName, t3)
 
     let t4 = measureNs(proc() = discard buildDrawBatches(data))
     printRow("buildDrawBatches", rigName, t4)

@@ -133,7 +133,7 @@ proc computeWorldTransforms*(data: SkeletonData): seq[Affine2] =
   if hasRuntimePaths:
     let indexes = data.boneIndexes()
     let attachments = data.pathByName()
-    let cache = buildPathConstraintUpdateCache(data)
+    let cache = buildRuntimeConstraintUpdateCache(data)
     var locals: seq[LocalTransform]
     for bone in data.bones:
       locals.add bone.local
