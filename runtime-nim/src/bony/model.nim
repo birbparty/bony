@@ -406,6 +406,23 @@ proc runtimeEvaluable*(path: PathConstraintData): bool =
   path.hasPosition or path.hasTranslateMix or path.hasRotateMix
 
 
+proc name*(ik: IkConstraintData): string = ik.name
+proc bones*(ik: IkConstraintData): seq[string] = ik.bones
+proc target*(ik: IkConstraintData): string = ik.target
+proc order*(ik: IkConstraintData): int = ik.order
+proc hasMix*(ik: IkConstraintData): bool = ik.hasMix
+proc mix*(ik: IkConstraintData): float64 = ik.mix
+proc hasBendPositive*(ik: IkConstraintData): bool = ik.hasBendPositive
+proc bendPositive*(ik: IkConstraintData): bool = ik.bendPositive
+
+proc runtimeEvaluable*(ik: IkConstraintData): bool =
+  ## Constraint-only predicate, mirroring the path overload's purity (no
+  ## skeleton access). Bone/target name resolution stays in the apply path,
+  ## where boneIndexes() already raises/skips on unknown bones. An IK
+  ## constraint contributes nothing when mix == 0 or it names no bones.
+  ik.mix > 0.0 and ik.bones.len >= 1
+
+
 proc x*(local: LocalTransform): float64 = local.x
 proc y*(local: LocalTransform): float64 = local.y
 proc rotation*(local: LocalTransform): float64 = local.rotation
@@ -435,6 +452,9 @@ proc pathAttachments*(data: SkeletonData): seq[PathAttachmentData] = data.pathAt
 
 
 proc paths*(data: SkeletonData): seq[PathConstraintData] = data.paths
+
+
+proc ikConstraints*(data: SkeletonData): seq[IkConstraintData] = data.ikConstraints
 
 
 proc parameters*(data: SkeletonData): seq[ParameterAxis] = data.parameters
