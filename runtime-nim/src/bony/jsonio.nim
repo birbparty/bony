@@ -15,6 +15,7 @@ const
   boneTypeId = "bone"
   slotTypeId = "slot"
   pathTypeId = "path"
+  ikConstraintTypeId = "ikConstraint"
 
 
 proc defaultFor(objectId, propertyId: string): string =
@@ -308,7 +309,7 @@ proc loadBonyJson*(text: string): SkeletonData =
       raise newBonyLoadError(schemaViolation, "invalid JSON: " & exc.msg)
 
   let root = requireObject(parsed, "root")
-  validateKnownKeys(root, ["skeleton", "bones", "slots", "regions", "pathAttachments", "paths", "parameters", "deformers", "animations", "stateMachines"], "root")
+  validateKnownKeys(root, ["skeleton", "bones", "slots", "regions", "pathAttachments", "paths", "ikConstraints", "parameters", "deformers", "animations", "stateMachines"], "root")
 
   if not root.hasKey("skeleton"):
     raise newBonyLoadError(schemaViolation, "root.skeleton is required")
@@ -448,6 +449,33 @@ proc loadBonyJson*(text: string): SkeletonData =
         rotateMix = optionalFloat(pathObject, "rotateMix", defaultFloat(pathTypeId, "rotateMix"), context),
       )
 
+  var loadedIkConstraints: seq[IkConstraintData] = @[]
+  if root.hasKey("ikConstraints"):
+    let ikConstraintsNode = requireArray(root["ikConstraints"], "ikConstraints")
+    for index, ikNode in ikConstraintsNode.elems:
+      let context = "ikConstraints[" & $index & "]"
+      let ikObject = requireObject(ikNode, context)
+      validateKnownKeys(ikObject, ["name", "bones", "target", "order", "mix", "bendPositive"], context)
+      if not ikObject.hasKey("bones"):
+        raise newBonyLoadError(schemaViolation, context & ".bones is required")
+      let bonesNode = requireArray(ikObject["bones"], context & ".bones")
+      var ikBones: seq[string] = @[]
+      for boneIndex, boneNameNode in bonesNode.elems:
+        let boneCtx = context & ".bones[" & $boneIndex & "]"
+        if boneNameNode.kind != JString:
+          raise newBonyLoadError(schemaViolation, boneCtx & " must be a string")
+        ikBones.add boneNameNode.getStr()
+      loadedIkConstraints.add ikConstraintData(
+        requiredString(ikObject, "name", context),
+        requiredString(ikObject, "target", context),
+        ikBones,
+        order = optionalInt(ikObject, "order", defaultInt(ikConstraintTypeId, "order"), context),
+        hasMix = ikObject.hasKey("mix"),
+        mix = optionalFloat(ikObject, "mix", defaultFloat(ikConstraintTypeId, "mix"), context),
+        hasBendPositive = ikObject.hasKey("bendPositive"),
+        bendPositive = optionalBool(ikObject, "bendPositive", defaultBool(ikConstraintTypeId, "bendPositive"), context),
+      )
+
   var loadedParameters: seq[ParameterAxis] = @[]
   if root.hasKey("parameters"):
     let parametersNode = requireArray(root["parameters"], "parameters")
@@ -577,7 +605,7 @@ proc loadBonyJson*(text: string): SkeletonData =
 
       loadedDeformers.add DeformerRecord(deformer: deformer, keyformBlend: blend)
 
-  result = skeletonData(loadedHeader, loadedBones, loadedSlots, loadedRegions, loadedPathAttachments, loadedPaths, loadedParameters, loadedDeformers)
+  result = skeletonData(loadedHeader, loadedBones, loadedSlots, loadedRegions, loadedPathAttachments, loadedPaths, loadedParameters, loadedDeformers, loadedIkConstraints)
   let loadedAnimClips = parseBonyAnimations(root, result)
   discard parseBonyStateMachines(root, result, loadedAnimClips)
 
@@ -1481,6 +1509,38 @@ proc toBonyJson*(data: SkeletonData): string =
         result.addNumberField("translateMix", path.translateMix, 3, first)
       if path.hasRotateMix:
         result.addNumberField("rotateMix", path.rotateMix, 3, first)
+      result.add "\n"
+      result.addIndent(2)
+      result.add "}"
+    result.add "\n"
+    result.addIndent(1)
+    result.add "]"
+
+  if data.ikConstraints.len > 0:
+    result.add ",\n"
+    result.addIndent(1)
+    result.add "\"ikConstraints\": [\n"
+    for index, ik in data.ikConstraints:
+      if index > 0:
+        result.add ",\n"
+      result.addIndent(2)
+      result.add "{\n"
+      first = true
+      result.addStringField("name", ik.name, 3, first)
+      result.addFieldPrefix("bones", 3, first)
+      result.add "["
+      for boneIndex, boneName in ik.bones:
+        if boneIndex > 0:
+          result.add ", "
+        result.addJsonString(boneName)
+      result.add "]"
+      result.addStringField("target", ik.target, 3, first)
+      if ik.order != defaultInt(ikConstraintTypeId, "order"):
+        result.addIntField("order", ik.order, 3, first)
+      if ik.hasMix:
+        result.addNumberField("mix", ik.mix, 3, first)
+      if ik.hasBendPositive:
+        result.addBoolField("bendPositive", ik.bendPositive, 3, first)
       result.add "\n"
       result.addIndent(2)
       result.add "}"
