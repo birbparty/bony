@@ -31,10 +31,44 @@ conformance/
 | M3 | `m3_rig` | Multi-slot draw ordering |
 | M4 | `m4_rig` | Multiple region attachments, draw order |
 | M5 | `m5_rig` | Path attachments, path constraints |
+| M5 (IK) | `m5_ik_rig` | IK constraints: 1-bone (`reach_one`), 2-bone with `bendPositive: false` (`reach_two`), 3-bone FABRIK chain with `mix: 0.5` (`reach_chain`); state-machine-driven IK target animation |
 | M6 | `forward_compat.bnb` | Forward-compatibility: unknown future fields are silently dropped |
 | M7 | `m7_rig` | Deformers (warp, rotation, bone) |
 | M8 | `m8_rig` | Animation timelines (bone rotate/translate/scale/shear), state machines |
 | M9 | `m9_non_scalar_rig` | Non-scalar animation timelines and state-machine projection |
+
+The `M5 (IK)` row is a second M5 asset (structured like the standalone M9 row):
+the table is one-asset-per-row, so `m5_ik_rig` gets its own row rather than being
+folded into the path-constraint `m5_rig` row.
+
+### M5 IK rig (`m5_ik_rig`)
+
+`m5_ik_rig` is a second M5 asset dedicated to IK constraints (base `m5_rig` covers
+path constraints). It exercises three constraint shapes — a 1-bone constraint
+(`reach_one`), a 2-bone constraint with `bendPositive: false` (`reach_two`), and a
+3-bone FABRIK chain with `mix: 0.5` (`reach_chain`) — plus a state machine
+(`ik_story`) whose `target_slide` clip slides the chain IK target from `(250, 20)`
+to `(205, 40)`.
+
+Two input scripts drive it:
+- `m5_ik_sample.json` — setup pose at `t=0` → golden `m5_ik_rig_t0.json`.
+- `m5_ik_story.json` — state-machine story with samples `rest` (t=0),
+  `reach_mid` (t=0.5), `reach_end` (t=1.0) → goldens `m5_ik_story_<sample>.json`.
+
+Notes for readers comparing runtimes:
+- The story goldens are non-vacuous: as the target slides, the solved terminal
+  bone `chain_c` world angle sweeps ~31.7° (`rest`) → ~56.3° (`reach_mid`) →
+  ~65.6° (`reach_end`).
+- Under `mix: 0.5` and this geometry the chain reach is dominated by the terminal
+  bone; interior bones `chain_a`/`chain_b` stay near 0° (world basis ≈ identity,
+  `a≈1.0, b≈0`) — expected FABRIK behavior, not a defect.
+- The bone `world` matrices in `m5_ik_story_rest.json` match those in
+  `m5_ik_rig_t0.json` (the `target_slide` keyframe at `t=0` equals the rig's rest
+  target translate). The two files are **not** byte-identical, though: the story
+  golden additionally wraps the pose in state-machine metadata
+  (`stateMachine`/`sample`/`layers`/`events`).
+- Serialized `world` matrix entries are full float64; only IK point inputs are
+  f32-quantized internally.
 
 ### Image goldens (Nim reference rasterizer only)
 
@@ -49,6 +83,7 @@ and do not need to be reproduced by Dart or other runtimes.
 | m3_rig | `m3_rig_play.png` |
 | m4_rig | `m4_rig_play.png` |
 | m5_rig | `m5_rig_play.png` |
+| m5_ik_rig | pending (no PNG golden produced) |
 | m6 | n/a (binary-only fixture — no .bony source) |
 | m7_rig | pending (gated on pixie rasterizer — bony-gzz) |
 | m8_rig | `m8_rig_play.png` |
