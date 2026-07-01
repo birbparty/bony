@@ -1,0 +1,51 @@
+{
+  "skeleton": {"name": "m5-ik-rig", "version": "0.2.0"},
+  "bones": [
+    {"name": "root"},
+
+    {"name": "one_bone", "parent": "root", "y": 100},
+    {"name": "one_target", "parent": "root", "x": 20, "y": 120},
+
+    {"name": "two_base", "parent": "root", "x": 100},
+    {"name": "two_upper", "parent": "two_base"},
+    {"name": "two_lower", "parent": "two_upper", "x": 20},
+    {"name": "two_target", "parent": "root", "x": 110, "y": 30},
+
+    {"name": "chain_base", "parent": "root", "x": 200},
+    {"name": "chain_a", "parent": "chain_base"},
+    {"name": "chain_b", "parent": "chain_a", "x": 20},
+    {"name": "chain_c", "parent": "chain_b", "x": 20},
+    {"name": "chain_target", "parent": "root", "x": 250, "y": 20}
+  ],
+  "ikConstraints": [
+    {"name": "reach_one", "bones": ["one_bone"], "target": "one_target"},
+    {"name": "reach_two", "bones": ["two_upper", "two_lower"], "target": "two_target", "order": 1, "bendPositive": false},
+    {"name": "reach_chain", "bones": ["chain_a", "chain_b", "chain_c"], "target": "chain_target", "mix": 0.5}
+  ],
+  "animations": [
+    {
+      "name": "target_slide",
+      "boneTimelines": [
+        {
+          "bone": "chain_target",
+          "property": "translate",
+          "keyframes": [
+            {"t": 0.0, "x": 250.0, "y": 20.0},
+            {"t": 1.0, "x": 205.0, "y": 40.0}
+          ]
+        }
+      ]
+    }
+  ],
+  "stateMachines": [
+    {
+      "name": "ik_story",
+      "layers": [
+        {
+          "name": "reach",
+          "states": [{"name": "slide", "kind": "clip", "clip": "target_slide"}]
+        }
+      ]
+    }
+  ]
+}
