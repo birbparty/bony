@@ -396,20 +396,20 @@ proc applyRuntimeIk(
 ) =
   ## Evaluate one IK constraint and write its solved rotations back into the
   ## chain bones. Geometry per docs/ik-constraint-format-contract.md §3-§5:
-  ## fixed segment lengths + chain joint origins come from the REST pose; the
+  ## fixed segment lengths come from the REST pose (§6), but the chain anchors at
+  ## the CURRENT (live) joint origins, so a chain whose root has a moved parent
+  ## aims from the live pivot and the end-effector can reach a live target; the
   ## bones' CURRENT world rotations feed the solver; the target's CURRENT world
-  ## position is the goal. `mix` is applied ONCE inside the solver. Output
+  ## position is the goal. `mix` is applied ONCE inside the solver, and because
+  ## the input pose is the live pose, mix=0 is the current-pose identity. Output
   ## conventions differ per solver — 1-bone/chain return ABSOLUTE world angles,
   ## solveTwoBoneIk's child is RELATIVE to its parent — but the unified
   ## absolute-angle write-back below normalizes that (the child's absolute angle
   ## is parentRotation + childRotation).
   ##
-  ## Known limitations (per the M5 contract, tracked separately):
-  ## - The chain anchors at the REST-pose origin, so a rig whose chain root has a
-  ##   moved (animated) parent aims from the rest anchor rather than the live one.
-  ## - A chain whose root's external parent is written by a LATER-ordered
-  ##   constraint raises an orderingViolation rather than reading a pre-constraint
-  ##   world — the same ordering model as applyRuntimePathConstraint.
+  ## Ordering: a chain whose root's external parent is written by a LATER-ordered
+  ## constraint raises an orderingViolation rather than reading a pre-constraint
+  ## world — the same ordering model as applyRuntimePathConstraint.
   if not ik.runtimeEvaluable:
     return
 
@@ -448,6 +448,14 @@ proc applyRuntimeIk(
         parentWorld = worlds[parentIndex]
     currentWorlds[i] = worldForBone(parentWorld, data.bones[boneIndex], hasParent)
 
+  # Live (current-pivot) joint origins. The chain anchors at the live pivot so a
+  # moved/animated parent is tracked and the end-effector can reach a live target
+  # (contract §4); mix=0 becomes the current-pose identity. Segment LENGTHS stay
+  # rest-derived (§6), so bones remain rigid regardless of the live pose.
+  var currentOrigins = newSeq[IkPoint](ik.bones.len)
+  for i in 0 ..< ik.bones.len:
+    currentOrigins[i] = IkPoint(x: currentWorlds[i].tx, y: currentWorlds[i].ty)
+
   let storedMix = ik.mix
   let bendSign = if ik.bendPositive: 1.0 else: -1.0
 
@@ -457,7 +465,7 @@ proc applyRuntimeIk(
   of 1:
     let length = ikDistance(restOrigins[0], targetRestPoint)
     let currentRotation = worldRotationDegrees(currentWorlds[0])
-    let solved = solveOneBoneIk(restOrigins[0], length, currentRotation, target, storedMix)
+    let solved = solveOneBoneIk(currentOrigins[0], length, currentRotation, target, storedMix)
     solvedWorldAngles[0] = solved.rotation
   of 2:
     let parentLength = ikDistance(restOrigins[0], restOrigins[1])
@@ -468,17 +476,28 @@ proc applyRuntimeIk(
     # parent (current child world rotation minus current parent world rotation),
     # not an absolute world rotation.
     let childRotation = worldRotationDegrees(currentWorlds[1]) - parentRotation
-    let solved = solveTwoBoneIk(restOrigins[0], parentLength, childLength, parentRotation, childRotation, target, bendSign, storedMix)
+    let solved = solveTwoBoneIk(currentOrigins[0], parentLength, childLength, parentRotation, childRotation, target, bendSign, storedMix)
     solvedWorldAngles[0] = solved.parentRotation
     solvedWorldAngles[1] = solved.parentRotation + solved.childRotation
   else:
+    # Fixed segment lengths from the rest pose (§6): rest joint origins plus the
+    # rest tip (the target's rest world position).
+    var lengths = newSeq[float64](ik.bones.len)
+    for i in 0 ..< ik.bones.len - 1:
+      lengths[i] = ikDistance(restOrigins[i], restOrigins[i + 1])
+    lengths[^1] = ikDistance(restOrigins[^1], targetRestPoint)
+    # Live-pose input polyline: live joint origins plus the last bone's live tip
+    # (its live origin advanced by the rest last-segment length along its current
+    # world direction). This anchors the chain at the live root and makes mix=0
+    # the current-pose identity; mix=1 reaches the live target.
     var points = newSeq[IkPoint](ik.bones.len + 1)
     for i in 0 ..< ik.bones.len:
-      points[i] = restOrigins[i]
-    points[^1] = targetRestPoint
-    var lengths = newSeq[float64](ik.bones.len)
-    for i in 0 ..< ik.bones.len:
-      lengths[i] = ikDistance(points[i], points[i + 1])
+      points[i] = currentOrigins[i]
+    let lastRadians = degToRad(worldRotationDegrees(currentWorlds[^1]))
+    points[^1] = IkPoint(
+      x: currentOrigins[^1].x + cos(lastRadians) * lengths[^1],
+      y: currentOrigins[^1].y + sin(lastRadians) * lengths[^1],
+    )
     let solved = solveChainIk(points, lengths, target, storedMix)
     for i in 0 ..< ik.bones.len:
       solvedWorldAngles[i] = solved.rotations[i]
