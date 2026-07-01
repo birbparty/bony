@@ -57,12 +57,16 @@ Two input scripts drive it:
 
 Notes for readers comparing runtimes:
 - The story goldens are non-vacuous: as the target slides, the solved terminal
-  bone `chain_c` rotates from ~31.7° to ~65.6° world angle.
+  bone `chain_c` world angle sweeps ~31.7° (`rest`) → ~56.3° (`reach_mid`) →
+  ~65.6° (`reach_end`).
 - Under `mix: 0.5` and this geometry the chain reach is dominated by the terminal
-  bone; interior bones `chain_a`/`chain_b` stay near 0° (expected FABRIK behavior,
-  not a defect).
-- `m5_ik_story_rest.json` equals `m5_ik_rig_t0.json` because the `target_slide`
-  keyframe at `t=0` matches the rig's rest target translate.
+  bone; interior bones `chain_a`/`chain_b` stay near 0° (world basis ≈ identity,
+  `a≈1.0, b≈0`) — expected FABRIK behavior, not a defect.
+- The bone `world` matrices in `m5_ik_story_rest.json` match those in
+  `m5_ik_rig_t0.json` (the `target_slide` keyframe at `t=0` equals the rig's rest
+  target translate). The two files are **not** byte-identical, though: the story
+  golden additionally wraps the pose in state-machine metadata
+  (`stateMachine`/`sample`/`layers`/`events`).
 - Serialized `world` matrix entries are full float64; only IK point inputs are
   f32-quantized internally.
 
