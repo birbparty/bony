@@ -1,18 +1,22 @@
-// Dart IK constraint load parity (bony-me5.9).
+// Dart IK constraint load parity + solved-output (bony-me5.9, bony-7b7.7).
 //
-// IK EVALUATION is out of scope in Dart: IK solving is an M5 Nim runtime
-// feature not yet ported to Dart (mirrors the path-constraint evaluation
-// deferral noted in m5_constraint_test.dart). This gate proves only that the
-// model + JSON loader + .bnb loader carry IK constraint data through without
-// error and in agreement, matching runtime-nim's on-load parity.
+// IK EVALUATION IS LIVE in Dart: computeWorldTransforms now solves IK
+// constraints at pose time (ports runtime-nim's applyRuntimeIk; see
+// transform.dart:_applyRuntimeIk and the M5-IK golden gate in
+// m10_conformance_test.dart). This file covers two things: (1) load parity —
+// the model + JSON loader + .bnb loader carry IK constraint data through
+// without error and in agreement, matching runtime-nim's on-load parity; and
+// (2) solved output — the terminal bones of the 1-bone, 2-bone, and chain
+// shapes are actually driven by the solver (matched against the committed
+// golden and shown to be non-vacuous versus the unconstrained rest pose).
 //
 // The .bnb bytes below are produced by the Nim CLI (`bony json-to-bnb`) — the
 // format authority — from the same skeleton as _ikJson. They are an in-test
-// fixture, NOT a committed conformance asset (IK conformance fixtures arrive in
-// step 3, bony-grr). Regenerate with:
+// fixture, NOT a committed conformance asset. Regenerate with:
 //   bony json-to-bnb <_ikJson>.bony out.bnb && base64 out.bnb
 
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 import 'package:test/test.dart';
 import 'package:bony/bony.dart';
@@ -202,6 +206,89 @@ void main() {
       final data = loadBonyJson(
           skel('{"name": "ik", "bones": ["b0", "b1"], "target": "goal"}'));
       expect(data.ikConstraints.single.bones, ['b0', 'b1']);
+    });
+  });
+
+  // Solved output: computeWorldTransforms now evaluates IK. These assert that
+  // the terminal bones are actually driven by the solver — matched to the
+  // committed golden and shown to differ non-vacuously from the unconstrained
+  // rest pose (a no-op evaluation would leave them at their rest transforms).
+  group('IK solved output (evaluation is live)', () {
+    Map<String, int> _index(SkeletonData data) => {
+          for (var i = 0; i < data.bones.length; i++) data.bones[i].name: i,
+        };
+
+    // Sum of |translation delta| + |rotation delta| between two world affines.
+    double _worldDelta(Affine2 a, Affine2 b) =>
+        (a.tx - b.tx).abs() +
+        (a.ty - b.ty).abs() +
+        (worldRotationDegrees(a) - worldRotationDegrees(b)).abs();
+
+    test('the loaded 2-bone IK drives its terminal bone off the rest pose', () {
+      // _ikJson: b0->b1 chain (both rest rotation 0, lying along +x) with a
+      // goal above the x-axis and mix 0.3. Solving must rotate/translate the
+      // terminal bone b1 away from its unconstrained rest transform.
+      final data = loadBonyJson(_ikJson);
+      final worlds = computeWorldTransforms(data);
+      final index = _index(data);
+      final b1Index = index['b1']!;
+      final solved = worlds[b1Index];
+      final rest = restWorldFor(data, b1Index, index, <int, Affine2>{});
+      // Sanity: the rest pose is genuinely unrotated at (20, 0).
+      expect(worldRotationDegrees(rest), closeTo(0.0, 1e-9));
+      expect(rest.tx, closeTo(20.0, 1e-6));
+      expect(rest.ty, closeTo(0.0, 1e-6));
+      // Solved differs: IK actually ran (mix 0.3 => partial reach).
+      expect(_worldDelta(solved, rest), greaterThan(1.0),
+          reason: 'IK evaluation must move the terminal bone off rest');
+    });
+
+    group('m5_ik_rig terminals (1-bone, 2-bone, chain)', () {
+      late SkeletonData data;
+      late List<Affine2> worlds;
+      late Map<String, int> index;
+      late Map<String, Map<String, dynamic>> goldenWorld;
+
+      setUpAll(() {
+        data = loadBonyJson(
+          File('../conformance/assets/m5_ik_rig.bony').readAsStringSync(),
+        );
+        worlds = computeWorldTransforms(data);
+        index = _index(data);
+        final golden = jsonDecode(
+          File('../conformance/goldens/m5_ik_rig_t0.json').readAsStringSync(),
+        ) as Map<String, dynamic>;
+        goldenWorld = {
+          for (final b in (golden['bones'] as List).cast<Map<String, dynamic>>())
+            b['name'] as String: b['world'] as Map<String, dynamic>,
+        };
+      });
+
+      // one_bone (1-bone), two_lower (2-bone tip), chain_c (chain tip).
+      for (final terminal in const ['one_bone', 'two_lower', 'chain_c']) {
+        test('$terminal solved world matches the golden (abs <= 1e-4)', () {
+          final w = worlds[index[terminal]!];
+          final g = goldenWorld[terminal]!;
+          for (final e in <List<Object>>[
+            ['a', w.a], ['b', w.b], ['c', w.c],
+            ['d', w.d], ['tx', w.tx], ['ty', w.ty],
+          ]) {
+            final key = e[0] as String;
+            final actual = e[1] as double;
+            expect((actual - (g[key] as num).toDouble()).abs(),
+                lessThanOrEqualTo(1e-4),
+                reason: '$terminal.$key');
+          }
+        });
+
+        test('$terminal is non-vacuously solved (differs from rest pose)', () {
+          final solved = worlds[index[terminal]!];
+          final rest =
+              restWorldFor(data, index[terminal]!, index, <int, Affine2>{});
+          expect(_worldDelta(solved, rest), greaterThan(5.0),
+              reason: '$terminal must differ from the unconstrained pose');
+        });
+      }
     });
   });
 }
