@@ -120,3 +120,27 @@ In `runtime-nim/src/bony/model.nim`, `IkConstraintData` is an exported type whos
 `mix ∈ [0, 1]` (message `"ik.mix must be in [0, 1]"`, matching `requireMix` in
 `constraints/ik.nim`). Step-2 loader/evaluation code reads these fields via
 accessors/loader rather than directly.
+
+## 8. Runtime implementation status (handoff)
+
+The runtime slice (§1's "separate slices") has landed for the reference runtime.
+This section records the current per-runtime status so downstream work is not
+misled about parity.
+
+- **Nim reference runtime — IK evaluation is live.** Both loaders parse IK
+  (`runtime-nim/src/bony/jsonio.nim` for `.bony`, `binary/semantic.nim` for
+  `.bnb`), and IK is *evaluated* during the world-transform pass:
+  `computeWorldTransforms` (`runtime-nim/src/bony/transform.nim`) applies each
+  `runtimeEvaluable` constraint via `applyRuntimeIk`, feeding the solver in
+  `constraints/ik.nim`. Covered by the Nim unit tests and the conformance /
+  round-trip gates.
+
+- **Dart runtime — model + load parity only; evaluation deferred.** The Dart
+  runtime carries IK constraint *data* to parity: `IkConstraintData` +
+  `SkeletonData.ikConstraints` (`runtime-dart/lib/src/model.dart`) and IK
+  parse/decode for both JSON and `.bnb`, including load-time validation
+  (`runtime-dart/lib/src/loader.dart`). Dart IK **evaluation is deferred to a
+  later slice** — the Dart step-2 scope was model load + round-trip only.
+  `computeWorldTransforms` in Dart returns the unconstrained setup-pose
+  hierarchy for IK, mirroring the path-constraint evaluation deferral noted in
+  `runtime-dart/test/m5_constraint_test.dart`.
