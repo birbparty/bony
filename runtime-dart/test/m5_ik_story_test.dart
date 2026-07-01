@@ -55,12 +55,25 @@ void main() {
   });
 
   // Drive the SM to time t on a fresh runtime (each input-script sample is an
-  // independent absolute time), apply the resulting pose, and solve.
-  ({SkeletonData posed, List<Affine2> worlds}) _sampleAt(double t) {
+  // independent absolute time; the non-looping slide clip clamps at its 1.0
+  // duration, so update(t) reaches the same pose the Nim cumulative replay
+  // records), apply the resulting pose, and solve.
+  ({
+    SkeletonData posed,
+    List<Affine2> worlds,
+    EvaluatedStateMachine evaluated,
+    StateMachineRuntime runtime,
+  }) _sampleAt(double t) {
     final rt = initStateMachineRuntime(story);
     rt.update(t);
-    final posed = applyPose(base, rt.evaluate(base).pose);
-    return (posed: posed, worlds: computeWorldTransforms(posed));
+    final evaluated = rt.evaluate(base);
+    final posed = applyPose(base, evaluated.pose);
+    return (
+      posed: posed,
+      worlds: computeWorldTransforms(posed),
+      evaluated: evaluated,
+      runtime: rt,
+    );
   }
 
   Map<String, dynamic> _loadGolden(String name) => jsonDecode(
@@ -71,6 +84,8 @@ void main() {
     group('m5_ik_story ${sample.name} (t=${sample.t})', () {
       late List<Affine2> worlds;
       late SkeletonData posed;
+      late EvaluatedStateMachine evaluated;
+      late StateMachineRuntime runtime;
       late Map<String, dynamic> golden;
       late Map<String, Map<String, dynamic>> goldenWorld;
 
@@ -78,6 +93,8 @@ void main() {
         final r = _sampleAt(sample.t);
         worlds = r.worlds;
         posed = r.posed;
+        evaluated = r.evaluated;
+        runtime = r.runtime;
         golden = _loadGolden(sample.name);
         goldenWorld = {
           for (final b in (golden['bones'] as List).cast<Map<String, dynamic>>())
@@ -91,6 +108,19 @@ void main() {
         expect(golden['sample'], sample.name);
         expect((golden['time'] as num).toDouble(), sample.t);
         expect(golden['stateMachine'], 'ik_story');
+      });
+
+      test('reach layer is in the slide state at time t with no events', () {
+        final layer = evaluated.layers.firstWhere((l) => l.layer == 'reach');
+        expect(layer.state, 'slide');
+        expect(layer.time, closeTo(sample.t, 1e-9));
+        expect(runtime.events, isEmpty);
+        // Cross-check against the golden's own layer metadata + events.
+        final gLayer =
+            (golden['layers'] as List).first as Map<String, dynamic>;
+        expect(gLayer['state'], layer.state);
+        expect((gLayer['time'] as num).toDouble(), closeTo(layer.time, 1e-9));
+        expect(golden['events'], isEmpty);
       });
 
       test('bone count matches golden', () {
@@ -121,11 +151,12 @@ void main() {
   // Non-vacuity: the solved chain terminal must actually sweep as the target
   // slides (a dropped-IK or dropped-animation bug would leave it static).
   test('chain_c terminal angle sweeps monotonically across the story', () {
-    final angles = <double>[
-      for (final s in _samples)
-        _worldAngleDeg(_sampleAt(s.t).worlds[
-            _sampleAt(s.t).posed.bones.indexWhere((b) => b.name == 'chain_c')]),
-    ];
+    final angles = <double>[];
+    for (final s in _samples) {
+      final r = _sampleAt(s.t);
+      final ci = r.posed.bones.indexWhere((b) => b.name == 'chain_c');
+      angles.add(_worldAngleDeg(r.worlds[ci]));
+    }
     // ~31.7 -> ~56.3 -> ~65.6 per the rig design.
     expect(angles[0], closeTo(31.7, 0.5));
     expect(angles[1], closeTo(56.3, 0.5));
