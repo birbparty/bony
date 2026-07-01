@@ -85,9 +85,11 @@ The chain points and lengths are:
 - **lengths** = distances between consecutive REST-pose points — each bone's
   rest-pose world origin in chain order, closed by the target bone's rest-pose
   world origin ⇒ `#lengths = #bones`. Fixed regardless of the live pose (§6).
-- **points** = each bone's CURRENT world origin, in chain order, closed by the
-  last bone's current tip (its current origin advanced by the last rest length
-  along its current world direction) ⇒ `#points = #bones + 1`.
+- **points** (≥3-bone chain only) = each bone's CURRENT world origin, in chain
+  order, closed by the last bone's current tip (its current origin advanced by
+  the last rest length along its current world direction) ⇒
+  `#points = #bones + 1`. The 1- and 2-bone cases pass the anchor as `origin`
+  rather than a points array.
 - **origin** = the first bone's CURRENT world origin.
 - The **target bone's REST position closes the rest chain** (it supplies the leaf
   bone's length); the **target bone's CURRENT position is the goal** the solver
@@ -101,7 +103,10 @@ Per-case feed:
 - **2 bones** → `solveTwoBoneIk(origin, parentLength, childLength,
   parentRotation, childRotation, target, bendSign, mix)`, with `origin` the first
   bone's current world origin, `parentLength = |bone1_rest − bone0_rest|` and
-  `childLength = |target_rest − bone1_rest|`.
+  `childLength = |target_rest − bone1_rest|`. `childRotation` is the child's
+  current rotation **relative to its parent** (current child world rotation minus
+  current parent world rotation), since `solveTwoBoneIk` bends the child in
+  parent-relative space.
 - **≥ 3 bones** → `solveChainIk(points, lengths, target, mix)` with the
   current-pose points and rest-derived lengths above.
 
