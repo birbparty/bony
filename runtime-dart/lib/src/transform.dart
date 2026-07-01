@@ -356,6 +356,9 @@ List<Object> _buildRuntimeConstraintUpdateCache(
   // then IK would get the tie order wrong (an IK and a path both at order 0
   // must run IK first) and break the golden. Non-runtime constraints still
   // participate in ordering/write-blockers (reads empty; dispatch no-ops).
+  // Nim's per-entry `active` flag is intentionally not carried: the dispatched
+  // _applyRuntime* functions each re-check `runtimeEvaluable`, so the flag would
+  // be redundant.
   final descriptors = <({
     _ConstraintKind kind,
     int order,
@@ -469,6 +472,26 @@ List<Object> _buildRuntimeConstraintUpdateCache(
   }
   emitBoneGroup(finalGroup);
   return result;
+}
+
+/// Testing hook: the kind ('ik'/'path') and per-kind source index of each
+/// runtime constraint, in the exact order [computeWorldTransforms] dispatches
+/// it. Lets tests pin the canonical ordering — notably that ckIk precedes
+/// ckPath at equal `order` — which the committed goldens do not exercise (no
+/// golden rig mixes both constraint kinds).
+List<({String kind, int sourceIndex})> debugRuntimeConstraintDispatchOrder(
+    SkeletonData data) {
+  final byName = <String, int>{
+    for (var i = 0; i < data.bones.length; i++) data.bones[i].name: i,
+  };
+  return [
+    for (final entry in _buildRuntimeConstraintUpdateCache(data, byName))
+      if (entry is _ConstraintEntry)
+        (
+          kind: entry.kind == _ConstraintKind.ik ? 'ik' : 'path',
+          sourceIndex: entry.sourceIndex,
+        ),
+  ];
 }
 
 void _applyRuntimePathConstraint(
@@ -618,6 +641,8 @@ void _applyRuntimeIk(
     for (final w in currentWorlds) IkPoint(w.tx, w.ty),
   ];
 
+  // ik.mix is already f32-quantized at load (loader.dart), so no re-quantization
+  // is needed here; absent mix/bendPositive default to 1.0/true.
   final storedMix = ik.mix ?? 1.0;
   final bendSign = (ik.bendPositive ?? true) ? 1.0 : -1.0;
 
