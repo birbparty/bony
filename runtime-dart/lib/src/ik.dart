@@ -346,6 +346,8 @@ ChainIkResult solveChainIk(
       _lerp(original.y, resultPoints[index].y, storedMix),
     );
   }
+  // Segment angles are derived AFTER the mix blend (mirroring Nim), so with
+  // mix < 1 they describe the blended pose, not the fully-solved one.
   final rotations = <double>[];
   for (var index = 0; index < resultPoints.length - 1; index++) {
     final current = resultPoints[index];
