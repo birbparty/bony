@@ -6,6 +6,11 @@
 // is deferred to the animated runtime (M5 Nim feature, not yet in Dart M5
 // static gate). The golden at t=0 reflects the same unconstrained pose.
 //
+// IK constraints follow the same deferral: the Dart model + JSON/.bnb loaders
+// carry IK constraint data (see ik_constraint_test.dart), but IK solving is an
+// M5 Nim runtime feature not yet ported to Dart, so it does not affect the
+// world transforms gated here.
+//
 // Tests run from runtime-dart/ so ../conformance/ resolves to repo root.
 
 import 'dart:convert';
