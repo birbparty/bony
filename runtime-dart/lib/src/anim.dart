@@ -718,6 +718,10 @@ SkeletonData applyPose(SkeletonData data, MixedPose pose) {
     regions: data.regions,
     paths: data.paths,
     pathAttachments: data.pathAttachments,
+    // Preserve IK constraints so a posed skeleton still solves IK at pose time
+    // (computeWorldTransforms evaluates them). Omitting these silently dropped
+    // all IK from any animated pose.
+    ikConstraints: data.ikConstraints,
     animations: data.animations,
     parameters: data.parameters,
     deformers: data.deformers,
