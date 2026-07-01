@@ -17,6 +17,9 @@ task test, "Run the Nim smoke tests":
   # CLI-private pose procs: included with -d:bonyExcludeMain (skips main());
   # --path:../cli resolves the CLI's local imports (nim.cfg supplies src + bddy).
   exec "nim c -r -d:bonyExcludeMain --path:../cli tests/test_cli_pose.nim"
+  # IK current-pivot anchoring: includes transform.nim to drive private
+  # applyRuntimeIk with a moved parent world (nim.cfg supplies src).
+  exec "nim c -r tests/test_ik_current_pivot.nim"
 
 task bench, "Run the non-gating perf harness (always exits 0)":
   exec "nim c -r bench_perf.nim"

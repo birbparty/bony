@@ -69,30 +69,41 @@ The number of bones selects the solver (the solvers already exist in
 
 ## 4. `bones` names → solver inputs
 
-Bone names resolve to bones whose **rest-pose world origins** are FK-composed at
-evaluation time (step 2); `BoneData` stores only `name`/`parent`/`local` — no
-world position or segment length (`runtime-nim/src/bony/model.nim:51-54`).
+Bone names resolve to bones whose world origins are FK-composed at evaluation
+time (step 2); `BoneData` stores only `name`/`parent`/`local` — no world position
+or segment length (`runtime-nim/src/bony/model.nim:51-54`).
+
+Segment **lengths** are rest-pose-derived and fixed (§6), but the chain
+**anchors at the live pose** — joint origins and the anchor come from the
+*current* FK worlds. This is the M5 anchor decision (bony-me5.13): a chain whose
+root has a moved/animated parent aims from the live pivot (so the end-effector
+can reach a live target), and `mix=0` is the current-pose identity. Rest-derived
+lengths keep bones rigid regardless of the live pose.
 
 The chain points and lengths are:
 
-- **points** = each bone's rest-pose world origin, in chain order,
-  `++ [target bone rest-pose world origin]` ⇒ `#points = #bones + 1`.
-- **lengths** = distances between consecutive points ⇒ `#lengths = #bones`.
-- **origin** = the first bone's rest-pose world origin.
-- The **target bone's REST position closes the chain** (it supplies the leaf
+- **lengths** = distances between consecutive REST-pose points — each bone's
+  rest-pose world origin in chain order, closed by the target bone's rest-pose
+  world origin ⇒ `#lengths = #bones`. Fixed regardless of the live pose (§6).
+- **points** = each bone's CURRENT world origin, in chain order, closed by the
+  last bone's current tip (its current origin advanced by the last rest length
+  along its current world direction) ⇒ `#points = #bones + 1`.
+- **origin** = the first bone's CURRENT world origin.
+- The **target bone's REST position closes the rest chain** (it supplies the leaf
   bone's length); the **target bone's CURRENT position is the goal** the solver
   reaches toward.
 
 Per-case feed:
 
 - **1 bone** → `solveOneBoneIk(origin, length, currentRotation, target, mix)`,
-  with the single `length = |target_rest − bone0_rest|`.
+  with `origin` the bone's current world origin and
+  `length = |target_rest − bone0_rest|`.
 - **2 bones** → `solveTwoBoneIk(origin, parentLength, childLength,
-  parentRotation, childRotation, target, bendSign, mix)`, with
-  `parentLength = |bone1_rest − bone0_rest|` and
+  parentRotation, childRotation, target, bendSign, mix)`, with `origin` the first
+  bone's current world origin, `parentLength = |bone1_rest − bone0_rest|` and
   `childLength = |target_rest − bone1_rest|`.
 - **≥ 3 bones** → `solveChainIk(points, lengths, target, mix)` with the
-  full points/lengths arrays above.
+  current-pose points and rest-derived lengths above.
 
 In all cases `mix` is the blend weight in `[0, 1]`.
 
