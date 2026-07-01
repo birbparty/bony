@@ -10,8 +10,8 @@
 include "../../cli/bony_cli.nim"
 
 proc ikRigWithSequenceSlot(): SkeletonData =
-  ## root -> b0 (IK bone) and root -> goal (IK target); slot s0 carries a
-  ## sequence-able "frame0" attachment backed by a matching region.
+  ## root -> b0 (IK bone) and root -> goal (IK target); slot s0 starts on the
+  ## "frame0" attachment, with "frame1" available so a sequence can swap frames.
   skeletonData(
     skeletonHeader("ikseq", "0.2.0"),
     @[
@@ -20,17 +20,20 @@ proc ikRigWithSequenceSlot(): SkeletonData =
       boneData("goal", "root"),
     ],
     slots = @[slotData("s0", "b0", "frame0")],
-    regions = @[regionAttachment("frame0", 1.0, 1.0)],
+    regions = @[regionAttachment("frame0", 1.0, 1.0),
+                regionAttachment("frame1", 1.0, 1.0)],
     ikConstraints = @[ikConstraintData("ik", "goal", @["b0"])],
   )
 
 block preservesIkThroughSequenceReconstruction:
   let data = ikRigWithSequenceSlot()
-  # A non-empty sequence forces the reconstruction branch (not the early return).
+  # index 1 rewrites slot s0's attachment frame0 -> frame1, so the reconstruction
+  # branch genuinely runs (not the early return) and actually mutates a slot.
   let pose = MixedPose(
-    sequences: @[MixedSequence(target: "s0", value: SampledSequence(index: 0'u32))])
+    sequences: @[MixedSequence(target: "s0", value: SampledSequence(index: 1'u32))])
   doAssert pose.sequences.len == 1
   let posed = applySequencePose(data, pose)
+  doAssert posed.slots[0].attachment == "frame1", "sequence frame swap did not run"
   doAssert posed.ikConstraints.len == 1, "applySequencePose dropped ikConstraints"
   doAssert posed.ikConstraints[0].name == "ik"
   doAssert posed.ikConstraints[0].target == "goal"
