@@ -113,8 +113,9 @@ class IkConstraintData {
 
   /// Constraint-only predicate mirroring runtime-nim's `runtimeEvaluable`
   /// (model.nim): an IK constraint contributes nothing when mix == 0 or it
-  /// names no bones. Absent mix defaults to 1.0 (evaluable). Dart evaluation is
-  /// deferred (M5 Nim feature); this getter exists for model parity only.
+  /// names no bones. Absent mix defaults to 1.0 (evaluable). Dart now evaluates
+  /// IK: `computeWorldTransforms` solves each evaluable constraint via
+  /// `_applyRuntimeIk` (see transform.dart).
   bool get runtimeEvaluable => bones.isNotEmpty && (mix ?? 1.0) > 0.0;
 }
 

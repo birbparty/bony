@@ -69,6 +69,11 @@ Notes for readers comparing runtimes:
   (`stateMachine`/`sample`/`layers`/`events`).
 - Serialized `world` matrix entries are full float64; only IK point inputs are
   f32-quantized internally.
+- Cross-runtime status: the setup-pose golden `m5_ik_rig_t0.json` is honored by
+  **both** the Nim reference and the Dart runtime — Dart now evaluates IK in
+  `computeWorldTransforms` and matches it within `1e-4`
+  (`runtime-dart/test/m10_conformance_test.dart`). The state-machine story
+  goldens (`m5_ik_story_*`) remain Nim-only pending the Dart story slice.
 
 ### Image goldens (Nim reference rasterizer only)
 
