@@ -14,6 +14,7 @@ paths:
   - test/ik_transform_helpers_test.dart
   - test/ik_constraint_order_test.dart
   - test/ik_constraint_test.dart
+  - test/m5_ik_story_test.dart
   - test/m6_bnb_loader_test.dart
   - test/m7_deformers_test.dart
   - test/m8_statemachine_test.dart
