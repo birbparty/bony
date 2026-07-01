@@ -10,6 +10,7 @@ paths:
   - test/m3_draw_order_test.dart
   - test/m4_draw_order_test.dart
   - test/m5_constraint_test.dart
+  - test/ik_solver_test.dart
   - test/m6_bnb_loader_test.dart
   - test/m7_deformers_test.dart
   - test/m8_statemachine_test.dart
