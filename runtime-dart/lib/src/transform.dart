@@ -4,6 +4,7 @@
 
 import 'dart:math' as math;
 import 'deform.dart';
+import 'ik.dart';
 import 'model.dart';
 
 const double _basisEpsilon = 1e-12;
@@ -189,6 +190,48 @@ double _distance(_Point a, _Point b) => math.sqrt(
     );
 
 double _lerp(double a, double b, double mix) => a + (b - a) * mix;
+
+// --- M5-IK evaluation helpers (mirror runtime-nim/src/bony/transform.nim) ---
+//
+// Kind-agnostic prep for the IK evaluation pass (`_applyRuntimeIk`, added in a
+// later slice). Public so they can be unit-tested directly; all are pure.
+
+/// World rotation of an affine transform, in degrees (transform.nim:349).
+/// The world x-axis is (a, b), so the rotation is atan2(b, a).
+double worldRotationDegrees(Affine2 world) =>
+    math.atan2(world.b, world.a) * 180.0 / math.pi;
+
+/// Euclidean distance between two IK points (transform.nim:353). Distinct from
+/// [_distance] only in operating over the world-space [IkPoint] the solvers use.
+double ikDistance(IkPoint a, IkPoint b) => math.sqrt(
+      (b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y),
+    );
+
+/// Rest-pose world transform of a bone, FK-composed over the UNMUTATED rest
+/// locals (`data.bones[*]`), independent of any animated/constrained pose
+/// (transform.nim:357). IK segment lengths and rest joint origins are derived
+/// from this rest FK (contract §6), while the chain still anchors at the live
+/// pivot at evaluation time. [indexes] maps bone name -> index into
+/// `data.bones`; [memo] caches results so shared ancestors are composed once.
+Affine2 restWorldFor(
+  SkeletonData data,
+  int boneIndex,
+  Map<String, int> indexes,
+  Map<int, Affine2> memo,
+) {
+  final cached = memo[boneIndex];
+  if (cached != null) return cached;
+  final bone = data.bones[boneIndex];
+  final hasParent = bone.parent.isNotEmpty;
+  var parentWorld =
+      const Affine2(a: 1.0, b: 0.0, c: 0.0, d: 1.0, tx: 0.0, ty: 0.0);
+  if (hasParent) {
+    parentWorld = restWorldFor(data, indexes[bone.parent]!, indexes, memo);
+  }
+  final world = _worldForBone(parentWorld, bone, hasParent);
+  memo[boneIndex] = world;
+  return world;
+}
 
 _Point _evaluateCubic(_Cubic curve, double u) {
   final inverse = 1.0 - u;
