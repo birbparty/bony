@@ -3,6 +3,7 @@ library;
 
 export 'src/anim.dart';
 export 'src/deform.dart';
+export 'src/ik.dart';
 export 'src/statemachine.dart';
 export 'src/generated/wire.dart';
 export 'src/loader.dart';
