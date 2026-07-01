@@ -83,6 +83,15 @@ void main() {
       expect(data.bones.any((b) => b.parent.isNotEmpty), isTrue);
     });
 
+    test('oracle premise: m2_rig has no runtime-evaluable constraints', () {
+      // The "rest FK == setup FK" oracle below is only valid when
+      // computeWorldTransforms takes its unconstrained FK branch. Assert the
+      // premise so a future asset change fails HERE with a clear reason rather
+      // than corrupting the oracle silently.
+      expect(data.paths.where((p) => p.runtimeEvaluable), isEmpty);
+      expect(data.ikConstraints.where((c) => c.runtimeEvaluable), isEmpty);
+    });
+
     test('rest FK equals the unconstrained setup-pose FK for every bone', () {
       final memo = <int, Affine2>{};
       for (var i = 0; i < data.bones.length; i++) {
