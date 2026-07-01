@@ -4,6 +4,7 @@ htmldocs/
 runtime-dart/.dart_tool/
 runtime-nim/tests/test_smoke
 runtime-nim/tests/test_json_bnb_json_idempotency
+runtime-nim/tests/test_cli_pose
 runtime-nim/tests/*.exe
 runtime-nim/bench_perf
 runtime-nim/bench_perf.exe

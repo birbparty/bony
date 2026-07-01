@@ -14,6 +14,9 @@ requires "naylib == 26.08.0"
 # this repository lives at ~/git/bony.
 task test, "Run the Nim smoke tests":
   exec "nim c -r tests/test_smoke.nim"
+  # CLI-private pose procs: included with -d:bonyExcludeMain (skips main());
+  # --path:../cli resolves the CLI's local imports (nim.cfg supplies src + bddy).
+  exec "nim c -r -d:bonyExcludeMain --path:../cli tests/test_cli_pose.nim"
 
 task bench, "Run the non-gating perf harness (always exits 0)":
   exec "nim c -r bench_perf.nim"

@@ -1437,6 +1437,7 @@ proc applySequencePose(data: SkeletonData; pose: MixedPose): SkeletonData =
     data.paths,
     data.parameters,
     data.deformers,
+    data.ikConstraints,
   )
 
 
@@ -2196,5 +2197,7 @@ proc main() =
     quit("bony: " & exc.msg, QuitFailure)
 
 
-when isMainModule:
+# bonyExcludeMain lets tests `include` this module to unit-test its private procs
+# (e.g. applySequencePose) without running the CLI entry point.
+when isMainModule and not defined(bonyExcludeMain):
   main()
