@@ -57,8 +57,19 @@ class _BoneGroupEntry {
   final List<int> bones;
 }
 
+enum _ConstraintKind { ik, path }
+
+// Canonical kind rank for tie-breaking constraints at equal `order` (Nim
+// constraintKindRank, model.nim:715): ckIk=0 runs before ckPath=2. transform
+// and physics are out of scope for this runtime slice.
+int _constraintKindRank(_ConstraintKind kind) => switch (kind) {
+      _ConstraintKind.ik => 0,
+      _ConstraintKind.path => 2,
+    };
+
 class _ConstraintEntry {
-  const _ConstraintEntry(this.sourceIndex);
+  const _ConstraintEntry(this.kind, this.sourceIndex);
+  final _ConstraintKind kind;
   final int sourceIndex;
 }
 
@@ -320,7 +331,7 @@ _Cubic _pathCubicInWorld(PathAttachment attachment, Affine2 targetWorld) {
   );
 }
 
-List<Object> _buildPathConstraintUpdateCache(
+List<Object> _buildRuntimeConstraintUpdateCache(
     SkeletonData data, Map<String, int> byName) {
   final parents = List<int>.filled(data.bones.length, -1);
   final seen = <String, int>{};
@@ -337,18 +348,60 @@ List<Object> _buildPathConstraintUpdateCache(
     seen[bone.name] = index;
   }
 
-  final entries = [
-    for (var index = 0; index < data.paths.length; index++)
-      (order: data.paths[index].order, sourceIndex: index),
-  ]..sort((a, b) {
-      final byOrder = a.order.compareTo(b.order);
-      return byOrder != 0 ? byOrder : a.sourceIndex.compareTo(b.sourceIndex);
-    });
+  // Collect BOTH path and ik constraints into ONE ordered list (Nim
+  // buildRuntimeConstraintUpdateCache, update_cache.nim:169). Sorting them
+  // together by the canonical comparator is load-bearing: for the path+ik
+  // subset both share stage rank 0, so sort by `order`, then kind rank
+  // (ckIk before ckPath) on a tie, then sourceIndex. A dual-loop over paths
+  // then IK would get the tie order wrong (an IK and a path both at order 0
+  // must run IK first) and break the golden. Non-runtime constraints still
+  // participate in ordering/write-blockers (reads empty; dispatch no-ops).
+  final descriptors = <({
+    _ConstraintKind kind,
+    int order,
+    int sourceIndex,
+    List<String> writes,
+    List<String> reads,
+  })>[];
+  for (var index = 0; index < data.paths.length; index++) {
+    final path = data.paths[index];
+    descriptors.add((
+      kind: _ConstraintKind.path,
+      order: path.order,
+      sourceIndex: index,
+      writes: <String>[path.bone],
+      reads: path.runtimeEvaluable ? <String>[path.target] : const <String>[],
+    ));
+  }
+  for (var index = 0; index < data.ikConstraints.length; index++) {
+    final ik = data.ikConstraints[index];
+    descriptors.add((
+      kind: _ConstraintKind.ik,
+      order: ik.order,
+      sourceIndex: index,
+      // An IK constraint WRITES its whole bone chain, not a single bone.
+      writes: ik.bones,
+      reads: ik.runtimeEvaluable ? <String>[ik.target] : const <String>[],
+    ));
+  }
+  descriptors.sort((a, b) {
+    final byOrder = a.order.compareTo(b.order);
+    if (byOrder != 0) return byOrder;
+    final byKind =
+        _constraintKindRank(a.kind).compareTo(_constraintKindRank(b.kind));
+    if (byKind != 0) return byKind;
+    return a.sourceIndex.compareTo(b.sourceIndex);
+  });
 
   final writeBlockers = List<int>.filled(data.bones.length, -1);
-  for (var itemIndex = 0; itemIndex < entries.length; itemIndex++) {
-    final boneIndex = byName[data.paths[entries[itemIndex].sourceIndex].bone]!;
-    writeBlockers[boneIndex] = math.max(writeBlockers[boneIndex], itemIndex);
+  for (var itemIndex = 0; itemIndex < descriptors.length; itemIndex++) {
+    for (final boneName in descriptors[itemIndex].writes) {
+      final boneIndex = byName[boneName];
+      if (boneIndex == null) {
+        throw FormatException('unknown constraint write bone: $boneName');
+      }
+      writeBlockers[boneIndex] = math.max(writeBlockers[boneIndex], itemIndex);
+    }
   }
 
   final releaseAfter = List<int>.filled(data.bones.length, -1);
@@ -366,17 +419,25 @@ List<Object> _buildPathConstraintUpdateCache(
     if (bones.isNotEmpty) result.add(_BoneGroupEntry(bones));
   }
 
-  for (var itemIndex = 0; itemIndex < entries.length; itemIndex++) {
-    final path = data.paths[entries[itemIndex].sourceIndex];
-    if (path.runtimeEvaluable) {
-      final readIndex = byName[path.target]!;
+  for (var itemIndex = 0; itemIndex < descriptors.length; itemIndex++) {
+    final descriptor = descriptors[itemIndex];
+    // Emit read dependencies: each read bone's unemitted ancestor lineage is
+    // emitted before the constraint. Nim lists only the target as a read; the
+    // chain root's EXTERNAL parent is deliberately NOT walked here — it is
+    // enforced at runtime inside _applyRuntimeIk (ordering violation), not by
+    // extra cache lineage.
+    final readGroup = <int>[];
+    for (final readName in descriptor.reads) {
+      final readIndex = byName[readName];
+      if (readIndex == null) {
+        throw FormatException('unknown constraint read bone: $readName');
+      }
       final lineage = <int>[];
       var cursor = readIndex;
       while (cursor >= 0) {
         lineage.add(cursor);
         cursor = parents[cursor];
       }
-      final group = <int>[];
       for (final index in lineage.reversed) {
         if (index != readIndex && writeBlockers[index] >= itemIndex) {
           throw FormatException(
@@ -384,12 +445,12 @@ List<Object> _buildPathConstraintUpdateCache(
           );
         }
         if (!emitted[index]) {
-          group.add(index);
+          readGroup.add(index);
           emitted[index] = true;
         }
       }
-      emitBoneGroup(group);
     }
+    emitBoneGroup(readGroup);
 
     final group = <int>[];
     for (var index = 0; index < data.bones.length; index++) {
@@ -399,7 +460,7 @@ List<Object> _buildPathConstraintUpdateCache(
       }
     }
     emitBoneGroup(group);
-    result.add(_ConstraintEntry(entries[itemIndex].sourceIndex));
+    result.add(_ConstraintEntry(descriptor.kind, descriptor.sourceIndex));
   }
 
   final finalGroup = <int>[];
@@ -485,13 +546,170 @@ void _applyRuntimePathConstraint(
   computed[boneIndex] = true;
 }
 
+/// Evaluate one IK constraint and write its solved rotations back into the
+/// chain bones (ports runtime-nim/src/bony/transform.nim:389-524). Geometry per
+/// docs/ik-constraint-format-contract.md §3-§6: fixed segment lengths come from
+/// the REST pose, but the chain anchors at the CURRENT (live) joint origins
+/// (me5.13 current-pivot anchoring, §4) so a moved parent is tracked; the bones'
+/// CURRENT world rotations feed the solver and the target's CURRENT world
+/// position is the goal. `mix` is applied ONCE inside the solver, so mix=0 is
+/// the current-pose identity. Output conventions differ per solver (1-bone and
+/// chain return ABSOLUTE world angles; solveTwoBoneIk's child is RELATIVE to its
+/// parent) but the absolute-angle write-back below normalizes them.
+void _applyRuntimeIk(
+  SkeletonData data,
+  IkConstraintData ik,
+  List<BoneData> locals,
+  List<Affine2> worlds,
+  List<bool> computed,
+  Map<String, int> indexes,
+) {
+  if (!ik.runtimeEvaluable) return;
+  const identity = Affine2(a: 1.0, b: 0.0, c: 0.0, d: 1.0, tx: 0.0, ty: 0.0);
+
+  final targetIndex = indexes[ik.target]!;
+  if (!computed[targetIndex]) {
+    throw FormatException(
+        'runtime ik target must be emitted before constraint: ${ik.name}');
+  }
+  // Raw (non-quantized) IK points — mirrors Nim applyRuntimeIk; routing these
+  // through ikPoint()'s quantization would diverge from the committed golden.
+  final target = IkPoint(worlds[targetIndex].tx, worlds[targetIndex].ty);
+
+  final chainIndexes = [for (final name in ik.bones) indexes[name]!];
+
+  // Rest-pose geometry: fixed segment lengths and rest joint origins (§6).
+  final restMemo = <int, Affine2>{};
+  final restOrigins = <IkPoint>[];
+  for (final boneIndex in chainIndexes) {
+    final rw = restWorldFor(data, boneIndex, indexes, restMemo);
+    restOrigins.add(IkPoint(rw.tx, rw.ty));
+  }
+  final targetRest = restWorldFor(data, targetIndex, indexes, restMemo);
+  final targetRestPoint = IkPoint(targetRest.tx, targetRest.ty);
+
+  // Current FK worlds of the chain, captured BEFORE mutating, composed from
+  // bone[0]'s external parent forward so the solver sees current rotations.
+  final currentWorlds = <Affine2>[];
+  for (var i = 0; i < chainIndexes.length; i++) {
+    final boneIndex = chainIndexes[i];
+    final parent = data.bones[boneIndex].parent;
+    final hasParent = parent.isNotEmpty;
+    var parentWorld = identity;
+    if (hasParent) {
+      if (i > 0 && parent == ik.bones[i - 1]) {
+        parentWorld = currentWorlds[i - 1];
+      } else {
+        final parentIndex = indexes[parent]!;
+        if (!computed[parentIndex]) {
+          throw FormatException(
+              'runtime ik bone parent must be emitted before constraint: ${ik.name}');
+        }
+        parentWorld = worlds[parentIndex];
+      }
+    }
+    currentWorlds
+        .add(_worldForBone(parentWorld, data.bones[boneIndex], hasParent));
+  }
+
+  // Live (current-pivot) joint origins (§4). Segment lengths stay rest-derived,
+  // so the bones remain rigid regardless of the live pose.
+  final currentOrigins = <IkPoint>[
+    for (final w in currentWorlds) IkPoint(w.tx, w.ty),
+  ];
+
+  final storedMix = ik.mix ?? 1.0;
+  final bendSign = (ik.bendPositive ?? true) ? 1.0 : -1.0;
+
+  // Solved ABSOLUTE world angle (degrees) per constrained bone, chain order.
+  final solvedWorldAngles = List<double>.filled(ik.bones.length, 0.0);
+  switch (ik.bones.length) {
+    case 1:
+      {
+        final length = ikDistance(restOrigins[0], targetRestPoint);
+        final currentRotation = worldRotationDegrees(currentWorlds[0]);
+        final solved = solveOneBoneIk(
+            currentOrigins[0], length, currentRotation, target,
+            mix: storedMix);
+        solvedWorldAngles[0] = solved.rotation;
+      }
+    case 2:
+      {
+        final parentLength = ikDistance(restOrigins[0], restOrigins[1]);
+        final childLength = ikDistance(restOrigins[1], targetRestPoint);
+        final parentRotation = worldRotationDegrees(currentWorlds[0]);
+        // solveTwoBoneIk's child input is RELATIVE to the parent (current child
+        // world rotation minus current parent world rotation).
+        final childRotation =
+            worldRotationDegrees(currentWorlds[1]) - parentRotation;
+        final solved = solveTwoBoneIk(currentOrigins[0], parentLength,
+            childLength, parentRotation, childRotation, target,
+            bendSign: bendSign, mix: storedMix);
+        solvedWorldAngles[0] = solved.parentRotation;
+        solvedWorldAngles[1] = solved.parentRotation + solved.childRotation;
+      }
+    default:
+      {
+        final n = ik.bones.length;
+        final lengths = List<double>.filled(n, 0.0);
+        for (var i = 0; i < n - 1; i++) {
+          lengths[i] = ikDistance(restOrigins[i], restOrigins[i + 1]);
+        }
+        lengths[n - 1] = ikDistance(restOrigins[n - 1], targetRestPoint);
+        // Live input polyline: live joint origins plus the last bone's live tip
+        // (its live origin advanced by the rest last-segment length along its
+        // current world direction).
+        final points = <IkPoint>[...currentOrigins];
+        final lastRadians =
+            worldRotationDegrees(currentWorlds[n - 1]) * math.pi / 180.0;
+        points.add(IkPoint(
+          currentOrigins[n - 1].x + math.cos(lastRadians) * lengths[n - 1],
+          currentOrigins[n - 1].y + math.sin(lastRadians) * lengths[n - 1],
+        ));
+        final solved = solveChainIk(points, lengths, target, mix: storedMix);
+        for (var i = 0; i < n; i++) {
+          solvedWorldAngles[i] = solved.rotations[i];
+        }
+      }
+  }
+
+  // Sequential FK write-back: convert each solved absolute world angle to the
+  // bone's LOCAL rotation against its (already re-worlded) parent, then re-world
+  // the bone so it serves as the next chain bone's parent world.
+  for (var i = 0; i < chainIndexes.length; i++) {
+    final boneIndex = chainIndexes[i];
+    final parent = data.bones[boneIndex].parent;
+    final hasParent = parent.isNotEmpty;
+    var parentWorld = identity;
+    if (hasParent) {
+      if (i > 0 && parent == ik.bones[i - 1]) {
+        parentWorld = worlds[chainIndexes[i - 1]];
+      } else {
+        parentWorld = worlds[indexes[parent]!];
+      }
+    }
+    // A bone that does not inherit its parent's rotation has world rotation
+    // equal to its own local rotation, so no parent angle is subtracted.
+    final inheritsRotation = locals[boneIndex].inheritRotation;
+    final parentRotation = (hasParent && inheritsRotation)
+        ? worldRotationDegrees(parentWorld)
+        : 0.0;
+    final newLocal = _withLocal(locals[boneIndex],
+        rotation: solvedWorldAngles[i] - parentRotation);
+    locals[boneIndex] = newLocal;
+    worlds[boneIndex] = _worldForBone(parentWorld, newLocal, hasParent);
+    computed[boneIndex] = true;
+  }
+}
+
 /// Compute the setup-pose world affine transform for every bone.
 ///
 /// Returns one [Affine2] per bone, in the same order as [data.bones].
 List<Affine2> computeWorldTransforms(SkeletonData data) {
   const rootParent = Affine2(a: 1.0, b: 0.0, c: 0.0, d: 1.0, tx: 0.0, ty: 0.0);
-  final hasRuntimePaths = data.paths.any((p) => p.runtimeEvaluable);
-  if (hasRuntimePaths) {
+  final hasRuntimeConstraints = data.paths.any((p) => p.runtimeEvaluable) ||
+      data.ikConstraints.any((c) => c.runtimeEvaluable);
+  if (hasRuntimeConstraints) {
     final byName = <String, int>{};
     for (var i = 0; i < data.bones.length; i++) {
       byName[data.bones[i].name] = i;
@@ -500,7 +718,7 @@ List<Affine2> computeWorldTransforms(SkeletonData data) {
       for (final attachment in data.pathAttachments)
         attachment.name: attachment,
     };
-    final cache = _buildPathConstraintUpdateCache(data, byName);
+    final cache = _buildRuntimeConstraintUpdateCache(data, byName);
     final locals = data.bones.map((bone) => bone).toList();
     final result = List<Affine2>.filled(data.bones.length, rootParent);
     final computed = List<bool>.filled(data.bones.length, false);
@@ -518,15 +736,27 @@ List<Affine2> computeWorldTransforms(SkeletonData data) {
           computed[index] = true;
         }
       } else if (entry is _ConstraintEntry) {
-        _applyRuntimePathConstraint(
-          data,
-          data.paths[entry.sourceIndex],
-          locals,
-          result,
-          computed,
-          byName,
-          attachments,
-        );
+        switch (entry.kind) {
+          case _ConstraintKind.path:
+            _applyRuntimePathConstraint(
+              data,
+              data.paths[entry.sourceIndex],
+              locals,
+              result,
+              computed,
+              byName,
+              attachments,
+            );
+          case _ConstraintKind.ik:
+            _applyRuntimeIk(
+              data,
+              data.ikConstraints[entry.sourceIndex],
+              locals,
+              result,
+              computed,
+              byName,
+            );
+        }
       }
     }
     return result;
