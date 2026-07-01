@@ -184,6 +184,56 @@ const ikCanonicalFixture = """{
 }
 """
 
+# Companion IK fixture that omits mix/order/bendPositive so every optional field
+# takes its default-omit emit path (hasMix = false, order == default, bendPositive
+# == default). Together with ikMixedOrderFixture this exercises both the
+# all-fields-present and all-defaults-omitted IK emit gates on the round-trip.
+const ikOmitFixture = """
+{
+  "skeleton": {"name": "ikmin", "version": "0.2.0"},
+  "bones": [
+    {"name": "root"},
+    {"name": "b0", "parent": "root", "x": 10},
+    {"name": "goal", "parent": "root", "x": 20}
+  ],
+  "ikConstraints": [
+    {"name": "ik", "bones": ["b0"], "target": "goal"}
+  ]
+}
+"""
+
+const ikOmitCanonicalFixture = """{
+  "skeleton": {
+    "name": "ikmin",
+    "version": "0.2.0"
+  },
+  "bones": [
+    {
+      "name": "root"
+    },
+    {
+      "name": "b0",
+      "parent": "root",
+      "x": 10
+    },
+    {
+      "name": "goal",
+      "parent": "root",
+      "x": 20
+    }
+  ],
+  "slots": [],
+  "regions": [],
+  "ikConstraints": [
+    {
+      "name": "ik",
+      "bones": ["b0"],
+      "target": "goal"
+    }
+  ]
+}
+"""
+
 proc canonicalJson(text: string): string =
   toBonyJson(loadBonyJson(text))
 
@@ -292,8 +342,12 @@ proc expectCliRoundTrip(cliPath, fixture, expected: string) =
 # json-to-bnb -> bnb-to-json -> json-to-bnb -> bnb-to-json and diff bytes across
 # the second cycle: the two .bnb outputs must be byte-identical (bnb->json->bnb
 # stable) and the two .bony outputs must be byte-identical (json->bnb->json
-# stable). Not covered by scripts/ci/round_trip_run.py.
-proc expectCliRoundTripBytesStable(name, cliPath, fixture: string) =
+# stable). Also pin the CLI's emitted JSON to `expected`: byte-stability alone is
+# a fixed-point check and would stay green even if the CLI (which goes through
+# the BonyAsset load/emit path, distinct from the SkeletonData path the
+# in-process golden validates) silently dropped IK. The content golden proves IK
+# actually survives the CLI round-trip. Not covered by scripts/ci/round_trip_run.py.
+proc expectCliRoundTripBytesStable(name, cliPath, fixture, expected: string) =
   let inputPath = "/tmp/bony_ik_roundtrip_input.bony"
   let bnb1Path = "/tmp/bony_ik_roundtrip_1.bnb"
   let json1Path = "/tmp/bony_ik_roundtrip_1.bony"
@@ -319,6 +373,8 @@ proc expectCliRoundTripBytesStable(name, cliPath, fixture: string) =
     name & " bnb->json->bnb was not byte-stable"
   doAssert readFile(json1Path) == readFile(json2Path),
     name & " json->bnb->json was not byte-stable"
+  doAssert readFile(json1Path) == expected,
+    name & " CLI round-trip did not emit the expected canonical JSON"
 
   for path in scratch:
     if fileExists(path):
@@ -326,13 +382,15 @@ proc expectCliRoundTripBytesStable(name, cliPath, fixture: string) =
 
 expectJsonBnbJsonIdempotent("mixed-order numeric fixture", mixedOrderFixture, canonicalFixture)
 expectJsonBnbJsonIdempotent("IK constraint fixture", ikMixedOrderFixture, ikCanonicalFixture)
+expectJsonBnbJsonIdempotent("IK omit-default fixture", ikOmitFixture, ikOmitCanonicalFixture)
 expectDefaultsReapplied()
 expectAngleBoundaryPreserved()
 
 let cliPath = "/tmp/bony_json_idempotency_cli"
 compileCli(cliPath)
 expectCliRoundTrip(cliPath, mixedOrderFixture, canonicalFixture)
-expectCliRoundTripBytesStable("IK constraint fixture", cliPath, ikMixedOrderFixture)
+expectCliRoundTripBytesStable("IK constraint fixture", cliPath, ikMixedOrderFixture, ikCanonicalFixture)
+expectCliRoundTripBytesStable("IK omit-default fixture", cliPath, ikOmitFixture, ikOmitCanonicalFixture)
 if fileExists(cliPath):
   removeFile(cliPath)
 
