@@ -151,12 +151,16 @@ misled about parity.
   `constraints/ik.nim`. Covered by the Nim unit tests and the conformance /
   round-trip gates.
 
-- **Dart runtime — model + load parity only; evaluation deferred.** The Dart
-  runtime carries IK constraint *data* to parity: `IkConstraintData` +
-  `SkeletonData.ikConstraints` (`runtime-dart/lib/src/model.dart`) and IK
-  parse/decode for both JSON and `.bnb`, including load-time validation
-  (`runtime-dart/lib/src/loader.dart`). Dart IK **evaluation is deferred to a
-  later slice** — the Dart step-2 scope was model load + round-trip only.
-  `computeWorldTransforms` in Dart returns the unconstrained setup-pose
-  hierarchy for IK, mirroring the path-constraint evaluation deferral noted in
-  `runtime-dart/test/m5_constraint_test.dart`.
+- **Dart runtime — IK evaluation is live.** The Dart runtime carries IK
+  constraint *data* to parity: `IkConstraintData` + `SkeletonData.ikConstraints`
+  (`runtime-dart/lib/src/model.dart`) and IK parse/decode for both JSON and
+  `.bnb`, including load-time validation (`runtime-dart/lib/src/loader.dart`).
+  IK is now also *evaluated* during the world-transform pass:
+  `computeWorldTransforms` (`runtime-dart/lib/src/transform.dart`) applies each
+  `runtimeEvaluable` constraint via `_applyRuntimeIk`, feeding the ported
+  solvers in `runtime-dart/lib/src/ik.dart` — a line-for-line port of the Nim
+  reference honoring the current-pivot anchoring contract (§4). Covered by the
+  Dart solver/helper unit tests, the solved-output assertions in
+  `runtime-dart/test/ik_constraint_test.dart`, and the M5-IK setup-pose golden
+  gate in `runtime-dart/test/m10_conformance_test.dart`, which matches the
+  committed `conformance/goldens/m5_ik_rig_t0.json` within `1e-4`.
