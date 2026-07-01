@@ -20,6 +20,20 @@ void _expectPoint(IkPoint actual, double x, double y, String label,
   expect(actual.y, closeTo(y, tol), reason: '$label.y');
 }
 
+// Every FABRIK-placed segment is constructed at exactly its stored length, so
+// with mix = 1 the solved chain must preserve each bone length. This is the
+// strongest non-circular check on the reaching loop: it holds for the correct
+// solver regardless of the specific converged pose.
+void _expectSegmentLengths(
+    List<IkPoint> points, List<double> lengths, String label) {
+  for (var i = 0; i < lengths.length; i++) {
+    final dx = points[i + 1].x - points[i].x;
+    final dy = points[i + 1].y - points[i].y;
+    final len = math.sqrt(dx * dx + dy * dy);
+    expect(len, closeTo(lengths[i], 1e-6), reason: '$label.segment[$i]');
+  }
+}
+
 void main() {
   group('solveOneBoneIk', () {
     test('rotates to face a target straight up (target => 90deg)', () {
@@ -75,6 +89,18 @@ void main() {
       expect(r.childRotation, closeTo(90.0, 1e-6));
       _expectPoint(r.midPoint, 1.0, 0.0, 'twoBone.pos.mid');
       _expectPoint(r.endPoint, 1.0, 1.0, 'twoBone.pos.end');
+    });
+
+    test('zero-length bone hits the denominator<=epsilon guard (child = 0)', () {
+      // l1 = 0 makes denominator = 2*l1*l2 = 0 <= epsilon, so the law-of-cosines
+      // is skipped and solvedChild = 0. With target (1,0): k1 = 0 + 1*cos0 = 1,
+      // k2 = 1*sin0 = 0, solvedParent = atan2(0,1) - atan2(0,1) = 0, so the
+      // single non-zero bone points straight at the target: end = (1,0).
+      final r = solveTwoBoneIk(
+          ikPoint(0, 0), 0.0, 1.0, 0.0, 0.0, ikPoint(1, 0), bendSign: -1.0);
+      expect(r.childRotation, closeTo(0.0, 1e-9));
+      expect(r.parentRotation, closeTo(0.0, 1e-9));
+      _expectPoint(r.endPoint, 1.0, 0.0, 'twoBone.zeroLen.end');
     });
 
     test('childRotation is RELATIVE to parent (absolute = parent + child)', () {
@@ -133,19 +159,49 @@ void main() {
       }
     });
 
-    test('degenerate/collinear seed still converges to a reachable target', () {
+    test('non-degenerate reachable target exercises the FABRIK reaching loop',
+        () {
+      // Initial chain lies along +x: (0,0),(1,0),(2,0). Target (1, 0.5) is
+      // strictly reachable (rootToTarget = sqrt(1.25) ~ 1.118 <= totalLength 2)
+      // and is NOT satisfiable by the initial pose, so the backward/forward
+      // reaching passes must actually iterate (this is the branch that all the
+      // straight-line and degenerate tests skip). We assert the two invariants
+      // that a correct FABRIK solve must satisfy without pinning the exact
+      // converged interior joint: the end effector reaches the target, and every
+      // bone length is preserved.
+      final lengths = <double>[1.0, 1.0];
+      final r = solveChainIk(
+        <IkPoint>[ikPoint(0, 0), ikPoint(1, 0), ikPoint(2, 0)],
+        lengths,
+        ikPoint(1, 0.5),
+      );
+      _expectPoint(r.points.first, 0.0, 0.0, 'chain.fabrik.root', tol: 1e-9);
+      _expectPoint(r.points.last, 1.0, 0.5, 'chain.fabrik.end',
+          tol: fabrikTolerance);
+      _expectSegmentLengths(r.points, lengths, 'chain.fabrik');
+    });
+
+    test('degenerate/collinear seed lands the interior joint on the analytic '
+        'solution and reaches the target', () {
       // All points coincident at the origin: segments have length 1 but zero
       // separation, triggering the bend-plane seeding branch. Target (1,0) is
-      // reachable (rootToTarget 1 <= totalLength 2), so FABRIK must drive the
-      // end effector onto the target within fabrikTolerance.
+      // reachable (rootToTarget 1 <= totalLength 2). The seed is deterministic:
+      //   ux=1, uy=0; bend = sqrt(4-1)/2 = sqrt(3)/2; at t=0.5 offset=bend, so
+      //   interior = (0 + 1*0.5 - 0, 0 + 0 + 1*bend) = (0.5, sqrt(3)/2).
+      // That point is already the exact 2-bone solution, so FABRIK holds it.
+      // Asserting the interior guards the seeding math itself (root+end alone
+      // are FABRIK-guaranteed regardless of a seeding bug).
+      final lengths = <double>[1.0, 1.0];
       final r = solveChainIk(
         <IkPoint>[ikPoint(0, 0), ikPoint(0, 0), ikPoint(0, 0)],
-        <double>[1.0, 1.0],
+        lengths,
         ikPoint(1, 0),
       );
       _expectPoint(r.points.first, 0.0, 0.0, 'chain.degen.root', tol: 1e-9);
+      _expectPoint(r.points[1], 0.5, math.sqrt(3) / 2.0, 'chain.degen.mid');
       _expectPoint(r.points.last, 1.0, 0.0, 'chain.degen.end',
           tol: fabrikTolerance);
+      _expectSegmentLengths(r.points, lengths, 'chain.degen');
       expect(r.rotations, hasLength(2));
     });
 
