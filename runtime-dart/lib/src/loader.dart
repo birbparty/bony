@@ -73,6 +73,10 @@ IkConstraintData _parseIk(Map<String, dynamic> j) {
   if (bonesRaw is! List<dynamic>) {
     throw const FormatException('missing required field: ikConstraint.bones');
   }
+  // mix is an f32 on the wire; quantize the JSON f64 so the JSON and .bnb load
+  // paths agree bit-for-bit (matches runtime-nim's ikConstraintData ctor, which
+  // stores quantizeF32(mix)). Range validation happens in _validate.
+  final mixRaw = (j['mix'] as num?)?.toDouble();
   return IkConstraintData(
     name: _required<String>(j['name'], 'ikConstraint.name'),
     bones: bonesRaw
@@ -82,7 +86,7 @@ IkConstraintData _parseIk(Map<String, dynamic> j) {
     // JSON doesn't distinguish int from double; toInt() handles "order": 0.0.
     order: (j['order'] as num?)?.toInt() ?? 0,
     // null preserves "absent" (mix defaults to 1.0, bendPositive to true).
-    mix: (j['mix'] as num?)?.toDouble(),
+    mix: mixRaw == null ? null : quantizeF32(mixRaw),
     bendPositive: j['bendPositive'] as bool?,
   );
 }
@@ -623,6 +627,45 @@ void _validate(SkeletonData data) {
     }
     if (!pathNames.add(p.name)) {
       throw FormatException('duplicate path constraint name: ${p.name}');
+    }
+  }
+
+  // IK constraint validation, mirroring runtime-nim (model.nim). Applied on both
+  // the JSON and .bnb load paths so Dart rejects exactly what Nim rejects.
+  final ikNames = <String>{};
+  final boneParentByName = <String, String>{
+    for (final b in data.bones) b.name: b.parent,
+  };
+  for (var i = 0; i < data.ikConstraints.length; i++) {
+    final ik = data.ikConstraints[i];
+    final ctx = 'ikConstraints[$i]';
+    if (ik.name.isEmpty) throw FormatException('$ctx.name must not be empty');
+    if (!ikNames.add(ik.name)) {
+      throw FormatException('duplicate ik constraint name: ${ik.name}');
+    }
+    if (ik.bones.isEmpty) {
+      throw FormatException('$ctx.bones must not be empty');
+    }
+    for (final boneName in ik.bones) {
+      if (!boneNames.contains(boneName)) {
+        throw FormatException('unknown ik constraint bone: $boneName');
+      }
+    }
+    // The chain must be contiguous root->tip: each bone after the first is the
+    // direct child of the preceding one.
+    for (var c = 1; c < ik.bones.length; c++) {
+      if (boneParentByName[ik.bones[c]] != ik.bones[c - 1]) {
+        throw FormatException(
+          '$ctx.bones must form a contiguous parent-to-child chain '
+          '(root to tip): ${ik.bones[c]} is not a child of ${ik.bones[c - 1]}');
+      }
+    }
+    if (!boneNames.contains(ik.target)) {
+      throw FormatException('unknown ik constraint target: ${ik.target}');
+    }
+    final mix = ik.mix;
+    if (mix != null && (mix < 0.0 || mix > 1.0)) {
+      throw FormatException('$ctx.mix must be in [0, 1]');
     }
   }
 
