@@ -1,4 +1,4 @@
-// Dart M10 conformance gate: numeric golden comparisons for M1 and M8.
+// Dart M10 conformance gate: numeric golden comparisons for M1, M8, and M5-IK.
 //
 // M1 (m1_rig.bony → m1_rig_t0.json): world transforms + draw batches.
 //   The M1 loader test covers parsing; this file covers numeric golden parity.
@@ -6,6 +6,12 @@
 // M8 (m8_rig.bony → m8_rig_t0.json): world transforms + draw batches at t=0.
 //   The M8 state machine test covers runtime behaviour; this covers the
 //   setup-pose golden (no state machine evaluation required at t=0).
+//
+// M5-IK (m5_ik_rig.bony → m5_ik_rig_t0.json): world transforms with IK
+//   constraints evaluated at pose time (1-bone, 2-bone bendPositive:false, and
+//   3-bone FABRIK mix:0.5). Non-vacuous: solved IK differs from the
+//   unconstrained pose by a world delta of ~36, so matching the golden proves
+//   real solving, not a no-op.
 //
 // Tests run from runtime-dart/ so ../conformance/ resolves to repo root.
 
@@ -175,5 +181,11 @@ void main() {
     'M8',
     '../conformance/assets/m8_rig.bony',
     '../conformance/goldens/m8_rig_t0.json',
+  );
+
+  _checkGolden(
+    'M5-IK',
+    '../conformance/assets/m5_ik_rig.bony',
+    '../conformance/goldens/m5_ik_rig_t0.json',
   );
 }
