@@ -68,6 +68,25 @@ PathConstraintData _parsePath(Map<String, dynamic> j) {
   );
 }
 
+IkConstraintData _parseIk(Map<String, dynamic> j) {
+  final bonesRaw = j['bones'];
+  if (bonesRaw is! List<dynamic>) {
+    throw const FormatException('missing required field: ikConstraint.bones');
+  }
+  return IkConstraintData(
+    name: _required<String>(j['name'], 'ikConstraint.name'),
+    bones: bonesRaw
+        .map((b) => _required<String>(b, 'ikConstraint.bones[]'))
+        .toList(),
+    target: _required<String>(j['target'], 'ikConstraint.target'),
+    // JSON doesn't distinguish int from double; toInt() handles "order": 0.0.
+    order: (j['order'] as num?)?.toInt() ?? 0,
+    // null preserves "absent" (mix defaults to 1.0, bendPositive to true).
+    mix: (j['mix'] as num?)?.toDouble(),
+    bendPositive: j['bendPositive'] as bool?,
+  );
+}
+
 BoneTimelineKind _parseBoneTimelineKind(String prop, String ctx) {
   switch (prop) {
     case 'rotate':
@@ -757,6 +776,7 @@ const int _bnbSlot = 1000;
 const int _bnbRegion = 1001;
 const int _bnbPath = 4000;
 const int _bnbPathAttachment = 4001;
+const int _bnbIkConstraint = 4002;
 const int _bnbAnimationClip = 2000;
 const int _bnbBoneTimeline = 2001;
 const int _bnbSlotTimeline = 2002;
@@ -809,6 +829,10 @@ const int _bkP3y = 4010;
 const int _bkPosition = 4011;
 const int _bkTranslateMix = 4012;
 const int _bkRotateMix = 4013;
+// IK constraint property keys (frozen wire contract; bones is a bytes payload).
+const int _bkBones = 4014;
+const int _bkMix = 4015;
+const int _bkBendPositive = 4016;
 const int _bkBoneIndex = 2000;
 const int _bkBoneTimelineKind = 2001;
 const int _bkSlotIndex = 2002;
@@ -868,6 +892,7 @@ const _bnbKnownTypes = {
   _bnbRegion,
   _bnbPath,
   _bnbPathAttachment,
+  _bnbIkConstraint,
   _bnbAnimationClip,
   _bnbBoneTimeline,
   _bnbSlotTimeline,
@@ -1064,6 +1089,25 @@ bool _bBool(_BnbObj obj, int key, {bool def = false}) {
   final v = c.readBool();
   _bCheckExhausted(c, 'bool');
   return v;
+}
+
+/// Decode the required IK `bones` payload: a varuint count followed by
+/// count * (varuint string-table index), chain root -> tip. Same string-table
+/// packing as blendAxes; matches runtime-nim's writeBonesPayload/readBonesPayload
+/// (semantic.nim), including the trailing-bytes check.
+List<String> _bIkBones(_BnbObj obj, List<String> strings) {
+  final payload = obj.props[_bkBones];
+  if (payload == null) {
+    throw const FormatException('.bnb ikConstraint.bones is required');
+  }
+  final c = _BnbCur(payload);
+  final count = c.readVaruint();
+  final out = <String>[];
+  for (var i = 0; i < count; i++) {
+    out.add(c.readStr(strings));
+  }
+  _bCheckExhausted(c, 'ikConstraint.bones');
+  return out;
 }
 
 int _bVarint(_BnbObj obj, int key, {int def = 0}) {
@@ -1413,6 +1457,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
   final regions = <RegionAttachment>[];
   final paths = <PathConstraintData>[];
   final pathAttachments = <PathAttachment>[];
+  final ikConstraints = <IkConstraintData>[];
   final parameters = <ParameterAxis>[];
   final deformers = <DeformerRecord>[];
   final animations = <AnimationClip>[];
@@ -1615,6 +1660,21 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
               : null,
           rotateMix: obj.props.containsKey(_bkRotateMix)
               ? _bF32(obj, _bkRotateMix, 'path.rotateMix')
+              : null,
+        ));
+      case _bnbIkConstraint:
+        flushPending();
+        ikConstraints.add(IkConstraintData(
+          name: _bStr(obj, _bkName, strings, 'ikConstraint.name'),
+          bones: _bIkBones(obj, strings),
+          target: _bStr(obj, _bkTarget, strings, 'ikConstraint.target'),
+          order: _bVarint(obj, _bkOrder, def: 0),
+          // Absent => null (mix defaults to 1.0, bendPositive to true).
+          mix: obj.props.containsKey(_bkMix)
+              ? _bF32(obj, _bkMix, 'ikConstraint.mix')
+              : null,
+          bendPositive: obj.props.containsKey(_bkBendPositive)
+              ? _bBool(obj, _bkBendPositive)
               : null,
         ));
       case _bnbPathAttachment:
@@ -2091,6 +2151,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
     regions: regions,
     paths: paths,
     pathAttachments: pathAttachments,
+    ikConstraints: ikConstraints,
     parameters: parameters,
     deformers: deformers,
     animations: animations,
@@ -2390,6 +2451,10 @@ SkeletonData loadBonyJson(String jsonText) {
       .map((pa) => _parsePathAttachment(pa as Map<String, dynamic>))
       .toList();
 
+  final ikConstraints = ((root['ikConstraints'] as List<dynamic>?) ?? [])
+      .map((ik) => _parseIk(ik as Map<String, dynamic>))
+      .toList();
+
   final animsRaw = root['animations'];
   final animations = animsRaw is List<dynamic>
       ? _parseAnimations(animsRaw)
@@ -2426,6 +2491,7 @@ SkeletonData loadBonyJson(String jsonText) {
     regions: regions,
     paths: paths,
     pathAttachments: pathAttachments,
+    ikConstraints: ikConstraints,
     animations: animations,
     parameters: parameters,
     deformers: deformers,

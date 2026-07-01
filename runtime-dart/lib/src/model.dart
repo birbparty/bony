@@ -87,6 +87,37 @@ class PathConstraintData {
       position != null || translateMix != null || rotateMix != null;
 }
 
+class IkConstraintData {
+  const IkConstraintData({
+    required this.name,
+    required this.bones,
+    required this.target,
+    required this.order,
+    this.mix,
+    this.bendPositive,
+  });
+
+  final String name;
+
+  /// Bone chain the constraint solves, root -> tip. Required (never empty).
+  final List<String> bones;
+  final String target;
+  final int order;
+
+  /// Solver blend amount. `null` means the field was absent on load (defaults
+  /// to 1.0); mirrors the Nim `hasMix` flag via nullability.
+  final double? mix;
+
+  /// `null` means absent on load (defaults to true); mirrors `hasBendPositive`.
+  final bool? bendPositive;
+
+  /// Constraint-only predicate mirroring runtime-nim's `runtimeEvaluable`
+  /// (model.nim): an IK constraint contributes nothing when mix == 0 or it
+  /// names no bones. Absent mix defaults to 1.0 (evaluable). Dart evaluation is
+  /// deferred (M5 Nim feature); this getter exists for model parity only.
+  bool get runtimeEvaluable => bones.isNotEmpty && (mix ?? 1.0) > 0.0;
+}
+
 class PathAttachment {
   const PathAttachment({
     required this.name,
@@ -119,6 +150,7 @@ class SkeletonData {
     required this.regions,
     required this.paths,
     required this.pathAttachments,
+    this.ikConstraints = const [],
     this.animations = const [],
     this.parameters = const [],
     this.deformers = const [],
@@ -131,6 +163,7 @@ class SkeletonData {
   final List<RegionAttachment> regions;
   final List<PathConstraintData> paths;
   final List<PathAttachment> pathAttachments;
+  final List<IkConstraintData> ikConstraints;
   final List<AnimationClip> animations;
   final List<ParameterAxis> parameters;
   final List<DeformerRecord> deformers;
