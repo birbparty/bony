@@ -3362,7 +3362,7 @@ spec "bony package":
       )
       raisesBonyLoadError(
         proc() = validateMeshAttachment(
-          data,
+          data.bones,
           MeshAttachment(
             name: "directEmptyInfluences",
             path: "directEmptyInfluences",
@@ -3381,7 +3381,7 @@ spec "bony package":
       )
       raisesBonyLoadError(
         proc() = validateMeshAttachment(
-          data,
+          data.bones,
           MeshAttachment(
             name: "directBadWeight",
             path: "directBadWeight",
@@ -3400,7 +3400,7 @@ spec "bony package":
       )
       raisesBonyLoadError(
         proc() = validateMeshAttachment(
-          data,
+          data.bones,
           MeshAttachment(
             name: "directBadUv",
             path: "directBadUv",
@@ -6838,6 +6838,105 @@ spec "bony package":
   "clippingAttachments": [{"name": "shared", "vertices": [0, 0, 2, 0, 2, 2], "untilSlot": "slotB"}]
 }
 """, duplicateKey)
+
+proc triMeshFixture(name: string): MeshAttachment =
+  ## A minimal valid unweighted triangle mesh (3 uvs, 3 vertices, one triangle),
+  ## assembled with the raw ctor so it is validated only via validateSkeletonData.
+  meshAttachmentData(
+    name,
+    @[meshUv(0.0, 0.0), meshUv(1.0, 0.0), meshUv(0.0, 1.0)],
+    @[0'u16, 1'u16, 2'u16],
+    @[unweightedMeshVertex(0.0, 0.0), unweightedMeshVertex(1.0, 0.0), unweightedMeshVertex(0.0, 1.0)],
+    false,
+  )
+
+spec "bony mesh skeleton validation":
+  # Exercise the M4 mesh validation wired into validateSkeletonData: a slot may
+  # reference a mesh, mesh names are cross-collection unique, and every loaded
+  # mesh runs validateMeshAttachment. (JSON/.bnb load paths land in later beads;
+  # here meshes are threaded through skeletonData() directly.)
+  it "accepts a slot that references a mesh attachment":
+    let data = skeletonData(
+      skeletonHeader("meshrig", "0.1.0"),
+      @[boneData("root", "")],
+      @[slotData("body", "root", "cloth")],
+      meshAttachments = @[triMeshFixture("cloth")],
+    )
+    then:
+      data.meshAttachments.len == 1
+      data.meshAttachments[0].name == "cloth"
+
+  it "rejects a mesh attachment name that collides with a region name":
+    then:
+      raisesBonyLoadError(
+        proc() = discard skeletonData(
+          skeletonHeader("meshrig", "0.1.0"),
+          @[boneData("root", "")],
+          @[slotData("body", "root", "")],
+          @[regionAttachment("shared", 1.0, 1.0)],
+          meshAttachments = @[triMeshFixture("shared")],
+        ),
+        duplicateKey,
+      )
+
+  it "rejects a mesh attachment name that collides with a clipping attachment name":
+    then:
+      raisesBonyLoadError(
+        proc() = discard skeletonData(
+          skeletonHeader("meshrig", "0.1.0"),
+          @[boneData("root", "")],
+          @[slotData("body", "root", "")],
+          clippingAttachments = @[clipAttachmentData("shared", @[0.0, 0.0, 2.0, 0.0, 0.0, 2.0])],
+          meshAttachments = @[triMeshFixture("shared")],
+        ),
+        duplicateKey,
+      )
+
+  it "rejects a duplicate mesh attachment name":
+    then:
+      raisesBonyLoadError(
+        proc() = discard skeletonData(
+          skeletonHeader("meshrig", "0.1.0"),
+          @[boneData("root", "")],
+          @[slotData("body", "root", "cloth")],
+          meshAttachments = @[triMeshFixture("cloth"), triMeshFixture("cloth")],
+        ),
+        duplicateKey,
+      )
+
+  it "runs validateMeshAttachment on every loaded mesh":
+    # uvs.len != vertices.len must be rejected through the skeleton path,
+    # proving the geometry validator is wired into validateSkeletonData.
+    then:
+      raisesBonyLoadError(
+        proc() = discard skeletonData(
+          skeletonHeader("meshrig", "0.1.0"),
+          @[boneData("root", "")],
+          @[slotData("body", "root", "cloth")],
+          meshAttachments = @[
+            meshAttachmentData(
+              "cloth",
+              @[meshUv(0.0, 0.0)],
+              @[0'u16, 1'u16, 2'u16],
+              @[unweightedMeshVertex(0.0, 0.0), unweightedMeshVertex(1.0, 0.0), unweightedMeshVertex(0.0, 1.0)],
+              false,
+            )
+          ],
+        ),
+        schemaViolation,
+      )
+
+  it "rejects a slot that references an unknown attachment name":
+    then:
+      raisesBonyLoadError(
+        proc() = discard skeletonData(
+          skeletonHeader("meshrig", "0.1.0"),
+          @[boneData("root", "")],
+          @[slotData("body", "root", "ghost")],
+          meshAttachments = @[triMeshFixture("cloth")],
+        ),
+        unknownRequiredReference,
+      )
 
 proc clipEvalRig(clipVertices, untilSlot: string): string =
   ## A rig on an identity-transform root bone: a clip slot (own slot), a covered

@@ -2,7 +2,6 @@
 
 import std/tables
 
-import bony/mesh/attachments
 import bony/model
 import bony/transform
 
@@ -39,7 +38,7 @@ proc skinMeshVertices*(
   mesh: MeshAttachment;
   skinningMethod = linearBlendSkinning;
 ): seq[SkinnedMeshVertex] =
-  validateMeshAttachment(data, mesh)
+  validateMeshAttachment(data.bones, mesh)
   if skinningMethod != linearBlendSkinning:
     raise newBonyLoadError(schemaViolation, "dual-quaternion skinning is a reserved hook in v1")
   if worlds.len != data.bones.len:
