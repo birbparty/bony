@@ -809,6 +809,9 @@ proc validateSkeletonData*(
       raise newBonyLoadError(schemaViolation, context & ".name must not be empty")
     if clip.name in allClipNames:
       raise newBonyLoadError(duplicateKey, "duplicate clipping attachment name: " & clip.name)
+    if clip.name in allRegionNames:
+      raise newBonyLoadError(duplicateKey,
+        "clipping attachment name collides with a region attachment name: " & clip.name)
     allClipNames.incl(clip.name)
     if clip.vertices.len < 6 or clip.vertices.len mod 2 != 0:
       raise newBonyLoadError(schemaViolation, context & ".vertices must contain at least three (x, y) pairs")

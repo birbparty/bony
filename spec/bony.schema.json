@@ -546,8 +546,11 @@
           "minLength": 1
         },
         "vertices": {
-          "type": "string",
-          "contentEncoding": "base64"
+          "type": "array",
+          "minItems": 6,
+          "items": {
+            "type": "number"
+          }
         },
         "untilSlot": {
           "type": "string",

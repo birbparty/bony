@@ -481,6 +481,8 @@ proc readClipVerticesPayload(payload: openArray[byte]): seq[float64] =
   var index = 0
   let count = payload.readVaruint(index)
   for _ in 0'u64 ..< count:
+    if index + 8 > payload.len:
+      raise newBonyLoadError(schemaViolation, ".bnb clippingAttachment vertices payload is truncated")
     let x = readF32Payload(payload[index ..< index + 4], "clippingAttachment.vertices.x")
     index += 4
     let y = readF32Payload(payload[index ..< index + 4], "clippingAttachment.vertices.y")

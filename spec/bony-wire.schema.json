@@ -625,7 +625,13 @@
         },
         "vertices": {
           "type": "string",
-          "contentEncoding": "base64"
+          "contentEncoding": "base64",
+          "x-bony-packedBytes": {
+            "payload": "clippingAttachmentVertices",
+            "layout": "docs/clipping-attachment-contract.md#packed-vertices-byte-layout-bnb",
+            "structuralSchema": "base64Only",
+            "validatedBy": "loader"
+          }
         },
         "untilSlot": {
           "type": "string",

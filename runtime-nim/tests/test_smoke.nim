@@ -6823,3 +6823,18 @@ spec "bony package":
   ]
 }
 """, schemaViolation)
+
+  it "rejects a clipping attachment name that collides with a region name":
+    then:
+      raisesBonyLoadError("""
+{
+  "skeleton": {"name": "d", "version": "0.1.0"},
+  "bones": [{"name": "root"}],
+  "regions": [{"name": "shared", "width": 2, "height": 2}],
+  "slots": [
+    {"name": "slotA", "bone": "root", "attachment": "shared"},
+    {"name": "slotB", "bone": "root"}
+  ],
+  "clippingAttachments": [{"name": "shared", "vertices": [0, 0, 2, 0, 2, 2], "untilSlot": "slotB"}]
+}
+""", duplicateKey)
