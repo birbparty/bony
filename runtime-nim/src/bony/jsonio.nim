@@ -16,6 +16,7 @@ const
   slotTypeId = "slot"
   pathTypeId = "path"
   ikConstraintTypeId = "ikConstraint"
+  transformConstraintTypeId = "transformConstraint"
 
 
 proc defaultFor(objectId, propertyId: string): string =
@@ -309,7 +310,7 @@ proc loadBonyJson*(text: string): SkeletonData =
       raise newBonyLoadError(schemaViolation, "invalid JSON: " & exc.msg)
 
   let root = requireObject(parsed, "root")
-  validateKnownKeys(root, ["skeleton", "bones", "slots", "regions", "pathAttachments", "paths", "ikConstraints", "parameters", "deformers", "animations", "stateMachines"], "root")
+  validateKnownKeys(root, ["skeleton", "bones", "slots", "regions", "pathAttachments", "paths", "ikConstraints", "transformConstraints", "parameters", "deformers", "animations", "stateMachines"], "root")
 
   if not root.hasKey("skeleton"):
     raise newBonyLoadError(schemaViolation, "root.skeleton is required")
@@ -476,6 +477,28 @@ proc loadBonyJson*(text: string): SkeletonData =
         bendPositive = optionalBool(ikObject, "bendPositive", defaultBool(ikConstraintTypeId, "bendPositive"), context),
       )
 
+  var loadedTransformConstraints: seq[TransformConstraintData] = @[]
+  if root.hasKey("transformConstraints"):
+    let transformConstraintsNode = requireArray(root["transformConstraints"], "transformConstraints")
+    for index, tcNode in transformConstraintsNode.elems:
+      let context = "transformConstraints[" & $index & "]"
+      let tcObject = requireObject(tcNode, context)
+      validateKnownKeys(tcObject, ["name", "bone", "target", "order", "translateMix", "rotateMix", "scaleMix", "shearMix"], context)
+      loadedTransformConstraints.add transformConstraintData(
+        requiredString(tcObject, "name", context),
+        requiredString(tcObject, "bone", context),
+        requiredString(tcObject, "target", context),
+        order = optionalInt(tcObject, "order", defaultInt(transformConstraintTypeId, "order"), context),
+        hasTranslateMix = tcObject.hasKey("translateMix"),
+        translateMix = optionalFloat(tcObject, "translateMix", defaultFloat(transformConstraintTypeId, "translateMix"), context),
+        hasRotateMix = tcObject.hasKey("rotateMix"),
+        rotateMix = optionalFloat(tcObject, "rotateMix", defaultFloat(transformConstraintTypeId, "rotateMix"), context),
+        hasScaleMix = tcObject.hasKey("scaleMix"),
+        scaleMix = optionalFloat(tcObject, "scaleMix", defaultFloat(transformConstraintTypeId, "scaleMix"), context),
+        hasShearMix = tcObject.hasKey("shearMix"),
+        shearMix = optionalFloat(tcObject, "shearMix", defaultFloat(transformConstraintTypeId, "shearMix"), context),
+      )
+
   var loadedParameters: seq[ParameterAxis] = @[]
   if root.hasKey("parameters"):
     let parametersNode = requireArray(root["parameters"], "parameters")
@@ -605,7 +628,7 @@ proc loadBonyJson*(text: string): SkeletonData =
 
       loadedDeformers.add DeformerRecord(deformer: deformer, keyformBlend: blend)
 
-  result = skeletonData(loadedHeader, loadedBones, loadedSlots, loadedRegions, loadedPathAttachments, loadedPaths, loadedParameters, loadedDeformers, loadedIkConstraints)
+  result = skeletonData(loadedHeader, loadedBones, loadedSlots, loadedRegions, loadedPathAttachments, loadedPaths, loadedParameters, loadedDeformers, loadedIkConstraints, loadedTransformConstraints)
   let loadedAnimClips = parseBonyAnimations(root, result)
   discard parseBonyStateMachines(root, result, loadedAnimClips)
 
@@ -1541,6 +1564,36 @@ proc toBonyJson*(data: SkeletonData): string =
         result.addNumberField("mix", ik.mix, 3, first)
       if ik.hasBendPositive:
         result.addBoolField("bendPositive", ik.bendPositive, 3, first)
+      result.add "\n"
+      result.addIndent(2)
+      result.add "}"
+    result.add "\n"
+    result.addIndent(1)
+    result.add "]"
+
+  if data.transformConstraints.len > 0:
+    result.add ",\n"
+    result.addIndent(1)
+    result.add "\"transformConstraints\": [\n"
+    for index, tc in data.transformConstraints:
+      if index > 0:
+        result.add ",\n"
+      result.addIndent(2)
+      result.add "{\n"
+      first = true
+      result.addStringField("name", tc.name, 3, first)
+      result.addStringField("bone", tc.bone, 3, first)
+      result.addStringField("target", tc.target, 3, first)
+      if tc.order != defaultInt(transformConstraintTypeId, "order"):
+        result.addIntField("order", tc.order, 3, first)
+      if tc.hasTranslateMix:
+        result.addNumberField("translateMix", tc.translateMix, 3, first)
+      if tc.hasRotateMix:
+        result.addNumberField("rotateMix", tc.rotateMix, 3, first)
+      if tc.hasScaleMix:
+        result.addNumberField("scaleMix", tc.scaleMix, 3, first)
+      if tc.hasShearMix:
+        result.addNumberField("shearMix", tc.shearMix, 3, first)
       result.add "\n"
       result.addIndent(2)
       result.add "}"

@@ -1438,6 +1438,7 @@ proc applySequencePose(data: SkeletonData; pose: MixedPose): SkeletonData =
     data.parameters,
     data.deformers,
     data.ikConstraints,
+    data.transformConstraints,
   )
 
 

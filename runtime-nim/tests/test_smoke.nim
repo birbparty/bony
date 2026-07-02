@@ -1466,6 +1466,47 @@ spec "bony package":
         proc() = discard transformConstraintData("a", "root", "goal", hasShearMix = true, shearMix = Inf),
         numericOutOfRange)
 
+  it "round trips transform constraints through JSON and canonical .bnb":
+    # A constraint with SOME mixes explicitly present and others omitted, to
+    # prove presence-flag fidelity survives both codecs (a has*=false mix must
+    # NOT be re-emitted, a present one must round-trip its value).
+    let source = loadBonyJson("""
+{
+  "skeleton": {"name": "tcrt", "version": "1.0.0"},
+  "bones": [
+    {"name": "root"},
+    {"name": "constrained", "parent": "root", "x": 5},
+    {"name": "goal", "parent": "root", "x": 10, "y": 10}
+  ],
+  "transformConstraints": [
+    {"name": "tc", "bone": "constrained", "target": "goal", "order": 2, "rotateMix": 0.25, "scaleMix": 0.5}
+  ]
+}
+""")
+    let json0 = toBonyJson(source)
+    let bnbBytes = toBonyBnb(source)
+    let decodedFromBnb = loadBonyBnb(bnbBytes)
+    then:
+      source.transformConstraints.len == 1
+      # JSON<->BNB agree on the decoded model
+      toBonyJson(decodedFromBnb) == json0
+      # BNB is byte-stable across a JSON re-parse
+      toBonyBnb(loadBonyJson(json0)) == bnbBytes
+      # presence fidelity: omitted mixes stay absent (default 1.0, has*=false),
+      # present mixes keep their value with has*=true
+      decodedFromBnb.transformConstraints[0].hasTranslateMix == false
+      decodedFromBnb.transformConstraints[0].hasRotateMix == true
+      closeTo(decodedFromBnb.transformConstraints[0].rotateMix, 0.25)
+      decodedFromBnb.transformConstraints[0].hasScaleMix == true
+      closeTo(decodedFromBnb.transformConstraints[0].scaleMix, 0.5)
+      decodedFromBnb.transformConstraints[0].hasShearMix == false
+      decodedFromBnb.transformConstraints[0].order == 2
+      # the emitted JSON omits the two absent mixes but keeps the present ones
+      not json0.contains("translateMix")
+      not json0.contains("shearMix")
+      json0.contains("rotateMix")
+      json0.contains("scaleMix")
+
   it "evaluates path constraint cubics with fixed arc-length samples":
     let curve = pathCubic(
       pathPoint(0.0, 0.0),

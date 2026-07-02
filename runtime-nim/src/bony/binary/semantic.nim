@@ -19,6 +19,7 @@ const
   pathTypeKey = 4000'u64
   pathAttachmentTypeKey = 4001'u64
   ikConstraintTypeKey = 4002'u64
+  transformConstraintTypeKey = 4003'u64
   animationClipTypeKey = 2000'u64
   boneTimelineTypeKey = 2001'u64
   slotTimelineTypeKey = 2002'u64
@@ -66,6 +67,8 @@ const
   bonesKey = 4014'u64
   mixKey = 4015'u64
   bendPositiveKey = 4016'u64
+  scaleMixKey = 4017'u64
+  shearMixKey = 4018'u64
   boneIndexKey = 2000'u64
   boneTimelineKindKey = 2001'u64
   slotIndexKey = 2002'u64
@@ -913,6 +916,23 @@ proc buildObjectRecords(data: SkeletonData; table: var BnbStringTable; toc: var 
       properties.addProperty(toc, bendPositiveKey, writeBoolPayload(ik.bendPositive))
     result.add BnbObjectRecord(typeKey: ikConstraintTypeKey, properties: properties)
 
+  # Transform section: canonical object-stream position is after IK and before
+  # paths, matching constraintKindRank (ckIk=0, ckTransform=1, ckPath=2). Emitted
+  # only when non-empty so existing transform-free fixtures stay byte-identical.
+  # The four mixes are presence-gated (applyOnLoad:false) to stay symmetric with
+  # the JSON emitter; order is value-gated (applyOnLoad:true).
+  for tc in data.transformConstraints:
+    var properties: seq[BnbPropertyRecord]
+    properties.addStringIfNeeded(toc, table, nameKey, tc.name, "", required = true)
+    properties.addStringIfNeeded(toc, table, boneKey, tc.bone, "", required = true)
+    properties.addStringIfNeeded(toc, table, targetKey, tc.target, "", required = true)
+    properties.addIntIfNeeded(toc, orderKey, tc.order, defaultInt("transformConstraint", "order"))
+    properties.addFloatIfNeeded(toc, translateMixKey, tc.translateMix, defaultFloat("transformConstraint", "translateMix"), required = tc.hasTranslateMix)
+    properties.addFloatIfNeeded(toc, rotateMixKey, tc.rotateMix, defaultFloat("transformConstraint", "rotateMix"), required = tc.hasRotateMix)
+    properties.addFloatIfNeeded(toc, scaleMixKey, tc.scaleMix, defaultFloat("transformConstraint", "scaleMix"), required = tc.hasScaleMix)
+    properties.addFloatIfNeeded(toc, shearMixKey, tc.shearMix, defaultFloat("transformConstraint", "shearMix"), required = tc.hasShearMix)
+    result.add BnbObjectRecord(typeKey: transformConstraintTypeKey, properties: properties)
+
   for path in data.paths:
     var properties: seq[BnbPropertyRecord]
     properties.addStringIfNeeded(toc, table, nameKey, path.name, "", required = true)
@@ -1224,6 +1244,7 @@ proc decodeSkeletonObjects(objects: openArray[BnbObjectRecord]; strings: BnbStri
   var pathAttachments: seq[PathAttachmentData]
   var paths: seq[PathConstraintData]
   var ikConstraints: seq[IkConstraintData]
+  var transformConstraints: seq[TransformConstraintData]
   var loadedParameters: seq[ParameterAxis]
   var loadedDeformers: seq[DeformerRecord]
 
@@ -1371,6 +1392,23 @@ proc decodeSkeletonObjects(objects: openArray[BnbObjectRecord]; strings: BnbStri
         hasBendPositive = bendPositiveKey in properties,
         bendPositive = properties.readOptionalBoolProperty(bendPositiveKey, defaultBool("ikConstraint", "bendPositive"), "ikConstraint.bendPositive"),
       )
+    of transformConstraintTypeKey:
+      flushPendingIfAny()
+      let properties = record.propertyMap([nameKey, boneKey, targetKey, orderKey, translateMixKey, rotateMixKey, scaleMixKey, shearMixKey])
+      transformConstraints.add transformConstraintData(
+        properties.readStringProperty(strings, nameKey, "transformConstraint.name"),
+        properties.readStringProperty(strings, boneKey, "transformConstraint.bone"),
+        properties.readStringProperty(strings, targetKey, "transformConstraint.target"),
+        order = properties.readOptionalIntProperty(orderKey, defaultInt("transformConstraint", "order"), "transformConstraint.order"),
+        hasTranslateMix = translateMixKey in properties,
+        translateMix = properties.readOptionalFloatProperty(translateMixKey, defaultFloat("transformConstraint", "translateMix"), "transformConstraint.translateMix"),
+        hasRotateMix = rotateMixKey in properties,
+        rotateMix = properties.readOptionalFloatProperty(rotateMixKey, defaultFloat("transformConstraint", "rotateMix"), "transformConstraint.rotateMix"),
+        hasScaleMix = scaleMixKey in properties,
+        scaleMix = properties.readOptionalFloatProperty(scaleMixKey, defaultFloat("transformConstraint", "scaleMix"), "transformConstraint.scaleMix"),
+        hasShearMix = shearMixKey in properties,
+        shearMix = properties.readOptionalFloatProperty(shearMixKey, defaultFloat("transformConstraint", "shearMix"), "transformConstraint.shearMix"),
+      )
     of parameterTypeKey:
       flushPendingIfAny()
       let properties = record.propertyMap([nameKey, parameterMinKey, parameterMaxKey, parameterDefaultKey])
@@ -1473,7 +1511,7 @@ proc decodeSkeletonObjects(objects: openArray[BnbObjectRecord]; strings: BnbStri
 
   if not hasSkeleton:
     raise newBonyLoadError(schemaViolation, ".bnb skeleton object is required")
-  skeletonData(headerValue, bones, slots, regions, pathAttachments, paths, loadedParameters, loadedDeformers, ikConstraints)
+  skeletonData(headerValue, bones, slots, regions, pathAttachments, paths, loadedParameters, loadedDeformers, ikConstraints, transformConstraints)
 
 
 proc withTarget(timeline: BoneTimeline; target: string): BoneTimeline =
