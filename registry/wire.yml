@@ -226,6 +226,12 @@ typeKeys:
     milestone: M2
     ownerBead: bony-v1p
     doc: Rectangular region attachment record for backend-neutral drawing.
+  - id: clippingAttachment
+    key: 3000
+    status: active
+    milestone: M4
+    ownerBead: bony-jkt
+    doc: Slot-bound convex clipping attachment; format/load only in this slice (no geometry clipping yet).
   - id: path
     key: 4000
     status: active
@@ -493,6 +499,20 @@ propertyKeys:
     milestone: M2
     ownerBead: bony-v1p
     doc: Region attachment height in skeleton units.
+  - id: vertices
+    key: 3000
+    backingType: bytes
+    status: active
+    milestone: M4
+    ownerBead: bony-jkt
+    doc: Clipping attachment convex polygon in the owning slot's bone-local space; packed as varuint point count followed by count*(f32 x, f32 y) little-endian pairs.
+  - id: untilSlot
+    key: 3001
+    backingType: string
+    status: active
+    milestone: M4
+    ownerBead: bony-jkt
+    doc: Optional slot name at which a clipping attachment's range stops (inclusive); empty string clips to the end of draw order.
   - id: target
     key: 4000
     backingType: string
@@ -1060,6 +1080,12 @@ objects:
       - width
       - height
     doc: Rectangular region attachment used by the M2 draw-batch surface.
+  - type: clippingAttachment
+    properties:
+      - name
+      - vertices
+      - untilSlot
+    doc: Slot-bound convex clipping attachment loaded by name; format/load only in this slice.
   - type: path
     properties:
       - name

@@ -85,6 +85,11 @@ type
     p3x: float64
     p3y: float64
 
+  ClipAttachmentData* = object
+    name: string
+    vertices: seq[float64]
+    untilSlot: string
+
   PathConstraintData* = object
     name: string
     bone: string
@@ -246,6 +251,7 @@ type
     slots: seq[SlotData]
     regions: seq[RegionAttachment]
     pathAttachments: seq[PathAttachmentData]
+    clippingAttachments: seq[ClipAttachmentData]
     paths: seq[PathConstraintData]
     ikConstraints: seq[IkConstraintData]
     transformConstraints: seq[TransformConstraintData]
@@ -340,6 +346,17 @@ proc pathAttachmentData*(
     p3x: requireFiniteF64(p3x, "pathAttachment.p3x"),
     p3y: requireFiniteF64(p3y, "pathAttachment.p3y"),
   )
+
+
+proc clipAttachmentData*(
+  name: string;
+  vertices: openArray[float64];
+  untilSlot = "";
+): ClipAttachmentData =
+  var quantized = newSeq[float64](vertices.len)
+  for index, value in vertices:
+    quantized[index] = quantizeF32(value, "clippingAttachment.vertices[" & $index & "]")
+  ClipAttachmentData(name: name, vertices: quantized, untilSlot: untilSlot)
 
 
 proc pathConstraintData*(
@@ -549,6 +566,10 @@ proc p2y*(pathAttachment: PathAttachmentData): float64 = pathAttachment.p2y
 proc p3x*(pathAttachment: PathAttachmentData): float64 = pathAttachment.p3x
 proc p3y*(pathAttachment: PathAttachmentData): float64 = pathAttachment.p3y
 
+proc name*(clip: ClipAttachmentData): string = clip.name
+proc vertices*(clip: ClipAttachmentData): seq[float64] = clip.vertices
+proc untilSlot*(clip: ClipAttachmentData): string = clip.untilSlot
+
 
 proc name*(path: PathConstraintData): string = path.name
 proc bone*(path: PathConstraintData): string = path.bone
@@ -670,6 +691,9 @@ proc regions*(data: SkeletonData): seq[RegionAttachment] = data.regions
 proc pathAttachments*(data: SkeletonData): seq[PathAttachmentData] = data.pathAttachments
 
 
+proc clippingAttachments*(data: SkeletonData): seq[ClipAttachmentData] = data.clippingAttachments
+
+
 proc paths*(data: SkeletonData): seq[PathConstraintData] = data.paths
 
 
@@ -735,6 +759,7 @@ proc validateSkeletonData*(
   ikConstraints: openArray[IkConstraintData] = [];
   transformConstraints: openArray[TransformConstraintData] = [];
   physicsConstraints: openArray[PhysicsConstraintData] = [];
+  clippingAttachments: openArray[ClipAttachmentData] = [];
 ) =
   if header.name.len == 0:
     raise newBonyLoadError(schemaViolation, "skeleton.name must not be empty")
@@ -776,6 +801,44 @@ proc validateSkeletonData*(
       raise newBonyLoadError(duplicateKey, "duplicate region name: " & region.name)
     allRegionNames.incl(region.name)
 
+  const clipAreaEpsilon = 1e-9
+  var allClipNames = initHashSet[string]()
+  for index, clip in clippingAttachments:
+    let context = "clippingAttachments[" & $index & "]"
+    if clip.name.len == 0:
+      raise newBonyLoadError(schemaViolation, context & ".name must not be empty")
+    if clip.name in allClipNames:
+      raise newBonyLoadError(duplicateKey, "duplicate clipping attachment name: " & clip.name)
+    allClipNames.incl(clip.name)
+    if clip.vertices.len < 6 or clip.vertices.len mod 2 != 0:
+      raise newBonyLoadError(schemaViolation, context & ".vertices must contain at least three (x, y) pairs")
+    for vIndex, value in clip.vertices:
+      discard requireFiniteF64(value, context & ".vertices[" & $vIndex & "]")
+    # Convex, non-zero-area invariants restated from mesh/clipping.nim
+    # (validateConvexClip*): ≥3 vertices, non-zero signed area, uniform turn sign.
+    let pointCount = clip.vertices.len div 2
+    var area = 0.0
+    for p in 0 ..< pointCount:
+      let ax = clip.vertices[2 * p]
+      let ay = clip.vertices[2 * p + 1]
+      let nx = clip.vertices[2 * ((p + 1) mod pointCount)]
+      let ny = clip.vertices[2 * ((p + 1) mod pointCount) + 1]
+      area += ax * ny - nx * ay
+    area = area * 0.5
+    if abs(area) <= clipAreaEpsilon:
+      raise newBonyLoadError(schemaViolation, context & ".vertices polygon area must be non-zero")
+    let signValue = if area > 0.0: 1.0 else: -1.0
+    for p in 0 ..< pointCount:
+      let ax = clip.vertices[2 * p]
+      let ay = clip.vertices[2 * p + 1]
+      let bx = clip.vertices[2 * ((p + 1) mod pointCount)]
+      let by = clip.vertices[2 * ((p + 1) mod pointCount) + 1]
+      let cx = clip.vertices[2 * ((p + 2) mod pointCount)]
+      let cy = clip.vertices[2 * ((p + 2) mod pointCount) + 1]
+      let turn = (bx - ax) * (cy - by) - (by - ay) * (cx - bx)
+      if turn * signValue < -clipAreaEpsilon:
+        raise newBonyLoadError(schemaViolation, context & ".vertices must be convex in v1")
+
   for index, slot in slots:
     let context = "slots[" & $index & "]"
     if slot.name.len == 0:
@@ -784,9 +847,49 @@ proc validateSkeletonData*(
       raise newBonyLoadError(duplicateKey, "duplicate slot name: " & slot.name)
     if slot.bone notin allNames:
       raise newBonyLoadError(unknownRequiredReference, "unknown slot bone: " & slot.bone)
-    if slot.attachment.len > 0 and slot.attachment notin allRegionNames:
+    if slot.attachment.len > 0 and slot.attachment notin allRegionNames and
+        slot.attachment notin allClipNames:
       raise newBonyLoadError(unknownRequiredReference, "unknown slot attachment: " & slot.attachment)
     allSlotNames.incl(slot.name)
+
+  # Clip range + no-overlap validation. A clip's range starts at the slot that
+  # references it (via slot.attachment) and runs through untilSlot inclusive, or
+  # to the end of draw order when untilSlot is empty. untilSlot must name a known
+  # slot strictly after the clip's own slot (an at-or-before untilSlot, or an own
+  # slot that is last, is a degenerate empty range). Ranges may not overlap: a
+  # clip may not begin while another clip's range is still active.
+  if clippingAttachments.len > 0:
+    var slotIndexByName = initTable[string, int]()
+    for index, slot in slots:
+      slotIndexByName[slot.name] = index
+    var clipByName = initTable[string, ClipAttachmentData]()
+    for clip in clippingAttachments:
+      clipByName[clip.name] = clip
+      if clip.untilSlot.len > 0 and clip.untilSlot notin slotIndexByName:
+        raise newBonyLoadError(unknownRequiredReference,
+          "clipping attachment untilSlot names unknown slot: " & clip.untilSlot)
+    let lastSlotIndex = slots.len - 1
+    # Intervals are appended in draw order, so ownIndex is strictly ascending.
+    var activeUntil = -1
+    var activeName = ""
+    for index, slot in slots:
+      if slot.attachment.len == 0 or slot.attachment notin allClipNames:
+        continue
+      let clip = clipByName[slot.attachment]
+      let ownIndex = index
+      let endIndex =
+        if clip.untilSlot.len > 0: slotIndexByName[clip.untilSlot]
+        else: lastSlotIndex
+      if endIndex <= ownIndex:
+        raise newBonyLoadError(schemaViolation,
+          "clipping attachment '" & slot.attachment & "' on slot '" & slot.name &
+            "' has an empty range (untilSlot at or before the clip's own slot)")
+      if ownIndex <= activeUntil:
+        raise newBonyLoadError(schemaViolation,
+          "clipping ranges overlap: '" & slot.attachment & "' begins while '" &
+            activeName & "' is still active")
+      activeUntil = endIndex
+      activeName = slot.attachment
 
   var allPathAttachmentNames = initHashSet[string]()
   for index, pathAttachment in pathAttachments:
@@ -962,16 +1065,18 @@ proc skeletonData*(
   ikConstraints: openArray[IkConstraintData] = [];
   transformConstraints: openArray[TransformConstraintData] = [];
   physicsConstraints: openArray[PhysicsConstraintData] = [];
+  clippingAttachments: openArray[ClipAttachmentData] = [];
 ): SkeletonData =
   validateSkeletonData(
     header, bones, slots, regions, pathAttachments, paths, parameters, deformers, ikConstraints,
-    transformConstraints, physicsConstraints,
+    transformConstraints, physicsConstraints, clippingAttachments,
   )
   result.header = header
   result.bones = @bones
   result.slots = @slots
   result.regions = @regions
   result.pathAttachments = @pathAttachments
+  result.clippingAttachments = @clippingAttachments
   result.paths = @paths
   result.parameters = @parameters
   result.deformers = @deformers
@@ -984,7 +1089,7 @@ proc validateSkeletonData*(data: SkeletonData) =
   validateSkeletonData(
     data.header, data.bones, data.slots, data.regions, data.pathAttachments, data.paths,
     data.parameters, data.deformers, data.ikConstraints, data.transformConstraints,
-    data.physicsConstraints,
+    data.physicsConstraints, data.clippingAttachments,
   )
 
 

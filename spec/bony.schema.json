@@ -27,6 +27,12 @@
         "$ref": "#/$defs/region"
       }
     },
+    "clippingAttachments": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/clippingAttachment"
+      }
+    },
     "paths": {
       "type": "array",
       "items": {
@@ -529,6 +535,28 @@
         "height",
         "name",
         "width"
+      ]
+    },
+    "clippingAttachment": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "vertices": {
+          "type": "string",
+          "contentEncoding": "base64"
+        },
+        "untilSlot": {
+          "type": "string",
+          "default": ""
+        }
+      },
+      "required": [
+        "name",
+        "vertices"
       ]
     },
     "path": {

@@ -18,6 +18,7 @@ const
   ikConstraintTypeId = "ikConstraint"
   transformConstraintTypeId = "transformConstraint"
   physicsConstraintTypeId = "physicsConstraint"
+  clippingAttachmentTypeId = "clippingAttachment"
 
 
 proc defaultFor(objectId, propertyId: string): string =
@@ -320,7 +321,7 @@ proc loadBonyJson*(text: string): SkeletonData =
       raise newBonyLoadError(schemaViolation, "invalid JSON: " & exc.msg)
 
   let root = requireObject(parsed, "root")
-  validateKnownKeys(root, ["skeleton", "bones", "slots", "regions", "pathAttachments", "paths", "ikConstraints", "transformConstraints", "physicsConstraints", "parameters", "deformers", "animations", "stateMachines"], "root")
+  validateKnownKeys(root, ["skeleton", "bones", "slots", "regions", "clippingAttachments", "pathAttachments", "paths", "ikConstraints", "transformConstraints", "physicsConstraints", "parameters", "deformers", "animations", "stateMachines"], "root")
 
   if not root.hasKey("skeleton"):
     raise newBonyLoadError(schemaViolation, "root.skeleton is required")
@@ -437,6 +438,28 @@ proc loadBonyJson*(text: string): SkeletonData =
         requiredF64(pathAttachmentObject, "p2y", context),
         requiredF64(pathAttachmentObject, "p3x", context),
         requiredF64(pathAttachmentObject, "p3y", context),
+      )
+
+  var loadedClippingAttachments: seq[ClipAttachmentData] = @[]
+  if root.hasKey("clippingAttachments"):
+    let clippingAttachmentsNode = requireArray(root["clippingAttachments"], "clippingAttachments")
+    for index, clipNode in clippingAttachmentsNode.elems:
+      let context = "clippingAttachments[" & $index & "]"
+      let clipObject = requireObject(clipNode, context)
+      validateKnownKeys(clipObject, ["name", "vertices", "untilSlot"], context)
+      if not clipObject.hasKey("vertices"):
+        raise newBonyLoadError(schemaViolation, context & ".vertices is required")
+      let verticesNode = requireArray(clipObject["vertices"], context & ".vertices")
+      var clipVertices: seq[float64] = @[]
+      for vertexIndex, vertexNode in verticesNode.elems:
+        let vertexCtx = context & ".vertices[" & $vertexIndex & "]"
+        if vertexNode.kind notin {JInt, JFloat}:
+          raise newBonyLoadError(schemaViolation, vertexCtx & " must be numeric")
+        clipVertices.add requireFiniteF64(vertexNode.getFloat(), vertexCtx)
+      loadedClippingAttachments.add clipAttachmentData(
+        requiredString(clipObject, "name", context),
+        clipVertices,
+        optionalString(clipObject, "untilSlot", defaultFor(clippingAttachmentTypeId, "untilSlot"), context),
       )
 
   var loadedPaths: seq[PathConstraintData] = @[]
@@ -669,7 +692,7 @@ proc loadBonyJson*(text: string): SkeletonData =
 
       loadedDeformers.add DeformerRecord(deformer: deformer, keyformBlend: blend)
 
-  result = skeletonData(loadedHeader, loadedBones, loadedSlots, loadedRegions, loadedPathAttachments, loadedPaths, loadedParameters, loadedDeformers, loadedIkConstraints, loadedTransformConstraints, loadedPhysicsConstraints)
+  result = skeletonData(loadedHeader, loadedBones, loadedSlots, loadedRegions, loadedPathAttachments, loadedPaths, loadedParameters, loadedDeformers, loadedIkConstraints, loadedTransformConstraints, loadedPhysicsConstraints, loadedClippingAttachments)
   let loadedAnimClips = parseBonyAnimations(root, result)
   discard parseBonyStateMachines(root, result, loadedAnimClips)
 
@@ -1697,6 +1720,33 @@ proc toBonyJson*(data: SkeletonData): string =
       result.addNumberField("p2y", pathAttachment.p2y, 3, first)
       result.addNumberField("p3x", pathAttachment.p3x, 3, first)
       result.addNumberField("p3y", pathAttachment.p3y, 3, first)
+      result.add "\n"
+      result.addIndent(2)
+      result.add "}"
+    result.add "\n"
+    result.addIndent(1)
+    result.add "]"
+
+  if data.clippingAttachments.len > 0:
+    result.add ",\n"
+    result.addIndent(1)
+    result.add "\"clippingAttachments\": [\n"
+    for index, clip in data.clippingAttachments:
+      if index > 0:
+        result.add ",\n"
+      result.addIndent(2)
+      result.add "{\n"
+      first = true
+      result.addStringField("name", clip.name, 3, first)
+      result.addFieldPrefix("vertices", 3, first)
+      result.add "["
+      for vertexIndex, vertexValue in clip.vertices:
+        if vertexIndex > 0:
+          result.add ", "
+        result.add canonicalNumber(vertexValue)
+      result.add "]"
+      if clip.untilSlot != defaultFor(clippingAttachmentTypeId, "untilSlot"):
+        result.addStringField("untilSlot", clip.untilSlot, 3, first)
       result.add "\n"
       result.addIndent(2)
       result.add "}"

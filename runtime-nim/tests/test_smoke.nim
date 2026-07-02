@@ -99,10 +99,10 @@ spec "bony package":
       bonyRegistryVersion == 1
       bonyBackingTypes.len == 8
       bonyBackingTypes[0].id == "varuint"
-      bonyTypeKeys.len == 26
-      bonyPropertyKeys.len == 95
-      bonyPropertyDefaults.len == 53
-      bonyRequiredProperties.len == 68
+      bonyTypeKeys.len == 27
+      bonyPropertyKeys.len == 97
+      bonyPropertyDefaults.len == 54
+      bonyRequiredProperties.len == 70
 
   it "encodes and rejects .bnb varints canonically":
     var bytes: seq[byte]
@@ -6687,3 +6687,139 @@ spec "bony package":
           }]
         }
       """, unknownRequiredReference)
+
+  it "round trips a clipping attachment through JSON and .bnb":
+    let jsonText = """
+{
+  "skeleton": {"name": "clipdemo", "version": "0.1.0"},
+  "bones": [{"name": "root"}],
+  "slots": [
+    {"name": "slotA", "bone": "root", "attachment": "mask"},
+    {"name": "slotB", "bone": "root"},
+    {"name": "slotC", "bone": "root"}
+  ],
+  "clippingAttachments": [
+    {"name": "mask", "vertices": [0, 0, 2, 0, 2, 2, 0, 2], "untilSlot": "slotC"}
+  ]
+}
+"""
+    let fromJson = loadBonyJson(jsonText)
+    let bnbBytes = toBonyBnb(fromJson)
+    let fromBnb = loadBonyBnb(bnbBytes)
+
+    then:
+      # A slot whose attachment names a clip is accepted (no load error above).
+      fromJson.clippingAttachments.len == 1
+      fromJson.clippingAttachments[0].name == "mask"
+      fromJson.clippingAttachments[0].vertices == @[0.0, 0.0, 2.0, 0.0, 2.0, 2.0, 0.0, 2.0]
+      fromJson.clippingAttachments[0].untilSlot == "slotC"
+      # JSON and binary loaders agree on the parsed record.
+      fromBnb.clippingAttachments.len == 1
+      fromBnb.clippingAttachments[0].name == fromJson.clippingAttachments[0].name
+      fromBnb.clippingAttachments[0].vertices == fromJson.clippingAttachments[0].vertices
+      fromBnb.clippingAttachments[0].untilSlot == fromJson.clippingAttachments[0].untilSlot
+      # JSON canonical output round-trips and .bnb bytes are stable.
+      toBonyJson(loadBonyJson(toBonyJson(fromJson))) == toBonyJson(fromJson)
+      toBonyBnb(loadBonyJson(toBonyJson(fromBnb))) == bnbBytes
+
+  it "accepts a clipping attachment with no untilSlot (clips to end of draw order)":
+    let jsonText = """
+{
+  "skeleton": {"name": "clipdemo", "version": "0.1.0"},
+  "bones": [{"name": "root"}],
+  "slots": [
+    {"name": "slotA", "bone": "root", "attachment": "mask"},
+    {"name": "slotB", "bone": "root"}
+  ],
+  "clippingAttachments": [
+    {"name": "mask", "vertices": [0, 0, 2, 0, 2, 2]}
+  ]
+}
+"""
+    let data = loadBonyJson(jsonText)
+    then:
+      data.clippingAttachments[0].untilSlot == ""
+      data.clippingAttachments[0].vertices.len == 6
+
+  it "rejects a non-convex clipping polygon":
+    then:
+      raisesBonyLoadError("""
+{
+  "skeleton": {"name": "d", "version": "0.1.0"},
+  "bones": [{"name": "root"}],
+  "slots": [{"name": "s", "bone": "root", "attachment": "mask"}],
+  "clippingAttachments": [{"name": "mask", "vertices": [0, 0, 2, 0, 0.5, 0.5, 0, 2]}]
+}
+""", schemaViolation)
+
+  it "rejects a clipping polygon with fewer than three vertices":
+    then:
+      raisesBonyLoadError("""
+{
+  "skeleton": {"name": "d", "version": "0.1.0"},
+  "bones": [{"name": "root"}],
+  "slots": [{"name": "s", "bone": "root", "attachment": "mask"}],
+  "clippingAttachments": [{"name": "mask", "vertices": [0, 0, 1, 1]}]
+}
+""", schemaViolation)
+
+  it "rejects a clipping attachment whose untilSlot names an unknown slot":
+    then:
+      raisesBonyLoadError("""
+{
+  "skeleton": {"name": "d", "version": "0.1.0"},
+  "bones": [{"name": "root"}],
+  "slots": [
+    {"name": "slotA", "bone": "root", "attachment": "mask"},
+    {"name": "slotB", "bone": "root"}
+  ],
+  "clippingAttachments": [{"name": "mask", "vertices": [0, 0, 2, 0, 2, 2], "untilSlot": "nope"}]
+}
+""", unknownRequiredReference)
+
+  it "rejects an untilSlot at or before the clip's own slot":
+    then:
+      raisesBonyLoadError("""
+{
+  "skeleton": {"name": "d", "version": "0.1.0"},
+  "bones": [{"name": "root"}],
+  "slots": [
+    {"name": "slotA", "bone": "root"},
+    {"name": "slotB", "bone": "root", "attachment": "mask"}
+  ],
+  "clippingAttachments": [{"name": "mask", "vertices": [0, 0, 2, 0, 2, 2], "untilSlot": "slotA"}]
+}
+""", schemaViolation)
+
+  it "rejects a clipping attachment whose own slot is the last slot":
+    then:
+      raisesBonyLoadError("""
+{
+  "skeleton": {"name": "d", "version": "0.1.0"},
+  "bones": [{"name": "root"}],
+  "slots": [
+    {"name": "slotA", "bone": "root"},
+    {"name": "slotB", "bone": "root", "attachment": "mask"}
+  ],
+  "clippingAttachments": [{"name": "mask", "vertices": [0, 0, 2, 0, 2, 2]}]
+}
+""", schemaViolation)
+
+  it "rejects overlapping clipping ranges":
+    then:
+      raisesBonyLoadError("""
+{
+  "skeleton": {"name": "d", "version": "0.1.0"},
+  "bones": [{"name": "root"}],
+  "slots": [
+    {"name": "slotA", "bone": "root", "attachment": "m1"},
+    {"name": "slotB", "bone": "root", "attachment": "m2"},
+    {"name": "slotC", "bone": "root"},
+    {"name": "slotD", "bone": "root"}
+  ],
+  "clippingAttachments": [
+    {"name": "m1", "vertices": [0, 0, 2, 0, 2, 2], "untilSlot": "slotC"},
+    {"name": "m2", "vertices": [0, 0, 2, 0, 2, 2], "untilSlot": "slotD"}
+  ]
+}
+""", schemaViolation)
