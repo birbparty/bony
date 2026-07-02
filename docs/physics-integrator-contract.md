@@ -155,25 +155,43 @@ reorder the force accumulation terms.
 
 ## Channel Mapping
 
-Physics can affect `x`, `y`, `rotate`, `scaleX`, and `shearX` channels.
+Physics can affect `x`, `y`, `rotate`, `scaleX`, and `shearX` channels. These
+are exactly the constrained bone's **local** transform channels.
 
-- `x`, `y`: units are skeleton world units.
-- `rotate`, `shearX`: units are radians internally.
-- `scaleX`: unitless scale delta.
+The M5 physics stage evaluates each channel directly on the constrained bone's
+local transform, in that channel's **native runtime storage unit** — the same
+value `localLinear` (transform-composition contract, "Local Matrix") consumes.
+The target sampled each update is the animated local channel value produced by
+the non-physics pass; the emitted output `target + offset * mix` is folded back
+onto the same local channel; world matrices are then recomposed by ordinary FK.
+
+Native storage units:
+
+- `x`, `y`: local translation in skeleton units (the bone's own local frame,
+  which is skeleton units at the root and each parent's units below it).
+- `rotate`, `shearX`: **degrees** — the unit `LocalTransform.rotation`/`shearX`
+  store and that the local-matrix builder converts to radians at composition
+  time. Physics does not pre-convert to radians; it offsets the stored degrees.
+- `scaleX`: unitless scale value.
 
 Each enabled channel has independent `offset` and `velocity`. Shared
 constraint parameters may feed all enabled channels, but channel state is not
 shared.
 
-Physics emits logical channel outputs:
+Because physics offsets the local channel directly (not a re-decomposed world
+matrix), the transform-composition contract's inherit/reflection/decomposition
+machinery is **not** re-applied here — folding is a scalar write to the local
+channel, and inherit modes take effect through the subsequent FK recomposition.
 
-- Translation output values are skeleton world-unit channel values.
-- Rotation/shear output values are radians.
-- Scale output values are unitless scale channel values.
-
-The transform-composition contract owns how logical channel outputs are folded
-back into local/world matrices, including inherit modes, reflection factoring,
-and decomposition/writeback details.
+> **Reference-defined mapping.** The Nim runtime is the reference implementation
+> and the source of the M5 physics conformance goldens (prompt 13); the Dart
+> runtime (prompt 14) mirrors it. The native-local mapping above is therefore
+> the binding channel contract and supersedes any earlier "radians internally /
+> skeleton world-unit output" phrasing: choosing the bone's own stored units
+> keeps `dt == 0` a bit-exact pose no-op, avoids a lossy angle/space round trip
+> on writeback, and single-sources the mapping across runtimes. A future slice
+> may add a world-space physics mode; it would be a new, explicitly flagged
+> mapping, not a silent change to this one.
 
 ## Constraint Ordering
 
