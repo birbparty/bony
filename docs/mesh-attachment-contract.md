@@ -66,12 +66,14 @@ path and the `meshAttachment` constructor):
 1. **Named** — `name` is non-empty.
 2. **At least one vertex** — `vertices.len ≥ 1`.
 3. **UV/vertex agreement** — `uvs.len == vertices.len` (one `MeshUv` per vertex).
-4. **Triangle triplets** — `triangles.len` is non-zero and a multiple of `3`.
-5. **In-range indices** — every triangle (and reserved `edges`) index is
+4. **UV range** — every `u` and `v`, after `f32` quantization, is in `0..1`
+   inclusive (`quantizeUnit`); an out-of-range coordinate is rejected.
+5. **Triangle triplets** — `triangles.len` is non-zero and a multiple of `3`.
+6. **In-range indices** — every triangle (and reserved `edges`) index is
    `< vertices.len`.
-6. **Weighted-flag agreement** — every vertex's `weighted` matches the mesh's
+7. **Weighted-flag agreement** — every vertex's `weighted` matches the mesh's
    `weighted` flag; an unweighted vertex carries no influences.
-7. **Weighted influences** — each weighted vertex has ≥ 1 influence; each
+8. **Weighted influences** — each weighted vertex has ≥ 1 influence; each
    influence names a **known bone** with a **non-negative weight**; the influence
    weights **sum to `1`** within the mesh weight-sum tolerance.
 
@@ -89,7 +91,7 @@ check in `validateMeshAttachment`.
 |---|---|
 | (a) empty `name` | **Reject** — `schemaViolation`. |
 | (b) zero vertices | **Reject** — a mesh must contain at least one vertex (`schemaViolation`). |
-| (c) `uvs.len != vertices.len` | **Reject** — UV count must match vertex count (`schemaViolation`). |
+| (c) `uvs.len != vertices.len`, or any `u`/`v` outside `0..1` after `f32` quantization (`quantizeUnit`) | **Reject** — UV count must match vertex count and each coordinate must be unit-range (`schemaViolation`). |
 | (d) `triangles` empty or `len mod 3 != 0` | **Reject** — triangles must be index triplets (`schemaViolation`). |
 | (e) triangle index `≥ vertices.len` | **Reject** — `unknownRequiredReference`. |
 | (f) vertex `weighted` disagrees with mesh `weighted` (incl. unweighted vertex carrying influences) | **Reject** — `schemaViolation`. |
