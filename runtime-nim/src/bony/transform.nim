@@ -736,6 +736,10 @@ proc advancePhysics*(
   ## locals. `states` carries per-constraint PhysicsConstraintState across frames
   ## (see newPhysicsStates); `dt` is the non-negative frame delta and the ONLY
   ## time source. With no physics constraints this is exactly computeWorldTransforms.
+  # Reject negative dt uniformly (deterministic playback), independent of whether
+  # any physics constraint is present, so callers get the same contract either way.
+  if dt < 0.0:
+    raise newBonyLoadError(schemaViolation, "physics advance dt must be non-negative")
   if data.physicsConstraints.len == 0:
     return computeWorldTransforms(data)
   if states.len != data.physicsConstraints.len:

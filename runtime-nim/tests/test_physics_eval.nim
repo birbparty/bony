@@ -15,6 +15,13 @@ proc closeWithin(actual, expected, tolerance: float64): bool =
 proc closeTo(actual, expected: float64): bool =
   closeWithin(actual, expected, 1e-9)
 
+proc raisesBonyLoadError(action: proc()): bool =
+  try:
+    action()
+    false
+  except BonyLoadError:
+    true
+
 proc springSkeleton(
   strength = 0.0;
   damping = 0.0;
@@ -153,3 +160,93 @@ spec "bony physics evaluation":
       states.len == 0
       advanced.len == pure.len
       closeWithin(advanced[1].tx, pure[1].tx, 1e-9)
+
+  it "drives the rotate channel in native degrees and agrees with the raw integrator":
+    let data = skeletonData(
+      skeletonHeader("phys", "1.0.0"),
+      @[
+        boneData("root", ""),
+        boneData("hair", "root", localTransform(rotation = 10.0)),
+      ],
+      physicsConstraints = @[
+        physicsConstraintData(
+          "spin", "hair", {pcRotate},
+          hasStrength = true, strength = 50.0,
+          hasDamping = true, damping = 16.0,
+          hasGravity = true, gravity = 100.0,
+          hasMass = true, mass = 1.0,
+        ),
+      ],
+    )
+    var states = newPhysicsStates(data)
+    var rawState: PhysicsConstraintState
+    let params = physicsParams(strength = 50.0, damping = 16.0, gravity = 100.0, mass = 1.0)
+    let pure = computeWorldTransforms(data)
+    var maxDeviation = 0.0
+    for frame in 0 ..< 60:
+      discard advancePhysics(data, states, physicsFixedDt)
+      # Target is the stored rotation in DEGREES (10.0), not radians.
+      let raw = rawState.updatePhysicsConstraint(params, @[physicsChannelInput(pcRotate, 10.0)], physicsFixedDt)
+      maxDeviation = max(maxDeviation, abs(states[0].channels[pcRotate].offset - raw.outputs[0].offset))
+    let advanced = advancePhysics(data, states, physicsFixedDt)
+    then:
+      maxDeviation < 1e-4
+      states[0].channels[pcRotate].initialized
+      states[0].channels[pcRotate].offset > 1e-4
+      # Rotation actually changed the world basis vs the unconstrained pose.
+      abs(advanced[1].a - pure[1].a) > 1e-3
+
+  it "preserves a non-physics constraint solution through the physics recompose":
+    # A transform constraint solves bone "arm" toward "goal"; a physics
+    # constraint sits on unrelated bone "hair". At dt=0 physics is a no-op, so the
+    # full advance must reproduce the pure pass EXACTLY (this exercises the
+    # recomputeWorldsFromLocals "reproduces the constraint pass" invariant).
+    let data = skeletonData(
+      skeletonHeader("mix", "1.0.0"),
+      @[
+        boneData("root", ""),
+        boneData("arm", "root", localTransform(x = 2.0)),
+        boneData("goal", "root", localTransform(x = 6.0, y = 4.0)),
+        boneData("hair", "root", localTransform(x = 1.0)),
+      ],
+      transformConstraints = @[
+        transformConstraintData("tc", "arm", "goal",
+          hasTranslateMix = true, translateMix = 0.5),
+      ],
+      physicsConstraints = @[
+        physicsConstraintData("sway", "hair", {pcX},
+          hasStrength = true, strength = 50.0, hasGravity = true, gravity = 100.0),
+      ],
+    )
+    var states = newPhysicsStates(data)
+    let pure = computeWorldTransforms(data)
+    let atRest = advancePhysics(data, states, 0.0)
+    then:
+      atRest.len == pure.len
+    then:
+      # Every bone (incl. the transform-constrained "arm") matches the pure pass.
+      closeWithin(atRest[1].tx, pure[1].tx, 1e-9)
+      closeWithin(atRest[1].ty, pure[1].ty, 1e-9)
+      closeWithin(atRest[3].tx, pure[3].tx, 1e-9)
+    # With time, the physics bone moves but the transform solution is preserved.
+    let moved = advancePhysics(data, states, physicsFixedDt)
+    then:
+      closeWithin(moved[1].tx, pure[1].tx, 1e-9)
+      moved[3].tx > pure[3].tx + 1e-4
+
+  it "rejects a negative dt and a mismatched state count":
+    let data = springSkeleton(strength = 10.0, gravity = 60.0)
+    let nophys = skeletonData(
+      skeletonHeader("nophys", "1.0.0"), @[boneData("root", "")])
+    then:
+      # Negative dt is rejected whether or not physics constraints exist.
+      raisesBonyLoadError(proc() =
+        var s = newPhysicsStates(data)
+        discard advancePhysics(data, s, -1.0))
+      raisesBonyLoadError(proc() =
+        var s = newPhysicsStates(nophys)
+        discard advancePhysics(nophys, s, -1.0))
+      # State count must match the physics constraint count.
+      raisesBonyLoadError(proc() =
+        var s: seq[PhysicsConstraintState] = @[]
+        discard advancePhysics(data, s, physicsFixedDt))
