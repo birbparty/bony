@@ -91,6 +91,28 @@ IkConstraintData _parseIk(Map<String, dynamic> j) {
   );
 }
 
+TransformConstraintData _parseTransform(Map<String, dynamic> j) {
+  // Each mix is an f32 on the wire; quantize the JSON f64 so the JSON and .bnb
+  // load paths agree bit-for-bit (matches runtime-nim's transformConstraintData
+  // ctor). null preserves "absent" (mix defaults to 1.0). Range validation
+  // happens in _validate.
+  double? mixOf(String key) {
+    final raw = (j[key] as num?)?.toDouble();
+    return raw == null ? null : quantizeF32(raw);
+  }
+
+  return TransformConstraintData(
+    name: _required<String>(j['name'], 'transformConstraint.name'),
+    bone: _required<String>(j['bone'], 'transformConstraint.bone'),
+    target: _required<String>(j['target'], 'transformConstraint.target'),
+    order: (j['order'] as num?)?.toInt() ?? 0,
+    translateMix: mixOf('translateMix'),
+    rotateMix: mixOf('rotateMix'),
+    scaleMix: mixOf('scaleMix'),
+    shearMix: mixOf('shearMix'),
+  );
+}
+
 BoneTimelineKind _parseBoneTimelineKind(String prop, String ctx) {
   switch (prop) {
     case 'rotate':
@@ -669,6 +691,35 @@ void _validate(SkeletonData data) {
     }
   }
 
+  // Transform constraint validation, mirroring runtime-nim (model.nim): unique
+  // name, known bone/target refs, each present mix finite and in [0, 1].
+  final transformNames = <String>{};
+  for (var i = 0; i < data.transformConstraints.length; i++) {
+    final tc = data.transformConstraints[i];
+    final ctx = 'transformConstraints[$i]';
+    if (tc.name.isEmpty) throw FormatException('$ctx.name must not be empty');
+    if (!transformNames.add(tc.name)) {
+      throw FormatException('duplicate transform constraint name: ${tc.name}');
+    }
+    if (!boneNames.contains(tc.bone)) {
+      throw FormatException('unknown transform constraint bone: ${tc.bone}');
+    }
+    if (!boneNames.contains(tc.target)) {
+      throw FormatException('unknown transform constraint target: ${tc.target}');
+    }
+    for (final entry in <String, double?>{
+      'translateMix': tc.translateMix,
+      'rotateMix': tc.rotateMix,
+      'scaleMix': tc.scaleMix,
+      'shearMix': tc.shearMix,
+    }.entries) {
+      final v = entry.value;
+      if (v != null && (v.isNaN || v.isInfinite || v < 0.0 || v > 1.0)) {
+        throw FormatException('$ctx.${entry.key} must be in [0, 1]');
+      }
+    }
+  }
+
   for (var ai = 0; ai < data.animations.length; ai++) {
     final anim = data.animations[ai];
     final ctx = 'animations[$ai](${anim.name})';
@@ -820,6 +871,7 @@ const int _bnbRegion = 1001;
 const int _bnbPath = 4000;
 const int _bnbPathAttachment = 4001;
 const int _bnbIkConstraint = 4002;
+const int _bnbTransformConstraint = 4003;
 const int _bnbAnimationClip = 2000;
 const int _bnbBoneTimeline = 2001;
 const int _bnbSlotTimeline = 2002;
@@ -876,6 +928,9 @@ const int _bkRotateMix = 4013;
 const int _bkBones = 4014;
 const int _bkMix = 4015;
 const int _bkBendPositive = 4016;
+// Transform constraint property keys (translateMix/rotateMix reused from path).
+const int _bkScaleMix = 4017;
+const int _bkShearMix = 4018;
 const int _bkBoneIndex = 2000;
 const int _bkBoneTimelineKind = 2001;
 const int _bkSlotIndex = 2002;
@@ -936,6 +991,7 @@ const _bnbKnownTypes = {
   _bnbPath,
   _bnbPathAttachment,
   _bnbIkConstraint,
+  _bnbTransformConstraint,
   _bnbAnimationClip,
   _bnbBoneTimeline,
   _bnbSlotTimeline,
@@ -1501,6 +1557,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
   final paths = <PathConstraintData>[];
   final pathAttachments = <PathAttachment>[];
   final ikConstraints = <IkConstraintData>[];
+  final transformConstraints = <TransformConstraintData>[];
   final parameters = <ParameterAxis>[];
   final deformers = <DeformerRecord>[];
   final animations = <AnimationClip>[];
@@ -1718,6 +1775,27 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
               : null,
           bendPositive: obj.props.containsKey(_bkBendPositive)
               ? _bBool(obj, _bkBendPositive)
+              : null,
+        ));
+      case _bnbTransformConstraint:
+        flushPending();
+        transformConstraints.add(TransformConstraintData(
+          name: _bStr(obj, _bkName, strings, 'transformConstraint.name'),
+          bone: _bStr(obj, _bkBone, strings, 'transformConstraint.bone'),
+          target: _bStr(obj, _bkTarget, strings, 'transformConstraint.target'),
+          order: _bVarint(obj, _bkOrder, def: 0),
+          // Absent => null (each mix defaults to 1.0).
+          translateMix: obj.props.containsKey(_bkTranslateMix)
+              ? _bF32(obj, _bkTranslateMix, 'transformConstraint.translateMix')
+              : null,
+          rotateMix: obj.props.containsKey(_bkRotateMix)
+              ? _bF32(obj, _bkRotateMix, 'transformConstraint.rotateMix')
+              : null,
+          scaleMix: obj.props.containsKey(_bkScaleMix)
+              ? _bF32(obj, _bkScaleMix, 'transformConstraint.scaleMix')
+              : null,
+          shearMix: obj.props.containsKey(_bkShearMix)
+              ? _bF32(obj, _bkShearMix, 'transformConstraint.shearMix')
               : null,
         ));
       case _bnbPathAttachment:
@@ -2195,6 +2273,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
     paths: paths,
     pathAttachments: pathAttachments,
     ikConstraints: ikConstraints,
+    transformConstraints: transformConstraints,
     parameters: parameters,
     deformers: deformers,
     animations: animations,
@@ -2498,6 +2577,11 @@ SkeletonData loadBonyJson(String jsonText) {
       .map((ik) => _parseIk(ik as Map<String, dynamic>))
       .toList();
 
+  final transformConstraints =
+      ((root['transformConstraints'] as List<dynamic>?) ?? [])
+          .map((tc) => _parseTransform(tc as Map<String, dynamic>))
+          .toList();
+
   final animsRaw = root['animations'];
   final animations = animsRaw is List<dynamic>
       ? _parseAnimations(animsRaw)
@@ -2535,6 +2619,7 @@ SkeletonData loadBonyJson(String jsonText) {
     paths: paths,
     pathAttachments: pathAttachments,
     ikConstraints: ikConstraints,
+    transformConstraints: transformConstraints,
     animations: animations,
     parameters: parameters,
     deformers: deformers,

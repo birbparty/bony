@@ -188,4 +188,10 @@ void main() {
     '../conformance/assets/m5_ik_rig.bony',
     '../conformance/goldens/m5_ik_rig_t0.json',
   );
+
+  _checkGolden(
+    'M5-Transform',
+    '../conformance/assets/m5_transform_rig.bony',
+    '../conformance/goldens/m5_transform_rig_t0.json',
+  );
 }

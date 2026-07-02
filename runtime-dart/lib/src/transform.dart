@@ -6,6 +6,7 @@ import 'dart:math' as math;
 import 'deform.dart';
 import 'ik.dart';
 import 'model.dart';
+import 'transform_constraint.dart';
 
 const double _basisEpsilon = 1e-12;
 const int _pathArcLengthSamples = 32;
@@ -27,6 +28,14 @@ const _identity = _Lin2(1.0, 0.0, 0.0, 1.0);
 
 Affine2 _affine(_Lin2 m, double tx, double ty) =>
     Affine2(a: m.a, b: m.b, c: m.c, d: m.d, tx: tx, ty: ty);
+
+// Inverse of a 2x2 linear part [[a, c], [b, d]] (column-major a/b, c/d); null if
+// singular. Mirrors runtime-nim's inverseLinear.
+_Lin2? _inverseLinear(_Lin2 m) {
+  final det = m.a * m.d - m.c * m.b;
+  if (det.abs() < _basisEpsilon) return null;
+  return _Lin2(m.d / det, -m.b / det, -m.c / det, m.a / det);
+}
 
 class _Point {
   const _Point(this.x, this.y);
@@ -57,13 +66,14 @@ class _BoneGroupEntry {
   final List<int> bones;
 }
 
-enum _ConstraintKind { ik, path }
+enum _ConstraintKind { ik, transform, path }
 
 // Canonical kind rank for tie-breaking constraints at equal `order` (Nim
-// constraintKindRank, model.nim:715): ckIk=0 runs before ckPath=2. transform
-// and physics are out of scope for this runtime slice.
+// constraintKindRank, model.nim): ckIk=0 < ckTransform=1 < ckPath=2. Physics
+// is out of scope for this runtime slice.
 int _constraintKindRank(_ConstraintKind kind) => switch (kind) {
       _ConstraintKind.ik => 0,
+      _ConstraintKind.transform => 1,
       _ConstraintKind.path => 2,
     };
 
@@ -387,6 +397,16 @@ List<Object> _buildRuntimeConstraintUpdateCache(
       reads: ik.runtimeEvaluable ? <String>[ik.target] : const <String>[],
     ));
   }
+  for (var index = 0; index < data.transformConstraints.length; index++) {
+    final tc = data.transformConstraints[index];
+    descriptors.add((
+      kind: _ConstraintKind.transform,
+      order: tc.order,
+      sourceIndex: index,
+      writes: <String>[tc.bone],
+      reads: tc.runtimeEvaluable ? <String>[tc.target] : const <String>[],
+    ));
+  }
   descriptors.sort((a, b) {
     final byOrder = a.order.compareTo(b.order);
     if (byOrder != 0) return byOrder;
@@ -488,7 +508,11 @@ List<({String kind, int sourceIndex})> debugRuntimeConstraintDispatchOrder(
     for (final entry in _buildRuntimeConstraintUpdateCache(data, byName))
       if (entry is _ConstraintEntry)
         (
-          kind: entry.kind == _ConstraintKind.ik ? 'ik' : 'path',
+          kind: switch (entry.kind) {
+            _ConstraintKind.ik => 'ik',
+            _ConstraintKind.transform => 'transform',
+            _ConstraintKind.path => 'path',
+          },
           sourceIndex: entry.sourceIndex,
         ),
   ];
@@ -727,13 +751,111 @@ void _applyRuntimeIk(
   }
 }
 
+// Build a local BoneData from a decomposed pose, carrying the inherit flags and
+// transformMode from the template (invariant under a transform constraint).
+BoneData _boneFromPose(BoneData base, TransformConstraintPose pose) => BoneData(
+      name: base.name,
+      parent: base.parent,
+      x: pose.x,
+      y: pose.y,
+      rotation: pose.rotation,
+      scaleX: pose.scaleX,
+      scaleY: pose.scaleY,
+      shearX: pose.shearX,
+      shearY: pose.shearY,
+      inheritRotation: base.inheritRotation,
+      inheritScale: base.inheritScale,
+      inheritReflection: base.inheritReflection,
+      transformMode: base.transformMode,
+    );
+
+// Port of runtime-nim/src/bony/transform.nim applyRuntimeTransformConstraint.
+// Blend the constrained bone's CURRENT world pose toward the target bone's world
+// pose per channel, then write the result back as a LOCAL transform (inverting
+// _worldForBone) so the trailing FK bone-group re-derivation reproduces it
+// instead of overwriting it. The constrained bone is a WRITE target and so is
+// not pre-emitted; its current world is FK-composed here.
+void _applyRuntimeTransformConstraint(
+  SkeletonData data,
+  TransformConstraintData tc,
+  List<BoneData> locals,
+  List<Affine2> worlds,
+  List<bool> computed,
+  Map<String, int> indexes,
+) {
+  if (!tc.runtimeEvaluable) return;
+
+  final boneIndex = indexes[tc.bone]!;
+  final targetIndex = indexes[tc.target]!;
+  if (!computed[targetIndex]) {
+    throw FormatException(
+        'runtime transform target must be emitted before constraint: ${tc.name}');
+  }
+
+  final parent = data.bones[boneIndex].parent;
+  final hasParent = parent.isNotEmpty;
+  var parentWorld =
+      const Affine2(a: 1.0, b: 0.0, c: 0.0, d: 1.0, tx: 0.0, ty: 0.0);
+  if (hasParent) {
+    final parentIndex = indexes[parent]!;
+    if (!computed[parentIndex]) {
+      throw FormatException(
+          'runtime transform parent must be emitted before constraint: ${tc.name}');
+    }
+    parentWorld = worlds[parentIndex];
+  }
+
+  final baseLocal = locals[boneIndex];
+  final currentWorld = _worldForBone(parentWorld, baseLocal, hasParent);
+
+  final mix = TransformConstraintMix(
+    translate: tc.translateMix ?? 1.0,
+    rotate: tc.rotateMix ?? 1.0,
+    scale: tc.scaleMix ?? 1.0,
+    shear: tc.shearMix ?? 1.0,
+  );
+  final solvedWorld =
+      applyTransformConstraint(currentWorld, worlds[targetIndex], mix);
+
+  BoneData newLocal;
+  if (!hasParent) {
+    newLocal = _boneFromPose(baseLocal, affineToTransformPose(solvedWorld));
+  } else {
+    final f = _factorParent(parentWorld);
+    var inherited = _identity;
+    if (baseLocal.inheritRotation) inherited = inherited.mul(f.rotation);
+    if (baseLocal.inheritReflection) inherited = inherited.mul(f.reflection);
+    if (baseLocal.inheritScale) inherited = inherited.mul(f.scaleShear);
+    final inheritedInverse = _inverseLinear(inherited);
+    final parentInverse = _inverseAffine(parentWorld);
+    if (inheritedInverse == null || parentInverse == null) {
+      throw FormatException(
+          'runtime transform parent transform is singular: ${tc.name}');
+    }
+    final solvedLinear =
+        _Lin2(solvedWorld.a, solvedWorld.b, solvedWorld.c, solvedWorld.d);
+    final localLinear = inheritedInverse.mul(solvedLinear);
+    final localOrigin =
+        _transformPoint(parentInverse, solvedWorld.tx, solvedWorld.ty);
+    newLocal = _boneFromPose(
+      baseLocal,
+      affineToTransformPose(_affine(localLinear, localOrigin.x, localOrigin.y)),
+    );
+  }
+
+  locals[boneIndex] = newLocal;
+  worlds[boneIndex] = _worldForBone(parentWorld, newLocal, hasParent);
+  computed[boneIndex] = true;
+}
+
 /// Compute the setup-pose world affine transform for every bone.
 ///
 /// Returns one [Affine2] per bone, in the same order as [data.bones].
 List<Affine2> computeWorldTransforms(SkeletonData data) {
   const rootParent = Affine2(a: 1.0, b: 0.0, c: 0.0, d: 1.0, tx: 0.0, ty: 0.0);
   final hasRuntimeConstraints = data.paths.any((p) => p.runtimeEvaluable) ||
-      data.ikConstraints.any((c) => c.runtimeEvaluable);
+      data.ikConstraints.any((c) => c.runtimeEvaluable) ||
+      data.transformConstraints.any((t) => t.runtimeEvaluable);
   if (hasRuntimeConstraints) {
     final byName = <String, int>{};
     for (var i = 0; i < data.bones.length; i++) {
@@ -776,6 +898,15 @@ List<Affine2> computeWorldTransforms(SkeletonData data) {
             _applyRuntimeIk(
               data,
               data.ikConstraints[entry.sourceIndex],
+              locals,
+              result,
+              computed,
+              byName,
+            );
+          case _ConstraintKind.transform:
+            _applyRuntimeTransformConstraint(
+              data,
+              data.transformConstraints[entry.sourceIndex],
               locals,
               result,
               computed,
