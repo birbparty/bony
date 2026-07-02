@@ -17,6 +17,7 @@ import bony/deform/parameter_timelines
 import bony/deform/parameters
 import bony/mesh/attachments
 import bony/mesh/clipping
+import bony/mesh/drawbatch_clipping
 import bony/mesh/deform
 import bony/mesh/sequences
 import bony/mesh/skinning
@@ -37,6 +38,7 @@ export physics_constraints
 export transform_constraints
 export update_cache
 export clipping
+export drawbatch_clipping
 export deformers
 export keyforms
 export parameter_timelines
