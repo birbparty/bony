@@ -109,9 +109,9 @@ Notes for readers comparing runtimes:
   `conformance/assets/bnb/m5_transform_rig.bnb` (the JSON and binary loaders
   agree; the `.bnb` is non-empty at 215 bytes).
 - Cross-runtime status: the setup-pose golden `m5_transform_rig_t0.json` is
-  currently honored by the **Nim reference only**. Dart transform-constraint
-  evaluation is the parity follow-up; until then Dart's static conformance asset
-  list intentionally omits this rig.
+  honored by **both** the Nim reference and the Dart runtime — Dart now evaluates
+  transform constraints in `computeWorldTransforms` and matches it within `1e-4`
+  (`runtime-dart/test/m10_conformance_test.dart`, the `M5-Transform` group).
 
 ### Image goldens (Nim reference rasterizer only)
 

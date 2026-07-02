@@ -119,6 +119,42 @@ class IkConstraintData {
   bool get runtimeEvaluable => bones.isNotEmpty && (mix ?? 1.0) > 0.0;
 }
 
+/// Transform constraint: blends a single constrained bone's world pose toward a
+/// target bone's world pose, per channel. The four mixes are nullable doubles
+/// where `null` means the field was absent on load (defaults to 1.0); the
+/// nullability mirrors the Nim `hasTranslateMix`/... presence flags.
+class TransformConstraintData {
+  const TransformConstraintData({
+    required this.name,
+    required this.bone,
+    required this.target,
+    required this.order,
+    this.translateMix,
+    this.rotateMix,
+    this.scaleMix,
+    this.shearMix,
+  });
+
+  final String name;
+  final String bone;
+  final String target;
+  final int order;
+  final double? translateMix;
+  final double? rotateMix;
+  final double? scaleMix;
+  final double? shearMix;
+
+  /// Constraint-only predicate mirroring runtime-nim's `runtimeEvaluable(tc)`:
+  /// a transform constraint contributes nothing when every mix is zero. Absent
+  /// mixes default to 1.0 (evaluable). Used consistently in the detection gate,
+  /// the update-cache read gating, and the apply guard.
+  bool get runtimeEvaluable =>
+      (translateMix ?? 1.0) > 0.0 ||
+      (rotateMix ?? 1.0) > 0.0 ||
+      (scaleMix ?? 1.0) > 0.0 ||
+      (shearMix ?? 1.0) > 0.0;
+}
+
 class PathAttachment {
   const PathAttachment({
     required this.name,
@@ -152,6 +188,7 @@ class SkeletonData {
     required this.paths,
     required this.pathAttachments,
     this.ikConstraints = const [],
+    this.transformConstraints = const [],
     this.animations = const [],
     this.parameters = const [],
     this.deformers = const [],
@@ -165,6 +202,7 @@ class SkeletonData {
   final List<PathConstraintData> paths;
   final List<PathAttachment> pathAttachments;
   final List<IkConstraintData> ikConstraints;
+  final List<TransformConstraintData> transformConstraints;
   final List<AnimationClip> animations;
   final List<ParameterAxis> parameters;
   final List<DeformerRecord> deformers;

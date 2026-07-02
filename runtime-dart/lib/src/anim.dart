@@ -722,6 +722,10 @@ SkeletonData applyPose(SkeletonData data, MixedPose pose) {
     // (computeWorldTransforms evaluates them). Omitting these silently dropped
     // all IK from any animated pose.
     ikConstraints: data.ikConstraints,
+    // Same preservation for transform constraints — omitting them would drop all
+    // transform-constraint evaluation from any animated pose (the bony-1c5 bug
+    // class). transformConstraints defaults to const [], so a miss compiles.
+    transformConstraints: data.transformConstraints,
     animations: data.animations,
     parameters: data.parameters,
     deformers: data.deformers,
