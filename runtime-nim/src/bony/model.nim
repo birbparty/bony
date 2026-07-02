@@ -281,6 +281,7 @@ type
     regions: seq[RegionAttachment]
     pathAttachments: seq[PathAttachmentData]
     clippingAttachments: seq[ClipAttachmentData]
+    meshAttachments: seq[MeshAttachment]
     paths: seq[PathConstraintData]
     ikConstraints: seq[IkConstraintData]
     transformConstraints: seq[TransformConstraintData]
@@ -723,6 +724,9 @@ proc pathAttachments*(data: SkeletonData): seq[PathAttachmentData] = data.pathAt
 proc clippingAttachments*(data: SkeletonData): seq[ClipAttachmentData] = data.clippingAttachments
 
 
+proc meshAttachments*(data: SkeletonData): seq[MeshAttachment] = data.meshAttachments
+
+
 proc paths*(data: SkeletonData): seq[PathConstraintData] = data.paths
 
 
@@ -789,6 +793,7 @@ proc validateSkeletonData*(
   transformConstraints: openArray[TransformConstraintData] = [];
   physicsConstraints: openArray[PhysicsConstraintData] = [];
   clippingAttachments: openArray[ClipAttachmentData] = [];
+  meshAttachments: openArray[MeshAttachment] = [];
 ) =
   if header.name.len == 0:
     raise newBonyLoadError(schemaViolation, "skeleton.name must not be empty")
@@ -1098,10 +1103,11 @@ proc skeletonData*(
   transformConstraints: openArray[TransformConstraintData] = [];
   physicsConstraints: openArray[PhysicsConstraintData] = [];
   clippingAttachments: openArray[ClipAttachmentData] = [];
+  meshAttachments: openArray[MeshAttachment] = [];
 ): SkeletonData =
   validateSkeletonData(
     header, bones, slots, regions, pathAttachments, paths, parameters, deformers, ikConstraints,
-    transformConstraints, physicsConstraints, clippingAttachments,
+    transformConstraints, physicsConstraints, clippingAttachments, meshAttachments,
   )
   result.header = header
   result.bones = @bones
@@ -1109,6 +1115,7 @@ proc skeletonData*(
   result.regions = @regions
   result.pathAttachments = @pathAttachments
   result.clippingAttachments = @clippingAttachments
+  result.meshAttachments = @meshAttachments
   result.paths = @paths
   result.parameters = @parameters
   result.deformers = @deformers
@@ -1121,7 +1128,7 @@ proc validateSkeletonData*(data: SkeletonData) =
   validateSkeletonData(
     data.header, data.bones, data.slots, data.regions, data.pathAttachments, data.paths,
     data.parameters, data.deformers, data.ikConstraints, data.transformConstraints,
-    data.physicsConstraints, data.clippingAttachments,
+    data.physicsConstraints, data.clippingAttachments, data.meshAttachments,
   )
 
 
