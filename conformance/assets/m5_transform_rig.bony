@@ -1,0 +1,20 @@
+{
+  "skeleton": {"name": "m5-transform-rig", "version": "0.2.0"},
+  "bones": [
+    {"name": "root"},
+
+    {"name": "constrained", "parent": "root", "x": 40, "y": 0},
+    {"name": "target", "parent": "root", "x": 80, "y": 60, "rotation": 45, "scaleX": 2, "shearY": 30}
+  ],
+  "transformConstraints": [
+    {
+      "name": "follow",
+      "bone": "constrained",
+      "target": "target",
+      "translateMix": 0.5,
+      "rotateMix": 0.5,
+      "scaleMix": 0.5,
+      "shearMix": 0.5
+    }
+  ]
+}
