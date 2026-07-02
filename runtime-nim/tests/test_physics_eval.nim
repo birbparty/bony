@@ -5,6 +5,13 @@
 ## itself is covered in test_smoke.nim; here we assert the SEAM: dt=0 is a pose
 ## no-op, a driven spring settles non-vacuously and agrees with the raw
 ## integrator, and the max-substep drop rule threads through unchanged.
+##
+## Also covers the docs/physics-integrator-contract.md "Conformance Scenarios"
+## expressible at the advance seam today (bony-ocq): fractional-dt carry across
+## two updates, the excess-step drop remainder algorithm, and two physics
+## constraints on the same channel run in ordered sequence (read-after-write).
+## The reset-timeline and inactive-skinRequired scenarios are gated on model
+## features that do not exist yet and are tracked separately.
 
 import bddy
 import bony
@@ -233,6 +240,95 @@ spec "bony physics evaluation":
     then:
       closeWithin(moved[1].tx, pure[1].tx, 1e-9)
       moved[3].tx > pure[3].tx + 1e-4
+
+  it "carries a fractional dt across two advance calls":
+    # 0.025 s = 1.5 fixed steps. The accumulator must carry the 0.5-step
+    # remainder BETWEEN advancePhysics calls, so two calls land 3 substeps total
+    # (1 then 2) rather than resetting the sub-step budget each call.
+    let data = springSkeleton(strength = 5.0, gravity = 60.0)
+    var states = newPhysicsStates(data)
+    var rawState: PhysicsConstraintState
+    let params = physicsParams(strength = 5.0, gravity = 60.0)
+    let frac = 0.025
+
+    discard advancePhysics(data, states, frac)
+    discard rawState.updatePhysicsConstraint(
+      params, @[physicsChannelInput(pcX, 3.0)], frac)
+    then:
+      # First call: floor(1.5)=1 substep; 0.5*fixedDt carried in the accumulator.
+      closeTo(states[0].accumulator, rawState.accumulator)
+      closeWithin(states[0].accumulator, 0.5 * physicsFixedDt, 1e-9)
+
+    discard advancePhysics(data, states, frac)
+    discard rawState.updatePhysicsConstraint(
+      params, @[physicsChannelInput(pcX, 3.0)], frac)
+    then:
+      # Second call: 0.5 carried + 1.5 = 2.0 steps -> 2 substeps, remainder 0.
+      closeTo(states[0].accumulator, rawState.accumulator)
+      closeWithin(states[0].accumulator, 0.0, 1e-9)
+      # Seam state tracks the raw integrator exactly through the carry.
+      closeTo(states[0].channels[pcX].offset, rawState.channels[pcX].offset)
+      states[0].channels[pcX].offset > 1e-4
+
+  it "drops excess whole steps and carries the exact fractional remainder":
+    # 0.19 s ~= 11.4 fixed steps (below maxFrameDt, so no clamp): 8 substeps run
+    # (maxSubsteps), leaving 3.4 steps; the drop rule removes
+    # floor((rem + stepEpsilon)/fixedDt) = 3 whole steps and carries the 0.4-step
+    # (< fixedDt) remainder.
+    let data = springSkeleton(strength = 5.0, gravity = 60.0)
+    var states = newPhysicsStates(data)
+    var rawState: PhysicsConstraintState
+    let params = physicsParams(strength = 5.0, gravity = 60.0)
+    let bigDt = 0.19
+
+    let raw = rawState.updatePhysicsConstraint(
+      params, @[physicsChannelInput(pcX, 3.0)], bigDt)
+    discard advancePhysics(data, states, bigDt)
+    then:
+      raw.substeps == physicsMaxSubsteps
+      raw.droppedSteps == 3
+      # Carried remainder is strictly below one fixed step and equals 0.4*fixedDt.
+      states[0].accumulator < physicsFixedDt
+      closeWithin(states[0].accumulator, 0.4 * physicsFixedDt, 1e-6)
+      # Seam and raw agree on the carried remainder and the settled offset.
+      closeTo(states[0].accumulator, rawState.accumulator)
+      closeTo(states[0].channels[pcX].offset, rawState.channels[pcX].offset)
+
+  it "applies two same-channel physics constraints in ordered sequence":
+    # Two physics constraints on the SAME bone+channel with distinct `order`
+    # values. The stage runs them by `order` (NOT source order), and the second
+    # reads the local left by the first (read-after-write), folding both offsets
+    # onto the channel. swayA/swayB use different gravity so their offsets differ.
+    let data = skeletonData(
+      skeletonHeader("phys", "1.0.0"),
+      @[boneData("root", ""), boneData("hair", "root", localTransform(x = 3.0))],
+      physicsConstraints = @[
+        # Listed order=1 first, on purpose, to prove the stage sorts by `order`.
+        physicsConstraintData("swayB", "hair", {pcX}, order = 1,
+          hasStrength = true, strength = 5.0, hasGravity = true, gravity = 60.0),
+        physicsConstraintData("swayA", "hair", {pcX}, order = 0,
+          hasStrength = true, strength = 5.0, hasGravity = true, gravity = 120.0),
+      ],
+    )
+    var states = newPhysicsStates(data)
+    let worlds = advancePhysics(data, states, physicsFixedDt)
+    # Source index 0 = swayB (order 1, ran second); index 1 = swayA (order 0, first).
+    let offsetA = states[1].channels[pcX].offset
+    let offsetB = states[0].channels[pcX].offset
+    then:
+      offsetA > 1e-9
+      offsetB > 1e-9
+      # swayA (order 0) ran first: its target was the raw local.x = 3.0.
+      closeWithin(states[1].channels[pcX].previousTarget, 3.0, 1e-9)
+      # swayB (order 1) ran second: its target was the value swayA wrote
+      # (read-after-write) = 3.0 + offsetA, NOT the raw 3.0. The written channel
+      # crosses the f32 writeback boundary, so compare at f32 precision (offsetA
+      # ~ 0.033 is four orders of magnitude above this tolerance — the
+      # read-after-write ordering is unambiguous).
+      states[0].channels[pcX].previousTarget > 3.0 + 1e-3
+      closeWithin(states[0].channels[pcX].previousTarget, 3.0 + offsetA, 1e-6)
+      # Final channel value folds both offsets in sequence.
+      closeWithin(worlds[1].tx, 3.0 + offsetA + offsetB, 1e-6)
 
   it "rejects a negative dt and a mismatched state count":
     let data = springSkeleton(strength = 10.0, gravity = 60.0)
