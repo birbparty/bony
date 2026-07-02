@@ -1,7 +1,6 @@
 ## M4 per-vertex mesh deform timeline sampling.
 
 import bony/anim/timelines
-import bony/mesh/attachments
 import bony/mesh/skinning
 import bony/model
 
