@@ -479,11 +479,11 @@ proc physicsConstraintData*(
   let storedMass = quantizeF32(mass, "physicsConstraint.mass")
   let storedGravity = quantizeF32(gravity, "physicsConstraint.gravity")
   let storedWind = quantizeF32(wind, "physicsConstraint.wind")
-  let storedMix = quantizeF32(mix, "physicsConstraint.mix")
+  let storedMix = quantizeF32(mix, "physicsConstraint.physicsMix")
   if storedMass < 0.0:
     raise newBonyLoadError(schemaViolation, "physicsConstraint.mass must be non-negative")
   if storedMix < 0.0 or storedMix > 1.0:
-    raise newBonyLoadError(schemaViolation, "physicsConstraint.mix must be in [0, 1]")
+    raise newBonyLoadError(schemaViolation, "physicsConstraint.physicsMix must be in [0, 1]")
   PhysicsConstraintData(
     name: name,
     bone: bone,
