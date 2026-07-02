@@ -2,9 +2,27 @@
 
 # Repo-level gate used by /ralph's per-iteration VERIFY step and by the
 # registry README's format-gate requirement for any registry/** edit.
-# Runs the codegen format check, the Python codegen unit tests, and the
-# Nim runtime model compile check.
+# Runs, in fail-fast order:
+#   1. the codegen format check (sources <-> generated agree),
+#   2. the Python codegen unit tests,
+#   3. the Nim runtime model COMPILE check (fast fail on library errors), and
+#   4. the Nim runtime UNIT TESTS (smoke + cli-pose + ik-current-pivot).
+#
+# Step 4 is gated here deliberately — not just the `nim check` compile in step 3.
+# The runtime tests carry the change-detector and conformance-fixture-count
+# assertions (e.g. registry key/property counts, the `loaded == N` bnb-fixture
+# count). Running only `nim check` let a stale `loaded == 8` assertion survive
+# ~13 ralph iterations after a fixture was added, because a green compile is not
+# a green test run. See bony-bru.
+#
+# NOTE: these are the raw `nim c -r` invocations from bony.nimble's `test` task,
+# NOT `nimble test` — nimble SWALLOWS a failing task's exec exit code and returns
+# 0, which would make this gate vacuously green (the very failure mode above).
+# Raw `nim c -r` propagates the non-zero exit so `make` fails the recipe.
 test:
 	python3 codegen/generate.py --check
 	python3 -m unittest discover -s codegen -p 'test_*.py'
 	nim check --hints:off --path:runtime-nim/src runtime-nim/src/bony.nim
+	cd runtime-nim && nim c -r --hints:off tests/test_smoke.nim
+	cd runtime-nim && nim c -r --hints:off -d:bonyExcludeMain --path:../cli tests/test_cli_pose.nim
+	cd runtime-nim && nim c -r --hints:off tests/test_ik_current_pivot.nim
