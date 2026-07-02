@@ -464,7 +464,7 @@ spec "bony package":
         discard loadBonyBnb(fixture)
         inc loaded
     then:
-      loaded == 9  # m1–m5, m5_ik, m7, m8, m9_non_scalar
+      loaded == 10  # m1–m5, m5_ik, m5_transform, m7, m8, m9_non_scalar
 
   it "rejects malformed semantic .bnb payloads":
     then:
