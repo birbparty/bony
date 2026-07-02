@@ -45,6 +45,12 @@
         "$ref": "#/$defs/ikConstraint"
       }
     },
+    "transformConstraints": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/transformConstraint"
+      }
+    },
     "parameters": {
       "type": "array",
       "items": {
@@ -599,6 +605,47 @@
       },
       "required": [
         "bones",
+        "name",
+        "target"
+      ]
+    },
+    "transformConstraint": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "bone": {
+          "type": "string"
+        },
+        "target": {
+          "type": "string"
+        },
+        "order": {
+          "type": "integer",
+          "default": 0
+        },
+        "translateMix": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "rotateMix": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "scaleMix": {
+          "type": "number"
+        },
+        "shearMix": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "bone",
         "name",
         "target"
       ]

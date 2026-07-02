@@ -99,10 +99,10 @@ spec "bony package":
       bonyRegistryVersion == 1
       bonyBackingTypes.len == 8
       bonyBackingTypes[0].id == "varuint"
-      bonyTypeKeys.len == 24
-      bonyPropertyKeys.len == 85
-      bonyPropertyDefaults.len == 40
-      bonyRequiredProperties.len == 62
+      bonyTypeKeys.len == 25
+      bonyPropertyKeys.len == 87
+      bonyPropertyDefaults.len == 45
+      bonyRequiredProperties.len == 65
 
   it "encodes and rejects .bnb varints canonically":
     var bytes: seq[byte]
@@ -464,7 +464,7 @@ spec "bony package":
         discard loadBonyBnb(fixture)
         inc loaded
     then:
-      loaded == 8  # m1–m5, m7, m8, m9_non_scalar
+      loaded == 9  # m1–m5, m5_ik, m7, m8, m9_non_scalar
 
   it "rejects malformed semantic .bnb payloads":
     then:

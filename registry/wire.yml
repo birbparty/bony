@@ -244,6 +244,12 @@ typeKeys:
     milestone: M5
     ownerBead: bony-b5d.3
     doc: Inverse-kinematics constraint record participating in the world-transform constraint pass.
+  - id: transformConstraint
+    key: 4003
+    status: active
+    milestone: M5
+    ownerBead: bony-8i1.2
+    doc: Transform constraint record participating in the world-transform constraint pass.
   - id: parameter
     key: 6000
     status: active
@@ -600,6 +606,20 @@ propertyKeys:
     milestone: M5
     ownerBead: bony-b5d.3
     doc: IK two-bone bend direction; true selects positive bend (loaded for all IK constraints, applied only by the two-bone solver).
+  - id: scaleMix
+    key: 4017
+    backingType: f32
+    status: active
+    milestone: M5
+    ownerBead: bony-8i1.2
+    doc: Transform constraint scale blend amount in [0, 1].
+  - id: shearMix
+    key: 4018
+    backingType: f32
+    status: active
+    milestone: M5
+    ownerBead: bony-8i1.2
+    doc: Transform constraint shear blend amount in [0, 1].
   - id: parameterMin
     key: 6000
     backingType: f32
@@ -998,6 +1018,17 @@ objects:
       - mix
       - bendPositive
     doc: IK constraint record loaded in source order.
+  - type: transformConstraint
+    properties:
+      - name
+      - bone
+      - target
+      - order
+      - translateMix
+      - rotateMix
+      - scaleMix
+      - shearMix
+    doc: Transform constraint record loaded in source order.
   - type: pathAttachment
     properties:
       - name
