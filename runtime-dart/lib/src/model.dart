@@ -1,5 +1,9 @@
 // Bony SkeletonData model: M1 static + M2 world transform + M3 animation types.
 
+import 'physics_constraint.dart' show PhysicsChannel;
+
+export 'physics_constraint.dart' show PhysicsChannel;
+
 class SkeletonHeader {
   const SkeletonHeader({required this.name, required this.version});
   final String name;
@@ -155,6 +159,41 @@ class TransformConstraintData {
       (shearMix ?? 1.0) > 0.0;
 }
 
+/// Loadable physics-constraint record. Mirrors the Nim `PhysicsConstraintData`:
+/// a constrained bone, a signed order, the enabled channel set, and the
+/// integrator inputs consumed by `physicsParams` / `updatePhysicsConstraint`.
+/// Physics springs off the bone's own animated target, so there is NO target
+/// bone. Each optional param is null when absent (the integrator applies the
+/// same defaults as the Nim `physicsParams`: mass=1.0, physicsMix=1.0, the rest
+/// 0.0), mirroring how [TransformConstraintData] carries nullable mixes.
+class PhysicsConstraintData {
+  const PhysicsConstraintData({
+    required this.name,
+    required this.bone,
+    required this.channels,
+    this.order = 0,
+    this.inertia,
+    this.strength,
+    this.damping,
+    this.mass,
+    this.gravity,
+    this.wind,
+    this.physicsMix,
+  });
+
+  final String name;
+  final String bone;
+  final Set<PhysicsChannel> channels;
+  final int order;
+  final double? inertia;
+  final double? strength;
+  final double? damping;
+  final double? mass;
+  final double? gravity;
+  final double? wind;
+  final double? physicsMix;
+}
+
 class PathAttachment {
   const PathAttachment({
     required this.name,
@@ -189,6 +228,7 @@ class SkeletonData {
     required this.pathAttachments,
     this.ikConstraints = const [],
     this.transformConstraints = const [],
+    this.physicsConstraints = const [],
     this.animations = const [],
     this.parameters = const [],
     this.deformers = const [],
@@ -203,6 +243,7 @@ class SkeletonData {
   final List<PathAttachment> pathAttachments;
   final List<IkConstraintData> ikConstraints;
   final List<TransformConstraintData> transformConstraints;
+  final List<PhysicsConstraintData> physicsConstraints;
   final List<AnimationClip> animations;
   final List<ParameterAxis> parameters;
   final List<DeformerRecord> deformers;

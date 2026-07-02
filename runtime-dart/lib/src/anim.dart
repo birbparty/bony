@@ -726,6 +726,11 @@ SkeletonData applyPose(SkeletonData data, MixedPose pose) {
     // transform-constraint evaluation from any animated pose (the bony-1c5 bug
     // class). transformConstraints defaults to const [], so a miss compiles.
     transformConstraints: data.transformConstraints,
+    // Same preservation for physics constraints — the stateful physics stage
+    // (advancePhysics) reads them off the posed skeleton, so dropping them here
+    // would silently lose all physics on any animated pose (bony-1c5/cz7 bug
+    // class). physicsConstraints defaults to const [], so a miss compiles.
+    physicsConstraints: data.physicsConstraints,
     animations: data.animations,
     parameters: data.parameters,
     deformers: data.deformers,
