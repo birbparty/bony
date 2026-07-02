@@ -1692,8 +1692,11 @@ spec "bony package":
         inc transformEntries
     let worlds = computeWorldTransforms(data)
     then:
-      transformEntries == 1                 # descriptor loop picked up the tc
-      closeWithin(worlds[1].tx, 8.0, 1e-6)   # 5 blended halfway to goal x=11 -> 8
+      # descriptor loop picked up the tc (emission is per-descriptor; the solved
+      # world below is what proves the detection gate actually fired + evaluated).
+      transformEntries == 1
+      closeWithin(worlds[1].tx, 8.0, 1e-6)   # x: 5 blended halfway to goal x=11 -> 8
+      closeWithin(worlds[1].ty, 2.0, 1e-6)   # y: 0 blended halfway to goal y=4  -> 2
 
   it "evaluates path constraint cubics with fixed arc-length samples":
     let curve = pathCubic(
