@@ -154,9 +154,11 @@ signal: `pendulum`'s solved `rotate` = target + offset. Reading the pendulum
 
 The offset magnitude runs `0° → 30.71° → 16.66°`: the target step excites the
 spring at `excited`, then it **settles** — by `settled` the offset has decayed
-~46% back toward zero (the pose relaxes monotonically toward the `45°` target
-with no overshoot, as expected for critical damping). Each inter-sample world
-angle delta (`14.289967°`, `14.046581°`) is far above the `1e-4` conformance
+~46% back toward zero, and the world angle relaxes monotonically toward the
+`45°` target across these samples. Critical damping (`damping² = 4·mass·strength`)
+is the fastest response that reaches equilibrium without oscillating, so no
+overshoot is expected past the sampled window. Each inter-sample world angle
+delta (`14.289967°`, `14.046581°`) is far above the `1e-4` conformance
 tolerance, and the offset converges toward zero rather than diverging.
 
 Notes for readers comparing runtimes:

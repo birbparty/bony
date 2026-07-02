@@ -1743,6 +1743,11 @@ proc numericGoldenJson(
   let worlds =
     if physicsWorlds.len == data.bones.len: physicsWorlds
     else: computeWorldTransforms(data)
+  # NOTE: buildDrawBatches recomputes worlds from the pure pass, so draw-batch
+  # vertices do NOT reflect the physics stage. This is correct only while every
+  # physics rig has no renderables (m5_physics_rig has zero slots). A physics rig
+  # with an attachment would need physics worlds threaded here too — tracked in
+  # bony follow-up before such a rig lands.
   let baseBatches = buildDrawBatches(data)
   let samples = defaultParamSamples(data)
   let efDefs = effectiveDeformers(data, samples)
