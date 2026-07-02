@@ -26,3 +26,6 @@ test:
 	cd runtime-nim && nim c -r --hints:off tests/test_smoke.nim
 	cd runtime-nim && nim c -r --hints:off -d:bonyExcludeMain --path:../cli tests/test_cli_pose.nim
 	cd runtime-nim && nim c -r --hints:off tests/test_ik_current_pivot.nim
+	cd runtime-nim && nim c -r --hints:off tests/test_bnb_byte_stability.nim
+	cd runtime-nim && nim c -r --hints:off tests/test_bnb_fuzz.nim
+	cd runtime-nim && nim c -r --hints:off tests/test_json_bnb_json_idempotency.nim

@@ -20,6 +20,11 @@ task test, "Run the Nim smoke tests":
   # IK current-pivot anchoring: includes transform.nim to drive private
   # applyRuntimeIk with a moved parent world (nim.cfg supplies src).
   exec "nim c -r tests/test_ik_current_pivot.nim"
+  # Serialization-boundary suites (deterministic): BNB byte-stability, BNB
+  # negative/mutation fuzz, and JSON<->BNB<->JSON idempotency.
+  exec "nim c -r tests/test_bnb_byte_stability.nim"
+  exec "nim c -r tests/test_bnb_fuzz.nim"
+  exec "nim c -r tests/test_json_bnb_json_idempotency.nim"
 
 task bench, "Run the non-gating perf harness (always exits 0)":
   exec "nim c -r bench_perf.nim"

@@ -6,6 +6,8 @@ runtime-nim/tests/test_smoke
 runtime-nim/tests/test_json_bnb_json_idempotency
 runtime-nim/tests/test_cli_pose
 runtime-nim/tests/test_ik_current_pivot
+runtime-nim/tests/test_bnb_byte_stability
+runtime-nim/tests/test_bnb_fuzz
 runtime-nim/tests/*.exe
 runtime-nim/bench_perf
 runtime-nim/bench_perf.exe
