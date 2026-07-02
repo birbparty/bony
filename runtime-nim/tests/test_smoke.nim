@@ -6914,6 +6914,15 @@ spec "bony clipping evaluation":
       covered.slot == "coveredSlot"
       covered.bone == "root"
 
+  it "clips to the end of draw order when untilSlot is empty":
+    # Empty untilSlot => range covers every batch after the clip's own slot.
+    let batches = buildDrawBatches(loadBonyJson(clipEvalRig("0, -3, 3, -3, 3, 3, 0, 3", "")))
+    let covered = batches.batchFor("coveredSlot")
+    let after = batches.batchFor("afterSlot")
+    then:
+      covered.clipId == "mask"
+      after.clipId == "mask"
+
   it "does not touch a batch past untilSlot":
     let batches = buildDrawBatches(loadBonyJson(clipEvalRig("0, -3, 3, -3, 3, 3, 0, 3", "coveredSlot")))
     let after = batches.batchFor("afterSlot")
@@ -6944,16 +6953,19 @@ spec "bony clipping evaluation":
       DrawVertex(x: 1.0, y: 1.0, u: 1.0, v: 1.0, r: 0.0, g: 0.0, b: 1.0, a: 1.0),
       DrawVertex(x: -1.0, y: 1.0, u: 0.0, v: 1.0, r: 1.0, g: 1.0, b: 0.0, a: 1.0),
     ]
-    let clip = @[clipPoint(0.0, -3.0), clipPoint(3.0, -3.0), clipPoint(3.0, 3.0), clipPoint(0.0, 3.0)]
+    # Clip to x >= 0.5 so the bottom-edge intersection sits at t = 0.75 along
+    # red(BL)->green(BR), NOT the midpoint — this pins interpolation *direction*
+    # (a t <-> 1-t swap would fail here).
+    let clip = @[clipPoint(0.5, -3.0), clipPoint(3.0, -3.0), clipPoint(3.0, 3.0), clipPoint(0.5, 3.0)]
     let clipped = clipDrawBatchPolygon(subject, clip)
-    # Bottom-edge intersection at (0,-1): midpoint of red->green => r=0.5, g=0.5, b=0.
+    # Bottom-edge intersection at (0.5,-1): t=0.75 => u=0.75, r=0.25, g=0.75, b=0.
     var bottom = DrawVertex(r: -1.0)
     for v in clipped.vertices:
-      if closeTo(v.x, 0.0) and closeTo(v.y, -1.0): bottom = v
+      if closeTo(v.x, 0.5) and closeTo(v.y, -1.0): bottom = v
     then:
       clipped.changed
       clipped.vertices.len >= 3
-      closeWithin(bottom.r, 0.5, 1e-6)
-      closeWithin(bottom.g, 0.5, 1e-6)
+      closeWithin(bottom.r, 0.25, 1e-6)
+      closeWithin(bottom.g, 0.75, 1e-6)
       closeWithin(bottom.b, 0.0, 1e-6)
-      closeWithin(bottom.u, 0.5, 1e-6)
+      closeWithin(bottom.u, 0.75, 1e-6)
