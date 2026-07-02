@@ -317,6 +317,75 @@ proc requireFiniteF64*(value: float64; context = "value"): float64 =
   value
 
 
+const weightSumTolerance* = 1e-4
+
+
+proc quantizeUnit*(value: float64; context: string): float64 =
+  result = quantizeF32(value, context)
+  if result < 0.0 or result > 1.0:
+    raise newBonyLoadError(schemaViolation, context & " must be in 0..1")
+
+
+# Mesh geometry/reference validator. Lives here (not mesh/attachments) because
+# validateSkeletonData must call it on every loaded mesh, and model cannot import
+# mesh/* (the validator once took SkeletonData, forming a cycle). It takes the
+# bone list directly so both the load path and the mesh constructor share ONE
+# impl of the (a)-(g) edge-case checks.
+proc validateMeshAttachment*(bones: openArray[BoneData]; mesh: MeshAttachment) =
+  if mesh.name.len == 0:
+    raise newBonyLoadError(schemaViolation, "mesh name must not be empty")
+  if mesh.vertices.len == 0:
+    raise newBonyLoadError(schemaViolation, "mesh must contain at least one vertex")
+  if mesh.uvs.len != mesh.vertices.len:
+    raise newBonyLoadError(schemaViolation, "mesh uvs count must match vertex count")
+  for uv in mesh.uvs:
+    discard quantizeUnit(uv.u, "mesh.uv.u")
+    discard quantizeUnit(uv.v, "mesh.uv.v")
+  if mesh.triangles.len == 0 or mesh.triangles.len mod 3 != 0:
+    raise newBonyLoadError(schemaViolation, "mesh triangles must contain index triplets")
+  if mesh.hull > uint32(mesh.vertices.len):
+    raise newBonyLoadError(schemaViolation, "mesh hull must not exceed vertex count")
+  if mesh.edges.len mod 2 != 0:
+    raise newBonyLoadError(schemaViolation, "mesh edges must contain index pairs")
+  if mesh.parentMesh.len != 0:
+    raise newBonyLoadError(schemaViolation, "linked mesh parent validation is not supported yet")
+  if mesh.deformAttachment.len != 0 and mesh.deformAttachment != mesh.name:
+    raise newBonyLoadError(schemaViolation, "mesh deformAttachment must match the mesh name")
+
+  var boneNames = initHashSet[string]()
+  for bone in bones:
+    boneNames.incl(bone.name)
+
+  for index in mesh.triangles:
+    if int(index) >= mesh.vertices.len:
+      raise newBonyLoadError(unknownRequiredReference, "mesh triangle index out of range")
+  for index in mesh.edges:
+    if int(index) >= mesh.vertices.len:
+      raise newBonyLoadError(unknownRequiredReference, "mesh edge index out of range")
+  for vertex in mesh.vertices:
+    if vertex.weighted != mesh.weighted:
+      raise newBonyLoadError(schemaViolation, "mesh vertices must match mesh weighted flag")
+    if vertex.weighted:
+      if vertex.influences.len == 0:
+        raise newBonyLoadError(schemaViolation, "weighted mesh vertex must contain at least one influence")
+      var sum = 0.0
+      for influence in vertex.influences:
+        if influence.bone.len == 0:
+          raise newBonyLoadError(schemaViolation, "mesh influence bone must not be empty")
+        discard quantizeF32(influence.bindX, "mesh.influence.bindX")
+        discard quantizeF32(influence.bindY, "mesh.influence.bindY")
+        let weight = quantizeF32(influence.weight, "mesh.influence.weight")
+        if weight < 0.0:
+          raise newBonyLoadError(schemaViolation, "mesh influence weight must be non-negative")
+        if influence.bone notin boneNames:
+          raise newBonyLoadError(unknownRequiredReference, "unknown mesh influence bone: " & influence.bone)
+        sum += weight
+      if abs(sum - 1.0) > weightSumTolerance:
+        raise newBonyLoadError(schemaViolation, "weighted mesh vertex influences must sum to 1")
+    elif vertex.influences.len != 0:
+      raise newBonyLoadError(schemaViolation, "unweighted mesh vertex must not contain influences")
+
+
 proc localTransform*(
   x = 0.0,
   y = 0.0,
@@ -387,6 +456,38 @@ proc clipAttachmentData*(
   for index, value in vertices:
     quantized[index] = quantizeF32(value, "clippingAttachment.vertices[" & $index & "]")
   ClipAttachmentData(name: name, vertices: quantized, untilSlot: untilSlot)
+
+
+# Raw-value mesh constructor for loaders: assembles a MeshAttachment WITHOUT
+# validating (mirrors clipAttachmentData). Loaders build seqs mid-parse and rely
+# on skeletonData()/validateSkeletonData to run validateMeshAttachment once the
+# whole skeleton is assembled.
+proc meshAttachmentData*(
+  name: string;
+  uvs: openArray[MeshUv];
+  triangles: openArray[uint16];
+  vertices: openArray[MeshVertex];
+  weighted: bool;
+  path = "";
+  hull: uint32 = 0;
+  edges: openArray[uint16] = [];
+  parentMesh = "";
+  inheritDeform = true;
+  deformAttachment = "";
+): MeshAttachment =
+  MeshAttachment(
+    name: name,
+    path: if path.len == 0: name else: path,
+    uvs: @uvs,
+    triangles: @triangles,
+    vertices: @vertices,
+    weighted: weighted,
+    hull: hull,
+    edges: @edges,
+    parentMesh: parentMesh,
+    inheritDeform: inheritDeform,
+    deformAttachment: if deformAttachment.len == 0: name else: deformAttachment,
+  )
 
 
 proc pathConstraintData*(
@@ -876,6 +977,26 @@ proc validateSkeletonData*(
       if turn * signValue < -clipAreaEpsilon:
         raise newBonyLoadError(schemaViolation, context & ".vertices must be convex in v1")
 
+  # Mesh attachments: cross-collection unique non-empty names (must not collide
+  # with region or clipping attachment names), then the shared (a)-(g) geometry
+  # and bone-reference validation. Names join the slot->attachment accepted set
+  # below so a slot may reference a mesh.
+  var allMeshNames = initHashSet[string]()
+  for index, mesh in meshAttachments:
+    let context = "meshAttachments[" & $index & "]"
+    if mesh.name.len == 0:
+      raise newBonyLoadError(schemaViolation, context & ".name must not be empty")
+    if mesh.name in allMeshNames:
+      raise newBonyLoadError(duplicateKey, "duplicate mesh attachment name: " & mesh.name)
+    if mesh.name in allRegionNames:
+      raise newBonyLoadError(duplicateKey,
+        "mesh attachment name collides with a region attachment name: " & mesh.name)
+    if mesh.name in allClipNames:
+      raise newBonyLoadError(duplicateKey,
+        "mesh attachment name collides with a clipping attachment name: " & mesh.name)
+    allMeshNames.incl(mesh.name)
+    validateMeshAttachment(bones, mesh)
+
   for index, slot in slots:
     let context = "slots[" & $index & "]"
     if slot.name.len == 0:
@@ -885,7 +1006,7 @@ proc validateSkeletonData*(
     if slot.bone notin allNames:
       raise newBonyLoadError(unknownRequiredReference, "unknown slot bone: " & slot.bone)
     if slot.attachment.len > 0 and slot.attachment notin allRegionNames and
-        slot.attachment notin allClipNames:
+        slot.attachment notin allClipNames and slot.attachment notin allMeshNames:
       raise newBonyLoadError(unknownRequiredReference, "unknown slot attachment: " & slot.attachment)
     allSlotNames.incl(slot.name)
 
