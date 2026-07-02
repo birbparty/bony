@@ -236,6 +236,49 @@ objectDefaults:
         omitWhenDefault: true
         applyOnLoad: false
         doc: Transform constraint shear blend; full influence by default.
+  - object: physicsConstraint
+    ownerBead: bony-1pp
+    properties:
+      order:
+        value: 0
+        omitWhenDefault: true
+        applyOnLoad: true
+        doc: Constraint order defaults to the first constraint slot.
+      inertia:
+        value: 0.0
+        omitWhenDefault: true
+        applyOnLoad: false
+        doc: Physics inertia; no carried target motion by default.
+      strength:
+        value: 0.0
+        omitWhenDefault: true
+        applyOnLoad: false
+        doc: Physics spring strength; no restoring force by default.
+      damping:
+        value: 0.0
+        omitWhenDefault: true
+        applyOnLoad: false
+        doc: Physics velocity damping; undamped by default.
+      mass:
+        value: 1.0
+        omitWhenDefault: true
+        applyOnLoad: false
+        doc: Physics mass; unit mass by default.
+      gravity:
+        value: 0.0
+        omitWhenDefault: true
+        applyOnLoad: false
+        doc: Physics gravity force; none by default.
+      wind:
+        value: 0.0
+        omitWhenDefault: true
+        applyOnLoad: false
+        doc: Physics wind force; none by default.
+      physicsMix:
+        value: 1.0
+        omitWhenDefault: true
+        applyOnLoad: false
+        doc: Physics spring-offset blend; full influence by default.
   - object: pathAttachment
     ownerBead: bony-8gs
     properties: {}
@@ -455,6 +498,18 @@ requiredProperties:
     property: target
     reason: A transform constraint must identify its target bone.
     ownerBead: bony-8i1.2
+  - object: physicsConstraint
+    property: name
+    reason: Physics constraints are referenced by stable unique names.
+    ownerBead: bony-1pp
+  - object: physicsConstraint
+    property: bone
+    reason: A physics constraint must identify the constrained bone.
+    ownerBead: bony-1pp
+  - object: physicsConstraint
+    property: channels
+    reason: A physics constraint must enable at least one channel to have any effect.
+    ownerBead: bony-1pp
   - object: pathAttachment
     property: name
     reason: Path attachments are referenced by path constraints.

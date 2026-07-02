@@ -17,6 +17,7 @@ const
   pathTypeId = "path"
   ikConstraintTypeId = "ikConstraint"
   transformConstraintTypeId = "transformConstraint"
+  physicsConstraintTypeId = "physicsConstraint"
 
 
 proc defaultFor(objectId, propertyId: string): string =
@@ -173,6 +174,15 @@ proc requiredFloat(node: JsonNode; key, context: string): float64 =
   optionalFloat(node, key, 0.0, context)
 
 
+proc requiredInt(node: JsonNode; key, context: string): int =
+  if not node.hasKey(key):
+    raise newBonyLoadError(schemaViolation, context & "." & key & " is required")
+  let value = node[key]
+  if value.kind != JInt:
+    raise newBonyLoadError(schemaViolation, context & "." & key & " must be an integer")
+  value.getInt()
+
+
 proc optionalBool(node: JsonNode; key: string; defaultValue: bool; context: string): bool =
   if not node.hasKey(key):
     return defaultValue
@@ -310,7 +320,7 @@ proc loadBonyJson*(text: string): SkeletonData =
       raise newBonyLoadError(schemaViolation, "invalid JSON: " & exc.msg)
 
   let root = requireObject(parsed, "root")
-  validateKnownKeys(root, ["skeleton", "bones", "slots", "regions", "pathAttachments", "paths", "ikConstraints", "transformConstraints", "parameters", "deformers", "animations", "stateMachines"], "root")
+  validateKnownKeys(root, ["skeleton", "bones", "slots", "regions", "pathAttachments", "paths", "ikConstraints", "transformConstraints", "physicsConstraints", "parameters", "deformers", "animations", "stateMachines"], "root")
 
   if not root.hasKey("skeleton"):
     raise newBonyLoadError(schemaViolation, "root.skeleton is required")
@@ -499,6 +509,37 @@ proc loadBonyJson*(text: string): SkeletonData =
         shearMix = optionalFloat(tcObject, "shearMix", defaultFloat(transformConstraintTypeId, "shearMix"), context),
       )
 
+  var loadedPhysicsConstraints: seq[PhysicsConstraintData] = @[]
+  if root.hasKey("physicsConstraints"):
+    let physicsConstraintsNode = requireArray(root["physicsConstraints"], "physicsConstraints")
+    for index, pcNode in physicsConstraintsNode.elems:
+      let context = "physicsConstraints[" & $index & "]"
+      let pcObject = requireObject(pcNode, context)
+      validateKnownKeys(pcObject, ["name", "bone", "order", "channels", "inertia", "strength", "damping", "mass", "gravity", "wind", "physicsMix"], context)
+      let channelMask = requiredInt(pcObject, "channels", context)
+      if channelMask < 0:
+        raise newBonyLoadError(schemaViolation, context & ".channels must be non-negative")
+      loadedPhysicsConstraints.add physicsConstraintData(
+        requiredString(pcObject, "name", context),
+        requiredString(pcObject, "bone", context),
+        physicsChannelsFromMask(uint64(channelMask), context & ".channels"),
+        order = optionalInt(pcObject, "order", defaultInt(physicsConstraintTypeId, "order"), context),
+        hasInertia = pcObject.hasKey("inertia"),
+        inertia = optionalFloat(pcObject, "inertia", defaultFloat(physicsConstraintTypeId, "inertia"), context),
+        hasStrength = pcObject.hasKey("strength"),
+        strength = optionalFloat(pcObject, "strength", defaultFloat(physicsConstraintTypeId, "strength"), context),
+        hasDamping = pcObject.hasKey("damping"),
+        damping = optionalFloat(pcObject, "damping", defaultFloat(physicsConstraintTypeId, "damping"), context),
+        hasMass = pcObject.hasKey("mass"),
+        mass = optionalFloat(pcObject, "mass", defaultFloat(physicsConstraintTypeId, "mass"), context),
+        hasGravity = pcObject.hasKey("gravity"),
+        gravity = optionalFloat(pcObject, "gravity", defaultFloat(physicsConstraintTypeId, "gravity"), context),
+        hasWind = pcObject.hasKey("wind"),
+        wind = optionalFloat(pcObject, "wind", defaultFloat(physicsConstraintTypeId, "wind"), context),
+        hasMix = pcObject.hasKey("physicsMix"),
+        mix = optionalFloat(pcObject, "physicsMix", defaultFloat(physicsConstraintTypeId, "physicsMix"), context),
+      )
+
   var loadedParameters: seq[ParameterAxis] = @[]
   if root.hasKey("parameters"):
     let parametersNode = requireArray(root["parameters"], "parameters")
@@ -628,7 +669,7 @@ proc loadBonyJson*(text: string): SkeletonData =
 
       loadedDeformers.add DeformerRecord(deformer: deformer, keyformBlend: blend)
 
-  result = skeletonData(loadedHeader, loadedBones, loadedSlots, loadedRegions, loadedPathAttachments, loadedPaths, loadedParameters, loadedDeformers, loadedIkConstraints, loadedTransformConstraints)
+  result = skeletonData(loadedHeader, loadedBones, loadedSlots, loadedRegions, loadedPathAttachments, loadedPaths, loadedParameters, loadedDeformers, loadedIkConstraints, loadedTransformConstraints, loadedPhysicsConstraints)
   let loadedAnimClips = parseBonyAnimations(root, result)
   discard parseBonyStateMachines(root, result, loadedAnimClips)
 
@@ -1594,6 +1635,42 @@ proc toBonyJson*(data: SkeletonData): string =
         result.addNumberField("scaleMix", tc.scaleMix, 3, first)
       if tc.hasShearMix:
         result.addNumberField("shearMix", tc.shearMix, 3, first)
+      result.add "\n"
+      result.addIndent(2)
+      result.add "}"
+    result.add "\n"
+    result.addIndent(1)
+    result.add "]"
+
+  if data.physicsConstraints.len > 0:
+    result.add ",\n"
+    result.addIndent(1)
+    result.add "\"physicsConstraints\": [\n"
+    for index, pc in data.physicsConstraints:
+      if index > 0:
+        result.add ",\n"
+      result.addIndent(2)
+      result.add "{\n"
+      first = true
+      result.addStringField("name", pc.name, 3, first)
+      result.addStringField("bone", pc.bone, 3, first)
+      if pc.order != defaultInt(physicsConstraintTypeId, "order"):
+        result.addIntField("order", pc.order, 3, first)
+      result.addIntField("channels", int(physicsChannelsToMask(pc.channels)), 3, first)
+      if pc.hasInertia:
+        result.addNumberField("inertia", pc.inertia, 3, first)
+      if pc.hasStrength:
+        result.addNumberField("strength", pc.strength, 3, first)
+      if pc.hasDamping:
+        result.addNumberField("damping", pc.damping, 3, first)
+      if pc.hasMass:
+        result.addNumberField("mass", pc.mass, 3, first)
+      if pc.hasGravity:
+        result.addNumberField("gravity", pc.gravity, 3, first)
+      if pc.hasWind:
+        result.addNumberField("wind", pc.wind, 3, first)
+      if pc.hasMix:
+        result.addNumberField("physicsMix", pc.mix, 3, first)
       result.add "\n"
       result.addIndent(2)
       result.add "}"

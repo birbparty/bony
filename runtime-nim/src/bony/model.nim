@@ -35,6 +35,17 @@ type
     ckPath,
     ckPhysics
 
+  PhysicsChannel* = enum
+    ## Channels a physics constraint may drive. Ordinals define the wire
+    ## bitmask bit positions (pcX=bit0 .. pcShearX=bit4). Defined here (not in
+    ## constraints/physics_constraints.nim, which imports this module) so
+    ## PhysicsConstraintData can hold a set[PhysicsChannel].
+    pcX,
+    pcY,
+    pcRotate,
+    pcScaleX,
+    pcShearX
+
   LocalTransform* = object
     x: float64
     y: float64
@@ -110,6 +121,32 @@ type
     scaleMix: float64
     hasShearMix: bool
     shearMix: float64
+
+  PhysicsConstraintData* = object
+    ## Loadable physics constraint record (format/load only; not yet evaluated).
+    ## Mirrors TransformConstraintData: a constrained bone, a signed order, and
+    ## the integrator inputs consumed by physicsParams/updatePhysicsConstraint.
+    ## Physics springs off the bone's own animated target, so there is NO target
+    ## bone field. Each param carries a has* presence flag so an explicitly
+    ## present default round-trips (see transformConstraintData for the contract).
+    name: string
+    bone: string
+    order: int
+    channels: set[PhysicsChannel]
+    hasInertia: bool
+    inertia: float64
+    hasStrength: bool
+    strength: float64
+    hasDamping: bool
+    damping: float64
+    hasMass: bool
+    mass: float64
+    hasGravity: bool
+    gravity: float64
+    hasWind: bool
+    wind: float64
+    hasMix: bool
+    mix: float64
 
   ParameterAxis* = object
     name*: string
@@ -212,6 +249,7 @@ type
     paths: seq[PathConstraintData]
     ikConstraints: seq[IkConstraintData]
     transformConstraints: seq[TransformConstraintData]
+    physicsConstraints: seq[PhysicsConstraintData]
     parameters: seq[ParameterAxis]
     deformers: seq[DeformerRecord]
 
@@ -408,6 +446,66 @@ proc transformConstraintData*(
   )
 
 
+proc physicsConstraintData*(
+  name, bone: string;
+  channels: set[PhysicsChannel];
+  order = 0;
+  hasInertia = false;
+  inertia = 0.0;
+  hasStrength = false;
+  strength = 0.0;
+  hasDamping = false;
+  damping = 0.0;
+  hasMass = false;
+  mass = 1.0;
+  hasGravity = false;
+  gravity = 0.0;
+  hasWind = false;
+  wind = 0.0;
+  hasMix = false;
+  mix = 1.0;
+): PhysicsConstraintData =
+  ## Presence-flag contract mirrors transformConstraintData: each param is stored
+  ## as given, f32-quantized (params are f32-backed per the physics contract), and
+  ## the has* flag records explicit presence for round-trip fidelity. Param bounds
+  ## replicate physicsParams (finite; mass non-negative; mix in [0, 1]) — model
+  ## cannot import constraints/physics_constraints (that module imports model), so
+  ## the bounds are single-sourced by the identical eval-time physicsParams call.
+  if channels.card == 0:
+    raise newBonyLoadError(schemaViolation, "physicsConstraint.channels must enable at least one channel")
+  let storedInertia = quantizeF32(inertia, "physicsConstraint.inertia")
+  let storedStrength = quantizeF32(strength, "physicsConstraint.strength")
+  let storedDamping = quantizeF32(damping, "physicsConstraint.damping")
+  let storedMass = quantizeF32(mass, "physicsConstraint.mass")
+  let storedGravity = quantizeF32(gravity, "physicsConstraint.gravity")
+  let storedWind = quantizeF32(wind, "physicsConstraint.wind")
+  let storedMix = quantizeF32(mix, "physicsConstraint.mix")
+  if storedMass < 0.0:
+    raise newBonyLoadError(schemaViolation, "physicsConstraint.mass must be non-negative")
+  if storedMix < 0.0 or storedMix > 1.0:
+    raise newBonyLoadError(schemaViolation, "physicsConstraint.mix must be in [0, 1]")
+  PhysicsConstraintData(
+    name: name,
+    bone: bone,
+    order: order,
+    channels: channels,
+    hasInertia: hasInertia,
+    inertia: storedInertia,
+    hasStrength: hasStrength,
+    strength: storedStrength,
+    hasDamping: hasDamping,
+    damping: storedDamping,
+    hasMass: hasMass,
+    mass: storedMass,
+    hasGravity: hasGravity,
+    gravity: storedGravity,
+    hasWind: hasWind,
+    wind: storedWind,
+    hasMix: hasMix,
+    mix: storedMix,
+  )
+
+
 proc name*(header: SkeletonHeader): string = header.name
 
 
@@ -505,6 +603,45 @@ proc runtimeEvaluable*(tc: TransformConstraintData): bool =
   tc.translateMix > 0.0 or tc.rotateMix > 0.0 or tc.scaleMix > 0.0 or tc.shearMix > 0.0
 
 
+proc name*(pc: PhysicsConstraintData): string = pc.name
+proc bone*(pc: PhysicsConstraintData): string = pc.bone
+proc order*(pc: PhysicsConstraintData): int = pc.order
+proc channels*(pc: PhysicsConstraintData): set[PhysicsChannel] = pc.channels
+proc hasInertia*(pc: PhysicsConstraintData): bool = pc.hasInertia
+proc inertia*(pc: PhysicsConstraintData): float64 = pc.inertia
+proc hasStrength*(pc: PhysicsConstraintData): bool = pc.hasStrength
+proc strength*(pc: PhysicsConstraintData): float64 = pc.strength
+proc hasDamping*(pc: PhysicsConstraintData): bool = pc.hasDamping
+proc damping*(pc: PhysicsConstraintData): float64 = pc.damping
+proc hasMass*(pc: PhysicsConstraintData): bool = pc.hasMass
+proc mass*(pc: PhysicsConstraintData): float64 = pc.mass
+proc hasGravity*(pc: PhysicsConstraintData): bool = pc.hasGravity
+proc gravity*(pc: PhysicsConstraintData): float64 = pc.gravity
+proc hasWind*(pc: PhysicsConstraintData): bool = pc.hasWind
+proc wind*(pc: PhysicsConstraintData): float64 = pc.wind
+proc hasMix*(pc: PhysicsConstraintData): bool = pc.hasMix
+proc mix*(pc: PhysicsConstraintData): float64 = pc.mix
+
+const physicsChannelMaskLimit = 1'u64 shl (ord(high(PhysicsChannel)) + 1)
+  ## First bit value beyond the highest defined PhysicsChannel ordinal; any set
+  ## bit at or above this is an unknown channel.
+
+proc physicsChannelsToMask*(channels: set[PhysicsChannel]): uint64 =
+  ## Pack an enabled-channel set into the wire bitmask (pcX=bit0 .. pcShearX=bit4).
+  for channel in channels:
+    result = result or (1'u64 shl ord(channel))
+
+proc physicsChannelsFromMask*(mask: uint64; context = "physicsConstraint.channels"): set[PhysicsChannel] =
+  ## Decode the wire bitmask into an enabled-channel set. Rejects unknown bits.
+  ## Does NOT reject an empty set here; the "at least one channel" rule is checked
+  ## by the record constructor / validator so the error names the constraint.
+  if mask >= physicsChannelMaskLimit:
+    raise newBonyLoadError(schemaViolation, context & " has unknown channel bits set")
+  for channel in PhysicsChannel:
+    if (mask and (1'u64 shl ord(channel))) != 0'u64:
+      result.incl channel
+
+
 proc x*(local: LocalTransform): float64 = local.x
 proc y*(local: LocalTransform): float64 = local.y
 proc rotation*(local: LocalTransform): float64 = local.rotation
@@ -540,6 +677,9 @@ proc ikConstraints*(data: SkeletonData): seq[IkConstraintData] = data.ikConstrai
 
 
 proc transformConstraints*(data: SkeletonData): seq[TransformConstraintData] = data.transformConstraints
+
+
+proc physicsConstraints*(data: SkeletonData): seq[PhysicsConstraintData] = data.physicsConstraints
 
 
 proc parameters*(data: SkeletonData): seq[ParameterAxis] = data.parameters
@@ -594,6 +734,7 @@ proc validateSkeletonData*(
   deformers: openArray[DeformerRecord] = [];
   ikConstraints: openArray[IkConstraintData] = [];
   transformConstraints: openArray[TransformConstraintData] = [];
+  physicsConstraints: openArray[PhysicsConstraintData] = [];
 ) =
   if header.name.len == 0:
     raise newBonyLoadError(schemaViolation, "skeleton.name must not be empty")
@@ -732,6 +873,37 @@ proc validateSkeletonData*(
         raise newBonyLoadError(schemaViolation, context & "." & mixName & " must be in [0, 1]")
     allTransformNames.incl(tc.name)
 
+  var allPhysicsNames = initHashSet[string]()
+  for index, pc in physicsConstraints:
+    let context = "physicsConstraints[" & $index & "]"
+    if pc.name.len == 0:
+      raise newBonyLoadError(schemaViolation, context & ".name must not be empty")
+    if pc.name in allPhysicsNames:
+      raise newBonyLoadError(duplicateKey, "duplicate physics constraint name: " & pc.name)
+    if pc.bone notin allNames:
+      raise newBonyLoadError(unknownRequiredReference, "unknown physics constraint bone: " & pc.bone)
+    # Physics springs off the bone's own animated target, so there is NO target
+    # bone reference to resolve (unlike ik/transform/path). Enabled-channel set
+    # must be non-empty; params replicate physicsParams bounds (finite via
+    # requireFiniteF64, mass non-negative, mix in [0, 1]).
+    if pc.channels.card == 0:
+      raise newBonyLoadError(schemaViolation, context & ".channels must enable at least one channel")
+    for (paramName, paramValue) in {
+      "inertia": pc.inertia,
+      "strength": pc.strength,
+      "damping": pc.damping,
+      "mass": pc.mass,
+      "gravity": pc.gravity,
+      "wind": pc.wind,
+      "physicsMix": pc.mix,
+    }:
+      discard requireFiniteF64(paramValue, context & "." & paramName)
+    if pc.mass < 0.0:
+      raise newBonyLoadError(schemaViolation, context & ".mass must be non-negative")
+    if pc.mix < 0.0 or pc.mix > 1.0:
+      raise newBonyLoadError(schemaViolation, context & ".physicsMix must be in [0, 1]")
+    allPhysicsNames.incl(pc.name)
+
   var paramNames = initHashSet[string]()
   for index, param in parameters:
     let context = "parameters[" & $index & "]"
@@ -789,10 +961,11 @@ proc skeletonData*(
   deformers: openArray[DeformerRecord] = [];
   ikConstraints: openArray[IkConstraintData] = [];
   transformConstraints: openArray[TransformConstraintData] = [];
+  physicsConstraints: openArray[PhysicsConstraintData] = [];
 ): SkeletonData =
   validateSkeletonData(
     header, bones, slots, regions, pathAttachments, paths, parameters, deformers, ikConstraints,
-    transformConstraints,
+    transformConstraints, physicsConstraints,
   )
   result.header = header
   result.bones = @bones
@@ -804,12 +977,14 @@ proc skeletonData*(
   result.deformers = @deformers
   result.ikConstraints = @ikConstraints
   result.transformConstraints = @transformConstraints
+  result.physicsConstraints = @physicsConstraints
 
 
 proc validateSkeletonData*(data: SkeletonData) =
   validateSkeletonData(
     data.header, data.bones, data.slots, data.regions, data.pathAttachments, data.paths,
     data.parameters, data.deformers, data.ikConstraints, data.transformConstraints,
+    data.physicsConstraints,
   )
 
 

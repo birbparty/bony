@@ -905,9 +905,9 @@ def schema_for_property(property_id: str, backing_type: str) -> dict[str, Any]:
             "noScale",
             "noScaleOrReflection",
         ]
-    if property_id in {"width", "height"}:
+    if property_id in {"width", "height", "mass"}:
         schema["minimum"] = 0
-    if property_id in {"position", "translateMix", "rotateMix", "scaleMix", "shearMix", "mix"}:
+    if property_id in {"position", "translateMix", "rotateMix", "scaleMix", "shearMix", "mix", "physicsMix"}:
         schema["minimum"] = 0
         schema["maximum"] = 1
     return schema
