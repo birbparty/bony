@@ -99,10 +99,10 @@ spec "bony package":
       bonyRegistryVersion == 1
       bonyBackingTypes.len == 8
       bonyBackingTypes[0].id == "varuint"
-      bonyTypeKeys.len == 25
-      bonyPropertyKeys.len == 87
-      bonyPropertyDefaults.len == 45
-      bonyRequiredProperties.len == 65
+      bonyTypeKeys.len == 26
+      bonyPropertyKeys.len == 95
+      bonyPropertyDefaults.len == 53
+      bonyRequiredProperties.len == 68
 
   it "encodes and rejects .bnb varints canonically":
     var bytes: seq[byte]
@@ -1429,6 +1429,101 @@ spec "bony package":
       closeTo(data.transformConstraints[0].scaleMix, 0.5)
       data.transformConstraints[0].hasShearMix == false
       closeTo(data.transformConstraints[0].shearMix, 1.0)
+
+  it "round trips a physics constraint through JSON and .bnb":
+    let jsonText = """
+{
+  "skeleton": { "name": "phys", "version": "1.0.0" },
+  "bones": [
+    { "name": "root" },
+    { "name": "hair", "parent": "root", "x": 5.0 }
+  ],
+  "physicsConstraints": [
+    {
+      "name": "sway",
+      "bone": "hair",
+      "order": 2,
+      "channels": 7,
+      "strength": 40.0,
+      "damping": 0.5,
+      "mass": 2.0,
+      "gravity": -9.5,
+      "physicsMix": 0.75
+    }
+  ]
+}
+"""
+    let fromJson = loadBonyJson(jsonText)
+    let bnbBytes = toBonyBnb(fromJson)
+    let fromBnb = loadBonyBnb(bnbBytes)
+    then:
+      fromJson.physicsConstraints.len == 1
+      fromBnb.physicsConstraints.len == 1
+    let pj = fromJson.physicsConstraints[0]
+    let pb = fromBnb.physicsConstraints[0]
+    then:
+      # JSON and binary loaders agree on every field.
+      pj.name == "sway" and pb.name == "sway"
+      pj.bone == "hair" and pb.bone == "hair"
+      pj.order == 2 and pb.order == 2
+      pj.channels == {pcX, pcY, pcRotate}
+      pb.channels == {pcX, pcY, pcRotate}
+      # Omitted params fall back to defaults with presence flag false.
+      pj.hasInertia == false and pb.hasInertia == false
+      closeTo(pj.inertia, 0.0) and closeTo(pb.inertia, 0.0)
+      pj.hasWind == false and pb.hasWind == false
+      # Present params round-trip identically (f32-exact values).
+      pj.hasStrength and pb.hasStrength
+      closeTo(pj.strength, 40.0) and closeTo(pb.strength, 40.0)
+      pj.hasDamping and pb.hasDamping
+      closeTo(pj.damping, 0.5) and closeTo(pb.damping, 0.5)
+      pj.hasMass and pb.hasMass
+      closeTo(pj.mass, 2.0) and closeTo(pb.mass, 2.0)
+      pj.hasGravity and pb.hasGravity
+      closeTo(pj.gravity, -9.5) and closeTo(pb.gravity, -9.5)
+      pj.hasMix and pb.hasMix
+      closeTo(pj.mix, 0.75) and closeTo(pb.mix, 0.75)
+    # Serialization is idempotent and the .bnb encoding is byte-stable.
+    let reJson = toBonyJson(fromBnb)
+    then:
+      reJson == toBonyJson(fromJson)
+      toBonyBnb(loadBonyJson(reJson)) == bnbBytes
+
+  it "rejects invalid physics constraints":
+    proc buildWith(pcs: seq[PhysicsConstraintData]): SkeletonData =
+      skeletonData(
+        skeletonHeader("phys", "1.0.0"),
+        @[boneData("root", ""), boneData("hair", "root", localTransform(x = 1.0))],
+        physicsConstraints = pcs,
+      )
+    then:
+      # unknown constrained bone
+      raisesBonyLoadError(
+        proc() = discard buildWith(@[physicsConstraintData("a", "missing", {pcX})]),
+        unknownRequiredReference)
+      # duplicate name
+      raisesBonyLoadError(
+        proc() = discard buildWith(@[
+          physicsConstraintData("dup", "hair", {pcX}),
+          physicsConstraintData("dup", "hair", {pcY}),
+        ]),
+        duplicateKey)
+      # empty channel set
+      raisesBonyLoadError(
+        proc() = discard physicsConstraintData("a", "hair", {}),
+        schemaViolation)
+      # negative mass
+      raisesBonyLoadError(
+        proc() = discard physicsConstraintData("a", "hair", {pcX}, hasMass = true, mass = -1.0),
+        schemaViolation)
+      # mix out of range
+      raisesBonyLoadError(
+        proc() = discard physicsConstraintData("a", "hair", {pcX}, hasMix = true, mix = 1.5),
+        schemaViolation)
+      # unknown channel bit in the wire mask
+      raisesBonyLoadError(
+        proc() = discard physicsChannelsFromMask(0b100000'u64),
+        schemaViolation)
 
   it "rejects transform constraints with bad refs, duplicate names, or out-of-range mixes":
     proc buildWith(tcs: seq[TransformConstraintData]): SkeletonData =

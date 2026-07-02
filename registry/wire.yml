@@ -250,6 +250,12 @@ typeKeys:
     milestone: M5
     ownerBead: bony-8i1.2
     doc: Transform constraint record participating in the world-transform constraint pass.
+  - id: physicsConstraint
+    key: 4004
+    status: active
+    milestone: M5
+    ownerBead: bony-1pp
+    doc: Physics constraint record evaluated in a later stateful pass than the world-transform constraints; format/load only in this slice.
   - id: parameter
     key: 6000
     status: active
@@ -620,6 +626,62 @@ propertyKeys:
     milestone: M5
     ownerBead: bony-8i1.2
     doc: Transform constraint shear blend amount in [0, 1].
+  - id: inertia
+    key: 4019
+    backingType: f32
+    status: active
+    milestone: M5
+    ownerBead: bony-1pp
+    doc: Physics constraint inertia; fraction of target motion carried into the spring offset on the first substep.
+  - id: strength
+    key: 4020
+    backingType: f32
+    status: active
+    milestone: M5
+    ownerBead: bony-1pp
+    doc: Physics constraint spring strength pulling the offset back toward zero.
+  - id: damping
+    key: 4021
+    backingType: f32
+    status: active
+    milestone: M5
+    ownerBead: bony-1pp
+    doc: Physics constraint velocity damping.
+  - id: mass
+    key: 4022
+    backingType: f32
+    status: active
+    milestone: M5
+    ownerBead: bony-1pp
+    doc: Physics constraint mass dividing spring and damping forces; non-negative.
+  - id: gravity
+    key: 4023
+    backingType: f32
+    status: active
+    milestone: M5
+    ownerBead: bony-1pp
+    doc: Physics constraint constant gravity force applied to the spring offset.
+  - id: wind
+    key: 4024
+    backingType: f32
+    status: active
+    milestone: M5
+    ownerBead: bony-1pp
+    doc: Physics constraint constant wind force applied to the spring offset.
+  - id: physicsMix
+    key: 4025
+    backingType: f32
+    status: active
+    milestone: M5
+    ownerBead: bony-1pp
+    doc: Physics constraint blend amount in [0, 1] mixing the spring offset into the animated target; distinct from the IK mix (key 4015).
+  - id: channels
+    key: 4026
+    backingType: varuint
+    status: active
+    milestone: M5
+    ownerBead: bony-1pp
+    doc: Physics constraint enabled-channel bitmask; one bit per PhysicsChannel ordinal (pcX=bit0, pcY=bit1, pcRotate=bit2, pcScaleX=bit3, pcShearX=bit4). At least one bit must be set.
   - id: parameterMin
     key: 6000
     backingType: f32
@@ -1029,6 +1091,20 @@ objects:
       - scaleMix
       - shearMix
     doc: Transform constraint record loaded in source order.
+  - type: physicsConstraint
+    properties:
+      - name
+      - bone
+      - order
+      - channels
+      - inertia
+      - strength
+      - damping
+      - mass
+      - gravity
+      - wind
+      - physicsMix
+    doc: Physics constraint record loaded in source order.
   - type: pathAttachment
     properties:
       - name

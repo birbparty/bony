@@ -51,6 +51,12 @@
         "$ref": "#/$defs/transformConstraint"
       }
     },
+    "physicsConstraints": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/physicsConstraint"
+      }
+    },
     "parameters": {
       "type": "array",
       "items": {
@@ -730,6 +736,57 @@
         "bone",
         "name",
         "target"
+      ]
+    },
+    "physicsConstraint": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "bone": {
+          "type": "string"
+        },
+        "order": {
+          "type": "integer",
+          "default": 0
+        },
+        "channels": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 31
+        },
+        "inertia": {
+          "type": "number"
+        },
+        "strength": {
+          "type": "number"
+        },
+        "damping": {
+          "type": "number"
+        },
+        "mass": {
+          "type": "number",
+          "minimum": 0
+        },
+        "gravity": {
+          "type": "number"
+        },
+        "wind": {
+          "type": "number"
+        },
+        "physicsMix": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        }
+      },
+      "required": [
+        "bone",
+        "channels",
+        "name"
       ]
     },
     "pathAttachment": {

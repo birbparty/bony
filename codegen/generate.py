@@ -905,11 +905,17 @@ def schema_for_property(property_id: str, backing_type: str) -> dict[str, Any]:
             "noScale",
             "noScaleOrReflection",
         ]
-    if property_id in {"width", "height"}:
+    if property_id in {"width", "height", "mass"}:
         schema["minimum"] = 0
-    if property_id in {"position", "translateMix", "rotateMix", "scaleMix", "shearMix", "mix"}:
+    if property_id in {"position", "translateMix", "rotateMix", "scaleMix", "shearMix", "mix", "physicsMix"}:
         schema["minimum"] = 0
         schema["maximum"] = 1
+    if property_id == "channels":
+        # Physics enabled-channel bitmask: at least one bit set, no bit beyond the
+        # five PhysicsChannel ordinals (pcX..pcShearX). Matches the loader, which
+        # rejects an empty mask and any bit >= 1 << 5.
+        schema["minimum"] = 1
+        schema["maximum"] = 31
     return schema
 
 

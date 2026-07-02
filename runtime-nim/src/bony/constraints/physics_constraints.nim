@@ -12,13 +12,6 @@ const
   physicsMassEpsilon* = 1e-6
 
 type
-  PhysicsChannel* = enum
-    pcX,
-    pcY,
-    pcRotate,
-    pcScaleX,
-    pcShearX
-
   PhysicsParams* = object
     inertia*: float64
     strength*: float64

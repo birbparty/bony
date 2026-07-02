@@ -20,6 +20,7 @@ const
   pathAttachmentTypeKey = 4001'u64
   ikConstraintTypeKey = 4002'u64
   transformConstraintTypeKey = 4003'u64
+  physicsConstraintTypeKey = 4004'u64
   animationClipTypeKey = 2000'u64
   boneTimelineTypeKey = 2001'u64
   slotTimelineTypeKey = 2002'u64
@@ -69,6 +70,14 @@ const
   bendPositiveKey = 4016'u64
   scaleMixKey = 4017'u64
   shearMixKey = 4018'u64
+  inertiaKey = 4019'u64
+  strengthKey = 4020'u64
+  dampingKey = 4021'u64
+  massKey = 4022'u64
+  gravityKey = 4023'u64
+  windKey = 4024'u64
+  physicsMixKey = 4025'u64
+  channelsKey = 4026'u64
   boneIndexKey = 2000'u64
   boneTimelineKindKey = 2001'u64
   slotIndexKey = 2002'u64
@@ -945,6 +954,26 @@ proc buildObjectRecords(data: SkeletonData; table: var BnbStringTable; toc: var 
     properties.addFloatIfNeeded(toc, rotateMixKey, path.rotateMix, defaultFloat("path", "rotateMix"), required = path.hasRotateMix)
     result.add BnbObjectRecord(typeKey: pathTypeKey, properties: properties)
 
+  # Physics section: canonical object-stream position is after paths and before
+  # parameters (docs/binary-canonicalization.md), matching ckPhysics=3 in
+  # constraintKindRank. Emitted only when non-empty so existing fixtures stay
+  # byte-identical. The seven params are presence-gated (applyOnLoad:false); order
+  # is value-gated; channels is a required varuint bitmask always emitted.
+  for pc in data.physicsConstraints:
+    var properties: seq[BnbPropertyRecord]
+    properties.addStringIfNeeded(toc, table, nameKey, pc.name, "", required = true)
+    properties.addStringIfNeeded(toc, table, boneKey, pc.bone, "", required = true)
+    properties.addIntIfNeeded(toc, orderKey, pc.order, defaultInt("physicsConstraint", "order"))
+    properties.addProperty(toc, channelsKey, writeVaruintPayload(physicsChannelsToMask(pc.channels)))
+    properties.addFloatIfNeeded(toc, inertiaKey, pc.inertia, defaultFloat("physicsConstraint", "inertia"), required = pc.hasInertia)
+    properties.addFloatIfNeeded(toc, strengthKey, pc.strength, defaultFloat("physicsConstraint", "strength"), required = pc.hasStrength)
+    properties.addFloatIfNeeded(toc, dampingKey, pc.damping, defaultFloat("physicsConstraint", "damping"), required = pc.hasDamping)
+    properties.addFloatIfNeeded(toc, massKey, pc.mass, defaultFloat("physicsConstraint", "mass"), required = pc.hasMass)
+    properties.addFloatIfNeeded(toc, gravityKey, pc.gravity, defaultFloat("physicsConstraint", "gravity"), required = pc.hasGravity)
+    properties.addFloatIfNeeded(toc, windKey, pc.wind, defaultFloat("physicsConstraint", "wind"), required = pc.hasWind)
+    properties.addFloatIfNeeded(toc, physicsMixKey, pc.mix, defaultFloat("physicsConstraint", "physicsMix"), required = pc.hasMix)
+    result.add BnbObjectRecord(typeKey: physicsConstraintTypeKey, properties: properties)
+
   for param in data.parameters:
     var properties: seq[BnbPropertyRecord]
     properties.addStringIfNeeded(toc, table, nameKey, param.name, "", required = true)
@@ -1245,6 +1274,7 @@ proc decodeSkeletonObjects(objects: openArray[BnbObjectRecord]; strings: BnbStri
   var paths: seq[PathConstraintData]
   var ikConstraints: seq[IkConstraintData]
   var transformConstraints: seq[TransformConstraintData]
+  var physicsConstraints: seq[PhysicsConstraintData]
   var loadedParameters: seq[ParameterAxis]
   var loadedDeformers: seq[DeformerRecord]
 
@@ -1409,6 +1439,32 @@ proc decodeSkeletonObjects(objects: openArray[BnbObjectRecord]; strings: BnbStri
         hasShearMix = shearMixKey in properties,
         shearMix = properties.readOptionalFloatProperty(shearMixKey, defaultFloat("transformConstraint", "shearMix"), "transformConstraint.shearMix"),
       )
+    of physicsConstraintTypeKey:
+      flushPendingIfAny()
+      let properties = record.propertyMap([nameKey, boneKey, orderKey, channelsKey, inertiaKey, strengthKey, dampingKey, massKey, gravityKey, windKey, physicsMixKey])
+      if channelsKey notin properties:
+        raise newBonyLoadError(schemaViolation, ".bnb physicsConstraint.channels is required")
+      let channelMask = readVaruintPayload(properties[channelsKey], "physicsConstraint.channels")
+      physicsConstraints.add physicsConstraintData(
+        properties.readStringProperty(strings, nameKey, "physicsConstraint.name"),
+        properties.readStringProperty(strings, boneKey, "physicsConstraint.bone"),
+        physicsChannelsFromMask(channelMask, "physicsConstraint.channels"),
+        order = properties.readOptionalIntProperty(orderKey, defaultInt("physicsConstraint", "order"), "physicsConstraint.order"),
+        hasInertia = inertiaKey in properties,
+        inertia = properties.readOptionalFloatProperty(inertiaKey, defaultFloat("physicsConstraint", "inertia"), "physicsConstraint.inertia"),
+        hasStrength = strengthKey in properties,
+        strength = properties.readOptionalFloatProperty(strengthKey, defaultFloat("physicsConstraint", "strength"), "physicsConstraint.strength"),
+        hasDamping = dampingKey in properties,
+        damping = properties.readOptionalFloatProperty(dampingKey, defaultFloat("physicsConstraint", "damping"), "physicsConstraint.damping"),
+        hasMass = massKey in properties,
+        mass = properties.readOptionalFloatProperty(massKey, defaultFloat("physicsConstraint", "mass"), "physicsConstraint.mass"),
+        hasGravity = gravityKey in properties,
+        gravity = properties.readOptionalFloatProperty(gravityKey, defaultFloat("physicsConstraint", "gravity"), "physicsConstraint.gravity"),
+        hasWind = windKey in properties,
+        wind = properties.readOptionalFloatProperty(windKey, defaultFloat("physicsConstraint", "wind"), "physicsConstraint.wind"),
+        hasMix = physicsMixKey in properties,
+        mix = properties.readOptionalFloatProperty(physicsMixKey, defaultFloat("physicsConstraint", "physicsMix"), "physicsConstraint.physicsMix"),
+      )
     of parameterTypeKey:
       flushPendingIfAny()
       let properties = record.propertyMap([nameKey, parameterMinKey, parameterMaxKey, parameterDefaultKey])
@@ -1511,7 +1567,7 @@ proc decodeSkeletonObjects(objects: openArray[BnbObjectRecord]; strings: BnbStri
 
   if not hasSkeleton:
     raise newBonyLoadError(schemaViolation, ".bnb skeleton object is required")
-  skeletonData(headerValue, bones, slots, regions, pathAttachments, paths, loadedParameters, loadedDeformers, ikConstraints, transformConstraints)
+  skeletonData(headerValue, bones, slots, regions, pathAttachments, paths, loadedParameters, loadedDeformers, ikConstraints, transformConstraints, physicsConstraints)
 
 
 proc withTarget(timeline: BoneTimeline; target: string): BoneTimeline =
