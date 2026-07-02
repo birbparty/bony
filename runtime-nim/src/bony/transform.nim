@@ -797,8 +797,14 @@ proc vertex(world: Affine2; x, y, u, v: float64): DrawVertex =
   )
 
 
-proc buildDrawBatches*(data: SkeletonData): seq[DrawBatch] =
-  let worlds = computeWorldTransforms(data)
+proc buildDrawBatches*(data: SkeletonData; worlds: seq[Affine2]): seq[DrawBatch] =
+  ## Build draw batches using caller-supplied world transforms. Callers that have
+  ## advanced the stateful physics stage pass the physics-adjusted worlds here so
+  ## draw-batch vertices reflect physics; `worlds` must be indexed parallel to
+  ## `data.bones` (length must match, else it is a programmer error).
+  doAssert worlds.len == data.bones.len,
+    "buildDrawBatches: worlds length " & $worlds.len &
+    " must match bone count " & $data.bones.len
   var boneIndex = initTable[string, int]()
   var regions = initTable[string, RegionAttachment]()
 
@@ -831,3 +837,9 @@ proc buildDrawBatches*(data: SkeletonData): seq[DrawBatch] =
       ],
       indices: @[0'u16, 1'u16, 2'u16, 2'u16, 3'u16, 0'u16],
     )
+
+
+proc buildDrawBatches*(data: SkeletonData): seq[DrawBatch] =
+  ## Convenience overload: recompute worlds from the pure world-transform pass.
+  ## Use the `worlds` overload when a physics stage has adjusted bone worlds.
+  buildDrawBatches(data, computeWorldTransforms(data))

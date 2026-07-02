@@ -2097,6 +2097,32 @@ spec "bony package":
       closeTo(batches[0].vertices[2].v, 1)
       closeTo(batches[0].vertices[2].a, 1)
 
+  it "threads caller-supplied worlds into draw batches":
+    # Mirrors the physics story path: a stateful stage advances bone worlds and
+    # threads them into buildDrawBatches so draw-batch vertices reflect physics
+    # rather than the pure world-transform pass.
+    let data = skeletonData(
+      skeletonHeader("demo", "0.1.0"),
+      @[boneData("root", "", localTransform(x = 3.0, y = 0.0))],
+      @[slotData("body", "root", "bodyRegion")],
+      @[regionAttachment("bodyRegion", 8.0, 4.0)]
+    )
+    var worlds = computeWorldTransforms(data)
+    # Shift the bone world as a physics stage would; batch vertices must follow.
+    worlds[0].tx = worlds[0].tx + 100.0
+    worlds[0].ty = worlds[0].ty + 50.0
+    let batches = buildDrawBatches(data, worlds)
+
+    then:
+      batches.len == 1
+      closeTo(batches[0].world.tx, 103)
+      closeTo(batches[0].world.ty, 50)
+      # Pure pass would place vertex 0 at (-1, -2); threaded worlds move it.
+      closeTo(batches[0].vertices[0].x, 99)
+      closeTo(batches[0].vertices[0].y, 48)
+      closeTo(batches[0].vertices[2].x, 107)
+      closeTo(batches[0].vertices[2].y, 52)
+
   it "renders draw batches with the software rasterizer":
     let data = skeletonData(
       skeletonHeader("demo", "0.1.0"),
