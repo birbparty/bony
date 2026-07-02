@@ -1,0 +1,47 @@
+{
+  "skeleton": {"name": "m5-physics-rig", "version": "0.2.0"},
+  "bones": [
+    {"name": "root"},
+    {"name": "anchor", "parent": "root", "y": 100},
+    {"name": "pendulum", "parent": "anchor", "x": 40}
+  ],
+  "physicsConstraints": [
+    {
+      "name": "bob_spring",
+      "bone": "pendulum",
+      "channels": 4,
+      "strength": 100.0,
+      "damping": 20.0,
+      "mass": 1.0,
+      "inertia": 1.0,
+      "physicsMix": 1.0
+    }
+  ],
+  "animations": [
+    {
+      "name": "swing",
+      "boneTimelines": [
+        {
+          "bone": "pendulum",
+          "property": "rotate",
+          "keyframes": [
+            {"t": 0.0, "value": 0.0},
+            {"t": 0.1, "value": 45.0},
+            {"t": 1.0, "value": 45.0}
+          ]
+        }
+      ]
+    }
+  ],
+  "stateMachines": [
+    {
+      "name": "physics_story",
+      "layers": [
+        {
+          "name": "spring",
+          "states": [{"name": "swing", "kind": "clip", "clip": "swing"}]
+        }
+      ]
+    }
+  ]
+}

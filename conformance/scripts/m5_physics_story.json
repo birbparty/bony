@@ -1,0 +1,10 @@
+{
+  "format": "bony.input-script.v1",
+  "asset": "m5_physics_rig.bony",
+  "stateMachine": "physics_story",
+  "samples": [
+    {"name": "rest", "t": 0.0, "inputs": {}},
+    {"name": "excited", "t": 0.1, "inputs": {}},
+    {"name": "settled", "t": 0.2, "inputs": {}}
+  ]
+}

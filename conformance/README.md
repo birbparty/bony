@@ -33,6 +33,7 @@ conformance/
 | M5 | `m5_rig` | Path attachments, path constraints |
 | M5 (IK) | `m5_ik_rig` | IK constraints: 1-bone (`reach_one`), 2-bone with `bendPositive: false` (`reach_two`), 3-bone FABRIK chain with `mix: 0.5` (`reach_chain`); state-machine-driven IK target animation |
 | M5 (transform) | `m5_transform_rig` | Transform constraint: a constrained bone blended toward a rotated/scaled/sheared target at a partial `0.5` mix on all four channels (`translateMix`/`rotateMix`/`scaleMix`/`shearMix`) |
+| M5 (physics) | `m5_physics_rig` | Physics constraint: a critically-damped spring on a bone's `rotate` channel, driven by a state-machine story whose clip steps the target so the spring is excited and then settles over time (the only time-driven, stateful conformance rig) |
 | M6 | `forward_compat.bnb` | Forward-compatibility: unknown future fields are silently dropped |
 | M7 | `m7_rig` | Deformers (warp, rotation, bone) |
 | M8 | `m8_rig` | Animation timelines (bone rotate/translate/scale/shear), state machines |
@@ -113,6 +114,61 @@ Notes for readers comparing runtimes:
   transform constraints in `computeWorldTransforms` and matches it within `1e-4`
   (`runtime-dart/test/m10_conformance_test.dart`, the `M5-Transform` group).
 
+### M5 physics rig (`m5_physics_rig`)
+
+`m5_physics_rig` is a fourth M5 asset dedicated to the physics constraint (base
+`m5_rig` covers path constraints; `m5_ik_rig` covers IK; `m5_transform_rig`
+covers transform constraints). It is bony's **only time-driven, stateful**
+conformance rig. Three bones — `root`, `anchor` (child of root at `y=100`), and
+`pendulum` (child of `anchor` at `x=40`) — and one physics constraint
+`bob_spring` on `pendulum`'s `rotate` channel (`channels: 4`), a **critically
+damped** spring (`strength: 100`, `damping: 20`, `mass: 1` ⇒
+`damping² = 4·mass·strength`, `inertia: 1`, `physicsMix: 1`). A state machine
+`physics_story` plays the `swing` clip, which steps `pendulum`'s target rotation
+from `0°` to `45°` early in the clip and then holds it, exciting the spring.
+
+**Why a state-machine story (not a `--t` setup pose).** Physics is
+time-dependent: at `t=0` a freshly seeded spring has zero offset, so a
+setup-pose (`--t 0`) golden would be **vacuous**. The conformance gate must
+advance time, and the input-script harness advances physics only through the
+state-machine story path — each sample advances the stateful physics stage by
+the delta from the previous sample time, carrying `PhysicsConstraintState`
+across samples (see `advancePhysics` in `runtime-nim/src/bony/transform.nim`,
+wired into the story golden path in `cli/bony_cli.nim`). Per the integrator
+contract each advance is capped at 8 fixed `1/60 s` substeps, so the story keeps
+inter-sample deltas at `0.1 s` (6 substeps, nothing dropped).
+
+One story script drives it:
+- `m5_physics_story.json` — state-machine story with samples `rest` (t=0),
+  `excited` (t=0.1), `settled` (t=0.2) → goldens `m5_physics_story_<sample>.json`.
+
+**Non-vacuous, settling offset trajectory.** The spring offset is the physics
+signal: `pendulum`'s solved `rotate` = target + offset. Reading the pendulum
+`world` basis angle (`atan2(b, a)`) at each sample:
+
+| sample | target | world angle | spring offset | Δ world angle |
+|--------|-------:|------------:|--------------:|--------------:|
+| `rest` (t=0)     | `0°`  | `0.000000°`  | `0.000000°`   | — |
+| `excited` (t=0.1)| `45°` | `14.289967°` | `−30.710033°` | `+14.289967°` |
+| `settled` (t=0.2)| `45°` | `28.336548°` | `−16.663452°` | `+14.046581°` |
+
+The offset magnitude runs `0° → 30.71° → 16.66°`: the target step excites the
+spring at `excited`, then it **settles** — by `settled` the offset has decayed
+~46% back toward zero (the pose relaxes monotonically toward the `45°` target
+with no overshoot, as expected for critical damping). Each inter-sample world
+angle delta (`14.289967°`, `14.046581°`) is far above the `1e-4` conformance
+tolerance, and the offset converges toward zero rather than diverging.
+
+Notes for readers comparing runtimes:
+- Serialized `world` matrix entries are full float64; the physics substep
+  arithmetic is f64 with f32 rounding only at the public output boundary.
+- The goldens are reproduced identically from both `m5_physics_rig.bony` and
+  `conformance/assets/bnb/m5_physics_rig.bnb` (the JSON and binary loaders agree;
+  the `.bnb` is non-empty at 303 bytes).
+- Cross-runtime status: the `m5_physics_story_*` goldens are **Nim-only** until
+  the Dart physics-parity slice lands — mirroring the `m5_ik_story_*`
+  Dart-pending note above.
+
 ### Image goldens (Nim reference rasterizer only)
 
 Image goldens (`*_play.png`) are Nim-only regression artifacts for the reference
@@ -128,6 +184,7 @@ and do not need to be reproduced by Dart or other runtimes.
 | m5_rig | `m5_rig_play.png` |
 | m5_ik_rig | pending (no PNG golden produced) |
 | m5_transform_rig | pending (no PNG golden produced) |
+| m5_physics_rig | pending (no PNG golden produced) |
 | m6 | n/a (binary-only fixture — no .bony source) |
 | m7_rig | pending (gated on pixie rasterizer — bony-gzz) |
 | m8_rig | `m8_rig_play.png` |
