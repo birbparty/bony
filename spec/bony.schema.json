@@ -638,10 +638,14 @@
           "maximum": 1
         },
         "scaleMix": {
-          "type": "number"
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
         },
         "shearMix": {
-          "type": "number"
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
         }
       },
       "required": [
