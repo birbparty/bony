@@ -5,6 +5,7 @@ import std/[json, math, sets, strutils, tables]
 import bony/generated/wire
 import bony/asset
 import bony/model
+import bony/mesh/attachments
 import bony/deform/deformers
 import bony/deform/keyforms
 import bony/anim/timelines
@@ -19,6 +20,7 @@ const
   transformConstraintTypeId = "transformConstraint"
   physicsConstraintTypeId = "physicsConstraint"
   clippingAttachmentTypeId = "clippingAttachment"
+  meshAttachmentTypeId = "meshAttachment"
 
 
 proc defaultFor(objectId, propertyId: string): string =
@@ -321,7 +323,7 @@ proc loadBonyJson*(text: string): SkeletonData =
       raise newBonyLoadError(schemaViolation, "invalid JSON: " & exc.msg)
 
   let root = requireObject(parsed, "root")
-  validateKnownKeys(root, ["skeleton", "bones", "slots", "regions", "clippingAttachments", "pathAttachments", "paths", "ikConstraints", "transformConstraints", "physicsConstraints", "parameters", "deformers", "animations", "stateMachines"], "root")
+  validateKnownKeys(root, ["skeleton", "bones", "slots", "regions", "clippingAttachments", "meshAttachments", "pathAttachments", "paths", "ikConstraints", "transformConstraints", "physicsConstraints", "parameters", "deformers", "animations", "stateMachines"], "root")
 
   if not root.hasKey("skeleton"):
     raise newBonyLoadError(schemaViolation, "root.skeleton is required")
@@ -460,6 +462,96 @@ proc loadBonyJson*(text: string): SkeletonData =
         requiredString(clipObject, "name", context),
         clipVertices,
         optionalString(clipObject, "untilSlot", defaultFor(clippingAttachmentTypeId, "untilSlot"), context),
+      )
+
+  var loadedMeshAttachments: seq[MeshAttachment] = @[]
+  if root.hasKey("meshAttachments"):
+    let meshAttachmentsNode = requireArray(root["meshAttachments"], "meshAttachments")
+    for index, meshNode in meshAttachmentsNode.elems:
+      let context = "meshAttachments[" & $index & "]"
+      let meshObject = requireObject(meshNode, context)
+      validateKnownKeys(meshObject, ["name", "weighted", "vertices", "uvs", "triangles"], context)
+      # The JSON field "weighted" maps to the meshWeighted property key, not an
+      # id-named field; its default comes from the generated meshWeighted default.
+      let weighted = optionalBool(
+        meshObject, "weighted", defaultBool(meshAttachmentTypeId, "meshWeighted"), context)
+
+      # vertices: array of {x, y} (unweighted) or {influences: [...]} (weighted).
+      # Values are quantized/assembled validation-free here; the whole-skeleton
+      # (a)-(g) checks (bone resolution, weighted-flag agreement, index range)
+      # run later in validateSkeletonData via skeletonData().
+      if not meshObject.hasKey("vertices"):
+        raise newBonyLoadError(schemaViolation, context & ".vertices is required")
+      let verticesNode = requireArray(meshObject["vertices"], context & ".vertices")
+      var meshVertices: seq[MeshVertex] = @[]
+      for vertexIndex, vertexNode in verticesNode.elems:
+        let vertexCtx = context & ".vertices[" & $vertexIndex & "]"
+        let vertexObject = requireObject(vertexNode, vertexCtx)
+        if vertexObject.hasKey("influences"):
+          validateKnownKeys(vertexObject, ["influences"], vertexCtx)
+          let influencesNode = requireArray(vertexObject["influences"], vertexCtx & ".influences")
+          var influences: seq[MeshInfluence] = @[]
+          for infIndex, infNode in influencesNode.elems:
+            let infCtx = vertexCtx & ".influences[" & $infIndex & "]"
+            let infObject = requireObject(infNode, infCtx)
+            validateKnownKeys(infObject, ["bone", "bindX", "bindY", "weight"], infCtx)
+            influences.add meshInfluence(
+              requiredString(infObject, "bone", infCtx),
+              requiredF64(infObject, "bindX", infCtx),
+              requiredF64(infObject, "bindY", infCtx),
+              requiredF64(infObject, "weight", infCtx),
+            )
+          meshVertices.add weightedMeshVertex(influences)
+        else:
+          validateKnownKeys(vertexObject, ["x", "y"], vertexCtx)
+          meshVertices.add unweightedMeshVertex(
+            requiredF64(vertexObject, "x", vertexCtx),
+            requiredF64(vertexObject, "y", vertexCtx),
+          )
+
+      # uvs: flat [u0, v0, u1, v1, ...] number list, one pair per vertex.
+      if not meshObject.hasKey("uvs"):
+        raise newBonyLoadError(schemaViolation, context & ".uvs is required")
+      let uvsNode = requireArray(meshObject["uvs"], context & ".uvs")
+      if uvsNode.elems.len mod 2 != 0:
+        raise newBonyLoadError(schemaViolation, context & ".uvs must contain u,v pairs")
+      var meshUvs: seq[MeshUv] = @[]
+      var uvCursor = 0
+      while uvCursor < uvsNode.elems.len:
+        let uNode = uvsNode.elems[uvCursor]
+        let vNode = uvsNode.elems[uvCursor + 1]
+        let uCtx = context & ".uvs[" & $uvCursor & "]"
+        let vCtx = context & ".uvs[" & $(uvCursor + 1) & "]"
+        if uNode.kind notin {JInt, JFloat}:
+          raise newBonyLoadError(schemaViolation, uCtx & " must be numeric")
+        if vNode.kind notin {JInt, JFloat}:
+          raise newBonyLoadError(schemaViolation, vCtx & " must be numeric")
+        meshUvs.add meshUv(
+          requireFiniteF64(uNode.getFloat(), uCtx),
+          requireFiniteF64(vNode.getFloat(), vCtx),
+        )
+        uvCursor += 2
+
+      # triangles: flat vertex-index list; each triple names one triangle.
+      if not meshObject.hasKey("triangles"):
+        raise newBonyLoadError(schemaViolation, context & ".triangles is required")
+      let trianglesNode = requireArray(meshObject["triangles"], context & ".triangles")
+      var triangles: seq[uint16] = @[]
+      for triIndex, triNode in trianglesNode.elems:
+        let triCtx = context & ".triangles[" & $triIndex & "]"
+        if triNode.kind != JInt:
+          raise newBonyLoadError(schemaViolation, triCtx & " must be an integer")
+        let triVal = triNode.getInt()
+        if triVal < 0 or triVal > int(high(uint16)):
+          raise newBonyLoadError(schemaViolation, triCtx & " is out of range")
+        triangles.add uint16(triVal)
+
+      loadedMeshAttachments.add meshAttachmentData(
+        requiredString(meshObject, "name", context),
+        meshUvs,
+        triangles,
+        meshVertices,
+        weighted,
       )
 
   var loadedPaths: seq[PathConstraintData] = @[]
@@ -692,7 +784,7 @@ proc loadBonyJson*(text: string): SkeletonData =
 
       loadedDeformers.add DeformerRecord(deformer: deformer, keyformBlend: blend)
 
-  result = skeletonData(loadedHeader, loadedBones, loadedSlots, loadedRegions, loadedPathAttachments, loadedPaths, loadedParameters, loadedDeformers, loadedIkConstraints, loadedTransformConstraints, loadedPhysicsConstraints, loadedClippingAttachments)
+  result = skeletonData(loadedHeader, loadedBones, loadedSlots, loadedRegions, loadedPathAttachments, loadedPaths, loadedParameters, loadedDeformers, loadedIkConstraints, loadedTransformConstraints, loadedPhysicsConstraints, loadedClippingAttachments, loadedMeshAttachments)
   let loadedAnimClips = parseBonyAnimations(root, result)
   discard parseBonyStateMachines(root, result, loadedAnimClips)
 
@@ -1747,6 +1839,68 @@ proc toBonyJson*(data: SkeletonData): string =
       result.add "]"
       if clip.untilSlot != defaultFor(clippingAttachmentTypeId, "untilSlot"):
         result.addStringField("untilSlot", clip.untilSlot, 3, first)
+      result.add "\n"
+      result.addIndent(2)
+      result.add "}"
+    result.add "\n"
+    result.addIndent(1)
+    result.add "]"
+
+  if data.meshAttachments.len > 0:
+    result.add ",\n"
+    result.addIndent(1)
+    result.add "\"meshAttachments\": [\n"
+    for index, mesh in data.meshAttachments:
+      if index > 0:
+        result.add ",\n"
+      result.addIndent(2)
+      result.add "{\n"
+      first = true
+      result.addStringField("name", mesh.name, 3, first)
+      # weighted is omitted when it matches the generated meshWeighted default.
+      if mesh.weighted != defaultBool(meshAttachmentTypeId, "meshWeighted"):
+        result.addBoolField("weighted", mesh.weighted, 3, first)
+      # vertices: one {x,y} or {influences:[...]} object per vertex.
+      result.addFieldPrefix("vertices", 3, first)
+      result.add "[\n"
+      for vertexIndex, vertex in mesh.vertices:
+        if vertexIndex > 0:
+          result.add ",\n"
+        result.addIndent(4)
+        if vertex.weighted:
+          result.add "{\"influences\": ["
+          for infIndex, influence in vertex.influences:
+            if infIndex > 0:
+              result.add ", "
+            result.add "{\"bone\": "
+            result.addJsonString(influence.bone)
+            result.add ", \"bindX\": " & canonicalNumber(influence.bindX)
+            result.add ", \"bindY\": " & canonicalNumber(influence.bindY)
+            result.add ", \"weight\": " & canonicalNumber(influence.weight)
+            result.add "}"
+          result.add "]}"
+        else:
+          result.add "{\"x\": " & canonicalNumber(vertex.x)
+          result.add ", \"y\": " & canonicalNumber(vertex.y) & "}"
+      result.add "\n"
+      result.addIndent(3)
+      result.add "]"
+      # uvs: flat [u0, v0, ...] pairs.
+      result.addFieldPrefix("uvs", 3, first)
+      result.add "["
+      for uvIndex, uv in mesh.uvs:
+        if uvIndex > 0:
+          result.add ", "
+        result.add canonicalNumber(uv.u) & ", " & canonicalNumber(uv.v)
+      result.add "]"
+      # triangles: flat vertex-index list.
+      result.addFieldPrefix("triangles", 3, first)
+      result.add "["
+      for triIndex, triangle in mesh.triangles:
+        if triIndex > 0:
+          result.add ", "
+        result.add $triangle
+      result.add "]"
       result.add "\n"
       result.addIndent(2)
       result.add "}"

@@ -6938,6 +6938,116 @@ spec "bony mesh skeleton validation":
         unknownRequiredReference,
       )
 
+  it "round trips an unweighted mesh attachment through JSON":
+    let jsonText = """
+{
+  "skeleton": {"name": "meshrig", "version": "0.1.0"},
+  "bones": [{"name": "root"}],
+  "slots": [{"name": "body", "bone": "root", "attachment": "cloth"}],
+  "meshAttachments": [
+    {
+      "name": "cloth",
+      "vertices": [{"x": 0, "y": 0}, {"x": 1, "y": 0}, {"x": 0, "y": 1}],
+      "uvs": [0, 0, 1, 0, 0, 1],
+      "triangles": [0, 1, 2]
+    }
+  ]
+}
+"""
+    let fromJson = loadBonyJson(jsonText)
+    then:
+      fromJson.meshAttachments.len == 1
+      fromJson.meshAttachments[0].name == "cloth"
+      fromJson.meshAttachments[0].weighted == false
+      fromJson.meshAttachments[0].vertices.len == 3
+      fromJson.meshAttachments[0].vertices[1].weighted == false
+      fromJson.meshAttachments[0].vertices[1].x == 1.0
+      fromJson.meshAttachments[0].vertices[2].y == 1.0
+      fromJson.meshAttachments[0].uvs.len == 3
+      fromJson.meshAttachments[0].uvs[2].v == 1.0
+      fromJson.meshAttachments[0].triangles == @[0'u16, 1'u16, 2'u16]
+      # The default meshWeighted (false) is omitted from canonical output.
+      not toBonyJson(fromJson).contains("\"weighted\"")
+      # Canonical JSON output re-parses to an identical record.
+      toBonyJson(loadBonyJson(toBonyJson(fromJson))) == toBonyJson(fromJson)
+
+  it "round trips a weighted mesh attachment through JSON":
+    let jsonText = """
+{
+  "skeleton": {"name": "meshrig", "version": "0.1.0"},
+  "bones": [{"name": "root"}, {"name": "tip", "parent": "root"}],
+  "slots": [{"name": "body", "bone": "root", "attachment": "cloth"}],
+  "meshAttachments": [
+    {
+      "name": "cloth",
+      "weighted": true,
+      "vertices": [
+        {"influences": [{"bone": "root", "bindX": 0, "bindY": 0, "weight": 1}]},
+        {"influences": [{"bone": "root", "bindX": 1, "bindY": 0, "weight": 0.5}, {"bone": "tip", "bindX": 1, "bindY": 0, "weight": 0.5}]},
+        {"influences": [{"bone": "tip", "bindX": 0, "bindY": 1, "weight": 1}]}
+      ],
+      "uvs": [0, 0, 1, 0, 0, 1],
+      "triangles": [0, 1, 2]
+    }
+  ]
+}
+"""
+    let fromJson = loadBonyJson(jsonText)
+    then:
+      fromJson.meshAttachments.len == 1
+      fromJson.meshAttachments[0].weighted == true
+      fromJson.meshAttachments[0].vertices[0].weighted == true
+      fromJson.meshAttachments[0].vertices[0].influences.len == 1
+      fromJson.meshAttachments[0].vertices[0].influences[0].bone == "root"
+      fromJson.meshAttachments[0].vertices[1].influences.len == 2
+      fromJson.meshAttachments[0].vertices[1].influences[1].bone == "tip"
+      fromJson.meshAttachments[0].vertices[1].influences[1].weight == 0.5
+      # weighted:true differs from the default, so it survives the round trip.
+      toBonyJson(fromJson).contains("\"weighted\": true")
+      toBonyJson(loadBonyJson(toBonyJson(fromJson))) == toBonyJson(fromJson)
+
+  it "runs mesh geometry validation through the JSON load path":
+    # A uvs/vertex-count mismatch supplied via JSON must be rejected by
+    # validateSkeletonData, proving the JSON reader threads meshes into it.
+    let jsonText = """
+{
+  "skeleton": {"name": "meshrig", "version": "0.1.0"},
+  "bones": [{"name": "root"}],
+  "slots": [{"name": "body", "bone": "root", "attachment": "cloth"}],
+  "meshAttachments": [
+    {
+      "name": "cloth",
+      "vertices": [{"x": 0, "y": 0}, {"x": 1, "y": 0}, {"x": 0, "y": 1}],
+      "uvs": [0, 0],
+      "triangles": [0, 1, 2]
+    }
+  ]
+}
+"""
+    then:
+      raisesBonyLoadError(proc() = discard loadBonyJson(jsonText), schemaViolation)
+
+  it "rejects a mesh vertex that mixes unweighted and weighted keys":
+    # {x,y,influences} is neither a valid unweighted nor weighted vertex; the
+    # reader's per-branch key allowlist rejects it.
+    let jsonText = """
+{
+  "skeleton": {"name": "meshrig", "version": "0.1.0"},
+  "bones": [{"name": "root"}],
+  "slots": [{"name": "body", "bone": "root", "attachment": "cloth"}],
+  "meshAttachments": [
+    {
+      "name": "cloth",
+      "vertices": [{"x": 0, "y": 0, "influences": []}, {"x": 1, "y": 0}, {"x": 0, "y": 1}],
+      "uvs": [0, 0, 1, 0, 0, 1],
+      "triangles": [0, 1, 2]
+    }
+  ]
+}
+"""
+    then:
+      raisesBonyLoadError(proc() = discard loadBonyJson(jsonText), schemaViolation)
+
 proc clipEvalRig(clipVertices, untilSlot: string): string =
   ## A rig on an identity-transform root bone: a clip slot (own slot), a covered
   ## region slot, and a region slot past `untilSlot`. Region "body" is a 2x2 quad
