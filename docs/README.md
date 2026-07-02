@@ -71,6 +71,7 @@ validation, and (where applicable) the deterministic runtime algorithm.
 | Document | What it defines |
 |----------|----------------|
 | [clipping-attachment-contract.md](clipping-attachment-contract.md) | Slot-bound convex clipping attachment: format, load validation, `untilSlot`-inclusive range + no-overlap rule, packed `vertices` byte layout, and the (forward-referenced) deterministic Sutherland–Hodgman clip algorithm |
+| [mesh-attachment-contract.md](mesh-attachment-contract.md) | Slot-bound deformable mesh attachment: format, load-validated `(a)-(g)` invariants, the three packed `meshVertices`/`meshUvs`/`meshTriangles` byte layouts, and the (forward-referenced) deterministic linear-blend skinning algorithm |
 
 ---
 

@@ -18,10 +18,13 @@ void main() {
     // channels, 4019..4026), 8 defaults (order + the 7 f32 params), and 3
     // required properties (name/bone/channels), plus the M4 clippingAttachment
     // object (typeKey 3000, property keys vertices/untilSlot 3000/3001, 1 default
-    // untilSlot, 2 required name/vertices).
-    expect(bonyTypeKeys, hasLength(27));
-    expect(bonyPropertyKeys, hasLength(97));
-    expect(bonyPropertyDefaults, hasLength(54));
-    expect(bonyRequiredProperties, hasLength(70));
+    // untilSlot, 2 required name/vertices), plus the M4 meshAttachment object
+    // (typeKey 3001, property keys meshWeighted/meshVertices/meshUvs/meshTriangles
+    // 3002..3005, 1 default meshWeighted, 4 required name/meshVertices/meshUvs/
+    // meshTriangles).
+    expect(bonyTypeKeys, hasLength(28));
+    expect(bonyPropertyKeys, hasLength(101));
+    expect(bonyPropertyDefaults, hasLength(55));
+    expect(bonyRequiredProperties, hasLength(74));
   });
 }

@@ -33,6 +33,12 @@
         "$ref": "#/$defs/clippingAttachment"
       }
     },
+    "meshAttachments": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/meshAttachment"
+      }
+    },
     "paths": {
       "type": "array",
       "items": {
@@ -559,6 +565,105 @@
       },
       "required": [
         "name",
+        "vertices"
+      ]
+    },
+    "meshAttachment": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "weighted": {
+          "type": "boolean",
+          "default": false
+        },
+        "vertices": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "x": {
+                    "type": "number"
+                  },
+                  "y": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "x",
+                  "y"
+                ]
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "influences": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "bone": {
+                          "type": "string",
+                          "minLength": 1
+                        },
+                        "bindX": {
+                          "type": "number"
+                        },
+                        "bindY": {
+                          "type": "number"
+                        },
+                        "weight": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "bindX",
+                        "bindY",
+                        "bone",
+                        "weight"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "influences"
+                ]
+              }
+            ]
+          }
+        },
+        "uvs": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "type": "number"
+          },
+          "description": "Flat [u0, v0, u1, v1, ...] pairs; length is even and matches the vertex count (loader-validated per docs/mesh-attachment-contract.md)."
+        },
+        "triangles": {
+          "type": "array",
+          "minItems": 3,
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "description": "Flat vertex-index triples; length is a multiple of 3 (loader-validated per docs/mesh-attachment-contract.md)."
+        }
+      },
+      "required": [
+        "name",
+        "triangles",
+        "uvs",
         "vertices"
       ]
     },
