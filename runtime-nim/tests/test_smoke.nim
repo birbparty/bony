@@ -1641,6 +1641,63 @@ spec "bony package":
       worlds[3].tx > 5.0 + 1e-3
       worlds[3].tx < 9.0 - 1e-3
 
+  it "orders a real transform constraint between ik and path in the runtime cache":
+    # Drive buildRuntimeConstraintUpdateCache from actual data.transformConstraints
+    # (not hand-authored descriptors) so the update_cache descriptor loop is what
+    # is under test. Same order value on all three -> tie broken by constraintKindRank
+    # ckIk(0) < ckTransform(1) < ckPath(2).
+    let data = skeletonData(
+      skeletonHeader("ord", "1.0.0"),
+      @[
+        boneData("root", ""),
+        boneData("ikBone", "root", localTransform(x = 4.0)),
+        boneData("ikGoal", "root", localTransform(x = 2.0, y = 3.0)),
+        boneData("tcBone", "root", localTransform(x = 5.0)),
+        boneData("tcGoal", "root", localTransform(x = 9.0, y = 9.0)),
+        boneData("pathBone", "root", localTransform(x = 6.0)),
+        boneData("pathTarget", "root", localTransform(x = 1.0)),
+      ],
+      pathAttachments = @[pathAttachmentData("curve", 0.0, 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0)],
+      paths = @[pathConstraintData("p", "pathBone", "pathTarget", "curve", hasTranslateMix = true, translateMix = 0.5)],
+      ikConstraints = @[ikConstraintData("ik", "ikGoal", @["ikBone"])],
+      transformConstraints = @[transformConstraintData("tc", "tcBone", "tcGoal", hasTranslateMix = true, translateMix = 0.5)],
+    )
+    let cache = buildRuntimeConstraintUpdateCache(data)
+    var kindsInOrder: seq[ConstraintKind]
+    for entry in cache:
+      if entry.kind == ccekConstraint:
+        kindsInOrder.add entry.constraint.kind
+    then:
+      kindsInOrder == @[ckIk, ckTransform, ckPath]
+
+  it "fires the runtime pass for a transform-only skeleton":
+    # A transform-only rig (no paths, no ik) must still enter the runtime
+    # constraint path: buildRuntimeConstraintUpdateCache emits a ckTransform
+    # constraint entry, and computeWorldTransforms produces the solved (non-FK)
+    # world for the constrained bone.
+    let data = skeletonData(
+      skeletonHeader("tonly", "1.0.0"),
+      @[
+        boneData("root", ""),
+        boneData("constrained", "root", localTransform(x = 5.0)),
+        boneData("goal", "root", localTransform(x = 11.0, y = 4.0)),
+      ],
+      transformConstraints = @[transformConstraintData("tc", "constrained", "goal",
+        hasTranslateMix = true, translateMix = 0.5)],
+    )
+    let cache = buildRuntimeConstraintUpdateCache(data)
+    var transformEntries = 0
+    for entry in cache:
+      if entry.kind == ccekConstraint and entry.constraint.kind == ckTransform:
+        inc transformEntries
+    let worlds = computeWorldTransforms(data)
+    then:
+      # descriptor loop picked up the tc (emission is per-descriptor; the solved
+      # world below is what proves the detection gate actually fired + evaluated).
+      transformEntries == 1
+      closeWithin(worlds[1].tx, 8.0, 1e-6)   # x: 5 blended halfway to goal x=11 -> 8
+      closeWithin(worlds[1].ty, 2.0, 1e-6)   # y: 0 blended halfway to goal y=4  -> 2
+
   it "evaluates path constraint cubics with fixed arc-length samples":
     let curve = pathCubic(
       pathPoint(0.0, 0.0),
