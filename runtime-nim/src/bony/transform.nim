@@ -7,6 +7,7 @@ import bony/constraints/update_cache
 import bony/constraints/ik
 import bony/constraints/transform_constraints
 import bony/constraints/physics_constraints
+import bony/mesh/drawbatch_clipping
 import bony/model
 
 const basisEpsilon = 1e-12
@@ -810,14 +811,30 @@ proc buildDrawBatches*(data: SkeletonData; worlds: seq[Affine2]): seq[DrawBatch]
       " must match bone count " & $data.bones.len)
   var boneIndex = initTable[string, int]()
   var regions = initTable[string, RegionAttachment]()
+  var clips = initTable[string, ClipAttachmentData]()
 
   for index, bone in data.bones:
     boneIndex[bone.name] = index
   for region in data.regions:
     regions[region.name] = region
+  for clip in data.clippingAttachments:
+    clips[clip.name] = clip
 
-  for slot in data.slots:
+  var slotIndexByName = initTable[string, int]()
+  for index, slot in data.slots:
+    slotIndexByName[slot.name] = index
+
+  # Draw-order slot index of each emitted batch. Batches are a subsequence of the
+  # slots (one per region-attachment slot), so this maps batch -> draw position
+  # for computing clip-covered ranges below.
+  var batchSlotIndex: seq[int] = @[]
+  for slotIdx, slot in data.slots:
     if slot.attachment.len == 0:
+      continue
+    if not regions.hasKey(slot.attachment):
+      # A slot whose attachment names a clipping attachment (or any non-region)
+      # produces no draw batch. This guard also prevents the `regions[...]`
+      # Table lookup below from raising KeyError on a clip-named slot.
       continue
     let region = regions[slot.attachment]
     let index = boneIndex[slot.bone]
@@ -840,6 +857,44 @@ proc buildDrawBatches*(data: SkeletonData; worlds: seq[Affine2]): seq[DrawBatch]
       ],
       indices: @[0'u16, 1'u16, 2'u16, 2'u16, 3'u16, 0'u16],
     )
+    batchSlotIndex.add slotIdx
+
+  # Clip pass: each slot whose attachment names a clipping attachment sets
+  # `clipId` on, and geometrically clips, the draw batches in its covered range
+  # (the batch after the clip's own slot through `untilSlot` inclusive, else to
+  # the end of draw order). The load-time no-overlap invariant guarantees at most
+  # one clip is active over any batch, so clips are applied independently.
+  if data.clippingAttachments.len > 0:
+    let lastSlotIndex = data.slots.len - 1
+    for slotIdx, slot in data.slots:
+      if slot.attachment.len == 0 or not clips.hasKey(slot.attachment):
+        continue
+      let clip = clips[slot.attachment]
+      let ownIndex = slotIdx
+      let endIndex =
+        if clip.untilSlot.len > 0: slotIndexByName[clip.untilSlot]
+        else: lastSlotIndex
+      # Clip polygon in world space via the clip's own slot's bone world — the
+      # same transform the covered region quads are built with.
+      let clipWorld = worlds[boneIndex[slot.bone]]
+      var clipPolygon: seq[ClipPoint] = @[]
+      var p = 0
+      while p + 1 < clip.vertices.len:
+        let point = transformPoint(clipWorld, clip.vertices[p], clip.vertices[p + 1])
+        clipPolygon.add clipPoint(
+          quantizeF32(point.x, "clip.poly.x"),
+          quantizeF32(point.y, "clip.poly.y"),
+        )
+        p += 2
+      for batchIdx in 0 ..< result.len:
+        let sourceSlotIndex = batchSlotIndex[batchIdx]
+        if sourceSlotIndex <= ownIndex or sourceSlotIndex > endIndex:
+          continue
+        result[batchIdx].clipId = clip.name
+        let clipped = clipDrawBatchPolygon(result[batchIdx].vertices, clipPolygon)
+        if clipped.changed:
+          result[batchIdx].vertices = clipped.vertices
+          result[batchIdx].indices = clipped.indices
 
 
 proc buildDrawBatches*(data: SkeletonData): seq[DrawBatch] =

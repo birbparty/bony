@@ -6838,3 +6838,122 @@ spec "bony package":
   "clippingAttachments": [{"name": "shared", "vertices": [0, 0, 2, 0, 2, 2], "untilSlot": "slotB"}]
 }
 """, duplicateKey)
+
+proc clipEvalRig(clipVertices, untilSlot: string): string =
+  ## A rig on an identity-transform root bone: a clip slot (own slot), a covered
+  ## region slot, and a region slot past `untilSlot`. Region "body" is a 2x2 quad
+  ## centered at the origin (corners at +/-1).
+  """
+{
+  "skeleton": {"name": "cliprig", "version": "0.1.0"},
+  "bones": [{"name": "root"}],
+  "regions": [{"name": "body", "width": 2, "height": 2}],
+  "clippingAttachments": [
+    {"name": "mask", "vertices": [""" & clipVertices & """], "untilSlot": """" & untilSlot & """"}
+  ],
+  "slots": [
+    {"name": "clipSlot", "bone": "root", "attachment": "mask"},
+    {"name": "coveredSlot", "bone": "root", "attachment": "body"},
+    {"name": "afterSlot", "bone": "root", "attachment": "body"}
+  ]
+}
+"""
+
+proc batchFor(batches: seq[DrawBatch]; slotName: string): DrawBatch =
+  for batch in batches:
+    if batch.slot == slotName:
+      return batch
+  raise newException(ValueError, "no batch for slot " & slotName)
+
+spec "bony clipping evaluation":
+  it "sets clipId over the covered range and leaves other batches unclipped":
+    # Clip covers x in [0,3]; range covers coveredSlot only (untilSlot=coveredSlot).
+    let batches = buildDrawBatches(loadBonyJson(clipEvalRig("0, -3, 3, -3, 3, 3, 0, 3", "coveredSlot")))
+    let covered = batches.batchFor("coveredSlot")
+    let after = batches.batchFor("afterSlot")
+    then:
+      # clipSlot (a clip attachment) produces no draw batch.
+      batches.len == 2
+      covered.clipId == "mask"
+      after.clipId == ""
+
+  it "partially clips a covered batch and interpolates u at the clip edge":
+    let batches = buildDrawBatches(loadBonyJson(clipEvalRig("0, -3, 3, -3, 3, 3, 0, 3", "coveredSlot")))
+    let covered = batches.batchFor("coveredSlot")
+    var minX = 1e9
+    var edgeU = -1.0
+    for v in covered.vertices:
+      if v.x < minX: minX = v.x
+      if closeTo(v.x, 0.0):
+        edgeU = v.u
+    then:
+      # Left half (x < 0) removed; the new edge sits at x = 0 with u interpolated to 0.5.
+      covered.vertices.len >= 3
+      closeWithin(minX, 0.0, 1e-6)
+      closeWithin(edgeU, 0.5, 1e-6)
+
+  it "leaves a fully-inside covered batch unchanged except clipId":
+    let batches = buildDrawBatches(loadBonyJson(clipEvalRig("-5, -5, 5, -5, 5, 5, -5, 5", "coveredSlot")))
+    let covered = batches.batchFor("coveredSlot")
+    var hasLeftCorner = false
+    for v in covered.vertices:
+      if closeTo(v.x, -1.0) and closeTo(v.y, -1.0): hasLeftCorner = true
+    then:
+      covered.clipId == "mask"
+      covered.vertices.len == 4
+      covered.indices == @[0'u16, 1'u16, 2'u16, 2'u16, 3'u16, 0'u16]
+      hasLeftCorner
+
+  it "empties a fully-outside covered batch but keeps its clipId and metadata":
+    let batches = buildDrawBatches(loadBonyJson(clipEvalRig("10, 10, 12, 10, 12, 12, 10, 12", "coveredSlot")))
+    let covered = batches.batchFor("coveredSlot")
+    then:
+      covered.clipId == "mask"
+      covered.vertices.len == 0
+      covered.indices.len == 0
+      covered.slot == "coveredSlot"
+      covered.bone == "root"
+
+  it "does not touch a batch past untilSlot":
+    let batches = buildDrawBatches(loadBonyJson(clipEvalRig("0, -3, 3, -3, 3, 3, 0, 3", "coveredSlot")))
+    let after = batches.batchFor("afterSlot")
+    var hasLeftCorner = false
+    for v in after.vertices:
+      if closeTo(v.x, -1.0): hasLeftCorner = true
+    then:
+      after.clipId == ""
+      after.vertices.len == 4
+      hasLeftCorner
+
+  it "produces byte-identical clip output from the .bony and .bnb load paths":
+    let text = clipEvalRig("0, -3, 3, -3, 3, 3, 0, 3", "coveredSlot")
+    let fromJson = buildDrawBatches(loadBonyJson(text))
+    let fromBnb = buildDrawBatches(loadBonyBnb(toBonyBnb(loadBonyJson(text))))
+    let a = fromJson.batchFor("coveredSlot")
+    let b = fromBnb.batchFor("coveredSlot")
+    then:
+      a.vertices == b.vertices
+      a.indices == b.indices
+      a.clipId == b.clipId
+
+  it "interpolates r/g/b/a at a clip-edge intersection (direct DrawBatch clip)":
+    # A quad with a distinct color per corner, clipped to the right half (x >= 0).
+    let subject = @[
+      DrawVertex(x: -1.0, y: -1.0, u: 0.0, v: 0.0, r: 1.0, g: 0.0, b: 0.0, a: 1.0),
+      DrawVertex(x: 1.0, y: -1.0, u: 1.0, v: 0.0, r: 0.0, g: 1.0, b: 0.0, a: 1.0),
+      DrawVertex(x: 1.0, y: 1.0, u: 1.0, v: 1.0, r: 0.0, g: 0.0, b: 1.0, a: 1.0),
+      DrawVertex(x: -1.0, y: 1.0, u: 0.0, v: 1.0, r: 1.0, g: 1.0, b: 0.0, a: 1.0),
+    ]
+    let clip = @[clipPoint(0.0, -3.0), clipPoint(3.0, -3.0), clipPoint(3.0, 3.0), clipPoint(0.0, 3.0)]
+    let clipped = clipDrawBatchPolygon(subject, clip)
+    # Bottom-edge intersection at (0,-1): midpoint of red->green => r=0.5, g=0.5, b=0.
+    var bottom = DrawVertex(r: -1.0)
+    for v in clipped.vertices:
+      if closeTo(v.x, 0.0) and closeTo(v.y, -1.0): bottom = v
+    then:
+      clipped.changed
+      clipped.vertices.len >= 3
+      closeWithin(bottom.r, 0.5, 1e-6)
+      closeWithin(bottom.g, 0.5, 1e-6)
+      closeWithin(bottom.b, 0.0, 1e-6)
+      closeWithin(bottom.u, 0.5, 1e-6)

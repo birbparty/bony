@@ -16,8 +16,11 @@ scripts/gen_compat_fixture
 scripts/*.exe
 
 # Build artifacts
-bony
-bony_test
+# Anchored to the repo root so these binary names do not also match the
+# runtime-nim/src/bony/ source directory (an unanchored `bony` silently ignores
+# every new source file under it).
+/bony
+/bony_test
 runtime-dart/build/
 scripts/ci/__pycache__/
 __pycache__/
