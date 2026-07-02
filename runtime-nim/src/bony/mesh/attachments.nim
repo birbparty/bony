@@ -6,35 +6,10 @@ import bony/model
 
 const weightSumTolerance = 1e-4
 
-type
-  MeshUv* = object
-    u*: float64
-    v*: float64
-
-  MeshInfluence* = object
-    bone*: string
-    bindX*: float64
-    bindY*: float64
-    weight*: float64
-
-  MeshVertex* = object
-    weighted*: bool
-    x*: float64
-    y*: float64
-    influences*: seq[MeshInfluence]
-
-  MeshAttachment* = object
-    name*: string
-    path*: string
-    uvs*: seq[MeshUv]
-    triangles*: seq[uint16]
-    vertices*: seq[MeshVertex]
-    weighted*: bool
-    hull*: uint32
-    edges*: seq[uint16]
-    parentMesh*: string
-    inheritDeform*: bool
-    deformAttachment*: string
+# The mesh record types (MeshUv, MeshInfluence, MeshVertex, MeshAttachment) live
+# in bony/model beside ClipAttachmentData: mesh/attachments imports model (the
+# validator takes SkeletonData), so model cannot import mesh/* — the types must
+# live in model to break the cycle. The constructor/validator procs stay here.
 
 
 proc quantizeUnit(value: float64; context: string): float64 =
