@@ -1399,6 +1399,73 @@ spec "bony package":
       closeTo(wrappedShear.c, 0.0)
       closeTo(wrappedShear.d, -1.0)
 
+  it "loads a transform constraint into SkeletonData with presence flags":
+    let data = skeletonData(
+      skeletonHeader("tc", "1.0.0"),
+      @[
+        boneData("root", ""),
+        boneData("constrained", "root", localTransform(x = 5.0, y = 0.0)),
+        boneData("goal", "root", localTransform(x = 10.0, y = 10.0)),
+      ],
+      transformConstraints = @[
+        transformConstraintData("tc", "constrained", "goal",
+          order = 3,
+          hasRotateMix = true, rotateMix = 0.25,
+          hasScaleMix = true, scaleMix = 0.5),
+      ],
+    )
+    then:
+      data.transformConstraints.len == 1
+      data.transformConstraints[0].name == "tc"
+      data.transformConstraints[0].bone == "constrained"
+      data.transformConstraints[0].target == "goal"
+      data.transformConstraints[0].order == 3
+      # Unset mixes keep their 1.0 default with presence flag false.
+      data.transformConstraints[0].hasTranslateMix == false
+      closeTo(data.transformConstraints[0].translateMix, 1.0)
+      data.transformConstraints[0].hasRotateMix == true
+      closeTo(data.transformConstraints[0].rotateMix, 0.25)
+      data.transformConstraints[0].hasScaleMix == true
+      closeTo(data.transformConstraints[0].scaleMix, 0.5)
+      data.transformConstraints[0].hasShearMix == false
+      closeTo(data.transformConstraints[0].shearMix, 1.0)
+
+  it "rejects transform constraints with bad refs, duplicate names, or out-of-range mixes":
+    proc buildWith(tcs: seq[TransformConstraintData]): SkeletonData =
+      skeletonData(
+        skeletonHeader("tc", "1.0.0"),
+        @[boneData("root", ""), boneData("goal", "root", localTransform(x = 1.0))],
+        transformConstraints = tcs,
+      )
+    then:
+      # unknown constrained bone
+      raisesBonyLoadError(
+        proc() = discard buildWith(@[transformConstraintData("a", "missing", "goal")]),
+        unknownRequiredReference)
+      # unknown target
+      raisesBonyLoadError(
+        proc() = discard buildWith(@[transformConstraintData("a", "root", "missing")]),
+        unknownRequiredReference)
+      # duplicate name
+      raisesBonyLoadError(
+        proc() = discard buildWith(@[
+          transformConstraintData("dup", "root", "goal"),
+          transformConstraintData("dup", "goal", "root"),
+        ]),
+        duplicateKey)
+      # mix above [0, 1] rejected at the record constructor
+      raisesBonyLoadError(
+        proc() = discard transformConstraintData("a", "root", "goal", hasScaleMix = true, scaleMix = 1.5),
+        schemaViolation)
+      # mix below [0, 1] rejected at the record constructor
+      raisesBonyLoadError(
+        proc() = discard transformConstraintData("a", "root", "goal", hasTranslateMix = true, translateMix = -0.01),
+        schemaViolation)
+      # non-finite mix rejected by quantizeF32 before the range check
+      raisesBonyLoadError(
+        proc() = discard transformConstraintData("a", "root", "goal", hasShearMix = true, shearMix = Inf),
+        numericOutOfRange)
+
   it "evaluates path constraint cubics with fixed arc-length samples":
     let curve = pathCubic(
       pathPoint(0.0, 0.0),

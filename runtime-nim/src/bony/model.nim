@@ -97,6 +97,20 @@ type
     hasBendPositive: bool
     bendPositive: bool
 
+  TransformConstraintData* = object
+    name: string
+    bone: string
+    target: string
+    order: int
+    hasTranslateMix: bool
+    translateMix: float64
+    hasRotateMix: bool
+    rotateMix: float64
+    hasScaleMix: bool
+    scaleMix: float64
+    hasShearMix: bool
+    shearMix: float64
+
   ParameterAxis* = object
     name*: string
     minValue*: float64
@@ -197,6 +211,7 @@ type
     pathAttachments: seq[PathAttachmentData]
     paths: seq[PathConstraintData]
     ikConstraints: seq[IkConstraintData]
+    transformConstraints: seq[TransformConstraintData]
     parameters: seq[ParameterAxis]
     deformers: seq[DeformerRecord]
 
@@ -347,6 +362,52 @@ proc ikConstraintData*(
   )
 
 
+proc transformConstraintData*(
+  name, bone, target: string;
+  order = 0;
+  hasTranslateMix = false;
+  translateMix = 1.0;
+  hasRotateMix = false;
+  rotateMix = 1.0;
+  hasScaleMix = false;
+  scaleMix = 1.0;
+  hasShearMix = false;
+  shearMix = 1.0;
+): TransformConstraintData =
+  ## Presence-flag contract (mirrors ikConstraintData/pathConstraintData): each
+  ## mix value is stored as given, independent of its has* flag. Callers (the
+  ## load path / serializer, bony-8i1.4) MUST set has*=true exactly when a value
+  ## was explicitly present in the input and leave it at the 1.0 default when
+  ## absent — a has*=false paired with a non-default value would be silently
+  ## omitted by an omitWhenDefault serializer and corrupt the round-trip.
+  let storedTranslateMix = quantizeF32(translateMix, "transformConstraint.translateMix")
+  let storedRotateMix = quantizeF32(rotateMix, "transformConstraint.rotateMix")
+  let storedScaleMix = quantizeF32(scaleMix, "transformConstraint.scaleMix")
+  let storedShearMix = quantizeF32(shearMix, "transformConstraint.shearMix")
+  for (mixName, mixValue) in {
+    "translateMix": storedTranslateMix,
+    "rotateMix": storedRotateMix,
+    "scaleMix": storedScaleMix,
+    "shearMix": storedShearMix,
+  }:
+    if mixValue < 0.0 or mixValue > 1.0:
+      raise newBonyLoadError(schemaViolation, "transformConstraint." & mixName & " must be in [0, 1]")
+  TransformConstraintData(
+    name: name,
+    bone: bone,
+    target: target,
+    order: order,
+    hasTranslateMix: hasTranslateMix,
+    translateMix: storedTranslateMix,
+    hasRotateMix: hasRotateMix,
+    rotateMix: storedRotateMix,
+    hasScaleMix: hasScaleMix,
+    scaleMix: storedScaleMix,
+    hasShearMix: hasShearMix,
+    shearMix: storedShearMix,
+  )
+
+
 proc name*(header: SkeletonHeader): string = header.name
 
 
@@ -423,6 +484,20 @@ proc runtimeEvaluable*(ik: IkConstraintData): bool =
   ik.mix > 0.0 and ik.bones.len >= 1
 
 
+proc name*(tc: TransformConstraintData): string = tc.name
+proc bone*(tc: TransformConstraintData): string = tc.bone
+proc target*(tc: TransformConstraintData): string = tc.target
+proc order*(tc: TransformConstraintData): int = tc.order
+proc hasTranslateMix*(tc: TransformConstraintData): bool = tc.hasTranslateMix
+proc translateMix*(tc: TransformConstraintData): float64 = tc.translateMix
+proc hasRotateMix*(tc: TransformConstraintData): bool = tc.hasRotateMix
+proc rotateMix*(tc: TransformConstraintData): float64 = tc.rotateMix
+proc hasScaleMix*(tc: TransformConstraintData): bool = tc.hasScaleMix
+proc scaleMix*(tc: TransformConstraintData): float64 = tc.scaleMix
+proc hasShearMix*(tc: TransformConstraintData): bool = tc.hasShearMix
+proc shearMix*(tc: TransformConstraintData): float64 = tc.shearMix
+
+
 proc x*(local: LocalTransform): float64 = local.x
 proc y*(local: LocalTransform): float64 = local.y
 proc rotation*(local: LocalTransform): float64 = local.rotation
@@ -455,6 +530,9 @@ proc paths*(data: SkeletonData): seq[PathConstraintData] = data.paths
 
 
 proc ikConstraints*(data: SkeletonData): seq[IkConstraintData] = data.ikConstraints
+
+
+proc transformConstraints*(data: SkeletonData): seq[TransformConstraintData] = data.transformConstraints
 
 
 proc parameters*(data: SkeletonData): seq[ParameterAxis] = data.parameters
@@ -508,6 +586,7 @@ proc validateSkeletonData*(
   parameters: openArray[ParameterAxis] = [];
   deformers: openArray[DeformerRecord] = [];
   ikConstraints: openArray[IkConstraintData] = [];
+  transformConstraints: openArray[TransformConstraintData] = [];
 ) =
   if header.name.len == 0:
     raise newBonyLoadError(schemaViolation, "skeleton.name must not be empty")
@@ -622,6 +701,30 @@ proc validateSkeletonData*(
       raise newBonyLoadError(unknownRequiredReference, "unknown ik constraint target: " & ik.target)
     allIkNames.incl(ik.name)
 
+  var allTransformNames = initHashSet[string]()
+  for index, tc in transformConstraints:
+    let context = "transformConstraints[" & $index & "]"
+    if tc.name.len == 0:
+      raise newBonyLoadError(schemaViolation, context & ".name must not be empty")
+    if tc.name in allTransformNames:
+      raise newBonyLoadError(duplicateKey, "duplicate transform constraint name: " & tc.name)
+    if tc.bone notin allNames:
+      raise newBonyLoadError(unknownRequiredReference, "unknown transform constraint bone: " & tc.bone)
+    if tc.target notin allNames:
+      raise newBonyLoadError(unknownRequiredReference, "unknown transform constraint target: " & tc.target)
+    # Mixes are [0, 1] blend amounts (default 1.0); mirror requireMix in
+    # constraints/transform_constraints.nim (finite, then range).
+    for (mixName, mixValue) in {
+      "translateMix": tc.translateMix,
+      "rotateMix": tc.rotateMix,
+      "scaleMix": tc.scaleMix,
+      "shearMix": tc.shearMix,
+    }:
+      discard requireFiniteF64(mixValue, context & "." & mixName)
+      if mixValue < 0.0 or mixValue > 1.0:
+        raise newBonyLoadError(schemaViolation, context & "." & mixName & " must be in [0, 1]")
+    allTransformNames.incl(tc.name)
+
   var paramNames = initHashSet[string]()
   for index, param in parameters:
     let context = "parameters[" & $index & "]"
@@ -678,9 +781,11 @@ proc skeletonData*(
   parameters: openArray[ParameterAxis] = [];
   deformers: openArray[DeformerRecord] = [];
   ikConstraints: openArray[IkConstraintData] = [];
+  transformConstraints: openArray[TransformConstraintData] = [];
 ): SkeletonData =
   validateSkeletonData(
     header, bones, slots, regions, pathAttachments, paths, parameters, deformers, ikConstraints,
+    transformConstraints,
   )
   result.header = header
   result.bones = @bones
@@ -691,12 +796,13 @@ proc skeletonData*(
   result.parameters = @parameters
   result.deformers = @deformers
   result.ikConstraints = @ikConstraints
+  result.transformConstraints = @transformConstraints
 
 
 proc validateSkeletonData*(data: SkeletonData) =
   validateSkeletonData(
     data.header, data.bones, data.slots, data.regions, data.pathAttachments, data.paths,
-    data.parameters, data.deformers, data.ikConstraints,
+    data.parameters, data.deformers, data.ikConstraints, data.transformConstraints,
   )
 
 
