@@ -1,0 +1,72 @@
+{
+  "format": "bony.numeric-golden.v1",
+  "skeleton": "m5-physics-rig",
+  "version": "0.2.0",
+  "time": 0.0,
+  "stateMachine": "physics_story",
+  "sample": "rest",
+  "inputs": [],
+  "layers": [
+    {
+      "name": "spring",
+      "state": "swing",
+      "time": 0.0,
+      "pose": {
+        "scalars": [
+          {
+            "target": "pendulum",
+            "kind": "rotate",
+            "value": 0.0
+          }
+        ],
+        "vectors": [],
+        "attachments": [],
+        "inherits": [],
+        "colors": [],
+        "colors2": [],
+        "sequences": []
+      }
+    }
+  ],
+  "events": [],
+  "bones": [
+    {
+      "name": "root",
+      "parent": "",
+      "world": {
+        "a": 1.0,
+        "b": 0.0,
+        "c": 6.123233995736766e-17,
+        "d": 1.0,
+        "tx": 0.0,
+        "ty": 0.0
+      }
+    },
+    {
+      "name": "anchor",
+      "parent": "root",
+      "world": {
+        "a": 1.0,
+        "b": 0.0,
+        "c": 1.2246467991473532e-16,
+        "d": 1.0,
+        "tx": 6.123233995736766e-15,
+        "ty": 100.0
+      }
+    },
+    {
+      "name": "pendulum",
+      "parent": "anchor",
+      "world": {
+        "a": 1.0,
+        "b": 0.0,
+        "c": 1.8369701987210297e-16,
+        "d": 1.0,
+        "tx": 40.00000000000001,
+        "ty": 100.0
+      }
+    }
+  ],
+  "slots": [],
+  "drawBatches": []
+}

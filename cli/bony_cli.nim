@@ -88,6 +88,7 @@ type
     runtime: StateMachineRuntime
     evaluated: EvaluatedStateMachine
     posedData: SkeletonData
+    worlds: seq[Affine2]
 
   StateMachineGolden = object
     present: bool
@@ -1439,6 +1440,7 @@ proc applySequencePose(data: SkeletonData; pose: MixedPose): SkeletonData =
     data.deformers,
     data.ikConstraints,
     data.transformConstraints,
+    data.physicsConstraints,
   )
 
 
@@ -1470,6 +1472,14 @@ proc executeStateMachineScript(
   var dataRef = new(SkeletonData)
   dataRef[] = data
   var runtime = initStateMachineRuntime(selectStateMachine(asset.stateMachines, machineName))
+  # Physics is bony's only stateful, time-dependent constraint: the story runner
+  # is the single time driver, so its per-sample inter-sample delta is the dt the
+  # physics stage advances by. `physicsStates` carries PhysicsConstraintState
+  # across every sample (advanced even for unmatched samples) so a re-run that
+  # selects a late sample reproduces the same continuous trajectory. With no
+  # physics constraints advancePhysics is exactly computeWorldTransforms, so
+  # existing (physics-free) story goldens are unchanged.
+  var physicsStates = newPhysicsStates(data)
   var previousTime = 0.0
   var matched = false
   for index, sample in script.samples:
@@ -1477,6 +1487,7 @@ proc executeStateMachineScript(
     runtime.update(sample.time - previousTime)
     let evaluated = runtime.evaluate(dataRef)
     let posed = data.applyRenderablePose(evaluated.pose)
+    let worlds = advancePhysics(posed, physicsStates, sample.time - previousTime)
     if sample.sampleMatches(index, selector):
       matched = true
       result.add StateMachineRunSample(
@@ -1485,6 +1496,7 @@ proc executeStateMachineScript(
         runtime: runtime,
         evaluated: evaluated,
         posedData: posed,
+        worlds: worlds,
       )
     previousTime = sample.time
   if not matched:
@@ -1717,9 +1729,25 @@ proc stateMachineEventsJson(runtime: StateMachineRuntime): JsonNode =
     result.add node
 
 
-proc numericGoldenJson(data: SkeletonData; time: float64; state: StateMachineGolden = StateMachineGolden()): string =
+proc numericGoldenJson(
+    data: SkeletonData;
+    time: float64;
+    state: StateMachineGolden = StateMachineGolden();
+    physicsWorlds: seq[Affine2] = @[];
+): string =
   validateSkeletonData(data)
-  let worlds = computeWorldTransforms(data)
+  # The story runner advances the stateful physics stage and threads the
+  # physics-adjusted bone worlds in via `physicsWorlds`; setup-pose callers pass
+  # none and fall back to the pure world-transform pass. For a physics-free rig
+  # the two are identical (advancePhysics == computeWorldTransforms).
+  let worlds =
+    if physicsWorlds.len == data.bones.len: physicsWorlds
+    else: computeWorldTransforms(data)
+  # NOTE: buildDrawBatches recomputes worlds from the pure pass, so draw-batch
+  # vertices do NOT reflect the physics stage. This is correct only while every
+  # physics rig has no renderables (m5_physics_rig has zero slots). A physics rig
+  # with an attachment would need physics worlds threaded here too — tracked in
+  # bony follow-up before such a rig lands.
   let baseBatches = buildDrawBatches(data)
   let samples = defaultParamSamples(data)
   let efDefs = effectiveDeformers(data, samples)
@@ -1858,6 +1886,7 @@ proc writeNumericGolden(args: seq[string]) =
         runtime: sample.runtime,
         evaluated: sample.evaluated,
       ),
+      sample.worlds,
     ))
     return
 
