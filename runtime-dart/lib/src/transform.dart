@@ -971,15 +971,20 @@ double _physicsChannelValue(BoneData bone, PhysicsChannel channel) {
 
 BoneData _withPhysicsChannel(
     BoneData base, PhysicsChannel channel, double value) {
+  // Mirror the Nim withPhysicsChannel, which routes the written channel through
+  // localTransform's f32 quantization (the public output boundary). The other
+  // channels are already f32 from load/applyPose, so quantizing only the newly
+  // written value reproduces the reference's f32 boundary exactly.
+  final v = quantizeF32(value);
   return BoneData(
     name: base.name,
     parent: base.parent,
-    x: channel == PhysicsChannel.x ? value : base.x,
-    y: channel == PhysicsChannel.y ? value : base.y,
-    rotation: channel == PhysicsChannel.rotate ? value : base.rotation,
-    scaleX: channel == PhysicsChannel.scaleX ? value : base.scaleX,
+    x: channel == PhysicsChannel.x ? v : base.x,
+    y: channel == PhysicsChannel.y ? v : base.y,
+    rotation: channel == PhysicsChannel.rotate ? v : base.rotation,
+    scaleX: channel == PhysicsChannel.scaleX ? v : base.scaleX,
     scaleY: base.scaleY,
-    shearX: channel == PhysicsChannel.shearX ? value : base.shearX,
+    shearX: channel == PhysicsChannel.shearX ? v : base.shearX,
     shearY: base.shearY,
     inheritRotation: base.inheritRotation,
     inheritScale: base.inheritScale,
@@ -1027,6 +1032,20 @@ List<Affine2> advancePhysics(
     throw FormatException(
         'physics state count (${states.length}) does not match physics '
         'constraint count (${data.physicsConstraints.length})');
+  }
+  // The physics stage reads its targets from the RAW bone locals (data.bones),
+  // which equals the constraint-adjusted pose ONLY when no other runtime
+  // constraint reshapes the locals. Fail loudly rather than silently emit wrong
+  // worlds if a rig ever mixes physics with IK/transform/path; threading the
+  // constraint-adjusted locals (as the Nim computeWorldsAndLocals does) is a
+  // future slice.
+  final hasOtherRuntimeConstraints = data.paths.any((p) => p.runtimeEvaluable) ||
+      data.ikConstraints.any((c) => c.runtimeEvaluable) ||
+      data.transformConstraints.any((t) => t.runtimeEvaluable);
+  if (hasOtherRuntimeConstraints) {
+    throw UnsupportedError(
+        'advancePhysics does not yet support physics constraints combined with '
+        'runtime IK/transform/path constraints');
   }
 
   final byName = <String, int>{
