@@ -42,6 +42,24 @@ PACKED_BYTES_METADATA: dict[str, dict[str, Any]] = {
         "structuralSchema": "base64Only",
         "validatedBy": "loader",
     },
+    "meshVertices": {
+        "payload": "meshAttachmentVertices",
+        "layout": "docs/mesh-attachment-contract.md#packed-meshvertices-byte-layout-bnb",
+        "structuralSchema": "base64Only",
+        "validatedBy": "loader",
+    },
+    "meshUvs": {
+        "payload": "meshAttachmentUvs",
+        "layout": "docs/mesh-attachment-contract.md#packed-meshuvs-byte-layout-bnb",
+        "structuralSchema": "base64Only",
+        "validatedBy": "loader",
+    },
+    "meshTriangles": {
+        "payload": "meshAttachmentTriangles",
+        "layout": "docs/mesh-attachment-contract.md#packed-meshtriangles-byte-layout-bnb",
+        "structuralSchema": "base64Only",
+        "validatedBy": "loader",
+    },
 }
 
 
@@ -604,6 +622,69 @@ def canonical_json_overrides() -> dict[str, Any]:
                 "untilSlot": {"type": "string", "default": ""},
             },
             "required": ["name", "vertices"],
+        },
+        "meshAttachment": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "name": named_string,
+                "weighted": {"type": "boolean", "default": False},
+                "vertices": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                        "oneOf": [
+                            {
+                                "type": "object",
+                                "additionalProperties": False,
+                                "properties": {"x": number, "y": number},
+                                "required": ["x", "y"],
+                            },
+                            {
+                                "type": "object",
+                                "additionalProperties": False,
+                                "properties": {
+                                    "influences": {
+                                        "type": "array",
+                                        "minItems": 1,
+                                        "items": {
+                                            "type": "object",
+                                            "additionalProperties": False,
+                                            "properties": {
+                                                "bone": named_string,
+                                                "bindX": number,
+                                                "bindY": number,
+                                                "weight": number,
+                                            },
+                                            "required": ["bindX", "bindY", "bone", "weight"],
+                                        },
+                                    },
+                                },
+                                "required": ["influences"],
+                            },
+                        ],
+                    },
+                },
+                "uvs": {
+                    "type": "array",
+                    "minItems": 2,
+                    "items": number,
+                    "description": (
+                        "Flat [u0, v0, u1, v1, ...] pairs; length is even and matches the "
+                        "vertex count (loader-validated per docs/mesh-attachment-contract.md)."
+                    ),
+                },
+                "triangles": {
+                    "type": "array",
+                    "minItems": 3,
+                    "items": {"type": "integer", "minimum": 0},
+                    "description": (
+                        "Flat vertex-index triples; length is a multiple of 3 "
+                        "(loader-validated per docs/mesh-attachment-contract.md)."
+                    ),
+                },
+            },
+            "required": ["name", "triangles", "uvs", "vertices"],
         },
         "parameter": {
             "type": "object",

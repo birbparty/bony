@@ -232,6 +232,12 @@ typeKeys:
     milestone: M4
     ownerBead: bony-jkt
     doc: Slot-bound convex clipping attachment; format/load only in this slice (no geometry clipping yet).
+  - id: meshAttachment
+    key: 3001
+    status: active
+    milestone: M4
+    ownerBead: bony-lzj.1
+    doc: Slot-bound deformable mesh attachment; format/load only in this slice (weighted skinning deferred to prompt 20).
   - id: path
     key: 4000
     status: active
@@ -513,6 +519,34 @@ propertyKeys:
     milestone: M4
     ownerBead: bony-jkt
     doc: Optional slot name at which a clipping attachment's range stops (inclusive); empty string clips to the end of draw order.
+  - id: meshWeighted
+    key: 3002
+    backingType: bool
+    status: active
+    milestone: M4
+    ownerBead: bony-lzj.1
+    doc: Whether the mesh attachment stores per-vertex bone influences (weighted skinning) versus flat bone-local vertex positions.
+  - id: meshVertices
+    key: 3003
+    backingType: bytes
+    status: active
+    milestone: M4
+    ownerBead: bony-lzj.1
+    doc: Packed mesh vertices; varuint vertexCount then, unweighted, vertexCount*(f32 x, f32 y) little-endian, or weighted, per vertex varuint influenceCount then influenceCount*(varuint boneStringIndex, f32 bindX, f32 bindY, f32 weight).
+  - id: meshUvs
+    key: 3004
+    backingType: bytes
+    status: active
+    milestone: M4
+    ownerBead: bony-lzj.1
+    doc: Packed mesh texture coordinates; varuint count then count*(f32 u, f32 v) little-endian pairs.
+  - id: meshTriangles
+    key: 3005
+    backingType: bytes
+    status: active
+    milestone: M4
+    ownerBead: bony-lzj.1
+    doc: Packed mesh triangle indices; varuint count then count*(varuint vertexIndex) forming triangle triples.
   - id: target
     key: 4000
     backingType: string
@@ -1086,6 +1120,14 @@ objects:
       - vertices
       - untilSlot
     doc: Slot-bound convex clipping attachment loaded by name; format/load only in this slice.
+  - type: meshAttachment
+    properties:
+      - name
+      - meshWeighted
+      - meshVertices
+      - meshUvs
+      - meshTriangles
+    doc: Slot-bound deformable mesh attachment loaded by name; format/load only in this slice (ownerBead bony-lzj.1).
   - type: path
     properties:
       - name

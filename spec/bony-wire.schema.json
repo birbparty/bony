@@ -33,6 +33,12 @@
         "$ref": "#/$defs/clippingAttachment"
       }
     },
+    "meshAttachments": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/meshAttachment"
+      }
+    },
     "paths": {
       "type": "array",
       "items": {
@@ -641,6 +647,56 @@
       "required": [
         "name",
         "vertices"
+      ]
+    },
+    "meshAttachment": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "meshWeighted": {
+          "type": "boolean",
+          "default": false
+        },
+        "meshVertices": {
+          "type": "string",
+          "contentEncoding": "base64",
+          "x-bony-packedBytes": {
+            "payload": "meshAttachmentVertices",
+            "layout": "docs/mesh-attachment-contract.md#packed-meshvertices-byte-layout-bnb",
+            "structuralSchema": "base64Only",
+            "validatedBy": "loader"
+          }
+        },
+        "meshUvs": {
+          "type": "string",
+          "contentEncoding": "base64",
+          "x-bony-packedBytes": {
+            "payload": "meshAttachmentUvs",
+            "layout": "docs/mesh-attachment-contract.md#packed-meshuvs-byte-layout-bnb",
+            "structuralSchema": "base64Only",
+            "validatedBy": "loader"
+          }
+        },
+        "meshTriangles": {
+          "type": "string",
+          "contentEncoding": "base64",
+          "x-bony-packedBytes": {
+            "payload": "meshAttachmentTriangles",
+            "layout": "docs/mesh-attachment-contract.md#packed-meshtriangles-byte-layout-bnb",
+            "structuralSchema": "base64Only",
+            "validatedBy": "loader"
+          }
+        }
+      },
+      "required": [
+        "meshTriangles",
+        "meshUvs",
+        "meshVertices",
+        "name"
       ]
     },
     "path": {
