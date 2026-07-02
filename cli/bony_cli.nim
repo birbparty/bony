@@ -1743,12 +1743,10 @@ proc numericGoldenJson(
   let worlds =
     if physicsWorlds.len == data.bones.len: physicsWorlds
     else: computeWorldTransforms(data)
-  # NOTE: buildDrawBatches recomputes worlds from the pure pass, so draw-batch
-  # vertices do NOT reflect the physics stage. This is correct only while every
-  # physics rig has no renderables (m5_physics_rig has zero slots). A physics rig
-  # with an attachment would need physics worlds threaded here too — tracked in
-  # bony follow-up before such a rig lands.
-  let baseBatches = buildDrawBatches(data)
+  # Thread the (possibly physics-adjusted) worlds into the draw-batch build so
+  # draw-batch vertices reflect the physics stage. For a physics-free rig these
+  # worlds equal the pure pass, so setup-pose callers are unaffected.
+  let baseBatches = buildDrawBatches(data, worlds)
   let samples = defaultParamSamples(data)
   let efDefs = effectiveDeformers(data, samples)
   var batches = applyDeformersToDrawBatches(baseBatches, efDefs)
@@ -1964,7 +1962,9 @@ proc renderSetupPose(args: seq[string]) =
     var sheet = newImage(sheetWidth, height)
     sheet.fill(rgba(0, 0, 0, 0))
     for sampleIndex, sample in samples:
-      let rawBatches = buildDrawBatches(sample.posedData)
+      # Thread the physics-advanced worlds (see executeStateMachineScript) so the
+      # rendered spritesheet reflects the physics stage, matching numericGoldenJson.
+      let rawBatches = buildDrawBatches(sample.posedData, sample.worlds)
       let coloredBatches = applyRenderSlotStates(rawBatches, renderSlotStates(sample.posedData, sample.evaluated.pose))
       let batches = if origin == "center": applyViewportTransform(coloredBatches, width, height) else: coloredBatches
       let image = renderSoftware(batches, width, height)

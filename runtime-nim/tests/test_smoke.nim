@@ -2097,6 +2097,55 @@ spec "bony package":
       closeTo(batches[0].vertices[2].v, 1)
       closeTo(batches[0].vertices[2].a, 1)
 
+  it "threads caller-supplied worlds into draw batches":
+    # Mirrors the physics story path: a stateful stage advances bone worlds and
+    # threads them into buildDrawBatches so draw-batch vertices reflect physics
+    # rather than the pure world-transform pass. Two bones/slots lock the
+    # parallel-index mapping: each slot's batch must pick up ITS bone's world,
+    # so a mis-indexed lookup (or a revert to internal recomputation) fails here.
+    let data = skeletonData(
+      skeletonHeader("demo", "0.1.0"),
+      @[
+        boneData("root", "", localTransform(x = 3.0, y = 0.0)),
+        boneData("arm", "root", localTransform(x = 0.0, y = 0.0)),
+      ],
+      @[
+        slotData("body", "root", "bodyRegion"),
+        slotData("hand", "arm", "handRegion"),
+      ],
+      @[
+        regionAttachment("bodyRegion", 8.0, 4.0),
+        regionAttachment("handRegion", 8.0, 4.0),
+      ]
+    )
+    var worlds = computeWorldTransforms(data)
+    # Shift each bone world by a DISTINCT offset, as a physics stage would; each
+    # batch's vertices must follow its own bone, proving worlds[i] <-> bones[i].
+    worlds[0].tx = worlds[0].tx + 100.0
+    worlds[0].ty = worlds[0].ty + 50.0
+    worlds[1].tx = worlds[1].tx + 400.0
+    worlds[1].ty = worlds[1].ty + 200.0
+    let batches = buildDrawBatches(data, worlds)
+
+    then:
+      batches.len == 2
+      # body slot -> root bone (worlds[0], base tx=3): pure pass would be (-1,-2).
+      batches[0].slot == "body"
+      closeTo(batches[0].world.tx, 103)
+      closeTo(batches[0].world.ty, 50)
+      closeTo(batches[0].vertices[0].x, 99)
+      closeTo(batches[0].vertices[0].y, 48)
+      closeTo(batches[0].vertices[2].x, 107)
+      closeTo(batches[0].vertices[2].y, 52)
+      # hand slot -> arm bone (worlds[1], base tx=3 inherited from root).
+      batches[1].slot == "hand"
+      closeTo(batches[1].world.tx, 403)
+      closeTo(batches[1].world.ty, 200)
+      closeTo(batches[1].vertices[0].x, 399)
+      closeTo(batches[1].vertices[0].y, 198)
+      closeTo(batches[1].vertices[2].x, 407)
+      closeTo(batches[1].vertices[2].y, 202)
+
   it "renders draw batches with the software rasterizer":
     let data = skeletonData(
       skeletonHeader("demo", "0.1.0"),
