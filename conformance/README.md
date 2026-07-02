@@ -38,6 +38,7 @@ conformance/
 | M7 | `m7_rig` | Deformers (warp, rotation, bone) |
 | M8 | `m8_rig` | Animation timelines (bone rotate/translate/scale/shear), state machines |
 | M9 | `m9_non_scalar_rig` | Non-scalar animation timelines and state-machine projection |
+| M11 | `m11_clip_rig` | Clipping attachment: convex clip polygon partially covering a region slot, `untilSlot`-bounded range |
 
 The `M5 (IK)` row is a second M5 asset (structured like the standalone M9 row):
 the table is one-asset-per-row, so `m5_ik_rig` gets its own row rather than being
@@ -175,6 +176,47 @@ Notes for readers comparing runtimes:
   reproduces every bone world matrix within `1e-4` from both the `.bony` and the
   `.bnb` (`runtime-dart/test/m5_physics_story_test.dart`).
 
+### M11 clip rig (`m11_clip_rig`)
+
+`m11_clip_rig` is the M4 clipping-attachment conformance asset (the milestone
+token `M11` only names the asset — the registry key band is still M4). It has one
+identity `root` bone and three draw-order slots:
+
+- `clip_slot` — references the `clip_mask` clipping attachment (its own slot);
+  produces no draw batch.
+- `panel_slot` — a `100×100` region quad, **inside** the clip range, so it is
+  clipped.
+- `outside_slot` — a `40×40` region quad, **outside** the range (past
+  `untilSlot: panel_slot`), so it stays unclipped.
+
+The clip polygon `clip_mask` is the convex triangle
+`[(-200,-200), (230,-200), (-200,230)]`, whose hypotenuse is the line `x + y = 30`
+cutting **diagonally** across the `panel` quad (corners `±50`).
+
+**Non-vacuous clipped-vs-unclipped delta (geometry + u/v).** The raw `panel` quad
+is 4 vertices `(-50,-50)…(-50,50)` with corner u/v `0/1`. After clipping, the
+`panel_slot` batch in `m11_clip_rig_t0.json` carries `clipId: "clip_mask"` and a
+**5-vertex** fan (`indices [0,1,2,0,2,3,0,3,4]`): the corner `(50,50)` is removed
+and two **new** vertices appear on the diagonal cut — `(50,-20)` with `u=1.0,
+v=0.3` and `(-20,50)` with `u=0.3, v=1.0`. Those `0.3` values are u/v linearly
+**interpolated** at the clip edge (`30/100` along the quad side), well above the
+`1e-4` tolerance, so a runtime that skips clipping or mis-interpolates u/v fails
+the golden. The `outside_slot` batch keeps `clipId: ""` and its unclipped 4-vertex
+quad, making the `untilSlot` range boundary observable. Region batches carry
+uniform color `(1,1,1,1)` and there is no format construct for a non-uniform quad,
+so r/g/b/a interpolation is **not** observable here — it is covered by a dedicated
+prompt-16 Nim unit test (`runtime-nim/tests/test_smoke.nim`, the "interpolates
+r/g/b/a at a clip-edge intersection" case).
+
+Notes for readers comparing runtimes:
+- The golden is reproduced identically from both `m11_clip_rig.bony` and
+  `conformance/assets/bnb/m11_clip_rig.bnb` (the JSON and binary loaders agree;
+  the `.bnb` is non-empty at 248 bytes), and regenerates byte-identically on
+  re-run per the float-math contract.
+- Cross-runtime status: the setup-pose golden `m11_clip_rig_t0.json` is honored by
+  the **Nim** reference now; **Dart parity is pending prompt 18** (the Dart
+  runtime does not yet clip draw batches).
+
 ### Image goldens (Nim reference rasterizer only)
 
 Image goldens (`*_play.png`) are Nim-only regression artifacts for the reference
@@ -195,6 +237,7 @@ and do not need to be reproduced by Dart or other runtimes.
 | m7_rig | pending (gated on pixie rasterizer — bony-gzz) |
 | m8_rig | `m8_rig_play.png` |
 | m9_non_scalar_rig | pending |
+| m11_clip_rig | pending (no PNG golden produced) |
 
 ---
 
