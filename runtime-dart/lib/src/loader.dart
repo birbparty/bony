@@ -60,7 +60,11 @@ ClippingAttachment _parseClippingAttachment(Map<String, dynamic> j) {
       _required<List<dynamic>>(j['vertices'], 'clippingAttachment.vertices');
   return ClippingAttachment(
     name: _required<String>(j['name'], 'clippingAttachment.name'),
-    vertices: verticesRaw.map((v) => (v as num).toDouble()).toList(),
+    // Quantize to f32 at load, matching the Nim clipAttachmentData constructor
+    // (runtime-nim/src/bony/model.nim) and the .bnb path (which reads f32) so the
+    // JSON and binary loaders agree bit-for-bit.
+    vertices:
+        verticesRaw.map((v) => quantizeF32((v as num).toDouble())).toList(),
     untilSlot: (j['untilSlot'] as String?) ?? '',
   );
 }
@@ -669,6 +673,40 @@ void _validate(SkeletonData data) {
           'clipping attachment name collides with a region attachment name: '
           '${c.name}');
     }
+    // Finite + convex, non-zero-area invariants (mirror the Nim loader
+    // runtime-nim/src/bony/model.nim / mesh/clipping.nim validateConvexClip).
+    const clipAreaEpsilon = 1e-9;
+    for (var vi = 0; vi < c.vertices.length; vi++) {
+      if (!c.vertices[vi].isFinite) {
+        throw FormatException('$ctx.vertices[$vi] must be finite');
+      }
+    }
+    final pointCount = c.vertices.length ~/ 2;
+    var area = 0.0;
+    for (var p = 0; p < pointCount; p++) {
+      final ax = c.vertices[2 * p];
+      final ay = c.vertices[2 * p + 1];
+      final nx = c.vertices[2 * ((p + 1) % pointCount)];
+      final ny = c.vertices[2 * ((p + 1) % pointCount) + 1];
+      area += ax * ny - nx * ay;
+    }
+    area *= 0.5;
+    if (area.abs() <= clipAreaEpsilon) {
+      throw FormatException('$ctx.vertices polygon area must be non-zero');
+    }
+    final sign = area > 0.0 ? 1.0 : -1.0;
+    for (var p = 0; p < pointCount; p++) {
+      final ax = c.vertices[2 * p];
+      final ay = c.vertices[2 * p + 1];
+      final bx = c.vertices[2 * ((p + 1) % pointCount)];
+      final by = c.vertices[2 * ((p + 1) % pointCount) + 1];
+      final cx = c.vertices[2 * ((p + 2) % pointCount)];
+      final cy = c.vertices[2 * ((p + 2) % pointCount) + 1];
+      final turn = (bx - ax) * (cy - by) - (by - ay) * (cx - bx);
+      if (turn * sign < -clipAreaEpsilon) {
+        throw FormatException('$ctx.vertices must be convex in v1');
+      }
+    }
   }
 
   final slotNames = <String>{};
@@ -686,6 +724,52 @@ void _validate(SkeletonData data) {
     }
     if (!slotNames.add(s.name)) {
       throw FormatException('duplicate slot name: ${s.name}');
+    }
+  }
+
+  // Clipping range + no-overlap validation (mirror the Nim loader). A clip's
+  // range starts at the slot that references it and runs through untilSlot
+  // inclusive (else to the end of draw order); untilSlot must name a known slot
+  // strictly after the clip's own slot, and ranges may not overlap.
+  if (data.clippingAttachments.isNotEmpty) {
+    final slotIndexByName = <String, int>{};
+    for (var i = 0; i < data.slots.length; i++) {
+      slotIndexByName[data.slots[i].name] = i;
+    }
+    final clipByName = <String, ClippingAttachment>{
+      for (final c in data.clippingAttachments) c.name: c,
+    };
+    for (final c in data.clippingAttachments) {
+      if (c.untilSlot.isNotEmpty && !slotIndexByName.containsKey(c.untilSlot)) {
+        throw FormatException(
+            'clipping attachment untilSlot names unknown slot: ${c.untilSlot}');
+      }
+    }
+    final lastSlotIndex = data.slots.length - 1;
+    var activeUntil = -1;
+    var activeName = '';
+    for (var slotIdx = 0; slotIdx < data.slots.length; slotIdx++) {
+      final s = data.slots[slotIdx];
+      if (s.attachment.isEmpty || !clipByName.containsKey(s.attachment)) {
+        continue;
+      }
+      final clip = clipByName[s.attachment]!;
+      final ownIndex = slotIdx;
+      final endIndex = clip.untilSlot.isNotEmpty
+          ? slotIndexByName[clip.untilSlot]!
+          : lastSlotIndex;
+      if (endIndex <= ownIndex) {
+        throw FormatException(
+            "clipping attachment '${s.attachment}' on slot '${s.name}' has an "
+            "empty range (untilSlot at or before the clip's own slot)");
+      }
+      if (ownIndex <= activeUntil) {
+        throw FormatException(
+            "clipping ranges overlap: '${s.attachment}' begins while "
+            "'$activeName' is still active");
+      }
+      activeUntil = endIndex;
+      activeName = s.attachment;
     }
   }
 

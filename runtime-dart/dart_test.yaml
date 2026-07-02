@@ -20,4 +20,6 @@ paths:
   - test/m7_deformers_test.dart
   - test/m8_statemachine_test.dart
   - test/m10_conformance_test.dart
+  - test/m11_clip_bnb_test.dart
+  - test/m11_clip_validation_test.dart
   - test/version_test.dart
