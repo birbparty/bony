@@ -800,11 +800,14 @@ proc vertex(world: Affine2; x, y, u, v: float64): DrawVertex =
 proc buildDrawBatches*(data: SkeletonData; worlds: seq[Affine2]): seq[DrawBatch] =
   ## Build draw batches using caller-supplied world transforms. Callers that have
   ## advanced the stateful physics stage pass the physics-adjusted worlds here so
-  ## draw-batch vertices reflect physics; `worlds` must be indexed parallel to
-  ## `data.bones` (length must match, else it is a programmer error).
-  doAssert worlds.len == data.bones.len,
-    "buildDrawBatches: worlds length " & $worlds.len &
-    " must match bone count " & $data.bones.len
+  ## draw-batch vertices reflect physics. `worlds[i]` must be the world transform
+  ## of `data.bones[i]` — same length and index ordering as `computeWorldTransforms`.
+  ## Raised (not `doAssert`ed) so the guard survives `-d:danger`: a stripped check
+  ## here would reintroduce the silent out-of-bounds read this seam exists to prevent.
+  if worlds.len != data.bones.len:
+    raise newBonyLoadError(schemaViolation,
+      "buildDrawBatches: worlds length " & $worlds.len &
+      " must match bone count " & $data.bones.len)
   var boneIndex = initTable[string, int]()
   var regions = initTable[string, RegionAttachment]()
 
