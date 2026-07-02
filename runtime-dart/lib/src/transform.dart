@@ -4,6 +4,7 @@
 
 import 'dart:math' as math;
 import 'deform.dart';
+import 'drawbatch_clipping.dart';
 import 'ik.dart';
 import 'model.dart';
 import 'physics_constraint.dart';
@@ -1147,17 +1148,21 @@ List<DrawBatch> buildDrawBatches(SkeletonData data) {
     ));
   }
 
-  if (data.deformers.isEmpty) return baseBatches;
+  if (data.deformers.isEmpty) {
+    return _applyClipping(data, baseBatches, worlds, boneIndex);
+  }
 
   // Sample each parameter at its default value.
   final samples = data.parameters
       .map((p) => ParameterSample(name: p.name, value: p.defaultValue))
       .toList();
   final efDefs = effectiveDeformers(data.deformers, samples);
-  if (efDefs.isEmpty) return baseBatches;
+  if (efDefs.isEmpty) {
+    return _applyClipping(data, baseBatches, worlds, boneIndex);
+  }
 
   // Apply deformers per batch — each batch uses its own vertices as setup.
-  return baseBatches.map((batch) {
+  final remapped = baseBatches.map((batch) {
     final verts = batch.vertices;
     final positions = verts.map((v) => (x: v.x, y: v.y)).toList();
     final deformed = applyDeformers(positions, efDefs);
@@ -1185,4 +1190,67 @@ List<DrawBatch> buildDrawBatches(SkeletonData data) {
       indices: batch.indices,
     );
   }).toList();
+  return _applyClipping(data, remapped, worlds, boneIndex);
+}
+
+/// Populate `clipId` and geometrically clip covered draw batches, mirroring the
+/// Nim reference (`runtime-nim/src/bony/transform.nim`). For each slot whose
+/// attachment names a clipping attachment, the covered range is the batch after
+/// the clip's own slot through `untilSlot` inclusive (else to the end of draw
+/// order). The load-time no-overlap invariant guarantees at most one clip is
+/// active per batch. Returns the input unchanged when there are no clips.
+List<DrawBatch> _applyClipping(
+  SkeletonData data,
+  List<DrawBatch> batches,
+  List<Affine2> worlds,
+  Map<String, int> boneIndex,
+) {
+  if (data.clippingAttachments.isEmpty) return batches;
+
+  final slotIndexByName = <String, int>{};
+  for (var i = 0; i < data.slots.length; i++) {
+    slotIndexByName[data.slots[i].name] = i;
+  }
+  final clipMap = <String, ClippingAttachment>{
+    for (final c in data.clippingAttachments) c.name: c,
+  };
+  final lastSlotIndex = data.slots.length - 1;
+
+  final result = List<DrawBatch>.from(batches);
+  for (var slotIdx = 0; slotIdx < data.slots.length; slotIdx++) {
+    final slot = data.slots[slotIdx];
+    if (slot.attachment.isEmpty) continue;
+    final clip = clipMap[slot.attachment];
+    if (clip == null) continue;
+    final ownIndex = slotIdx;
+    final endIndex = clip.untilSlot.isNotEmpty
+        ? slotIndexByName[clip.untilSlot]!
+        : lastSlotIndex;
+    // Clip polygon in world space via the clip's own slot's bone world — the
+    // same transform the covered region quads are built with.
+    final clipWorld = worlds[boneIndex[slot.bone]!];
+    final clipPolygon = <ClipPoint>[];
+    for (var p = 0; p + 1 < clip.vertices.length; p += 2) {
+      final point = _transformPoint(clipWorld, clip.vertices[p], clip.vertices[p + 1]);
+      clipPolygon.add(ClipPoint(quantizeF32(point.x), quantizeF32(point.y)));
+    }
+    for (var b = 0; b < result.length; b++) {
+      final sourceSlotIndex = slotIndexByName[result[b].slot]!;
+      if (sourceSlotIndex <= ownIndex || sourceSlotIndex > endIndex) continue;
+      final batch = result[b];
+      final clipped = clipDrawBatchPolygon(batch.vertices, clipPolygon);
+      result[b] = DrawBatch(
+        slot: batch.slot,
+        bone: batch.bone,
+        attachment: batch.attachment,
+        blendMode: batch.blendMode,
+        texturePage: batch.texturePage,
+        clipId: clip.name,
+        world: batch.world,
+        vertices: clipped.changed ? clipped.vertices : batch.vertices,
+        indices: clipped.changed ? clipped.indices : batch.indices,
+      );
+    }
+  }
+  return result;
 }

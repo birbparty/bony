@@ -55,6 +55,16 @@ RegionAttachment _parseRegion(Map<String, dynamic> j) {
   );
 }
 
+ClippingAttachment _parseClippingAttachment(Map<String, dynamic> j) {
+  final verticesRaw =
+      _required<List<dynamic>>(j['vertices'], 'clippingAttachment.vertices');
+  return ClippingAttachment(
+    name: _required<String>(j['name'], 'clippingAttachment.name'),
+    vertices: verticesRaw.map((v) => (v as num).toDouble()).toList(),
+    untilSlot: (j['untilSlot'] as String?) ?? '',
+  );
+}
+
 PathConstraintData _parsePath(Map<String, dynamic> j) {
   return PathConstraintData(
     name: _required<String>(j['name'], 'path.name'),
@@ -639,6 +649,28 @@ void _validate(SkeletonData data) {
     }
   }
 
+  // Clipping attachment names share the slot.attachment namespace with regions
+  // (a slot may reference either). Mirrors the Nim loader's widened check and
+  // the region/clip name-collision guard (runtime-nim/src/bony/model.nim).
+  final clipNames = <String>{};
+  for (var i = 0; i < data.clippingAttachments.length; i++) {
+    final c = data.clippingAttachments[i];
+    final ctx = 'clippingAttachments[$i]';
+    if (c.name.isEmpty) throw FormatException('$ctx.name must not be empty');
+    if (c.vertices.length < 6 || c.vertices.length.isOdd) {
+      throw FormatException(
+          '$ctx.vertices must contain at least three (x, y) pairs');
+    }
+    if (!clipNames.add(c.name)) {
+      throw FormatException('duplicate clipping attachment name: ${c.name}');
+    }
+    if (regionNames.contains(c.name)) {
+      throw FormatException(
+          'clipping attachment name collides with a region attachment name: '
+          '${c.name}');
+    }
+  }
+
   final slotNames = <String>{};
   for (var i = 0; i < data.slots.length; i++) {
     final s = data.slots[i];
@@ -647,7 +679,9 @@ void _validate(SkeletonData data) {
     if (!boneNames.contains(s.bone)) {
       throw FormatException('unknown slot bone: ${s.bone}');
     }
-    if (s.attachment.isNotEmpty && !regionNames.contains(s.attachment)) {
+    if (s.attachment.isNotEmpty &&
+        !regionNames.contains(s.attachment) &&
+        !clipNames.contains(s.attachment)) {
       throw FormatException('unknown slot attachment: ${s.attachment}');
     }
     if (!slotNames.add(s.name)) {
@@ -938,6 +972,7 @@ const int _bnbSkeleton = 1;
 const int _bnbBone = 2;
 const int _bnbSlot = 1000;
 const int _bnbRegion = 1001;
+const int _bnbClippingAttachment = 3000;
 const int _bnbPath = 4000;
 const int _bnbPathAttachment = 4001;
 const int _bnbIkConstraint = 4002;
@@ -981,6 +1016,10 @@ const int _bkBone = 1012;
 const int _bkAttachment = 1013;
 const int _bkWidth = 1014;
 const int _bkHeight = 1015;
+// Clipping attachment property keys (M4). vertices is a packed-f32-pairs bytes
+// payload (varuint count + count*(f32 x, f32 y)); untilSlot is a string.
+const int _bkVertices = 3000;
+const int _bkUntilSlot = 3001;
 const int _bkTarget = 4000;
 const int _bkPath = 4001;
 const int _bkOrder = 4002;
@@ -1069,6 +1108,7 @@ const _bnbKnownTypes = {
   _bnbBone,
   _bnbSlot,
   _bnbRegion,
+  _bnbClippingAttachment,
   _bnbPath,
   _bnbPathAttachment,
   _bnbIkConstraint,
@@ -1288,6 +1328,27 @@ List<String> _bIkBones(_BnbObj obj, List<String> strings) {
     out.add(c.readStr(strings));
   }
   _bCheckExhausted(c, 'ikConstraint.bones');
+  return out;
+}
+
+/// Decode the required clipping-attachment `vertices` payload: a varuint point
+/// count followed by count * (f32 x, f32 y) little-endian pairs, returned as a
+/// flat [x0, y0, x1, y1, ...] list. Matches runtime-nim's
+/// writeClipVerticesPayload / readClipVerticesPayload (semantic.nim), including
+/// the trailing-bytes check.
+List<double> _bClipVertices(_BnbObj obj) {
+  final payload = obj.props[_bkVertices];
+  if (payload == null) {
+    throw const FormatException('.bnb clippingAttachment.vertices is required');
+  }
+  final c = _BnbCur(payload);
+  final count = c.readVaruint();
+  final out = <double>[];
+  for (var i = 0; i < count; i++) {
+    out.add(c.readF32());
+    out.add(c.readF32());
+  }
+  _bCheckExhausted(c, 'clippingAttachment.vertices');
   return out;
 }
 
@@ -1638,6 +1699,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
   final regions = <RegionAttachment>[];
   final paths = <PathConstraintData>[];
   final pathAttachments = <PathAttachment>[];
+  final clips = <ClippingAttachment>[];
   final ikConstraints = <IkConstraintData>[];
   final transformConstraints = <TransformConstraintData>[];
   final physicsConstraints = <PhysicsConstraintData>[];
@@ -1826,6 +1888,15 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
           name: _bStr(obj, _bkName, strings, 'region.name'),
           width: _bF32(obj, _bkWidth, 'region.width'),
           height: _bF32(obj, _bkHeight, 'region.height'),
+        ));
+      case _bnbClippingAttachment:
+        flushPending();
+        clips.add(ClippingAttachment(
+          name: _bStr(obj, _bkName, strings, 'clippingAttachment.name'),
+          vertices: _bClipVertices(obj),
+          untilSlot: _bStr(obj, _bkUntilSlot, strings,
+              'clippingAttachment.untilSlot',
+              def: ''),
         ));
       case _bnbPath:
         flushPending();
@@ -2392,6 +2463,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
     regions: regions,
     paths: paths,
     pathAttachments: pathAttachments,
+    clippingAttachments: clips,
     ikConstraints: ikConstraints,
     transformConstraints: transformConstraints,
     physicsConstraints: physicsConstraints,
@@ -2694,6 +2766,11 @@ SkeletonData loadBonyJson(String jsonText) {
       .map((pa) => _parsePathAttachment(pa as Map<String, dynamic>))
       .toList();
 
+  final clippingAttachments =
+      ((root['clippingAttachments'] as List<dynamic>?) ?? [])
+          .map((c) => _parseClippingAttachment(c as Map<String, dynamic>))
+          .toList();
+
   final ikConstraints = ((root['ikConstraints'] as List<dynamic>?) ?? [])
       .map((ik) => _parseIk(ik as Map<String, dynamic>))
       .toList();
@@ -2744,6 +2821,7 @@ SkeletonData loadBonyJson(String jsonText) {
     regions: regions,
     paths: paths,
     pathAttachments: pathAttachments,
+    clippingAttachments: clippingAttachments,
     ikConstraints: ikConstraints,
     transformConstraints: transformConstraints,
     physicsConstraints: physicsConstraints,

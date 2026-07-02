@@ -214,8 +214,12 @@ Notes for readers comparing runtimes:
   the `.bnb` is non-empty at 248 bytes), and regenerates byte-identically on
   re-run per the float-math contract.
 - Cross-runtime status: the setup-pose golden `m11_clip_rig_t0.json` is honored by
-  the **Nim** reference now; **Dart parity is pending prompt 18** (the Dart
-  runtime does not yet clip draw batches).
+  **both** the Nim reference and the Dart runtime — Dart now loads the clipping
+  record and clips draw batches in `buildDrawBatches` with the same
+  Sutherland-Hodgman algorithm, matching the golden within `1e-4`
+  (`runtime-dart/test/m10_conformance_test.dart`, the `M11-Clip` group; the Dart
+  `.bnb` clip-load path is additionally covered by
+  `runtime-dart/test/m11_clip_bnb_test.dart`).
 
 ### Image goldens (Nim reference rasterizer only)
 

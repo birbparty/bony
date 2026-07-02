@@ -218,6 +218,24 @@ class PathAttachment {
   final double p3y;
 }
 
+class ClippingAttachment {
+  const ClippingAttachment({
+    required this.name,
+    required this.vertices,
+    required this.untilSlot,
+  });
+
+  final String name;
+
+  /// Convex polygon as a flat `[x0, y0, x1, y1, ...]` list in the owning slot's
+  /// bone-local space.
+  final List<double> vertices;
+
+  /// Slot name at which the clip range stops (inclusive); empty clips to the end
+  /// of draw order.
+  final String untilSlot;
+}
+
 class SkeletonData {
   const SkeletonData({
     required this.header,
@@ -226,6 +244,7 @@ class SkeletonData {
     required this.regions,
     required this.paths,
     required this.pathAttachments,
+    this.clippingAttachments = const [],
     this.ikConstraints = const [],
     this.transformConstraints = const [],
     this.physicsConstraints = const [],
@@ -241,6 +260,7 @@ class SkeletonData {
   final List<RegionAttachment> regions;
   final List<PathConstraintData> paths;
   final List<PathAttachment> pathAttachments;
+  final List<ClippingAttachment> clippingAttachments;
   final List<IkConstraintData> ikConstraints;
   final List<TransformConstraintData> transformConstraints;
   final List<PhysicsConstraintData> physicsConstraints;

@@ -194,4 +194,10 @@ void main() {
     '../conformance/assets/m5_transform_rig.bony',
     '../conformance/goldens/m5_transform_rig_t0.json',
   );
+
+  _checkGolden(
+    'M11-Clip',
+    '../conformance/assets/m11_clip_rig.bony',
+    '../conformance/goldens/m11_clip_rig_t0.json',
+  );
 }
