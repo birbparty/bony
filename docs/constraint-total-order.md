@@ -135,6 +135,64 @@ constraints must remain byte/load compatible and continue to produce the
 validation-only output described above unless a migration explicitly opts them
 into solver fields.
 
+## Transform Constraint Runtime Contract
+
+Unlike path constraints, transform constraints are **runtime-evaluable in v1** —
+the format record already carries every field the solver consumes. A
+`transformConstraints[]` entry stores:
+
+- `name`
+- `bone` — the constrained bone (singular; not a chain)
+- `target` — the bone whose world pose is the blend target
+- `order`
+- `translateMix`, `rotateMix`, `scaleMix`, `shearMix` — four independent f32
+  blend amounts in `[0, 1]`, each `omitWhenDefault` with default `1.0` and
+  `applyOnLoad: false`, presence-tracked so the four mixes round-trip byte-stably.
+
+A transform constraint is runtime-evaluable when **any** mix is greater than
+zero (an all-zero constraint is a no-op and is skipped by the detection gate,
+the update-cache read gating, and the apply guard alike — the same
+constraint-only predicate is used in all three places). There is no separate
+opt-in field: the mix values themselves are the signal, and because they default
+to `1.0`, a bare transform constraint evaluates at full influence.
+
+The constraint participates in the canonical world-transform update cache at its
+`(stageRank, order, kindRank, sourceIndex)` position; `constraintKindRank` places
+transform constraints **after IK and before path** (`ckIk = 0 < ckTransform = 1
+< ckPath = 2`). The descriptor sets `writes = [bone]` and, when runtime-evaluable,
+`reads = [target]`, so the shared builder emits the target (and its lineage)
+before the constraint and re-derives the constrained bone from its constraint-set
+local afterward.
+
+To evaluate a runtime transform constraint:
+
+1. Compute the constrained bone's **current** world transform by FK-composing its
+   live local transform onto its already-emitted parent world (the constrained
+   bone is a constraint write target, so it is not pre-emitted by a bone group).
+2. Read the `target` bone's already-computed world transform. If the target (or
+   the constrained bone's parent) has not been emitted yet, the constraint is
+   mis-ordered and must be rejected with an ordering violation.
+3. Decompose both world affines into `(x, y, rotation, scaleX, scaleY, shearX,
+   shearY)` poses and blend **per channel**: translation (`x`, `y`) by
+   `translateMix`, `rotation` by `rotateMix` using the shortest signed angular
+   delta, `scaleX`/`scaleY` by `scaleMix`, and `shearX`/`shearY` by `shearMix`
+   (also shortest-angle). `mix = 0` on a channel preserves the constrained pose;
+   `mix = 1` snaps it fully to the target.
+4. Recompose the blended pose into a world affine, then write it back as the
+   constrained bone's **local** transform (inverting `worldForBone`: translation
+   via the full inverse parent affine, linear via the inherited-factor inverse
+   selected by the bone's `inheritRotation`/`inheritScale`/`inheritReflection`
+   flags) so the trailing FK re-derivation reproduces it. If the parent affine or
+   its inherited-factor product is singular, the constraint is invalid and must be
+   rejected; runtimes must not use a pseudo-inverse or host-specific fallback.
+
+Serialization mirrors the other M5 constraint records: the four mixes get JSON
+schema fields (bounded `[0, 1]`) and wire property keys (`translateMix = 4012`
+and `rotateMix = 4013` reused from path; `scaleMix = 4017` and `shearMix = 4018`
+new), default-table entries use `applyOnLoad: false`, and binary loaders preserve
+mix presence, not just value. The conformance rig `m5_transform_rig` exercises all
+four channels at a partial `0.5` mix; see `conformance/README.md`.
+
 ## Canonical Sort Key
 
 Every constraint has a canonical key:

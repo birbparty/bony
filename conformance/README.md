@@ -32,6 +32,7 @@ conformance/
 | M4 | `m4_rig` | Multiple region attachments, draw order |
 | M5 | `m5_rig` | Path attachments, path constraints |
 | M5 (IK) | `m5_ik_rig` | IK constraints: 1-bone (`reach_one`), 2-bone with `bendPositive: false` (`reach_two`), 3-bone FABRIK chain with `mix: 0.5` (`reach_chain`); state-machine-driven IK target animation |
+| M5 (transform) | `m5_transform_rig` | Transform constraint: a constrained bone blended toward a rotated/scaled/sheared target at a partial `0.5` mix on all four channels (`translateMix`/`rotateMix`/`scaleMix`/`shearMix`) |
 | M6 | `forward_compat.bnb` | Forward-compatibility: unknown future fields are silently dropped |
 | M7 | `m7_rig` | Deformers (warp, rotation, bone) |
 | M8 | `m8_rig` | Animation timelines (bone rotate/translate/scale/shear), state machines |
@@ -75,6 +76,43 @@ Notes for readers comparing runtimes:
   (`runtime-dart/test/m10_conformance_test.dart`). The state-machine story
   goldens (`m5_ik_story_*`) remain Nim-only pending the Dart story slice.
 
+### M5 transform rig (`m5_transform_rig`)
+
+`m5_transform_rig` is a third M5 asset dedicated to transform constraints (base
+`m5_rig` covers path constraints; `m5_ik_rig` covers IK). It has three bones —
+`root`, `constrained` (child of root at `x=40`), and `target` (child of root at
+`x=80, y=60, rotation=45, scaleX=2, shearY=30`) — and one transform constraint
+`follow` that drives `constrained` toward `target` with a **partial `0.5` mix on
+all four channels** (`translateMix`/`rotateMix`/`scaleMix`/`shearMix`).
+
+One input script drives it:
+- `m5_transform_sample.json` — setup pose at `t=0` → golden `m5_transform_rig_t0.json`.
+
+**Non-vacuous constrained-vs-unconstrained delta.** Without the constraint,
+`constrained`'s world would be its plain FK pose: `tx=40, ty=0`, identity basis
+(`a=1, b=0, c=0, d=1`) — i.e. rotation `0°`, `scaleX=scaleY=1`, `shearY=0`. With
+the constraint solved at `t=0`, `m5_transform_rig_t0.json` records `constrained`
+as `tx=60, ty=30, a≈1.38582, b≈0.57403, c≈-0.60876, d≈0.79335`, which decomposes
+to rotation `22.5°`, `scaleX=1.5`, `scaleY=1.0`, `shearY=15°`. Every channel is
+exactly the `0.5` midpoint between the unconstrained pose and the target
+(rotation `0→45` ⇒ `22.5`, `scaleX 1→2` ⇒ `1.5`, `shearY 0→30` ⇒ `15`,
+translation `(40,0)→(80,60)` ⇒ `(60,30)`). The world-affine delta is far above
+the `1e-4` conformance tolerance — translation alone moves `hypot(20,30) ≈ 36.06`
+skeleton units, and every mix channel contributes a distinct, observable change,
+so a runtime that drops or mis-implements any single channel (including shear)
+fails this golden.
+
+Notes for readers comparing runtimes:
+- Serialized `world` matrix entries are full float64; the four mixes are
+  f32-quantized internally (backing type `f32`).
+- The golden is reproduced identically from both `m5_transform_rig.bony` and
+  `conformance/assets/bnb/m5_transform_rig.bnb` (the JSON and binary loaders
+  agree; the `.bnb` is non-empty at 215 bytes).
+- Cross-runtime status: the setup-pose golden `m5_transform_rig_t0.json` is
+  currently honored by the **Nim reference only**. Dart transform-constraint
+  evaluation is the parity follow-up; until then Dart's static conformance asset
+  list intentionally omits this rig.
+
 ### Image goldens (Nim reference rasterizer only)
 
 Image goldens (`*_play.png`) are Nim-only regression artifacts for the reference
@@ -89,6 +127,7 @@ and do not need to be reproduced by Dart or other runtimes.
 | m4_rig | `m4_rig_play.png` |
 | m5_rig | `m5_rig_play.png` |
 | m5_ik_rig | pending (no PNG golden produced) |
+| m5_transform_rig | pending (no PNG golden produced) |
 | m6 | n/a (binary-only fixture — no .bony source) |
 | m7_rig | pending (gated on pixie rasterizer — bony-gzz) |
 | m8_rig | `m8_rig_play.png` |
