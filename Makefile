@@ -24,6 +24,7 @@ test:
 	python3 -m unittest discover -s codegen -p 'test_*.py'
 	nim check --hints:off --path:runtime-nim/src runtime-nim/src/bony.nim
 	cd runtime-nim && nim c -r --hints:off tests/test_smoke.nim
+	cd runtime-nim && nim c -r --hints:off tests/test_physics_eval.nim
 	cd runtime-nim && nim c -r --hints:off -d:bonyExcludeMain --path:../cli tests/test_cli_pose.nim
 	cd runtime-nim && nim c -r --hints:off tests/test_ik_current_pivot.nim
 	cd runtime-nim && nim c -r --hints:off tests/test_bnb_byte_stability.nim

@@ -6,6 +6,7 @@ import bony/constraints/path_constraints
 import bony/constraints/update_cache
 import bony/constraints/ik
 import bony/constraints/transform_constraints
+import bony/constraints/physics_constraints
 import bony/model
 
 const basisEpsilon = 1e-12
@@ -150,7 +151,13 @@ proc applyRuntimeTransformConstraint(
 )
 
 
-proc computeWorldTransforms*(data: SkeletonData): seq[Affine2] =
+proc computeWorldsAndLocals(data: SkeletonData): tuple[worlds: seq[Affine2]; locals: seq[LocalTransform]] =
+  ## Core world-transform pass. Returns BOTH the world affines and the final
+  ## per-bone local transforms (which the ik/path/transform constraints may have
+  ## rewritten). The physics stage needs the constraint-adjusted locals as its
+  ## animated targets, so this is factored out of computeWorldTransforms; the
+  ## pure entry point below is a thin wrapper and its output is byte-for-byte
+  ## unchanged.
   var hasRuntimeConstraints = false
   for path in data.paths:
     if path.runtimeEvaluable:
@@ -173,7 +180,7 @@ proc computeWorldTransforms*(data: SkeletonData): seq[Affine2] =
     var locals: seq[LocalTransform]
     for bone in data.bones:
       locals.add bone.local
-    result = newSeq[Affine2](data.bones.len)
+    var worlds = newSeq[Affine2](data.bones.len)
     var computed = newSeq[bool](data.bones.len)
     for entry in cache:
       case entry.kind
@@ -181,37 +188,47 @@ proc computeWorldTransforms*(data: SkeletonData): seq[Affine2] =
         for index in entry.bones:
           let bone = data.bones[index]
           if bone.parent.len == 0:
-            result[index] = worldForBone(Affine2(a: 1.0, d: 1.0), boneData(bone.name, "", locals[index]), false)
+            worlds[index] = worldForBone(Affine2(a: 1.0, d: 1.0), boneData(bone.name, "", locals[index]), false)
           else:
             let parentIndex = indexes[bone.parent]
-            result[index] = worldForBone(result[parentIndex], boneData(bone.name, bone.parent, locals[index]), true)
+            worlds[index] = worldForBone(worlds[parentIndex], boneData(bone.name, bone.parent, locals[index]), true)
           computed[index] = true
       of ccekConstraint:
         case entry.constraint.kind
         of ckPath:
           let path = data.paths[entry.constraint.sourceIndex]
-          data.applyRuntimePathConstraint(path, locals, result, computed, indexes, attachments)
+          data.applyRuntimePathConstraint(path, locals, worlds, computed, indexes, attachments)
         of ckIk:
           let ik = data.ikConstraints[entry.constraint.sourceIndex]
-          data.applyRuntimeIk(ik, locals, result, computed, indexes)
+          data.applyRuntimeIk(ik, locals, worlds, computed, indexes)
         of ckTransform:
           let tc = data.transformConstraints[entry.constraint.sourceIndex]
-          data.applyRuntimeTransformConstraint(tc, locals, result, computed, indexes)
+          data.applyRuntimeTransformConstraint(tc, locals, worlds, computed, indexes)
         else:
-          # ckPhysics is out of scope for this slice.
+          # ckPhysics is a SEPARATE stateful stage (advancePhysics), not an entry
+          # in this pure world-transform loop.
           discard
-    return
+    return (worlds: worlds, locals: locals)
 
   var byName = initTable[string, int]()
   let bones = data.bones
-  result = newSeq[Affine2](bones.len)
+  var worlds = newSeq[Affine2](bones.len)
+  var locals = newSeq[LocalTransform](bones.len)
   for index, bone in bones:
+    locals[index] = bone.local
     if bone.parent.len == 0:
-      result[index] = worldForBone(Affine2(a: 1.0, d: 1.0), bone, false)
+      worlds[index] = worldForBone(Affine2(a: 1.0, d: 1.0), bone, false)
     else:
       let parentIndex = byName[bone.parent]
-      result[index] = worldForBone(result[parentIndex], bone, true)
+      worlds[index] = worldForBone(worlds[parentIndex], bone, true)
     byName[bone.name] = index
+  (worlds: worlds, locals: locals)
+
+
+proc computeWorldTransforms*(data: SkeletonData): seq[Affine2] =
+  ## Pure world-transform pass (no time, no mutable state). Used by setup-pose /
+  ## t=0 callers and every existing M1-M9 golden. Unchanged by physics work.
+  computeWorldsAndLocals(data).worlds
 
 
 proc transformPoint(world: Affine2; x, y: float64): tuple[x: float64, y: float64] =
@@ -640,6 +657,126 @@ proc applyRuntimeTransformConstraint(
   locals[boneIndex] = newLocal
   worlds[boneIndex] = worldForBone(parentWorld, boneData(data.bones[boneIndex].name, parent, newLocal), hasParent)
   computed[boneIndex] = true
+
+
+proc physicsChannelValue(local: LocalTransform; channel: PhysicsChannel): float64 =
+  ## Read the animated target for a physics channel from the constrained bone's
+  ## LOCAL transform, in the runtime's native storage units (translation in
+  ## skeleton units; rotation/shearX in degrees as stored; scaleX unitless). This
+  ## is bony's canonical per-channel representation — the same field localLinear
+  ## consumes — so physics reads and writes the identical field with no lossy
+  ## angle conversion, and dt=0 is an exact pose no-op.
+  case channel
+  of pcX: local.x
+  of pcY: local.y
+  of pcRotate: local.rotation
+  of pcScaleX: local.scaleX
+  of pcShearX: local.shearX
+
+
+proc withPhysicsChannel(local: LocalTransform; channel: PhysicsChannel; value: float64): LocalTransform =
+  ## Copy a local transform, replacing only the given physics channel. Mirrors
+  ## withRotation; localTransform quantizes to f32 (the public output boundary).
+  var x = local.x
+  var y = local.y
+  var rotation = local.rotation
+  var scaleX = local.scaleX
+  var shearX = local.shearX
+  case channel
+  of pcX: x = value
+  of pcY: y = value
+  of pcRotate: rotation = value
+  of pcScaleX: scaleX = value
+  of pcShearX: shearX = value
+  localTransform(
+    x = x, y = y, rotation = rotation,
+    scaleX = scaleX, scaleY = local.scaleY,
+    shearX = shearX, shearY = local.shearY,
+    inheritRotation = local.inheritRotation,
+    inheritScale = local.inheritScale,
+    inheritReflection = local.inheritReflection,
+    transformMode = local.transformMode,
+  )
+
+
+proc recomputeWorldsFromLocals(
+  data: SkeletonData;
+  locals: seq[LocalTransform];
+  indexes: Table[string, int];
+): seq[Affine2] =
+  ## Plain FK from the physics-adjusted locals. Bones are validated parent-before
+  ## -child, so a single array pass recomputes every world (and every physics-
+  ## affected descendant) from the locals the constraint pass and physics stage
+  ## left behind.
+  result = newSeq[Affine2](data.bones.len)
+  for index, bone in data.bones:
+    if bone.parent.len == 0:
+      result[index] = worldForBone(Affine2(a: 1.0, d: 1.0), boneData(bone.name, "", locals[index]), false)
+    else:
+      result[index] = worldForBone(result[indexes[bone.parent]], boneData(bone.name, bone.parent, locals[index]), true)
+
+
+proc newPhysicsStates*(data: SkeletonData): seq[PhysicsConstraintState] =
+  ## One default PhysicsConstraintState per physics constraint (index = source
+  ## order in data.physicsConstraints). Default is accumulator=0, inactive, and
+  ## un-initialized channels, so the first advancePhysics call lazily seeds each
+  ## channel from its current animated target per the integrator contract.
+  newSeq[PhysicsConstraintState](data.physicsConstraints.len)
+
+
+proc advancePhysics*(
+  data: SkeletonData;
+  states: var seq[PhysicsConstraintState];
+  dt: float64;
+): seq[Affine2] =
+  ## Stateful advance seam: bony's only time- and state-dependent pose entry
+  ## point. Runs the pure world-transform/constraint pass to produce the animated
+  ## target pose, then the physics stage (after that pass, per
+  ## docs/constraint-total-order.md), then recomposes worlds from the adjusted
+  ## locals. `states` carries per-constraint PhysicsConstraintState across frames
+  ## (see newPhysicsStates); `dt` is the non-negative frame delta and the ONLY
+  ## time source. With no physics constraints this is exactly computeWorldTransforms.
+  if data.physicsConstraints.len == 0:
+    return computeWorldTransforms(data)
+  if states.len != data.physicsConstraints.len:
+    raise newBonyLoadError(schemaViolation,
+      "physics state count (" & $states.len & ") does not match physics constraint count (" &
+      $data.physicsConstraints.len & ")")
+
+  var (worlds, locals) = computeWorldsAndLocals(data)
+  let indexes = data.boneIndexes()
+
+  # Deterministic physics-stage order (docs/constraint-total-order.md). Reads the
+  # constrained bone's live local channels as targets, integrates each enabled
+  # channel via the existing integrator, and folds outputs back onto the local.
+  # Ordering a same-channel chain works naturally: each constraint reads the
+  # local left by earlier ones and writes before later ones.
+  var descriptors: seq[ConstraintCacheDescriptor]
+  for index, pc in data.physicsConstraints:
+    descriptors.add constraintCacheDescriptor(ckPhysics, pc.order, index, [pc.bone])
+  let order = buildPhysicsConstraintOrder(descriptors)
+
+  for entry in order:
+    let pc = data.physicsConstraints[entry.sourceIndex]
+    let boneIndex = indexes[pc.bone]
+    var inputs: seq[PhysicsChannelInput]
+    for channel in pc.channels:
+      inputs.add physicsChannelInput(channel, physicsChannelValue(locals[boneIndex], channel))
+    let params = physicsParams(
+      inertia = pc.inertia,
+      strength = pc.strength,
+      damping = pc.damping,
+      mass = pc.mass,
+      gravity = pc.gravity,
+      wind = pc.wind,
+      mix = pc.mix,
+    )
+    let res = updatePhysicsConstraint(states[entry.sourceIndex], params, inputs, dt)
+    for output in res.outputs:
+      locals[boneIndex] = withPhysicsChannel(locals[boneIndex], output.channel, output.value)
+
+  worlds = recomputeWorldsFromLocals(data, locals, indexes)
+  worlds
 
 
 proc vertex(world: Affine2; x, y, u, v: float64): DrawVertex =
