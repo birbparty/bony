@@ -16,6 +16,7 @@ const
   boneTypeKey = 2'u64
   slotTypeKey = 1000'u64
   regionTypeKey = 1001'u64
+  clippingAttachmentTypeKey = 3000'u64
   pathTypeKey = 4000'u64
   pathAttachmentTypeKey = 4001'u64
   ikConstraintTypeKey = 4002'u64
@@ -51,6 +52,8 @@ const
   attachmentKey = 1013'u64
   widthKey = 1014'u64
   heightKey = 1015'u64
+  verticesKey = 3000'u64
+  untilSlotKey = 3001'u64
   targetKey = 4000'u64
   pathKey = 4001'u64
   orderKey = 4002'u64
@@ -463,6 +466,31 @@ proc readBlendAxesPayload(
     result.add paramsByName[axisName]
   if index != payload.len:
     raise newBonyLoadError(schemaViolation, ".bnb blendAxes payload has trailing bytes")
+
+
+proc writeClipVerticesPayload(vertices: openArray[float64]): seq[byte] =
+  ## Frozen clipping-attachment vertices layout (docs/clipping-attachment-contract.md):
+  ## varuint point count followed by count*(f32 x, f32 y) little-endian pairs.
+  ## `vertices` is a flat [x0, y0, x1, y1, ...] list, so point count = len div 2.
+  result.writeVaruint(uint64(vertices.len div 2))
+  for value in vertices:
+    result.add writeF32Payload(value)
+
+
+proc readClipVerticesPayload(payload: openArray[byte]): seq[float64] =
+  var index = 0
+  let count = payload.readVaruint(index)
+  for _ in 0'u64 ..< count:
+    if index + 8 > payload.len:
+      raise newBonyLoadError(schemaViolation, ".bnb clippingAttachment vertices payload is truncated")
+    let x = readF32Payload(payload[index ..< index + 4], "clippingAttachment.vertices.x")
+    index += 4
+    let y = readF32Payload(payload[index ..< index + 4], "clippingAttachment.vertices.y")
+    index += 4
+    result.add x
+    result.add y
+  if index != payload.len:
+    raise newBonyLoadError(schemaViolation, ".bnb clippingAttachment vertices payload has trailing bytes")
 
 
 proc writeBonesPayload(bones: openArray[string]; table: var BnbStringTable): seq[byte] =
@@ -909,6 +937,16 @@ proc buildObjectRecords(data: SkeletonData; table: var BnbStringTable; toc: var 
     properties.addF64Required(toc, p3yKey, pathAttachment.p3y, "pathAttachment.p3y")
     result.add BnbObjectRecord(typeKey: pathAttachmentTypeKey, properties: properties)
 
+  # Clipping attachments: slot-bound convex-polygon masks. Emitted after region
+  # and path attachments. vertices packs as varuint count + f32 xy pairs;
+  # untilSlot is value-gated (applyOnLoad:true, default "").
+  for clip in data.clippingAttachments:
+    var properties: seq[BnbPropertyRecord]
+    properties.addStringIfNeeded(toc, table, nameKey, clip.name, "", required = true)
+    properties.addProperty(toc, verticesKey, writeClipVerticesPayload(clip.vertices))
+    properties.addStringIfNeeded(toc, table, untilSlotKey, clip.untilSlot, defaultString("clippingAttachment", "untilSlot"))
+    result.add BnbObjectRecord(typeKey: clippingAttachmentTypeKey, properties: properties)
+
   # IK section: canonical object-stream position is after attachments and before
   # paths (docs/binary-canonicalization.md). Emitted only when non-empty so
   # existing IK-free fixtures stay byte-identical. mix/bendPositive are
@@ -1271,6 +1309,7 @@ proc decodeSkeletonObjects(objects: openArray[BnbObjectRecord]; strings: BnbStri
   var slots: seq[SlotData]
   var regions: seq[RegionAttachment]
   var pathAttachments: seq[PathAttachmentData]
+  var clips: seq[ClipAttachmentData]
   var paths: seq[PathConstraintData]
   var ikConstraints: seq[IkConstraintData]
   var transformConstraints: seq[TransformConstraintData]
@@ -1390,6 +1429,15 @@ proc decodeSkeletonObjects(objects: openArray[BnbObjectRecord]; strings: BnbStri
         properties.readF64Property(p2yKey, "pathAttachment.p2y"),
         properties.readF64Property(p3xKey, "pathAttachment.p3x"),
         properties.readF64Property(p3yKey, "pathAttachment.p3y"),
+      )
+    of clippingAttachmentTypeKey:
+      let properties = record.propertyMap([nameKey, verticesKey, untilSlotKey])
+      if verticesKey notin properties:
+        raise newBonyLoadError(schemaViolation, ".bnb clippingAttachment.vertices is required")
+      clips.add clipAttachmentData(
+        properties.readStringProperty(strings, nameKey, "clippingAttachment.name"),
+        readClipVerticesPayload(properties[verticesKey]),
+        properties.readOptionalStringProperty(strings, untilSlotKey, defaultString("clippingAttachment", "untilSlot")),
       )
     of pathTypeKey:
       flushPendingIfAny()
@@ -1567,7 +1615,7 @@ proc decodeSkeletonObjects(objects: openArray[BnbObjectRecord]; strings: BnbStri
 
   if not hasSkeleton:
     raise newBonyLoadError(schemaViolation, ".bnb skeleton object is required")
-  skeletonData(headerValue, bones, slots, regions, pathAttachments, paths, loadedParameters, loadedDeformers, ikConstraints, transformConstraints, physicsConstraints)
+  skeletonData(headerValue, bones, slots, regions, pathAttachments, paths, loadedParameters, loadedDeformers, ikConstraints, transformConstraints, physicsConstraints, clips)
 
 
 proc withTarget(timeline: BoneTimeline; target: string): BoneTimeline =

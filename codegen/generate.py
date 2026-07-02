@@ -36,6 +36,12 @@ PACKED_BYTES_METADATA: dict[str, dict[str, Any]] = {
         "structuralSchema": "base64Only",
         "validatedBy": "loader",
     },
+    "vertices": {
+        "payload": "clippingAttachmentVertices",
+        "layout": "docs/clipping-attachment-contract.md#packed-vertices-byte-layout-bnb",
+        "structuralSchema": "base64Only",
+        "validatedBy": "loader",
+    },
 }
 
 
@@ -588,6 +594,16 @@ def canonical_json_overrides() -> dict[str, Any]:
                 "bendPositive": {"type": "boolean", "default": True},
             },
             "required": ["bones", "name", "target"],
+        },
+        "clippingAttachment": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "name": named_string,
+                "vertices": {"type": "array", "minItems": 6, "items": number},
+                "untilSlot": {"type": "string", "default": ""},
+            },
+            "required": ["name", "vertices"],
         },
         "parameter": {
             "type": "object",

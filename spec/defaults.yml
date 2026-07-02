@@ -167,6 +167,13 @@ objectDefaults:
   - object: region
     ownerBead: bony-v1p
     properties: {}
+  - object: clippingAttachment
+    ownerBead: bony-jkt
+    properties:
+      untilSlot:
+        value: ""
+        omitWhenDefault: true
+        applyOnLoad: true
   - object: path
     ownerBead: bony-8gs
     properties:
@@ -458,6 +465,14 @@ requiredProperties:
     property: height
     reason: Region attachments need dimensions for draw-batch quads.
     ownerBead: bony-v1p
+  - object: clippingAttachment
+    property: name
+    reason: Clipping attachments are referenced by slot attachment names.
+    ownerBead: bony-jkt
+  - object: clippingAttachment
+    property: vertices
+    reason: A clipping attachment must carry a convex polygon to clip against.
+    ownerBead: bony-jkt
   - object: path
     property: name
     reason: Path constraints are referenced by stable unique names.

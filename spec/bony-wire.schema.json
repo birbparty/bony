@@ -27,6 +27,12 @@
         "$ref": "#/$defs/region"
       }
     },
+    "clippingAttachments": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/clippingAttachment"
+      }
+    },
     "paths": {
       "type": "array",
       "items": {
@@ -607,6 +613,34 @@
         "height",
         "name",
         "width"
+      ]
+    },
+    "clippingAttachment": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "vertices": {
+          "type": "string",
+          "contentEncoding": "base64",
+          "x-bony-packedBytes": {
+            "payload": "clippingAttachmentVertices",
+            "layout": "docs/clipping-attachment-contract.md#packed-vertices-byte-layout-bnb",
+            "structuralSchema": "base64Only",
+            "validatedBy": "loader"
+          }
+        },
+        "untilSlot": {
+          "type": "string",
+          "default": ""
+        }
+      },
+      "required": [
+        "name",
+        "vertices"
       ]
     },
     "path": {

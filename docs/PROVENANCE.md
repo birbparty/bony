@@ -111,6 +111,35 @@ documentation prose.
 - **CI enforcement**: not required — enforced by code review and the
   clean-room review checklist in `docs/CLEANROOM.md`.
 
+### Clipping Attachment Schema Names (2026-07-02)
+
+- **Reason needed**: The M4 clipping-attachment milestone (bead `bony-jkt`)
+  introduces a new loadable attachment record and needs project-owned
+  identifiers for its type, fields, and range semantics.
+- **Classification**: project-owned design — not an external source of
+  implementation truth.
+- **What is recorded**: the identifiers `clippingAttachment` (type),
+  `clippingAttachments` (skeleton-level array), `vertices` (flat `[x, y]` convex
+  polygon), and `untilSlot` (inclusive range-end slot name) were chosen from
+  generic geometry and draw-order terminology. "Clipping" already appears as the
+  M4 band scope in `registry/key-ranges.md`. The clip model (slot-bound convex
+  mask referenced through the existing `slot.attachment` field), the
+  `untilSlot`-inclusive range and no-overlap invariant, the packed `vertices`
+  byte layout (varuint count + f32 pairs), and the forward-referenced
+  Sutherland–Hodgman clip algorithm are specified in
+  `docs/clipping-attachment-contract.md`.
+- **Source**: none. The names were **not** derived from any third-party runtime's
+  clip/mask field set, end-slot semantics, wire layout, type/property keys, or
+  documentation prose (DragonBones, Spine, Rive, Live2D, Lottie).
+- **Cleanroom compliance**: confirmed against the `docs/CLEANROOM.md` review
+  checklist — the record can be explained from `bony` docs/specs and public
+  polygon-clipping math; the new identifiers, keys (type `3000`, properties
+  `3000`/`3001` in the M4 band), object ordering, and binary encoding are
+  project-owned and documented in `registry/`, `spec/`, and `docs/`; no build
+  step fetches prior-art source.
+- **CI enforcement**: registry/defaults/codegen consistency is enforced by
+  `codegen/generate.py --check`; clean-room posture is enforced by code review.
+
 ## Source Introduction Rule
 
 When a new external dependency, reference, algorithm paper, or importer input

@@ -63,6 +63,17 @@ for the animation/state-machine preservation-vs-playback boundary.
 
 ---
 
+## Attachment Contracts
+
+Contracts governing project-owned attachment record classes: their format, load
+validation, and (where applicable) the deterministic runtime algorithm.
+
+| Document | What it defines |
+|----------|----------------|
+| [clipping-attachment-contract.md](clipping-attachment-contract.md) | Slot-bound convex clipping attachment: format, load validation, `untilSlot`-inclusive range + no-overlap rule, packed `vertices` byte layout, and the (forward-referenced) deterministic Sutherland–Hodgman clip algorithm |
+
+---
+
 ## Renderer Contracts
 
 | Document | What it defines |
