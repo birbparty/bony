@@ -4,7 +4,7 @@
     {"name": "root"},
 
     {"name": "constrained", "parent": "root", "x": 40, "y": 0},
-    {"name": "target", "parent": "root", "x": 80, "y": 60, "rotation": 45, "scaleX": 2}
+    {"name": "target", "parent": "root", "x": 80, "y": 60, "rotation": 45, "scaleX": 2, "shearY": 30}
   ],
   "transformConstraints": [
     {
