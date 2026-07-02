@@ -1,0 +1,21 @@
+{
+  "skeleton": {
+    "name": "m11-clip-rig",
+    "version": "1.0.0"
+  },
+  "bones": [
+    {"name": "root"}
+  ],
+  "slots": [
+    {"name": "clip_slot", "bone": "root", "attachment": "clip_mask"},
+    {"name": "panel_slot", "bone": "root", "attachment": "panel"},
+    {"name": "outside_slot", "bone": "root", "attachment": "panel_far"}
+  ],
+  "regions": [
+    {"name": "panel", "width": 100, "height": 100},
+    {"name": "panel_far", "width": 40, "height": 40}
+  ],
+  "clippingAttachments": [
+    {"name": "clip_mask", "vertices": [-200, -200, 230, -200, -200, 230], "untilSlot": "panel_slot"}
+  ]
+}
