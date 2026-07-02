@@ -6,6 +6,7 @@ import 'dart:convert';
 import 'dart:typed_data' show Uint8List, ByteData, Endian;
 import 'deform.dart' show quantizeF32;
 import 'model.dart';
+import 'physics_constraint.dart' show physicsChannelsFromMask;
 
 // Throw FormatException with a clear message if the value is null or the
 // wrong type. This is intentionally strict so callers get a FormatException
@@ -110,6 +111,37 @@ TransformConstraintData _parseTransform(Map<String, dynamic> j) {
     rotateMix: mixOf('rotateMix'),
     scaleMix: mixOf('scaleMix'),
     shearMix: mixOf('shearMix'),
+  );
+}
+
+PhysicsConstraintData _parsePhysics(Map<String, dynamic> j) {
+  // Each param is an f32 on the wire; quantize the JSON f64 so the JSON and .bnb
+  // load paths agree bit-for-bit (matches runtime-nim's physicsConstraintData
+  // ctor). null preserves "absent" (integrator applies mass=1.0/physicsMix=1.0/
+  // rest 0.0 defaults). Range validation happens in _validate.
+  double? paramOf(String key) {
+    final raw = (j[key] as num?)?.toDouble();
+    return raw == null ? null : quantizeF32(raw);
+  }
+
+  final rawChannels = j['channels'];
+  if (rawChannels == null) {
+    throw const FormatException('missing required field: physicsConstraint.channels');
+  }
+  final channels = physicsChannelsFromMask((rawChannels as num).toInt());
+
+  return PhysicsConstraintData(
+    name: _required<String>(j['name'], 'physicsConstraint.name'),
+    bone: _required<String>(j['bone'], 'physicsConstraint.bone'),
+    channels: channels,
+    order: (j['order'] as num?)?.toInt() ?? 0,
+    inertia: paramOf('inertia'),
+    strength: paramOf('strength'),
+    damping: paramOf('damping'),
+    mass: paramOf('mass'),
+    gravity: paramOf('gravity'),
+    wind: paramOf('wind'),
+    physicsMix: paramOf('physicsMix'),
   );
 }
 
@@ -720,6 +752,44 @@ void _validate(SkeletonData data) {
     }
   }
 
+  final physicsNames = <String>{};
+  for (var i = 0; i < data.physicsConstraints.length; i++) {
+    final pc = data.physicsConstraints[i];
+    final ctx = 'physicsConstraints[$i]';
+    if (pc.name.isEmpty) throw FormatException('$ctx.name must not be empty');
+    if (!physicsNames.add(pc.name)) {
+      throw FormatException('duplicate physics constraint name: ${pc.name}');
+    }
+    if (!boneNames.contains(pc.bone)) {
+      throw FormatException('unknown physics constraint bone: ${pc.bone}');
+    }
+    if (pc.channels.isEmpty) {
+      throw FormatException('$ctx.channels must enable at least one channel');
+    }
+    // Bounds mirror the eval-time physicsParams: finite everywhere, mass >= 0,
+    // physicsMix in [0, 1]. Absent (null) params take integrator defaults.
+    for (final entry in <String, double?>{
+      'inertia': pc.inertia,
+      'strength': pc.strength,
+      'damping': pc.damping,
+      'gravity': pc.gravity,
+      'wind': pc.wind,
+    }.entries) {
+      final v = entry.value;
+      if (v != null && (v.isNaN || v.isInfinite)) {
+        throw FormatException('$ctx.${entry.key} must be finite');
+      }
+    }
+    final mass = pc.mass;
+    if (mass != null && (mass.isNaN || mass.isInfinite || mass < 0.0)) {
+      throw FormatException('$ctx.mass must be non-negative');
+    }
+    final mix = pc.physicsMix;
+    if (mix != null && (mix.isNaN || mix.isInfinite || mix < 0.0 || mix > 1.0)) {
+      throw FormatException('$ctx.physicsMix must be in [0, 1]');
+    }
+  }
+
   for (var ai = 0; ai < data.animations.length; ai++) {
     final anim = data.animations[ai];
     final ctx = 'animations[$ai](${anim.name})';
@@ -872,6 +942,7 @@ const int _bnbPath = 4000;
 const int _bnbPathAttachment = 4001;
 const int _bnbIkConstraint = 4002;
 const int _bnbTransformConstraint = 4003;
+const int _bnbPhysicsConstraint = 4004;
 const int _bnbAnimationClip = 2000;
 const int _bnbBoneTimeline = 2001;
 const int _bnbSlotTimeline = 2002;
@@ -931,6 +1002,16 @@ const int _bkBendPositive = 4016;
 // Transform constraint property keys (translateMix/rotateMix reused from path).
 const int _bkScaleMix = 4017;
 const int _bkShearMix = 4018;
+// Physics constraint property keys (frozen wire contract; channels is a varuint
+// bitmask). Mirrors generated/wire.dart physicsConstraint keys 4019..4026.
+const int _bkInertia = 4019;
+const int _bkStrength = 4020;
+const int _bkDamping = 4021;
+const int _bkMass = 4022;
+const int _bkGravity = 4023;
+const int _bkWind = 4024;
+const int _bkPhysicsMix = 4025;
+const int _bkChannels = 4026;
 const int _bkBoneIndex = 2000;
 const int _bkBoneTimelineKind = 2001;
 const int _bkSlotIndex = 2002;
@@ -992,6 +1073,7 @@ const _bnbKnownTypes = {
   _bnbPathAttachment,
   _bnbIkConstraint,
   _bnbTransformConstraint,
+  _bnbPhysicsConstraint,
   _bnbAnimationClip,
   _bnbBoneTimeline,
   _bnbSlotTimeline,
@@ -1558,6 +1640,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
   final pathAttachments = <PathAttachment>[];
   final ikConstraints = <IkConstraintData>[];
   final transformConstraints = <TransformConstraintData>[];
+  final physicsConstraints = <PhysicsConstraintData>[];
   final parameters = <ParameterAxis>[];
   final deformers = <DeformerRecord>[];
   final animations = <AnimationClip>[];
@@ -1796,6 +1879,43 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
               : null,
           shearMix: obj.props.containsKey(_bkShearMix)
               ? _bF32(obj, _bkShearMix, 'transformConstraint.shearMix')
+              : null,
+        ));
+      case _bnbPhysicsConstraint:
+        flushPending();
+        if (!obj.props.containsKey(_bkChannels)) {
+          throw const FormatException(
+              '.bnb physicsConstraint.channels is required');
+        }
+        physicsConstraints.add(PhysicsConstraintData(
+          name: _bStr(obj, _bkName, strings, 'physicsConstraint.name'),
+          bone: _bStr(obj, _bkBone, strings, 'physicsConstraint.bone'),
+          // channels is an unsigned varuint bitmask (NOT the signed/zigzag
+          // varint used by `order`), matching generated/wire.dart's varuint
+          // backingType and the Nim writeVaruintPayload emission.
+          channels: physicsChannelsFromMask(_bVaruint(obj, _bkChannels)),
+          order: _bVarint(obj, _bkOrder, def: 0),
+          // Absent => null (integrator defaults: mass=1.0/physicsMix=1.0/rest 0.0).
+          inertia: obj.props.containsKey(_bkInertia)
+              ? _bF32(obj, _bkInertia, 'physicsConstraint.inertia')
+              : null,
+          strength: obj.props.containsKey(_bkStrength)
+              ? _bF32(obj, _bkStrength, 'physicsConstraint.strength')
+              : null,
+          damping: obj.props.containsKey(_bkDamping)
+              ? _bF32(obj, _bkDamping, 'physicsConstraint.damping')
+              : null,
+          mass: obj.props.containsKey(_bkMass)
+              ? _bF32(obj, _bkMass, 'physicsConstraint.mass')
+              : null,
+          gravity: obj.props.containsKey(_bkGravity)
+              ? _bF32(obj, _bkGravity, 'physicsConstraint.gravity')
+              : null,
+          wind: obj.props.containsKey(_bkWind)
+              ? _bF32(obj, _bkWind, 'physicsConstraint.wind')
+              : null,
+          physicsMix: obj.props.containsKey(_bkPhysicsMix)
+              ? _bF32(obj, _bkPhysicsMix, 'physicsConstraint.physicsMix')
               : null,
         ));
       case _bnbPathAttachment:
@@ -2274,6 +2394,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
     pathAttachments: pathAttachments,
     ikConstraints: ikConstraints,
     transformConstraints: transformConstraints,
+    physicsConstraints: physicsConstraints,
     parameters: parameters,
     deformers: deformers,
     animations: animations,
@@ -2582,6 +2703,11 @@ SkeletonData loadBonyJson(String jsonText) {
           .map((tc) => _parseTransform(tc as Map<String, dynamic>))
           .toList();
 
+  final physicsConstraints =
+      ((root['physicsConstraints'] as List<dynamic>?) ?? [])
+          .map((pc) => _parsePhysics(pc as Map<String, dynamic>))
+          .toList();
+
   final animsRaw = root['animations'];
   final animations = animsRaw is List<dynamic>
       ? _parseAnimations(animsRaw)
@@ -2620,6 +2746,7 @@ SkeletonData loadBonyJson(String jsonText) {
     pathAttachments: pathAttachments,
     ikConstraints: ikConstraints,
     transformConstraints: transformConstraints,
+    physicsConstraints: physicsConstraints,
     animations: animations,
     parameters: parameters,
     deformers: deformers,

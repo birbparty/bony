@@ -167,9 +167,13 @@ Notes for readers comparing runtimes:
 - The goldens are reproduced identically from both `m5_physics_rig.bony` and
   `conformance/assets/bnb/m5_physics_rig.bnb` (the JSON and binary loaders agree;
   the `.bnb` is non-empty at 303 bytes).
-- Cross-runtime status: the `m5_physics_story_*` goldens are **Nim-only** until
-  the Dart physics-parity slice lands — mirroring the `m5_ik_story_*`
-  Dart-pending note above.
+- Cross-runtime status: the `m5_physics_story_*` goldens are honored by **both**
+  the Nim reference and the Dart runtime. Dart ports the fixed-substep
+  integrator (`runtime-dart/lib/src/physics_constraint.dart`) and a stateful
+  advance seam (`advancePhysics` in `runtime-dart/lib/src/transform.dart`),
+  carrying one physics state per constraint across the story samples, and
+  reproduces every bone world matrix within `1e-4` from both the `.bony` and the
+  `.bnb` (`runtime-dart/test/m5_physics_story_test.dart`).
 
 ### Image goldens (Nim reference rasterizer only)
 

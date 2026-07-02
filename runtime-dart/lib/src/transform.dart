@@ -6,6 +6,7 @@ import 'dart:math' as math;
 import 'deform.dart';
 import 'ik.dart';
 import 'model.dart';
+import 'physics_constraint.dart';
 import 'transform_constraint.dart';
 
 const double _basisEpsilon = 1e-12;
@@ -66,15 +67,18 @@ class _BoneGroupEntry {
   final List<int> bones;
 }
 
-enum _ConstraintKind { ik, transform, path }
+enum _ConstraintKind { ik, transform, path, physics }
 
 // Canonical kind rank for tie-breaking constraints at equal `order` (Nim
-// constraintKindRank, model.nim): ckIk=0 < ckTransform=1 < ckPath=2. Physics
-// is out of scope for this runtime slice.
+// constraintKindRank, model.nim): ckIk=0 < ckTransform=1 < ckPath=2 <
+// ckPhysics=3. Physics ranks last but is NOT dispatched in the world-transform
+// pass — it runs in the separate stateful stage ([advancePhysics]); the rank is
+// carried only for parity with the Nim ordering.
 int _constraintKindRank(_ConstraintKind kind) => switch (kind) {
       _ConstraintKind.ik => 0,
       _ConstraintKind.transform => 1,
       _ConstraintKind.path => 2,
+      _ConstraintKind.physics => 3,
     };
 
 class _ConstraintEntry {
@@ -512,6 +516,8 @@ List<({String kind, int sourceIndex})> debugRuntimeConstraintDispatchOrder(
             _ConstraintKind.ik => 'ik',
             _ConstraintKind.transform => 'transform',
             _ConstraintKind.path => 'path',
+            // Physics never enters this cache (separate stage); unreachable.
+            _ConstraintKind.physics => 'physics',
           },
           sourceIndex: entry.sourceIndex,
         ),
@@ -912,6 +918,12 @@ List<Affine2> computeWorldTransforms(SkeletonData data) {
               computed,
               byName,
             );
+          case _ConstraintKind.physics:
+            // Physics is a separate stateful stage (advancePhysics); it is never
+            // emitted into this cache, so this branch is unreachable.
+            throw StateError(
+                'physics constraints are evaluated in advancePhysics, '
+                'not the world-transform pass');
         }
       }
     }
@@ -931,6 +943,134 @@ List<Affine2> computeWorldTransforms(SkeletonData data) {
     byName[bone.name] = i;
   }
   return result;
+}
+
+/// One default [PhysicsConstraintState] per physics constraint (index = source
+/// order in `data.physicsConstraints`). Mirrors the Nim `newPhysicsStates`:
+/// default accumulator=0, inactive, channels un-initialized for lazy seeding on
+/// the first [advancePhysics].
+List<PhysicsConstraintState> newPhysicsStates(SkeletonData data) => [
+      for (var i = 0; i < data.physicsConstraints.length; i++)
+        PhysicsConstraintState(),
+    ];
+
+double _physicsChannelValue(BoneData bone, PhysicsChannel channel) {
+  switch (channel) {
+    case PhysicsChannel.x:
+      return bone.x;
+    case PhysicsChannel.y:
+      return bone.y;
+    case PhysicsChannel.rotate:
+      return bone.rotation;
+    case PhysicsChannel.scaleX:
+      return bone.scaleX;
+    case PhysicsChannel.shearX:
+      return bone.shearX;
+  }
+}
+
+BoneData _withPhysicsChannel(
+    BoneData base, PhysicsChannel channel, double value) {
+  return BoneData(
+    name: base.name,
+    parent: base.parent,
+    x: channel == PhysicsChannel.x ? value : base.x,
+    y: channel == PhysicsChannel.y ? value : base.y,
+    rotation: channel == PhysicsChannel.rotate ? value : base.rotation,
+    scaleX: channel == PhysicsChannel.scaleX ? value : base.scaleX,
+    scaleY: base.scaleY,
+    shearX: channel == PhysicsChannel.shearX ? value : base.shearX,
+    shearY: base.shearY,
+    inheritRotation: base.inheritRotation,
+    inheritScale: base.inheritScale,
+    inheritReflection: base.inheritReflection,
+    transformMode: base.transformMode,
+  );
+}
+
+List<Affine2> _recomputeWorldsFromLocals(
+    SkeletonData data, List<BoneData> locals, Map<String, int> byName) {
+  const rootParent = Affine2(a: 1.0, b: 0.0, c: 0.0, d: 1.0, tx: 0.0, ty: 0.0);
+  final result = List<Affine2>.filled(locals.length, rootParent);
+  for (var i = 0; i < locals.length; i++) {
+    final bone = locals[i];
+    final parent =
+        bone.parent.isEmpty ? rootParent : result[byName[bone.parent]!];
+    result[i] = _worldForBone(parent, bone, bone.parent.isNotEmpty);
+  }
+  return result;
+}
+
+/// Stateful advance seam: bony's only time- and state-dependent pose entry
+/// point, mirroring the Nim `advancePhysics`. Runs the pure world-transform/
+/// constraint pass to produce the animated target pose, then the physics stage
+/// (physics runs AFTER that pass, per docs/constraint-total-order.md), then
+/// recomposes worlds from the physics-adjusted locals. `states` carries one
+/// [PhysicsConstraintState] per constraint across frames (see
+/// [newPhysicsStates]); `dt` is the non-negative frame delta and the ONLY time
+/// source. With no physics constraints this is exactly [computeWorldTransforms].
+///
+/// NOTE: physics rigs in this slice carry no ik/transform/path constraints, so
+/// the constraint-adjusted locals equal `data.bones` (the posed skeleton). A rig
+/// that mixed physics with those constraints would need the adjusted locals
+/// threaded here (as the Nim `computeWorldsAndLocals` does); that is out of
+/// scope until such a rig exists.
+List<Affine2> advancePhysics(
+    SkeletonData data, List<PhysicsConstraintState> states, double dt) {
+  if (dt < 0.0) {
+    throw const FormatException('physics advance dt must be non-negative');
+  }
+  if (data.physicsConstraints.isEmpty) {
+    return computeWorldTransforms(data);
+  }
+  if (states.length != data.physicsConstraints.length) {
+    throw FormatException(
+        'physics state count (${states.length}) does not match physics '
+        'constraint count (${data.physicsConstraints.length})');
+  }
+
+  final byName = <String, int>{
+    for (var i = 0; i < data.bones.length; i++) data.bones[i].name: i,
+  };
+  final locals = List<BoneData>.of(data.bones);
+
+  // Deterministic physics-stage order (docs/constraint-total-order.md): by
+  // `order`, then source index. Mirrors buildPhysicsConstraintOrder.
+  final order = List<int>.generate(data.physicsConstraints.length, (i) => i)
+    ..sort((a, b) {
+      final byOrder =
+          data.physicsConstraints[a].order.compareTo(data.physicsConstraints[b].order);
+      return byOrder != 0 ? byOrder : a.compareTo(b);
+    });
+
+  for (final sourceIndex in order) {
+    final pc = data.physicsConstraints[sourceIndex];
+    final boneIndex = byName[pc.bone]!;
+    // Enabled channels in canonical (enum ordinal) order, mirroring Nim set
+    // iteration.
+    final inputs = <PhysicsChannelInput>[
+      for (final channel in PhysicsChannel.values)
+        if (pc.channels.contains(channel))
+          physicsChannelInput(
+              channel, _physicsChannelValue(locals[boneIndex], channel)),
+    ];
+    final params = physicsParams(
+      inertia: pc.inertia ?? 0.0,
+      strength: pc.strength ?? 0.0,
+      damping: pc.damping ?? 0.0,
+      mass: pc.mass ?? 1.0,
+      gravity: pc.gravity ?? 0.0,
+      wind: pc.wind ?? 0.0,
+      mix: pc.physicsMix ?? 1.0,
+    );
+    final res = updatePhysicsConstraint(states[sourceIndex], params, inputs, dt);
+    for (final output in res.outputs) {
+      locals[boneIndex] =
+          _withPhysicsChannel(locals[boneIndex], output.channel, output.value);
+    }
+  }
+
+  return _recomputeWorldsFromLocals(data, locals, byName);
 }
 
 DrawVertex _vertex(Affine2 world, double lx, double ly, double u, double v) {
