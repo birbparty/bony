@@ -293,6 +293,8 @@ spec "bony physics evaluation":
       # Seam and raw agree on the carried remainder and the settled offset.
       closeTo(states[0].accumulator, rawState.accumulator)
       closeTo(states[0].channels[pcX].offset, rawState.channels[pcX].offset)
+      # Non-vacuous: the 8 integrated substeps actually moved the spring.
+      states[0].channels[pcX].offset > 1e-4
 
   it "applies two same-channel physics constraints in ordered sequence":
     # Two physics constraints on the SAME bone+channel with distinct `order`
