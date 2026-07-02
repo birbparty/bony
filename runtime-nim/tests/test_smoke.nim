@@ -1466,6 +1466,89 @@ spec "bony package":
         proc() = discard transformConstraintData("a", "root", "goal", hasShearMix = true, shearMix = Inf),
         numericOutOfRange)
 
+  it "round trips transform constraints through JSON and canonical .bnb":
+    # A constraint with SOME mixes explicitly present and others omitted, to
+    # prove presence-flag fidelity survives both codecs (a has*=false mix must
+    # NOT be re-emitted, a present one must round-trip its value).
+    let source = loadBonyJson("""
+{
+  "skeleton": {"name": "tcrt", "version": "1.0.0"},
+  "bones": [
+    {"name": "root"},
+    {"name": "constrained", "parent": "root", "x": 5},
+    {"name": "goal", "parent": "root", "x": 10, "y": 10}
+  ],
+  "transformConstraints": [
+    {"name": "tc", "bone": "constrained", "target": "goal", "order": 2, "rotateMix": 0.25, "scaleMix": 0.5}
+  ]
+}
+""")
+    let json0 = toBonyJson(source)
+    let bnbBytes = toBonyBnb(source)
+    let decodedFromBnb = loadBonyBnb(bnbBytes)
+    then:
+      source.transformConstraints.len == 1
+      # JSON<->BNB agree on the decoded model
+      toBonyJson(decodedFromBnb) == json0
+      # BNB is byte-stable across a JSON re-parse
+      toBonyBnb(loadBonyJson(json0)) == bnbBytes
+      # presence fidelity: omitted mixes stay absent (default 1.0, has*=false),
+      # present mixes keep their value with has*=true
+      decodedFromBnb.transformConstraints[0].hasTranslateMix == false
+      decodedFromBnb.transformConstraints[0].hasRotateMix == true
+      closeTo(decodedFromBnb.transformConstraints[0].rotateMix, 0.25)
+      decodedFromBnb.transformConstraints[0].hasScaleMix == true
+      closeTo(decodedFromBnb.transformConstraints[0].scaleMix, 0.5)
+      decodedFromBnb.transformConstraints[0].hasShearMix == false
+      decodedFromBnb.transformConstraints[0].order == 2
+      # the emitted JSON omits the two absent mixes but keeps the present ones
+      not json0.contains("translateMix")
+      not json0.contains("shearMix")
+      json0.contains("rotateMix")
+      json0.contains("scaleMix")
+
+  it "preserves transform constraint presence-flag boundaries across .bnb":
+    # Boundary cases the has* machinery exists to protect (reviewer I1/I2):
+    #  - an EXPLICIT default 1.0 mix must survive as has*=true (not collapse to
+    #    has*=false), because addFloatIfNeeded(required=true) emits it and decode
+    #    rebuilds has* from key presence;
+    #  - all-omitted and all-present are the two extremes of the mix bitmap.
+    proc rt(tc: TransformConstraintData): TransformConstraintData =
+      let data = skeletonData(
+        skeletonHeader("b", "1.0.0"),
+        @[boneData("root", ""), boneData("goal", "root", localTransform(x = 1.0))],
+        transformConstraints = @[tc],
+      )
+      loadBonyBnb(toBonyBnb(data)).transformConstraints[0]
+
+    # explicit default 1.0 with presence set — must NOT collapse to has*=false
+    let explicitDefault = rt(transformConstraintData("t", "root", "goal",
+      hasTranslateMix = true, translateMix = 1.0))
+    # all four mixes omitted
+    let allOmitted = rt(transformConstraintData("t", "root", "goal"))
+    # all four mixes explicitly present at non-default values (f32-exact so the
+    # round-trip is bit-exact, not just close)
+    let allPresent = rt(transformConstraintData("t", "root", "goal",
+      hasTranslateMix = true, translateMix = 0.125,
+      hasRotateMix = true, rotateMix = 0.25,
+      hasScaleMix = true, scaleMix = 0.375,
+      hasShearMix = true, shearMix = 0.5))
+    then:
+      explicitDefault.hasTranslateMix == true
+      closeTo(explicitDefault.translateMix, 1.0)
+      allOmitted.hasTranslateMix == false
+      allOmitted.hasRotateMix == false
+      allOmitted.hasScaleMix == false
+      allOmitted.hasShearMix == false
+      allPresent.hasTranslateMix == true
+      allPresent.hasRotateMix == true
+      allPresent.hasScaleMix == true
+      allPresent.hasShearMix == true
+      closeTo(allPresent.translateMix, 0.125)
+      closeTo(allPresent.rotateMix, 0.25)
+      closeTo(allPresent.scaleMix, 0.375)
+      closeTo(allPresent.shearMix, 0.5)
+
   it "evaluates path constraint cubics with fixed arc-length samples":
     let curve = pathCubic(
       pathPoint(0.0, 0.0),
