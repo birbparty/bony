@@ -497,6 +497,13 @@ proc scaleMix*(tc: TransformConstraintData): float64 = tc.scaleMix
 proc hasShearMix*(tc: TransformConstraintData): bool = tc.hasShearMix
 proc shearMix*(tc: TransformConstraintData): float64 = tc.shearMix
 
+proc runtimeEvaluable*(tc: TransformConstraintData): bool =
+  ## Constraint-only predicate, mirroring the ik/path overloads. A transform
+  ## constraint contributes nothing when every mix is zero (each channel blends
+  ## the constrained pose fully toward itself). Used consistently in the
+  ## detection gate, the update-cache read gating, and the apply guard.
+  tc.translateMix > 0.0 or tc.rotateMix > 0.0 or tc.scaleMix > 0.0 or tc.shearMix > 0.0
+
 
 proc x*(local: LocalTransform): float64 = local.x
 proc y*(local: LocalTransform): float64 = local.y

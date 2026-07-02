@@ -180,4 +180,7 @@ proc buildRuntimeConstraintUpdateCache*(data: SkeletonData): seq[ConstraintUpdat
   for index, ik in data.ikConstraints:
     let reads = if ik.runtimeEvaluable: @[ik.target] else: @[]
     descriptors.add constraintCacheDescriptor(ckIk, ik.order, index, ik.bones, reads = reads)
+  for index, tc in data.transformConstraints:
+    let reads = if tc.runtimeEvaluable: @[tc.target] else: @[]
+    descriptors.add constraintCacheDescriptor(ckTransform, tc.order, index, [tc.bone], reads = reads)
   buildConstraintUpdateCache(data.bones, descriptors)

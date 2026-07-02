@@ -1549,6 +1549,41 @@ spec "bony package":
       closeTo(allPresent.scaleMix, 0.375)
       closeTo(allPresent.shearMix, 0.5)
 
+  it "evaluates a transform constraint toward the target in the world pass":
+    proc rig(tMix, rMix, sMix, shMix: float64): seq[Affine2] =
+      let data = skeletonData(
+        skeletonHeader("tc", "1.0.0"),
+        @[
+          boneData("root", ""),
+          boneData("constrained", "root", localTransform(x = 5.0, y = 0.0)),
+          boneData("goal", "root", localTransform(x = 10.0, y = 10.0, rotation = 30.0, scaleX = 2.0)),
+        ],
+        transformConstraints = @[transformConstraintData("tc", "constrained", "goal",
+          hasTranslateMix = true, translateMix = tMix,
+          hasRotateMix = true, rotateMix = rMix,
+          hasScaleMix = true, scaleMix = sMix,
+          hasShearMix = true, shearMix = shMix)],
+      )
+      computeWorldTransforms(data)
+    let atZero = rig(0.0, 0.0, 0.0, 0.0)   # all mixes 0 => not runtimeEvaluable => plain FK
+    let atOne = rig(1.0, 1.0, 1.0, 1.0)    # full snap => constrained world == goal world
+    let partial = rig(0.5, 0.5, 0.5, 0.5)
+    then:
+      # mix 0: constrained keeps its unconstrained FK world (x=5 at origin)
+      closeWithin(atZero[1].tx, 5.0, 1e-6)
+      closeWithin(atZero[1].ty, 0.0, 1e-6)
+      # mix 1: constrained bone's solved world matches the goal bone's world
+      # (proves the world->local decomposition survives the trailing FK group)
+      closeWithin(atOne[1].a, atOne[2].a, 1e-5)
+      closeWithin(atOne[1].b, atOne[2].b, 1e-5)
+      closeWithin(atOne[1].c, atOne[2].c, 1e-5)
+      closeWithin(atOne[1].d, atOne[2].d, 1e-5)
+      closeWithin(atOne[1].tx, atOne[2].tx, 1e-5)
+      closeWithin(atOne[1].ty, atOne[2].ty, 1e-5)
+      # partial mix is non-vacuous: strictly between unconstrained (5) and goal (10)
+      partial[1].tx > 5.0 + 1e-3
+      partial[1].tx < 10.0 - 1e-3
+
   it "evaluates path constraint cubics with fixed arc-length samples":
     let curve = pathCubic(
       pathPoint(0.0, 0.0),

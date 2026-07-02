@@ -5,6 +5,7 @@ import std/[math, tables]
 import bony/constraints/path_constraints
 import bony/constraints/update_cache
 import bony/constraints/ik
+import bony/constraints/transform_constraints
 import bony/model
 
 const basisEpsilon = 1e-12
@@ -37,6 +38,14 @@ proc mul(left, right: Linear2): Linear2 =
 
 proc affine(linear: Linear2; tx, ty: float64): Affine2 =
   Affine2(a: linear.a, b: linear.b, c: linear.c, d: linear.d, tx: tx, ty: ty)
+
+
+proc inverseLinear(m: Linear2): tuple[ok: bool; inverse: Linear2] =
+  ## Inverse of the 2x2 linear part [[a, c], [b, d]] (column-major a/b, c/d).
+  let det = m.a * m.d - m.c * m.b
+  if abs(det) < basisEpsilon:
+    return (false, identityLinear())
+  (true, Linear2(a: m.d / det, b: -m.b / det, c: -m.c / det, d: m.a / det))
 
 
 proc localLinear(local: LocalTransform): Linear2 =
@@ -131,6 +140,14 @@ proc applyRuntimeIk(
   computed: var seq[bool];
   indexes: Table[string, int];
 )
+proc applyRuntimeTransformConstraint(
+  data: SkeletonData;
+  tc: TransformConstraintData;
+  locals: var seq[LocalTransform];
+  worlds: var seq[Affine2];
+  computed: var seq[bool];
+  indexes: Table[string, int];
+)
 
 
 proc computeWorldTransforms*(data: SkeletonData): seq[Affine2] =
@@ -142,6 +159,11 @@ proc computeWorldTransforms*(data: SkeletonData): seq[Affine2] =
   if not hasRuntimeConstraints:
     for ik in data.ikConstraints:
       if ik.runtimeEvaluable:
+        hasRuntimeConstraints = true
+        break
+  if not hasRuntimeConstraints:
+    for tc in data.transformConstraints:
+      if tc.runtimeEvaluable:
         hasRuntimeConstraints = true
         break
   if hasRuntimeConstraints:
@@ -172,8 +194,11 @@ proc computeWorldTransforms*(data: SkeletonData): seq[Affine2] =
         of ckIk:
           let ik = data.ikConstraints[entry.constraint.sourceIndex]
           data.applyRuntimeIk(ik, locals, result, computed, indexes)
+        of ckTransform:
+          let tc = data.transformConstraints[entry.constraint.sourceIndex]
+          data.applyRuntimeTransformConstraint(tc, locals, result, computed, indexes)
         else:
-          # ckTransform / ckPhysics are out of scope for this slice.
+          # ckPhysics is out of scope for this slice.
           discard
     return
 
@@ -386,6 +411,23 @@ proc withRotation(local: LocalTransform; rotation: float64): LocalTransform =
   )
 
 
+proc poseToLocal(pose: TransformConstraintPose; templateLocal: LocalTransform): LocalTransform =
+  ## Build a LocalTransform from a decomposed pose, carrying the inherit flags and
+  ## transformMode from the constrained bone's existing local (they are invariant
+  ## under a transform constraint; only the geometry changes). affineToTransformPose
+  ## is the exact inverse of localLinear/transformPoseToAffine, so re-composing this
+  ## local through worldForBone reproduces the affine it was decomposed from.
+  localTransform(
+    x = pose.x, y = pose.y, rotation = pose.rotation,
+    scaleX = pose.scaleX, scaleY = pose.scaleY,
+    shearX = pose.shearX, shearY = pose.shearY,
+    inheritRotation = templateLocal.inheritRotation,
+    inheritScale = templateLocal.inheritScale,
+    inheritReflection = templateLocal.inheritReflection,
+    transformMode = templateLocal.transformMode,
+  )
+
+
 proc applyRuntimeIk(
   data: SkeletonData;
   ik: IkConstraintData;
@@ -522,6 +564,82 @@ proc applyRuntimeIk(
     locals[boneIndex] = newLocal
     worlds[boneIndex] = worldForBone(parentWorld, boneData(data.bones[boneIndex].name, parent, newLocal), hasParent)
     computed[boneIndex] = true
+
+
+proc applyRuntimeTransformConstraint(
+  data: SkeletonData;
+  tc: TransformConstraintData;
+  locals: var seq[LocalTransform];
+  worlds: var seq[Affine2];
+  computed: var seq[bool];
+  indexes: Table[string, int];
+) =
+  ## Blend the constrained bone's CURRENT world pose toward the target bone's
+  ## CURRENT world pose, per channel by the four mixes (affine<->pose lerp in
+  ## constraints/transform_constraints.nim). Like the path/IK apply procs the
+  ## constrained bone is a constraint WRITE target and so is NOT pre-emitted: its
+  ## current world is FK-composed here from its (live) local and its parent's
+  ## already-emitted world. mix=0 is the current-pose identity; mix=1 snaps a
+  ## channel fully to the target.
+  ##
+  ## The solved value is a WORLD affine, but the result MUST be written back as a
+  ## LOCAL transform: a trailing ccekBoneGroup re-derives this bone's world from
+  ## locals[boneIndex] (see buildConstraintUpdateCache), so a world-only write
+  ## would be silently overwritten. We invert worldForBone — translation via the
+  ## parent-world inverse, linear via inherited^-1 (the same parent-factor product
+  ## worldForBone composes per inherit flags) — then decompose to a pose.
+  if not tc.runtimeEvaluable:
+    return
+
+  let boneIndex = indexes[tc.bone]
+  let targetIndex = indexes[tc.target]
+  if not computed[targetIndex]:
+    raise newBonyLoadError(orderingViolation, "runtime transform target must be emitted before constraint: " & tc.name)
+
+  let parent = data.bones[boneIndex].parent
+  let hasParent = parent.len > 0
+  var parentWorld = Affine2(a: 1.0, d: 1.0)
+  if hasParent:
+    let parentIndex = indexes[parent]
+    if not computed[parentIndex]:
+      raise newBonyLoadError(orderingViolation, "runtime transform parent must be emitted before constraint: " & tc.name)
+    parentWorld = worlds[parentIndex]
+
+  let baseLocal = locals[boneIndex]
+  let currentWorld = worldForBone(parentWorld, boneData(data.bones[boneIndex].name, parent, baseLocal), hasParent)
+
+  let mix = transformConstraintMix(
+    translate = tc.translateMix,
+    rotate = tc.rotateMix,
+    scale = tc.scaleMix,
+    shear = tc.shearMix,
+  )
+  let solvedWorld = applyTransformConstraint(currentWorld, worlds[targetIndex], mix)
+
+  var newLocal: LocalTransform
+  if not hasParent:
+    newLocal = poseToLocal(affineToTransformPose(solvedWorld), baseLocal)
+  else:
+    let factors = factorParent(parentWorld)
+    var inherited = identityLinear()
+    if baseLocal.inheritRotation:
+      inherited = inherited.mul(factors.rotation)
+    if baseLocal.inheritReflection:
+      inherited = inherited.mul(factors.reflection)
+    if baseLocal.inheritScale:
+      inherited = inherited.mul(factors.scaleShear)
+    let inheritedInverse = inverseLinear(inherited)
+    let parentInverse = inverseAffine(parentWorld)
+    if not inheritedInverse.ok or not parentInverse.ok:
+      raise newBonyLoadError(schemaViolation, "runtime transform parent transform is singular: " & tc.name)
+    let solvedLinear = Linear2(a: solvedWorld.a, b: solvedWorld.b, c: solvedWorld.c, d: solvedWorld.d)
+    let localLinearM = inheritedInverse.inverse.mul(solvedLinear)
+    let localOrigin = transformPoint(parentInverse.inverse, solvedWorld.tx, solvedWorld.ty)
+    newLocal = poseToLocal(affineToTransformPose(affine(localLinearM, localOrigin.x, localOrigin.y)), baseLocal)
+
+  locals[boneIndex] = newLocal
+  worlds[boneIndex] = worldForBone(parentWorld, boneData(data.bones[boneIndex].name, parent, newLocal), hasParent)
+  computed[boneIndex] = true
 
 
 proc vertex(world: Affine2; x, y, u, v: float64): DrawVertex =
