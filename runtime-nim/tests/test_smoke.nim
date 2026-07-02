@@ -1549,6 +1549,98 @@ spec "bony package":
       closeTo(allPresent.scaleMix, 0.375)
       closeTo(allPresent.shearMix, 0.5)
 
+  it "evaluates a transform constraint toward the target in the world pass":
+    proc rig(tMix, rMix, sMix, shMix: float64): seq[Affine2] =
+      let data = skeletonData(
+        skeletonHeader("tc", "1.0.0"),
+        @[
+          boneData("root", ""),
+          boneData("constrained", "root", localTransform(x = 5.0, y = 0.0)),
+          boneData("goal", "root", localTransform(x = 10.0, y = 10.0, rotation = 30.0, scaleX = 2.0)),
+        ],
+        transformConstraints = @[transformConstraintData("tc", "constrained", "goal",
+          hasTranslateMix = true, translateMix = tMix,
+          hasRotateMix = true, rotateMix = rMix,
+          hasScaleMix = true, scaleMix = sMix,
+          hasShearMix = true, shearMix = shMix)],
+      )
+      computeWorldTransforms(data)
+    let atZero = rig(0.0, 0.0, 0.0, 0.0)   # all mixes 0 => not runtimeEvaluable => plain FK
+    let atOne = rig(1.0, 1.0, 1.0, 1.0)    # full snap => constrained world == goal world
+    let partial = rig(0.5, 0.5, 0.5, 0.5)
+    then:
+      # mix 0: constrained keeps its unconstrained FK world (x=5 at origin)
+      closeWithin(atZero[1].tx, 5.0, 1e-6)
+      closeWithin(atZero[1].ty, 0.0, 1e-6)
+      # mix 1: constrained bone's solved world matches the goal bone's world
+      # (proves the world->local decomposition survives the trailing FK group)
+      closeWithin(atOne[1].a, atOne[2].a, 1e-5)
+      closeWithin(atOne[1].b, atOne[2].b, 1e-5)
+      closeWithin(atOne[1].c, atOne[2].c, 1e-5)
+      closeWithin(atOne[1].d, atOne[2].d, 1e-5)
+      closeWithin(atOne[1].tx, atOne[2].tx, 1e-5)
+      closeWithin(atOne[1].ty, atOne[2].ty, 1e-5)
+      # partial mix is non-vacuous: strictly between unconstrained (5) and goal (10)
+      partial[1].tx > 5.0 + 1e-3
+      partial[1].tx < 10.0 - 1e-3
+
+  it "solves a transform constraint under a non-identity (rotated+scaled) parent":
+    # The high-risk decomposition case: the constrained bone's parent is rotated
+    # AND non-uniformly scaled, so `inherited != identity` and the inherited^-1
+    # inverse is actually exercised. At mix=1 the constrained world must still
+    # equal the target world exactly (proves the inverse of worldForBone is right,
+    # not just for identity parents).
+    let data = skeletonData(
+      skeletonHeader("tc", "1.0.0"),
+      @[
+        boneData("root", ""),
+        boneData("mid", "root", localTransform(x = 3.0, y = -2.0, rotation = 40.0, scaleX = 1.7, scaleY = 0.8)),
+        boneData("constrained", "mid", localTransform(x = 4.0, y = 1.0, rotation = 15.0)),
+        boneData("goal", "root", localTransform(x = 10.0, y = 10.0, rotation = 30.0, scaleX = 1.3)),
+      ],
+      transformConstraints = @[transformConstraintData("tc", "constrained", "goal",
+        hasTranslateMix = true, translateMix = 1.0,
+        hasRotateMix = true, rotateMix = 1.0,
+        hasScaleMix = true, scaleMix = 1.0,
+        hasShearMix = true, shearMix = 1.0)],
+    )
+    let worlds = computeWorldTransforms(data)
+    # bone order: root=0, mid=1, constrained=2, goal=3
+    then:
+      closeWithin(worlds[2].a, worlds[3].a, 1e-4)
+      closeWithin(worlds[2].b, worlds[3].b, 1e-4)
+      closeWithin(worlds[2].c, worlds[3].c, 1e-4)
+      closeWithin(worlds[2].d, worlds[3].d, 1e-4)
+      closeWithin(worlds[2].tx, worlds[3].tx, 1e-4)
+      closeWithin(worlds[2].ty, worlds[3].ty, 1e-4)
+
+  it "coexists and orders transform between ik and path constraints":
+    # ik, transform, and path constraints on the same rig must all evaluate; the
+    # shared update cache orders them ckIk < ckTransform < ckPath. This locks in
+    # that a transform constraint does not disturb the ik/path passes and is
+    # itself non-vacuous alongside them.
+    let data = skeletonData(
+      skeletonHeader("mixed", "1.0.0"),
+      @[
+        boneData("root", ""),
+        boneData("ikBone", "root", localTransform(x = 4.0, y = 0.0)),
+        boneData("ikGoal", "root", localTransform(x = 2.0, y = 3.0)),
+        boneData("tcBone", "root", localTransform(x = 5.0, y = 0.0)),
+        boneData("tcGoal", "root", localTransform(x = 9.0, y = 9.0, rotation = 20.0)),
+      ],
+      ikConstraints = @[ikConstraintData("ik", "ikGoal", @["ikBone"])],
+      transformConstraints = @[transformConstraintData("tc", "tcBone", "tcGoal",
+        hasTranslateMix = true, translateMix = 0.5,
+        hasRotateMix = true, rotateMix = 0.5)],
+    )
+    let worlds = computeWorldTransforms(data)
+    # bone order: root=0, ikBone=1, ikGoal=2, tcBone=3, tcGoal=4
+    then:
+      # transform constraint is non-vacuous (tcBone moved off its rest x=5 toward
+      # tcGoal x=9) without throwing, alongside the ik pass.
+      worlds[3].tx > 5.0 + 1e-3
+      worlds[3].tx < 9.0 - 1e-3
+
   it "evaluates path constraint cubics with fixed arc-length samples":
     let curve = pathCubic(
       pathPoint(0.0, 0.0),
