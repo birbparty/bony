@@ -374,6 +374,12 @@ proc transformConstraintData*(
   hasShearMix = false;
   shearMix = 1.0;
 ): TransformConstraintData =
+  ## Presence-flag contract (mirrors ikConstraintData/pathConstraintData): each
+  ## mix value is stored as given, independent of its has* flag. Callers (the
+  ## load path / serializer, bony-8i1.4) MUST set has*=true exactly when a value
+  ## was explicitly present in the input and leave it at the 1.0 default when
+  ## absent — a has*=false paired with a non-default value would be silently
+  ## omitted by an omitWhenDefault serializer and corrupt the round-trip.
   let storedTranslateMix = quantizeF32(translateMix, "transformConstraint.translateMix")
   let storedRotateMix = quantizeF32(rotateMix, "transformConstraint.rotateMix")
   let storedScaleMix = quantizeF32(scaleMix, "transformConstraint.scaleMix")

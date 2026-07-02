@@ -1453,10 +1453,18 @@ spec "bony package":
           transformConstraintData("dup", "goal", "root"),
         ]),
         duplicateKey)
-      # mix out of [0, 1] rejected at the record constructor
+      # mix above [0, 1] rejected at the record constructor
       raisesBonyLoadError(
         proc() = discard transformConstraintData("a", "root", "goal", hasScaleMix = true, scaleMix = 1.5),
         schemaViolation)
+      # mix below [0, 1] rejected at the record constructor
+      raisesBonyLoadError(
+        proc() = discard transformConstraintData("a", "root", "goal", hasTranslateMix = true, translateMix = -0.01),
+        schemaViolation)
+      # non-finite mix rejected by quantizeF32 before the range check
+      raisesBonyLoadError(
+        proc() = discard transformConstraintData("a", "root", "goal", hasShearMix = true, shearMix = Inf),
+        numericOutOfRange)
 
   it "evaluates path constraint cubics with fixed arc-length samples":
     let curve = pathCubic(
