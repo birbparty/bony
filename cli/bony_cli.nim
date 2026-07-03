@@ -1146,43 +1146,10 @@ proc vertexJson(vertex: DrawVertex): JsonNode =
   result["a"] = newJFloat(vertex.a)
 
 
-proc defaultParamSamples(data: SkeletonData): seq[ParameterSample] =
-  for param in data.parameters:
-    result.add defaultParameterSample(param)
-
-
-proc effectiveDeformers(data: SkeletonData; samples: seq[ParameterSample]): seq[Deformer] =
-  for rec in data.deformers:
-    if rec.keyformBlend.axes.len > 0 and rec.keyformBlend.keyforms.len > 0 and rec.deformer.kind == warpDeformerKind:
-      let pts = sampleKeyformPoints(rec.keyformBlend, samples)
-      result.add warpDeformer(
-        rec.deformer.id,
-        warpLattice(
-          rec.deformer.warp.rows, rec.deformer.warp.cols,
-          rec.deformer.warp.minX, rec.deformer.warp.minY,
-          rec.deformer.warp.maxX, rec.deformer.warp.maxY,
-          pts,
-        ),
-        rec.deformer.parent,
-        rec.deformer.order,
-      )
-    else:
-      result.add rec.deformer
-
-
-proc applyDeformersToDrawBatches(batches: seq[DrawBatch]; deforms: seq[Deformer]): seq[DrawBatch] =
-  if deforms.len == 0:
-    return batches
-  result = batches
-  for batchIndex, batch in batches:
-    var skinned: seq[SkinnedMeshVertex]
-    for v in batch.vertices:
-      skinned.add SkinnedMeshVertex(x: v.x, y: v.y, u: v.u, v: v.v)
-    let deformed = applyDeformers(skinned, deforms)
-    doAssert deformed.len == batch.vertices.len, "applyDeformers must preserve vertex count"
-    for vertIndex, dv in deformed:
-      result[batchIndex].vertices[vertIndex].x = dv.x
-      result[batchIndex].vertices[vertIndex].y = dv.y
+# `defaultParameterSamples`, `effectiveDeformers`, and
+# `applyDeformersToDrawBatches` now live in the exported runtime module
+# `bony/deform/drawbatch_deform` (re-exported via `bony`) so library consumers
+# share the CLI's deformer-application stage. The CLI delegates to them below.
 
 
 proc deformerJson(rec: DeformerRecord; samples: seq[ParameterSample]): JsonNode =
@@ -1747,7 +1714,7 @@ proc numericGoldenJson(
   # draw-batch vertices reflect the physics stage. For a physics-free rig these
   # worlds equal the pure pass, so setup-pose callers are unaffected.
   let baseBatches = buildDrawBatches(data, worlds)
-  let samples = defaultParamSamples(data)
+  let samples = defaultParameterSamples(data)
   let efDefs = effectiveDeformers(data, samples)
   var batches = applyDeformersToDrawBatches(baseBatches, efDefs)
   let slotStates =

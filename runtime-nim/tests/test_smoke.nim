@@ -7707,3 +7707,74 @@ spec "bony mesh draw batches":
       batches[1].slot == "meshB"
       batches[1].attachment == "midMesh"
       batches[2].slot == "regionC"
+
+spec "bony draw-batch deform api":
+  # The exported bony/deform/drawbatch_deform module gives a library consumer the
+  # same deformer-application stage the CLI uses. buildDrawBatches stays
+  # UNDEFORMED; a consumer finishes the pipeline with deformDrawBatches.
+  proc rotationRig(): SkeletonData =
+    skeletonData(
+      skeletonHeader("deform-api", "0.1.0"),
+      @[boneData("root", "")],
+      @[slotData("body", "root", "quad")],
+      @[regionAttachment("quad", 2.0, 2.0)],
+      deformers = @[
+        DeformerRecord(
+          deformer: rotationDeformerNode(
+            "rot", rotationDeformer(0.0, 0.0, 90.0), order = 0'u32),
+          keyformBlend: KeyformBlend(),
+        ),
+      ],
+    )
+
+  it "buildDrawBatches leaves geometry undeformed; deformDrawBatches applies it":
+    let data = rotationRig()
+    let base = buildDrawBatches(data)
+    let deformed = deformDrawBatches(data, base)
+    # Base quad corners are the plain region positions (±1); at least one vertex
+    # moves once the 90° rotation deformer is applied.
+    var moved = false
+    for i in 0 ..< base[0].vertices.len:
+      if not closeWithin(base[0].vertices[i].x, deformed[0].vertices[i].x, 1e-6) or
+         not closeWithin(base[0].vertices[i].y, deformed[0].vertices[i].y, 1e-6):
+        moved = true
+    then:
+      base.len == 1
+      deformed.len == 1
+      deformed[0].vertices.len == base[0].vertices.len
+      # u/v/color are preserved by the deform stage.
+      closeWithin(deformed[0].vertices[0].u, base[0].vertices[0].u, 1e-9)
+      closeWithin(deformed[0].vertices[0].r, base[0].vertices[0].r, 1e-9)
+      moved
+
+  it "deformDrawBatches equals effectiveDeformers + applyDeformersToDrawBatches":
+    let data = rotationRig()
+    let base = buildDrawBatches(data)
+    let samples = defaultParameterSamples(data)
+    let composed = applyDeformersToDrawBatches(base, effectiveDeformers(data, samples))
+    let oneCall = deformDrawBatches(data, base, samples)
+    # And both match applying the deformer primitive directly to the batch verts.
+    var skinned: seq[SkinnedMeshVertex]
+    for v in base[0].vertices:
+      skinned.add SkinnedMeshVertex(x: v.x, y: v.y, u: v.u, v: v.v)
+    let direct = applyDeformers(skinned, effectiveDeformers(data, samples))
+    var matchesDirect = true
+    for i in 0 ..< direct.len:
+      if not closeWithin(composed[0].vertices[i].x, direct[i].x, 1e-9) or
+         not closeWithin(composed[0].vertices[i].y, direct[i].y, 1e-9):
+        matchesDirect = false
+    then:
+      composed.len == oneCall.len
+      closeWithin(composed[0].vertices[0].x, oneCall[0].vertices[0].x, 1e-9)
+      closeWithin(composed[0].vertices[1].x, oneCall[0].vertices[1].x, 1e-9)
+      closeWithin(composed[0].vertices[1].y, oneCall[0].vertices[1].y, 1e-9)
+      matchesDirect
+
+  it "applyDeformersToDrawBatches with no deformers returns batches unchanged":
+    let data = rotationRig()
+    let base = buildDrawBatches(data)
+    let unchanged = applyDeformersToDrawBatches(base, @[])
+    then:
+      unchanged.len == base.len
+      closeWithin(unchanged[0].vertices[0].x, base[0].vertices[0].x, 1e-12)
+      closeWithin(unchanged[0].vertices[2].y, base[0].vertices[2].y, 1e-12)
