@@ -1,0 +1,41 @@
+{
+  "skeleton": {
+    "name": "m15-mesh-unweighted-deform-rig",
+    "version": "1.0.0"
+  },
+  "bones": [
+    {"name": "root"},
+    {"name": "boneA", "parent": "root", "x": 10, "y": 0}
+  ],
+  "slots": [
+    {"name": "mesh_slot", "bone": "boneA", "attachment": "mesh"}
+  ],
+  "meshAttachments": [
+    {
+      "name": "mesh",
+      "weighted": false,
+      "vertices": [
+        {"x": 0, "y": 0},
+        {"x": 4, "y": 0},
+        {"x": 0, "y": 4},
+        {"x": -4, "y": 0},
+        {"x": 0, "y": -4}
+      ],
+      "uvs": [0.5, 0.5, 1, 0, 1, 1, 0, 0, 0, 1],
+      "triangles": [0, 1, 2, 0, 2, 3, 0, 3, 4]
+    }
+  ],
+  "deformers": [
+    {
+      "id": "mesh_rot",
+      "order": 0,
+      "kind": "rotation",
+      "rotation": {
+        "pivotX": 10.0,
+        "pivotY": 0.0,
+        "angleDegrees": 45.0,
+        "opacity": 1.0
+      }
+    }
+  ]
+}

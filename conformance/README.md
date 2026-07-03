@@ -40,6 +40,10 @@ conformance/
 | M9 | `m9_non_scalar_rig` | Non-scalar animation timelines and state-machine projection |
 | M11 | `m11_clip_rig` | Clipping attachment: convex clip polygon partially covering a region slot, `untilSlot`-bounded range |
 | M12 | `m12_mesh_rig` | Weighted mesh attachment: skinned vertices shared across two bones, per-vertex uvs, triangle list |
+| M13 | `m13_mesh_deform_rig` | Mesh × deformer: a 5-vertex (non-quad) weighted mesh further deformed by a rotation deformer after skinning |
+| M14 | `m14_mesh_warp_rig` | Mesh × warp self-scoping: a warp lattice box covering only 2 of 5 mesh vertices — in-bounds verts warped, out-of-bounds verts unchanged |
+| M15 | `m15_mesh_unweighted_deform_rig` | Unweighted mesh (raw x/y, FK-skinned through the slot bone) under a rotation deformer |
+| M16 | `m16_mesh_multi_deform_rig` | Multiple ordered deformers on a mesh: rotation (order 0) then a warp parented to it (order 1), exercising composition + parent-frame chaining |
 
 The `M5 (IK)` row is a second M5 asset (structured like the standalone M9 row):
 the table is one-asset-per-row, so `m5_ik_rig` gets its own row rather than being
