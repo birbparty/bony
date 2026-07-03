@@ -62,9 +62,30 @@ slot timelines:
       keyframe, encoded as the shared timeline curve tail (linear / stepped /
       bezier); see the byte layout. Defaulted to `linear`.
 
+**Top-level registry properties vs. packed keyframe fields.** Only the four
+scalar fields map to top-level wire/registry properties (canonical-JSON field →
+registry property id, minted under the M4 band by `bony-68lj.7`): `skin` →
+`deformSkin` (3006), `slot` → the reused `slot` property (1011), `attachment` →
+`deformAttachment` (3007), `vertexCount` → `deformVertexCount` (3008). The entire
+`keyframes` array — and every per-keyframe field (`time`, `offset`, `deltas`,
+`curve`) — is encoded **inside the single packed `deformKeys` bytes property**
+(3009); those keyframe fields are **not** top-level registry properties and get
+**no** `spec/defaults.yml` entry. The `objectDefaults`/`requiredProperties`
+coverage partition therefore ranges over exactly the four scalar properties plus
+`deformKeys`, all required (see `.agents/notes/deform-timeline-format-decisions.md`
+§2.5). `offset` defaulting to `0` and `curve` defaulting to `linear` are
+**in-blob** encoding defaults, not registry defaults.
+
 No multi-skin model, additive/blend deform modes, `inheritDeform` chaining, or
 attachment-swap-through-deform are settable in v1. A deform timeline animates only
 the per-vertex offsets of a single already-resolved mesh attachment.
+
+> **Not to be confused with the warp/rotation deformer subsystem.** This
+> `deformTimeline` (animated per-vertex mesh offsets) is distinct from the
+> pre-existing lattice/warp and rotation **deformers** (`bony/deform/…`, applied as
+> a draw-batch stage in `docs/mesh-attachment-contract.md`), which already have a
+> wired loader. A prompt-24 implementer must target `runtime-nim/src/bony/mesh/deform.nim`
+> (`DeformTimeline`/`sampleDeformDeltas`), **not** the `bony/deform/` deformer seam.
 
 ### Reserved skin identity
 
@@ -121,12 +142,12 @@ inline).
 | Case | Rule |
 |---|---|
 | (a) `skin != "default"` | **Reject** — v1 recognizes only the reserved `"default"` skin (`unknownRequiredReference`); *prompt-24 loader*. The standalone validator still rejects an **empty** skin (`schemaViolation`). |
-| (b) empty `slot` or `attachment`, or `attachment` naming a mesh not present on the slot | **Reject** — empty is `schemaViolation` (standalone); an attachment that does not resolve to a mesh on the slot is `unknownRequiredReference` (*prompt-24 loader*). |
+| (b) empty `slot` or empty `attachment` | **Reject** — a deform timeline must name both a slot and an attachment (`schemaViolation`, standalone validator). |
 | (c) `vertexCount ≤ 0`, or `vertexCount` disagreeing with the referenced mesh's vertex count | **Reject** — non-positive is `schemaViolation` (standalone); a mismatch against the resolved mesh is `schemaViolation` (*prompt-24 loader*). |
 | (d) zero keyframes | **Reject** — a deform timeline must contain at least one keyframe (`schemaViolation`). |
 | (e) a keyframe with zero deltas, or `offset + deltas.len > vertexCount` | **Reject** — each key needs a non-empty delta run that fits the mesh (`schemaViolation`). |
 | (f) non-strictly-increasing keyframe times, or a negative key time after `f32` quantization | **Reject** — times must be non-negative and strictly increasing (`schemaViolation`). |
-| (g) a `(slot, attachment)` pairing that does not resolve to a loaded mesh attachment | **Reject** — `unknownRequiredReference`; *prompt-24 loader* (the standalone validator cannot see the skeleton). |
+| (g) `slot` names no loaded slot, `attachment` names no loaded mesh attachment, or the two do not resolve to one another (the named attachment is not the mesh bound to that slot) | **Reject** — the `(slot, attachment)` binding must resolve to a loaded mesh attachment (`unknownRequiredReference`); *prompt-24 loader* (the standalone validator cannot see the skeleton). |
 
 ## Packed `deformTimeline` byte layout (`.bnb`)
 
@@ -141,11 +162,15 @@ the **same encoding** used by bone/slot timelines (a `varuint` tag `0`=linear /
 points `c1x, c1y, c2x, c2y`), reused verbatim from `writeCurve`/`readCurve` in
 `runtime-nim/src/bony/binary/semantic.nim` — no second curve encoding is minted.
 
-> **Normative byte layout pinned by `bony-68lj.6`.** The frozen field-by-field
-> `.bnb` layout of the `deformKeys` payload (leading `varuint` keyframe count,
-> per-key `time`/`offset`/delta-run, and the reused curve tail) is filled into this
-> section by its owning bead; the stable heading anchor above is fixed here so the
-> registry `layout` pointer and this contract stay in sync.
+> **Normative byte layout pinned by `bony-68lj.6` (must land before codegen).** The
+> frozen field-by-field `.bnb` layout of the `deformKeys` payload (leading `varuint`
+> keyframe count, per-key `time`/`offset`/delta-run, and the reused curve tail;
+> proposed layout in `.agents/notes/deform-timeline-format-decisions.md` §3.5) is
+> filled into this section by its owning bead; the stable heading anchor above is
+> fixed here so the registry `layout` pointer and this contract stay in sync.
+> **Sequencing:** `bony-68lj.6` must fill this body **before** `bony-68lj.12` adds
+> the `deformKeys` `PACKED_BYTES_METADATA` entry and `bony-68lj.13` regenerates, so
+> the emitted `layout` pointer never resolves to an empty (placeholder) section.
 
 ## Deterministic sampling algorithm (forward reference — implemented in prompt 24)
 
@@ -181,20 +206,26 @@ within the `1e-4` tolerance of `docs/float-math-contract.md` (restates
   positions — consistent with the deformer stage in
   `docs/mesh-attachment-contract.md`.
 
-## Cross-track mixing
+## Cross-track mixing (provisional — no runtime mixer exists yet)
 
-A deform timeline resolves on the mixer like an **attachment channel**, not like a
-numeric (bone/slot-color) channel: it is **thresholded / winner-take-by-track-weight**,
-**not** weight-blended across tracks. When two animation tracks both drive the same
-`(skin, slot, attachment)` deform, the track with the greater effective weight wins
-outright and its sampled deltas are applied; the offsets from the two tracks are
-**not** linearly blended. This matches how an attachment-swap timeline resolves (a
-discrete winner) rather than how a translate timeline resolves (a weighted sum),
-because a partial blend of two independent sparse delta runs over different vertex
-subsets has no well-defined meaning. This mixing rule is **documented-but-unexercised
-in v1**: v1 pins single-track deform sampling; multi-track deform arbitration is
-specified here so prompt 24's mixer and any later multi-track slice agree, but no v1
-conformance rig exercises it.
+> **Design decision pinned for prompt 24, not a restatement of existing runtime
+> behavior.** There is no deform mixer in the runtime today (`sampleDeformDeltas`
+> samples a single timeline; nothing arbitrates two tracks). The rule below is the
+> **intended** arbitration the prompt-24 mixer should implement; it is normative for
+> that slice but **documented-but-unexercised in v1** and carries no conformance
+> rig. If prompt 24 finds a reason to revisit it, this section — not runtime code —
+> is the thing to amend.
+
+The intended rule: a deform timeline **should** resolve on the mixer like an
+**attachment channel**, not like a numeric (bone/slot-color) channel — i.e.
+**thresholded / winner-take-by-track-weight**, **not** weight-blended across tracks.
+When two animation tracks both drive the same `(skin, slot, attachment)` deform, the
+track with the greater effective weight wins outright and its sampled deltas are
+applied; the offsets from the two tracks are **not** linearly blended. The rationale:
+this matches how an attachment-swap timeline resolves (a discrete winner) rather than
+how a translate timeline resolves (a weighted sum), because a partial blend of two
+independent sparse delta runs over different vertex subsets has no well-defined
+meaning.
 
 ## Related contracts
 
