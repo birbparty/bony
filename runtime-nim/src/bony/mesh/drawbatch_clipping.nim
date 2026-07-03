@@ -3,10 +3,15 @@
 ## `DrawVertex` carries per-vertex color (r/g/b/a) that `SkinnedMeshVertex`
 ## lacks, so this restates the Sutherland-Hodgman convex-clip geometry from
 ## `mesh/clipping.nim` with r/g/b/a interpolation in addition to u/v. It is kept
-## in its own module (rather than reusing `mesh/clipping.nim` directly) to avoid
-## the `transform` -> `mesh/clipping` -> `mesh/skinning` -> `transform` import
-## cycle, and so the public `clipTrianglesToConvexPolygon` signature and the
-## shared `SkinnedMeshVertex` type stay untouched. The epsilon, orientation
+## in its own module (rather than reusing `mesh/clipping.nim` directly) so the
+## public `clipTrianglesToConvexPolygon` signature and the shared
+## `SkinnedMeshVertex` type stay untouched — clipping `DrawVertex` batches needs
+## the color channels this restatement adds. (Historically this split also
+## avoided a `transform` -> `mesh/clipping` -> `mesh/skinning` -> `transform`
+## import cycle; that cycle no longer exists — iteration 181 dropped the
+## `mesh/skinning -> transform` edge so `skinning` imports only `bony/model` —
+## but the `DrawVertex`-vs-`SkinnedMeshVertex` type difference above independently
+## justifies the separate module.) The epsilon, orientation
 ## handling, edge-intersection math, fan re-triangulation (pivot on clipped
 ## vertex 0), and output-boundary `quantizeF32` all match `mesh/clipping.nim`
 ## and `docs/clipping-attachment-contract.md` exactly.

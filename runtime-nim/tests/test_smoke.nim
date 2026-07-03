@@ -7398,3 +7398,214 @@ spec "bony clipping evaluation":
       closeWithin(bottom.g, 0.75, 1e-6)
       closeWithin(bottom.b, 0.0, 1e-6)
       closeWithin(bottom.u, 0.75, 1e-6)
+
+spec "bony mesh draw batches":
+  it "emits an unweighted mesh batch skinned through the slot bone":
+    # A slot referencing a mesh must produce one DrawBatch whose world-space
+    # vertices equal skinMeshVertices (FK through the slot bone), whose indices
+    # equal the mesh triangles, and whose u,v equal the mesh uvs. Pins the mesh
+    # dispatch that precedes the non-region guard in buildDrawBatches.
+    let bones = @[boneData("root", "", localTransform(x = 3.0, y = 2.0))]
+    let prelim = skeletonData(skeletonHeader("demo", "0.1.0"), bones)
+    let mesh = unweightedMeshAttachment(
+      prelim,
+      "quad",
+      @[meshUv(0.0, 0.0), meshUv(1.0, 0.0), meshUv(1.0, 1.0)],
+      @[0'u16, 1'u16, 2'u16],
+      @[unweightedMeshVertex(-1.0, 0.0), unweightedMeshVertex(1.0, 0.0), unweightedMeshVertex(1.0, 2.0)],
+    )
+    let data = skeletonData(
+      skeletonHeader("demo", "0.1.0"),
+      bones,
+      @[slotData("body", "root", "quad")],
+      meshAttachments = @[mesh],
+    )
+    let worlds = computeWorldTransforms(data)
+    let expected = skinMeshVertices(data, worlds, "root", mesh)
+    let batches = buildDrawBatches(data, worlds)
+    let batch = batches.batchFor("body")
+
+    then:
+      batches.len == 1
+      batch.slot == "body"
+      batch.bone == "root"
+      batch.attachment == "quad"
+      batch.texturePage == ""
+      batch.blendMode == "normal"
+      batch.clipId == ""
+      batch.indices == mesh.triangles
+      batch.vertices.len == expected.len
+      # Vertices match the hand-computed skinning within 1e-4, with uvs carried
+      # straight from the mesh.
+      closeWithin(batch.vertices[0].x, expected[0].x, 1e-4)
+      closeWithin(batch.vertices[0].y, expected[0].y, 1e-4)
+      closeWithin(batch.vertices[2].x, expected[2].x, 1e-4)
+      closeWithin(batch.vertices[2].y, expected[2].y, 1e-4)
+      closeWithin(batch.vertices[2].u, 1.0, 1e-4)
+      closeWithin(batch.vertices[2].v, 1.0, 1e-4)
+      # Uniform region color (v1 mesh has no per-vertex color).
+      closeWithin(batch.vertices[0].r, 1.0, 1e-9)
+      closeWithin(batch.vertices[0].a, 1.0, 1e-9)
+      # Explicit FK positions: root translate (3,2) applied to each bind vertex.
+      closeWithin(batch.vertices[0].x, 2.0, 1e-4)
+      closeWithin(batch.vertices[0].y, 2.0, 1e-4)
+      closeWithin(batch.vertices[2].x, 4.0, 1e-4)
+      closeWithin(batch.vertices[2].y, 4.0, 1e-4)
+
+  it "emits a weighted mesh batch via linear-blend skinning":
+    # A weighted vertex shared across two posed bones must land at the blended
+    # position, strictly different from either bone's FK of its own bind — proving
+    # the blend is observable, not a single-bone passthrough.
+    let bones = @[
+      boneData("root", "", localTransform(x = 10.0)),
+      boneData("child", "root", localTransform(y = 4.0)),
+    ]
+    let prelim = skeletonData(skeletonHeader("demo", "0.1.0"), bones)
+    let mesh = weightedMeshAttachment(
+      prelim,
+      "weighted",
+      @[meshUv(0.5, 0.5)],
+      @[0'u16, 0'u16, 0'u16],
+      @[
+        weightedMeshVertex(@[
+          meshInfluence("root", 2.0, 0.0, 0.25),
+          meshInfluence("child", 0.0, 2.0, 0.75),
+        ]),
+      ],
+    )
+    let data = skeletonData(
+      skeletonHeader("demo", "0.1.0"),
+      bones,
+      @[slotData("meshSlot", "root", "weighted")],
+      meshAttachments = @[mesh],
+    )
+    let worlds = computeWorldTransforms(data)
+    let expected = skinMeshVertices(data, worlds, "root", mesh)
+    let batches = buildDrawBatches(data, worlds)
+    let batch = batches.batchFor("meshSlot")
+
+    then:
+      batches.len == 1
+      batch.attachment == "weighted"
+      batch.indices == mesh.triangles
+      batch.vertices.len == 1
+      closeWithin(batch.vertices[0].x, expected[0].x, 1e-4)
+      closeWithin(batch.vertices[0].y, expected[0].y, 1e-4)
+      # Blended target: 0.25*root(2,0) + 0.75*child(0,2) = (10.5, 4.5).
+      closeWithin(batch.vertices[0].x, quantizeF32(10.5), 1e-4)
+      closeWithin(batch.vertices[0].y, quantizeF32(4.5), 1e-4)
+      # Non-vacuous blend: differs from EITHER single bone's FK of its bind
+      # (root FK of (2,0) = (12,0); child FK of (0,2) = (10,6)).
+      not closeWithin(batch.vertices[0].x, 12.0, 1e-3)
+      not closeWithin(batch.vertices[0].y, 6.0, 1e-3)
+
+  it "skips mesh batches in the clip pass (meshes not clipped in v1)":
+    # A mesh slot inside a clip's covered range keeps clipId == "" and its full,
+    # un-fan-collapsed triangle set: clipDrawBatchPolygon would reinterpret the
+    # triangle soup as one convex ring, so the clip pass must skip mesh batches.
+    let bones = @[boneData("root", "")]
+    let prelim = skeletonData(skeletonHeader("cliprig", "0.1.0"), bones)
+    let mesh = unweightedMeshAttachment(
+      prelim,
+      "meshQuad",
+      @[meshUv(0.0, 0.0), meshUv(1.0, 0.0), meshUv(1.0, 1.0)],
+      @[0'u16, 1'u16, 2'u16],
+      @[unweightedMeshVertex(-1.0, -1.0), unweightedMeshVertex(1.0, -1.0), unweightedMeshVertex(1.0, 1.0)],
+    )
+    let data = skeletonData(
+      skeletonHeader("cliprig", "0.1.0"),
+      bones,
+      @[
+        slotData("clipSlot", "root", "mask"),
+        slotData("meshSlot", "root", "meshQuad"),
+      ],
+      clippingAttachments = @[
+        # A clip that WOULD cut the mesh's left vertex (x < 0) if it were applied.
+        clipAttachmentData("mask", @[0.0, -3.0, 3.0, -3.0, 3.0, 3.0, 0.0, 3.0], "meshSlot"),
+      ],
+      meshAttachments = @[mesh],
+    )
+    let batches = buildDrawBatches(data)
+    let batch = batches.batchFor("meshSlot")
+
+    then:
+      batch.attachment == "meshQuad"
+      batch.clipId == ""
+      batch.indices == @[0'u16, 1'u16, 2'u16]
+      batch.vertices.len == 3
+
+  it "clips a region but skips a mesh in the same clip range":
+    # Both a region and a mesh sit inside one clip's covered range. The clip-skip
+    # is per-batch: the region is clipped (clipId set, geometry cut) while the
+    # mesh keeps clipId == "" and its full triangle set. Pins that the skip is a
+    # per-batch `continue`, not a range-wide bail-out.
+    let bones = @[boneData("root", "")]
+    let prelim = skeletonData(skeletonHeader("cliprig", "0.1.0"), bones)
+    let mesh = unweightedMeshAttachment(
+      prelim,
+      "meshQuad",
+      @[meshUv(0.0, 0.0), meshUv(1.0, 0.0), meshUv(1.0, 1.0)],
+      @[0'u16, 1'u16, 2'u16],
+      @[unweightedMeshVertex(-1.0, -1.0), unweightedMeshVertex(1.0, -1.0), unweightedMeshVertex(1.0, 1.0)],
+    )
+    let data = skeletonData(
+      skeletonHeader("cliprig", "0.1.0"),
+      bones,
+      @[
+        slotData("clipSlot", "root", "mask"),
+        slotData("meshSlot", "root", "meshQuad"),
+        slotData("regionSlot", "root", "body"),
+      ],
+      @[regionAttachment("body", 2.0, 2.0)],
+      clippingAttachments = @[
+        # Clip x >= 0: cuts the left half of both the mesh and the region if
+        # applied. untilSlot=regionSlot so both covered slots are in range.
+        clipAttachmentData("mask", @[0.0, -3.0, 3.0, -3.0, 3.0, 3.0, 0.0, 3.0], "regionSlot"),
+      ],
+      meshAttachments = @[mesh],
+    )
+    let batches = buildDrawBatches(data)
+    let meshBatch = batches.batchFor("meshSlot")
+    let regionBatch = batches.batchFor("regionSlot")
+
+    then:
+      # Mesh: untouched by the clip pass.
+      meshBatch.clipId == ""
+      meshBatch.indices == @[0'u16, 1'u16, 2'u16]
+      meshBatch.vertices.len == 3
+      # Region: clipped in the same range (clipId set, left half removed).
+      regionBatch.clipId == "mask"
+      regionBatch.vertices.len >= 3
+
+  it "emits batches in slot draw order across mesh and region dispatch arms":
+    # Interleaved region/mesh/region slots must emit in slot order, proving both
+    # dispatch arms append to `result`/`batchSlotIndex` in the same pass without
+    # reordering.
+    let bones = @[boneData("root", "")]
+    let prelim = skeletonData(skeletonHeader("demo", "0.1.0"), bones)
+    let mesh = unweightedMeshAttachment(
+      prelim,
+      "midMesh",
+      @[meshUv(0.0, 0.0), meshUv(1.0, 0.0), meshUv(1.0, 1.0)],
+      @[0'u16, 1'u16, 2'u16],
+      @[unweightedMeshVertex(0.0, 0.0), unweightedMeshVertex(1.0, 0.0), unweightedMeshVertex(1.0, 1.0)],
+    )
+    let data = skeletonData(
+      skeletonHeader("demo", "0.1.0"),
+      bones,
+      @[
+        slotData("regionA", "root", "bodyA"),
+        slotData("meshB", "root", "midMesh"),
+        slotData("regionC", "root", "bodyC"),
+      ],
+      @[regionAttachment("bodyA", 2.0, 2.0), regionAttachment("bodyC", 2.0, 2.0)],
+      meshAttachments = @[mesh],
+    )
+    let batches = buildDrawBatches(data)
+
+    then:
+      batches.len == 3
+      batches[0].slot == "regionA"
+      batches[1].slot == "meshB"
+      batches[1].attachment == "midMesh"
+      batches[2].slot == "regionC"

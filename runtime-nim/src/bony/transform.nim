@@ -8,6 +8,7 @@ import bony/constraints/ik
 import bony/constraints/transform_constraints
 import bony/constraints/physics_constraints
 import bony/mesh/drawbatch_clipping
+import bony/mesh/skinning
 import bony/model
 
 const basisEpsilon = 1e-12
@@ -798,6 +799,45 @@ proc vertex(world: Affine2; x, y, u, v: float64): DrawVertex =
   )
 
 
+proc skinMeshVertices*(
+  data: SkeletonData;
+  slotBone: string;
+  mesh: MeshAttachment;
+  skinningMethod = linearBlendSkinning;
+): seq[SkinnedMeshVertex] =
+  ## Convenience overload relocated from `bony/mesh/skinning` to break the
+  ## former transform <-> skinning import cycle: recomputes worlds via the pure
+  ## world-transform pass, then defers to the explicit-worlds overload.
+  skinMeshVertices(data, computeWorldTransforms(data), slotBone, mesh, skinningMethod)
+
+
+proc skinMeshVertices*(
+  data: SkeletonData;
+  slot: SlotData;
+  mesh: MeshAttachment;
+  skinningMethod = linearBlendSkinning;
+): seq[SkinnedMeshVertex] =
+  skinMeshVertices(data, slot.bone, mesh, skinningMethod)
+
+
+proc meshVertex(sv: SkinnedMeshVertex): DrawVertex =
+  ## Wrap an already-world-space skinned mesh vertex into a `DrawVertex`. Unlike
+  ## `vertex()`, this does NOT re-apply a world transform (skinning already did)
+  ## and it carries the uniform region color (r=g=b=a=1): the v1 mesh record has
+  ## no per-vertex color, so a mesh and a region on the same slot are
+  ## indistinguishable in color.
+  DrawVertex(
+    x: sv.x,
+    y: sv.y,
+    u: sv.u,
+    v: sv.v,
+    r: 1.0,
+    g: 1.0,
+    b: 1.0,
+    a: 1.0,
+  )
+
+
 proc buildDrawBatches*(data: SkeletonData; worlds: seq[Affine2]): seq[DrawBatch] =
   ## Build draw batches using caller-supplied world transforms. Callers that have
   ## advanced the stateful physics stage pass the physics-adjusted worlds here so
@@ -811,12 +851,15 @@ proc buildDrawBatches*(data: SkeletonData; worlds: seq[Affine2]): seq[DrawBatch]
       " must match bone count " & $data.bones.len)
   var boneIndex = initTable[string, int]()
   var regions = initTable[string, RegionAttachment]()
+  var meshes = initTable[string, MeshAttachment]()
   var clips = initTable[string, ClipAttachmentData]()
 
   for index, bone in data.bones:
     boneIndex[bone.name] = index
   for region in data.regions:
     regions[region.name] = region
+  for mesh in data.meshAttachments:
+    meshes[mesh.name] = mesh
   for clip in data.clippingAttachments:
     clips[clip.name] = clip
 
@@ -830,6 +873,41 @@ proc buildDrawBatches*(data: SkeletonData; worlds: seq[Affine2]): seq[DrawBatch]
   var batchSlotIndex: seq[int] = @[]
   for slotIdx, slot in data.slots:
     if slot.attachment.len == 0:
+      continue
+    if meshes.hasKey(slot.attachment):
+      # Keying dispatch on the `meshes` table alone is unambiguous because
+      # attachment names are cross-collection unique — validateSkeletonData
+      # rejects a mesh name that collides with a region or clip name (model.nim),
+      # so a name resolves to at most one of the three tables.
+      # Mesh dispatch MUST precede the non-region guard below: a mesh-referencing
+      # slot is neither a region nor a clip, so the guard would drop it silently.
+      # Skin per-vertex world positions (FK for unweighted, linear-blend for
+      # weighted) via the explicit-worlds overload using the worlds we already
+      # hold, then emit one batch in this slot's draw-order position. Metadata
+      # fields (texturePage/blendMode/clipId/world) mirror the region path so a
+      # region and a mesh on the same slot are indistinguishable there.
+      let mesh = meshes[slot.attachment]
+      # `world` is the slot-bone world used only as batch metadata (mirroring the
+      # region path); it does NOT transform the mesh vertices. Skinning consumes
+      # the full `worlds` array directly — a weighted vertex blends across its
+      # influence bones and ignores slot.bone entirely.
+      let world = worlds[boneIndex[slot.bone]]
+      let skinned = skinMeshVertices(data, worlds, slot.bone, mesh)
+      var meshVerts = newSeq[DrawVertex](skinned.len)
+      for i, sv in skinned:
+        meshVerts[i] = meshVertex(sv)
+      result.add DrawBatch(
+        slot: slot.name,
+        bone: slot.bone,
+        attachment: slot.attachment,
+        texturePage: "",
+        blendMode: "normal",
+        clipId: "",
+        world: world,
+        vertices: meshVerts,
+        indices: mesh.triangles,
+      )
+      batchSlotIndex.add slotIdx
       continue
     if not regions.hasKey(slot.attachment):
       # A slot whose attachment names a clipping attachment (or any non-region)
@@ -889,6 +967,13 @@ proc buildDrawBatches*(data: SkeletonData; worlds: seq[Affine2]): seq[DrawBatch]
       for batchIdx in 0 ..< result.len:
         let sourceSlotIndex = batchSlotIndex[batchIdx]
         if sourceSlotIndex <= ownIndex or sourceSlotIndex > endIndex:
+          continue
+        if meshes.hasKey(result[batchIdx].attachment):
+          # Meshes are NOT clipped in v1: clipDrawBatchPolygon treats a batch's
+          # vertices as a single convex ring (fan from vertex 0, ignoring the
+          # batch indices), which would destroy a triangle-soup mesh's topology.
+          # Leave clipId == "" and the full triangle set untouched. See
+          # docs/mesh-attachment-contract.md ("meshes not clipped in v1").
           continue
         result[batchIdx].clipId = clip.name
         let clipped = clipDrawBatchPolygon(result[batchIdx].vertices, clipPolygon)
