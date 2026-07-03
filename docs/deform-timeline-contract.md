@@ -162,15 +162,44 @@ the **same encoding** used by bone/slot timelines (a `varuint` tag `0`=linear /
 points `c1x, c1y, c2x, c2y`), reused verbatim from `writeCurve`/`readCurve` in
 `runtime-nim/src/bony/binary/semantic.nim` — no second curve encoding is minted.
 
-> **Normative byte layout pinned by `bony-68lj.6` (must land before codegen).** The
-> frozen field-by-field `.bnb` layout of the `deformKeys` payload (leading `varuint`
-> keyframe count, per-key `time`/`offset`/delta-run, and the reused curve tail;
-> proposed layout in `.agents/notes/deform-timeline-format-decisions.md` §3.5) is
-> filled into this section by its owning bead; the stable heading anchor above is
-> fixed here so the registry `layout` pointer and this contract stay in sync.
-> **Sequencing:** `bony-68lj.6` must fill this body **before** `bony-68lj.12` adds
-> the `deformKeys` `PACKED_BYTES_METADATA` entry and `bony-68lj.13` regenerates, so
-> the emitted `layout` pointer never resolves to an empty (placeholder) section.
+The payload byte layout is **frozen**:
+
+```
+varuint  keyCount              (≥ 1; a zero count is a load error)
+
+# keyCount * (
+f32      time                  (little-endian IEEE-754; f32-quantized, non-negative,
+                                strictly increasing across keys)
+varuint  offset                (first mesh-vertex index of the delta run)
+varuint  deltaCount            (≥ 1; offset + deltaCount ≤ vertexCount)
+#   deltaCount * (
+f32      dx                    (little-endian IEEE-754)
+f32      dy
+#   )
+# curve tail — IDENTICAL to writeTimelineKeys (binary/semantic.nim); no second encoding:
+varuint  curveTag              (0 = linear, 1 = stepped, 2 = bezier)
+# if curveTag == 2 (bezier): 4 * (
+f32      c                     (c1x, c1y, c2x, c2y, in that order; little-endian)
+# )
+# )
+```
+
+The leading `varuint keyCount` mirrors `writeTimelineKeys`' count prefix (the reader
+rejects `keyCount == 0`, matching `readBoneTimelineKeys`). Per keyframe, the scalar
+prefix (`time`, `offset`, the `deltaCount`-framed `(dx, dy)` run) is followed by the
+shared curve tail: a one-byte `varuint` tag for linear/stepped (no payload) or the
+tag plus four little-endian `f32` control points for bezier (`0x02` + 16 bytes = 17
+bytes). All `f32` fields are quantized via `quantizeF32` on load. Any trailing bytes
+after the declared `keyCount` keyframes (and, per keyframe, after its declared
+`deltaCount` deltas and its curve tail) are a load error.
+
+This section's heading anchor (`#packed-deformtimeline-byte-layout-bnb`) is the
+`PACKED_BYTES_METADATA` `layout` target for the `deformKeys` property under the
+chosen **Option N** (mint `deformKeys` = 3009); see
+`.agents/notes/deform-timeline-format-decisions.md` §2.7. `bony-68lj.12` points the
+generated wire schema's `x-bony-packedBytes.layout` at this anchor, and must land
+together with the registry/codegen regen so the pointer resolves to this now-filled
+layout.
 
 ## Deterministic sampling algorithm (forward reference — implemented in prompt 24)
 
