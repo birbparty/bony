@@ -7,10 +7,11 @@ deformable triangle mesh with per-vertex texture coordinates and either flat
 bone-local vertex positions or per-vertex weighted bone influences (skinning).
 This slice specifies the format and the load-time validation, and — normatively,
 for a later slice to implement — the deterministic linear-blend skinning
-algorithm. **No mesh is skinned, drawn, or clipped in this slice**: the record is
-loaded and validated only; `skinMeshVertices` is exercised by unit tests but no
-draw-batch surface consumes a mesh, and mesh geometry is **never clipped** in v1.
-The deterministic skinning evaluation lands in prompt 20.
+algorithm. The record was made loadable and validated in prompt 19; prompt 20
+wired `skinMeshVertices` into `buildDrawBatches`, so a mesh-referencing slot now
+emits a skinned `DrawBatch` (see "DrawBatch metadata defaults" below). Mesh
+geometry is still **never clipped** in v1 (see "Clipping a mesh attachment is a v1
+non-goal").
 
 The mesh model, field names, packed byte layouts, and skinning algorithm are
 **project-owned** and were chosen from generic geometry/skinning terminology, not
@@ -50,12 +51,43 @@ parents are rejected at load.)
 
 ### DrawBatch metadata defaults
 
-Meshes produce **no draw batch** in this slice (see non-goal above). When a later
-slice emits mesh draw batches, the batch metadata follows the same defaults the
-region surface already uses (`runtime-nim/src/bony/transform.nim`): `texturePage`
-defaults to the empty string `""`, and `blendMode` comes from the owning **slot's
-blend mode** (`"normal"` for the current setup-pose surface). `clipId` stays empty
-— meshes are not clipped in v1.
+Prompt 20 (`buildDrawBatches`, `runtime-nim/src/bony/transform.nim`) now emits
+**one `DrawBatch` per mesh-referencing slot**, in that slot's draw-order position.
+Its metadata fields are pinned to the **same deterministic values the region path
+derives for the same slot**, so a region and a mesh on the same slot are
+indistinguishable in those fields — a Dart port (prompt 22) must reproduce them
+byte-for-byte:
+
+- `texturePage = ""` — the v1 mesh record carries no texture page; matches the
+  region path's literal `""`.
+- `blendMode = "normal"` — the v1 mesh record carries no blend mode; matches the
+  region path's literal `"normal"` (the current setup-pose surface). When a future
+  slice threads a real slot blend mode, region and mesh batches must continue to
+  share it.
+- `clipId = ""` at emit, and it **stays** empty: meshes are not clipped in v1 (see
+  below).
+- `bone = slot.bone`, `attachment = <mesh name>`, and `world = worlds[slot.bone]`
+  exactly as the region path sets them.
+
+Per-vertex color is uniform `r=g=b=a=1` (the v1 mesh record has no per-vertex
+color); the seam does **not** read a slot color. Vertex positions are the
+world-space output of `skinMeshVertices(data, worlds, slot.bone, mesh)` (already
+`f32`-quantized in the solver); `indices` are the mesh `triangles` verbatim; `u,v`
+are the mesh `uvs`.
+
+### Clipping a mesh attachment is a v1 non-goal
+
+Only **region** batches are clipped. `buildDrawBatches`'s clip pass **skips any
+batch whose attachment names a mesh**, leaving its `clipId == ""` and its full
+triangle set untouched, even when the mesh slot falls inside a clip's covered
+range. Rationale: `clipDrawBatchPolygon`
+(`runtime-nim/src/bony/mesh/drawbatch_clipping.nim`) treats a batch's `vertices`
+as a **single convex polygon in boundary order** and fan-triangulates from vertex
+0, ignoring the batch's `indices`. A skinned mesh is a triangle *soup* with an
+explicit triangle list and shared/interior vertices, so routing it through that
+path would reinterpret its vertex list as one convex ring and destroy its
+topology. Correct per-triangle mesh clipping is a deliberate follow-on milestone
+(tracked as a follow-up bead), not part of v1.
 
 ## Load-validated invariants
 

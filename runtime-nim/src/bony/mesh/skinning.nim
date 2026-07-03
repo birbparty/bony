@@ -3,7 +3,6 @@
 import std/tables
 
 import bony/model
-import bony/transform
 
 type
   MeshSkinningMethod* = enum
@@ -73,20 +72,7 @@ proc skinMeshVertices*(
       v: quantizeF32(uv.v, "mesh.skinned.v"),
     )
 
-
-proc skinMeshVertices*(
-  data: SkeletonData;
-  slotBone: string;
-  mesh: MeshAttachment;
-  skinningMethod = linearBlendSkinning;
-): seq[SkinnedMeshVertex] =
-  skinMeshVertices(data, computeWorldTransforms(data), slotBone, mesh, skinningMethod)
-
-
-proc skinMeshVertices*(
-  data: SkeletonData;
-  slot: SlotData;
-  mesh: MeshAttachment;
-  skinningMethod = linearBlendSkinning;
-): seq[SkinnedMeshVertex] =
-  skinMeshVertices(data, slot.bone, mesh, skinningMethod)
+# The two `computeWorldTransforms`-based convenience overloads live in
+# `bony/transform` (which imports both `computeWorldTransforms` and this module),
+# so `skinning` needs no dependency on `transform` and the former
+# transform <-> skinning import cycle is gone.
