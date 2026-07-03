@@ -855,8 +855,9 @@ proc buildDrawBatches*(data: SkeletonData; worlds: seq[Affine2]): seq[DrawBatch]
   var meshes = initTable[string, MeshAttachment]()
   var clips = initTable[string, ClipAttachmentData]()
   # Transient deform-timeline override stamped on the posed data by the mixer,
-  # keyed by slot name (a slot shows one attachment at a time).
-  var deformBySlot = initTable[string, DeformOverride]()
+  # keyed by slot name + mesh attachment (the mixer produces one entry per
+  # slot/attachment, so keying by slot alone would collapse distinct entries).
+  var deformBySlotAttachment = initTable[string, DeformOverride]()
 
   for index, bone in data.bones:
     boneIndex[bone.name] = index
@@ -867,7 +868,7 @@ proc buildDrawBatches*(data: SkeletonData; worlds: seq[Affine2]): seq[DrawBatch]
   for clip in data.clippingAttachments:
     clips[clip.name] = clip
   for override in data.deformOverrides:
-    deformBySlot[override.slot] = override
+    deformBySlotAttachment[override.slot & "\0" & override.attachment] = override
 
   var slotIndexByName = initTable[string, int]()
   for index, slot in data.slots:
@@ -903,9 +904,10 @@ proc buildDrawBatches*(data: SkeletonData; worlds: seq[Affine2]): seq[DrawBatch]
       # this slot/attachment, immediately after skinning and before the M7
       # deformer and clipping stages (normative order — see
       # docs/deform-timeline-contract.md). Region batches are never offset.
-      if slot.name in deformBySlot:
-        let override = deformBySlot[slot.name]
-        if override.attachment == mesh.name and override.deltas.len == skinned.len:
+      let deformKey = slot.name & "\0" & mesh.name
+      if deformKey in deformBySlotAttachment:
+        let override = deformBySlotAttachment[deformKey]
+        if override.deltas.len == skinned.len:
           skinned = applyDeformDeltas(skinned, override.deltas)
       var meshVerts = newSeq[DrawVertex](skinned.len)
       for i, sv in skinned:

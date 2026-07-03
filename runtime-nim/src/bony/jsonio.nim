@@ -998,7 +998,7 @@ proc parseBonyAnimations(root: JsonNode; data: SkeletonData): Table[string, Anim
           let kfObj = requireObject(kfNode, kfCtx)
           validateKnownKeys(kfObj, ["t", "offset", "deltas", "curve", "c1x", "c1y", "c2x", "c2y"], kfCtx)
           let kfTime = requiredF64(kfObj, "t", kfCtx)
-          let offset = requiredInt(kfObj, "offset", kfCtx)
+          let offset = optionalInt(kfObj, "offset", 0, kfCtx)
           if offset < 0:
             raise newBonyLoadError(schemaViolation, kfCtx & ".offset must be non-negative")
           if not kfObj.hasKey("deltas"):

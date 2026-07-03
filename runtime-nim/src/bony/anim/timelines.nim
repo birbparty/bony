@@ -683,12 +683,14 @@ proc animationClip*(
 
   var boneNames = initHashSet[string]()
   var slotNames = initHashSet[string]()
+  var slotAttachments = initTable[string, string]()
   var regionNames = initHashSet[string]()
   var meshVertexCounts = initTable[string, int]()
   for bone in data.bones:
     boneNames.incl(bone.name)
   for slot in data.slots:
     slotNames.incl(slot.name)
+    slotAttachments[slot.name] = slot.attachment
   for region in data.regions:
     regionNames.incl(region.name)
   for mesh in data.meshAttachments:
@@ -722,6 +724,13 @@ proc animationClip*(
       raise newBonyLoadError(unknownRequiredReference, "unknown deform timeline slot: " & timeline.slot)
     if timeline.attachment notin meshVertexCounts:
       raise newBonyLoadError(unknownRequiredReference, "unknown deform timeline mesh attachment: " & timeline.attachment)
+    # Edge case (g): the (slot, attachment) pairing must resolve — the target
+    # slot must actually show the mesh the timeline animates (its setup-pose
+    # attachment). Otherwise the override would silently no-op at draw time.
+    if slotAttachments.getOrDefault(timeline.slot) != timeline.attachment:
+      raise newBonyLoadError(unknownRequiredReference,
+        "deform timeline slot/attachment pairing does not resolve to a mesh on that slot: " &
+        timeline.slot & "/" & timeline.attachment)
     if timeline.vertexCount != meshVertexCounts[timeline.attachment]:
       raise newBonyLoadError(schemaViolation, "deform timeline vertex count does not match mesh: " & timeline.attachment)
     duration = max(duration, timeline.lastTime)

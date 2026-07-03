@@ -3795,6 +3795,32 @@ spec "bony package":
       bnbDeform.keys.len == jsonDeform.keys.len
       samplesMatch
 
+  it "rejects a deform timeline whose slot/attachment pairing does not resolve":
+    # slotA shows meshA, but the deform timeline targets meshB on slotA — the
+    # (slot, attachment) pairing must be rejected at load (contract edge (g)).
+    const badRig = """{
+  "skeleton": { "name": "bad-deform", "version": "1.0.0" },
+  "bones": [ { "name": "root" } ],
+  "slots": [
+    { "name": "slotA", "bone": "root", "attachment": "meshA" },
+    { "name": "slotB", "bone": "root", "attachment": "meshB" }
+  ],
+  "meshAttachments": [
+    { "name": "meshA", "weighted": false,
+      "vertices": [ { "x": 0.0, "y": 0.0 }, { "x": 1.0, "y": 0.0 }, { "x": 0.0, "y": 1.0 } ],
+      "uvs": [ 0.0, 0.0, 1.0, 0.0, 0.0, 1.0 ], "triangles": [ 0, 1, 2 ] },
+    { "name": "meshB", "weighted": false,
+      "vertices": [ { "x": 0.0, "y": 0.0 }, { "x": 1.0, "y": 0.0 }, { "x": 0.0, "y": 1.0 } ],
+      "uvs": [ 0.0, 0.0, 1.0, 0.0, 0.0, 1.0 ], "triangles": [ 0, 1, 2 ] }
+  ],
+  "animations": [
+    { "name": "wiggle", "deformTimelines": [
+      { "skin": "default", "slot": "slotA", "attachment": "meshB", "vertexCount": 3,
+        "keyframes": [ { "t": 0.0, "offset": 0, "deltas": [ { "x": 1.0, "y": 0.0 }, { "x": 0.0, "y": 1.0 }, { "x": 0.0, "y": 0.0 } ] } ] } ] } ]
+}"""
+    then:
+      raisesBonyLoadError(proc() = discard loadBonyJsonAsset(badRig), unknownRequiredReference)
+
   it "animates a mesh via a clip deform timeline through the mixer and draw path":
     const rig = """{
   "skeleton": { "name": "deform-anim", "version": "1.0.0" },
