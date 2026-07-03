@@ -246,8 +246,8 @@ single-influence skinning paths:
   `(0,0)`).
 - **v1** — **fully** `boneA`, bind `(4,0)`.
 - **v2** — **fully** `boneB`, bind `(0,4)`.
-- **v3** — shared **50/50** across `boneA` (bind `(2,2)`) and `boneB` (bind
-  `(2,2)`).
+- **v3** — shared with **asymmetric** weights `0.25`/`0.75` across `boneA`
+  (bind `(2,2)`) and `boneB` (bind `(2,2)`).
 
 **Non-vacuous, skinning-dominated delta.** The shared vertex **v0** in
 `m12_mesh_rig_t0.json` skins to the world position **`(5, 5)`**. That is the
@@ -262,8 +262,16 @@ The single-influence vertices pin the FK path: **v1** lands at `boneA·(4,0) =
 straight through (`v2` = `u=1, v=1`), so a runtime that drops or reorders uvs also
 fails.
 
-Region batches carry uniform color `(1,1,1,1)`, and the v1 mesh record has **no**
-per-vertex color, so every mesh vertex's `r/g/b/a` is a uniform `1.0` and color is
+The **asymmetric** vertex **v3** additionally pins the actual weight
+multiplication (not merely an equal average of influences): with weights
+`0.25`/`0.75` it skins to `0.25·boneA·(2,2) + 0.75·boneB·(2,2) =
+0.25·(12,2) + 0.75·(2,12) = (4.5, 9.5)`, whereas a runtime that averaged its two
+influences equally (ignoring the weights) would place it at `(7, 7)` — a `≈ 3.54`
+delta, so weight handling is observable and not covered up by the `0.5/0.5`
+vertices.
+
+Region batches carry uniform color `(1,1,1,1)`, and the version-1 mesh record has
+**no** per-vertex color, so every mesh vertex's `r/g/b/a` is a uniform `1.0` and color is
 **not** an observable channel here — the golden's non-vacuity rests entirely on
 the skinned geometry, the uvs, and the triangle indices.
 
@@ -329,7 +337,10 @@ hand-authored abbreviation):
      "texturePage": "", "blendMode": "normal", "clipId": "",
      "world": {"a": 1.0, "b": 0.0, "c": 0.0, "d": 1.0, "tx": 0.0, "ty": 0.0},
      "vertices": [
-       {"x": -25.0, "y": -25.0, "u": 0.0, "v": 0.0, "r": 1.0, "g": 1.0, "b": 1.0, "a": 1.0}
+       {"x": -25.0, "y": -25.0, "u": 0.0, "v": 0.0, "r": 1.0, "g": 1.0, "b": 1.0, "a": 1.0},
+       {"x": 25.0, "y": -25.0, "u": 1.0, "v": 0.0, "r": 1.0, "g": 1.0, "b": 1.0, "a": 1.0},
+       {"x": 25.0, "y": 25.0, "u": 1.0, "v": 1.0, "r": 1.0, "g": 1.0, "b": 1.0, "a": 1.0},
+       {"x": -25.0, "y": 25.0, "u": 0.0, "v": 1.0, "r": 1.0, "g": 1.0, "b": 1.0, "a": 1.0}
      ],
      "indices": [0, 1, 2, 2, 3, 0]}
   ]
