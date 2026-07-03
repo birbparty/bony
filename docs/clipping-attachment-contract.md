@@ -138,6 +138,8 @@ here** so both runtimes match within the `1e-4` tolerance of
 - `docs/binary-canonicalization.md` — canonical `.bnb` byte emission.
 - `registry/key-ranges.md` — the M4 band (`3000..3999`, "clipping").
 - `docs/mesh-attachment-contract.md` — sibling slot-bound attachment class.
-  **Mesh attachments are not clipped in v1**: `buildDrawBatches`'s clip pass skips
-  mesh batches (this convex-ring clip would destroy a triangle soup's topology);
-  per-triangle mesh clipping is a follow-on milestone.
+  **Mesh attachments are clipped per-triangle**: region batches clip as a single
+  convex ring (above), while mesh batches route through `clipDrawBatchTriangles`,
+  which Sutherland-Hodgman clips each triangle of the batch's index list
+  independently (the convex-ring clip would otherwise destroy a triangle soup's
+  topology). See that contract's "Clipping a mesh attachment (per-triangle)".

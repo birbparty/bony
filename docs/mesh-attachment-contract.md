@@ -9,9 +9,9 @@ This slice specifies the format and the load-time validation, and — normativel
 for a later slice to implement — the deterministic linear-blend skinning
 algorithm. The record was made loadable and validated in prompt 19; prompt 20
 wired `skinMeshVertices` into `buildDrawBatches`, so a mesh-referencing slot now
-emits a skinned `DrawBatch` (see "DrawBatch metadata defaults" below). Mesh
-geometry is still **never clipped** in v1 (see "Clipping a mesh attachment is a v1
-non-goal").
+emits a skinned `DrawBatch` (see "DrawBatch metadata defaults" below). A mesh
+inside a clipping attachment's covered range **is** clipped, **per-triangle** (see
+"Clipping a mesh attachment (per-triangle)").
 
 The mesh model, field names, packed byte layouts, and skinning algorithm are
 **project-owned** and were chosen from generic geometry/skinning terminology, not
@@ -64,7 +64,8 @@ byte-for-byte:
   region path's literal `"normal"` (the current setup-pose surface). When a future
   slice threads a real slot blend mode, region and mesh batches must continue to
   share it.
-- `clipId = ""` at emit, and it **stays** empty: meshes are not clipped in v1 (see
+- `clipId = ""` at emit; it is populated with the clip's name when the mesh slot
+  falls inside a clipping attachment's covered range (per-triangle clipping — see
   below).
 - `bone = slot.bone`, `attachment = <mesh name>`, and `world = worlds[slot.bone]`
   exactly as the region path sets them.
@@ -75,19 +76,40 @@ world-space output of `skinMeshVertices(data, worlds, slot.bone, mesh)` (already
 `f32`-quantized in the solver); `indices` are the mesh `triangles` verbatim; `u,v`
 are the mesh `uvs`.
 
-### Clipping a mesh attachment is a v1 non-goal
+### Clipping a mesh attachment (per-triangle)
 
-Only **region** batches are clipped. `buildDrawBatches`'s clip pass **skips any
-batch whose attachment names a mesh**, leaving its `clipId == ""` and its full
-triangle set untouched, even when the mesh slot falls inside a clip's covered
-range. Rationale: `clipDrawBatchPolygon`
-(`runtime-nim/src/bony/mesh/drawbatch_clipping.nim`) treats a batch's `vertices`
-as a **single convex polygon in boundary order** and fan-triangulates from vertex
-0, ignoring the batch's `indices`. A skinned mesh is a triangle *soup* with an
-explicit triangle list and shared/interior vertices, so routing it through that
-path would reinterpret its vertex list as one convex ring and destroy its
-topology. Correct per-triangle mesh clipping is a deliberate follow-on milestone
-(tracked as a follow-up bead), not part of v1.
+A mesh batch inside a clipping attachment's covered range is clipped
+**per-triangle** and gains `clipId = <clip name>`. Region batches keep clipping as
+a single convex ring (`clipDrawBatchPolygon`); mesh batches route through
+`clipDrawBatchTriangles`
+(`runtime-nim/src/bony/mesh/drawbatch_clipping.nim`, mirrored in
+`runtime-dart/lib/src/drawbatch_clipping.dart`), which clips **each triangle of
+the batch's index list independently** against the clip polygon. This is the
+correct model for a skinned mesh — a triangle *soup* with an explicit triangle
+list and shared/interior vertices — where reinterpreting the whole vertex list as
+one convex boundary ring (the region path) would destroy its topology.
+
+Normative behavior, matching both runtimes within the `1e-4` tolerance of
+`docs/float-math-contract.md`:
+
+- Each referenced triangle `(indices[i], indices[i+1], indices[i+2])` is
+  Sutherland-Hodgman clipped against the clip polygon, interpolating `u/v` and
+  `r/g/b/a` at every clip-edge intersection.
+- Each surviving clipped convex polygon is re-triangulated as a **triangle fan
+  pivoting on its own clipped vertex 0** and appended to the output; triangles
+  clipped away entirely contribute nothing.
+- Each triangle emits its **own** output vertices, so a shared/interior vertex is
+  duplicated across the triangles that reference it (exactly as the region fan
+  path duplicates a clipped polygon's boundary), and intersection coordinates and
+  interpolated attributes are quantized to `f32` at the output boundary.
+- **Fully-inside fast path**: if every referenced vertex is inside the clip
+  polygon, no triangle is cut and the batch keeps its original `vertices`/`indices`
+  untouched (only `clipId` is set). A batch entirely outside the clip yields an
+  empty (0-vertex / 0-index) batch.
+
+The `m17_mesh_clip_rig` conformance rig (see `conformance/README.md`) pins this:
+a 4-triangle diamond fan sharing an interior center vertex, with two triangles cut
+by the clip and two passing through unchanged.
 
 ### Deforming a mesh attachment (normative)
 
@@ -275,7 +297,7 @@ runtimes match within the `1e-4` tolerance of `docs/float-math-contract.md`
 
 - `docs/float-math-contract.md` — `quantizeF32`, `1e-4` cross-runtime tolerance.
 - `docs/clipping-attachment-contract.md` — sibling slot-bound attachment class;
-  meshes are **not** clipped in v1.
+  meshes are clipped **per-triangle** (see "Clipping a mesh attachment").
 - `docs/load-validation-contract.md` — the shared JSON/binary load-validation pass.
 - `docs/binary-canonicalization.md` — canonical `.bnb` byte emission.
 - `registry/key-ranges.md` — the M4 band (`3000..3999`).

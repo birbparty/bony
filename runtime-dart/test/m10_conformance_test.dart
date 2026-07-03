@@ -206,4 +206,13 @@ void main() {
     '../conformance/assets/m12_mesh_rig.bony',
     '../conformance/goldens/m12_mesh_rig_t0.json',
   );
+
+  // Per-triangle mesh clipping: a triangle-soup mesh inside a clip range, cut
+  // per-triangle (shared interior vertex preserved). Exercises
+  // clipDrawBatchTriangles for cross-runtime parity with the Nim reference.
+  _checkGolden(
+    'M17-MeshClip',
+    '../conformance/assets/m17_mesh_clip_rig.bony',
+    '../conformance/goldens/m17_mesh_clip_rig_t0.json',
+  );
 }
