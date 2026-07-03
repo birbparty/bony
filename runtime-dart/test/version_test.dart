@@ -21,10 +21,13 @@ void main() {
     // untilSlot, 2 required name/vertices), plus the M4 meshAttachment object
     // (typeKey 3001, property keys meshWeighted/meshVertices/meshUvs/meshTriangles
     // 3002..3005, 1 default meshWeighted, 4 required name/meshVertices/meshUvs/
-    // meshTriangles).
-    expect(bonyTypeKeys, hasLength(28));
-    expect(bonyPropertyKeys, hasLength(101));
+    // meshTriangles), plus the M4 deformTimeline object (typeKey 3002, property
+    // keys deformSkin/deformAttachment/deformVertexCount/deformKeys 3006..3009
+    // — slot reuses the shared 1011, no defaults, 5 required deformSkin/slot/
+    // deformAttachment/deformVertexCount/deformKeys).
+    expect(bonyTypeKeys, hasLength(29));
+    expect(bonyPropertyKeys, hasLength(105));
     expect(bonyPropertyDefaults, hasLength(55));
-    expect(bonyRequiredProperties, hasLength(74));
+    expect(bonyRequiredProperties, hasLength(79));
   });
 }

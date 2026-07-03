@@ -83,7 +83,9 @@ Notes for readers comparing runtimes:
   **both** the Nim reference and the Dart runtime — Dart now evaluates IK in
   `computeWorldTransforms` and matches it within `1e-4`
   (`runtime-dart/test/m10_conformance_test.dart`). The state-machine story
-  goldens (`m5_ik_story_*`) remain Nim-only pending the Dart story slice.
+  goldens (`m5_ik_story_*`) are honored by both runtimes as well —
+  `runtime-dart/test/m5_ik_story_test.dart` replays the `ik_story` machine and
+  matches them within `1e-4`.
 
 ### M5 transform rig (`m5_transform_rig`)
 
@@ -429,9 +431,15 @@ Notes for readers comparing runtimes:
   deform through the aggregate pose but do not exercise multi-layer deform
   *overlay* (one layer's deform merging over another's) — that coverage is tracked
   in `bony-353d`.
-- Cross-runtime status: the `m18_deform_story_*` goldens are currently honored by
-  the **Nim reference** runtime only. The Dart runtime consumes them in the
-  deform-timeline parity slice (`26-dart-deform-timeline-parity.md`).
+- Cross-runtime status: the `m18_deform_story_*` goldens are honored by **both**
+  the Nim reference and the Dart runtime. Dart ports the deform sampler
+  (`sampleDeformDeltas`) and the after-skinning delta application
+  (`applyDeformDeltas`) into `runtime-dart/lib/src/anim.dart` and
+  `runtime-dart/lib/src/transform.dart`, carrying the sampled deltas through the
+  posed `SkeletonData` (the same transient-override seam Nim uses, staged in
+  `applyPose`), and reproduces every animated draw-batch vertex within `1e-4`
+  from both the `.bony` and the `.bnb`
+  (`runtime-dart/test/m18_deform_story_test.dart`).
 
 ### Image goldens (Nim reference rasterizer only)
 

@@ -401,6 +401,19 @@ MixedPose _overlayPose(MixedPose base, MixedPose overlay) {
   for (final s in overlay.sequences) seqMap[s.slot] = s;
   final sequences = seqMap.values.toList()..sort((a, b) => a.slot.compareTo(b.slot));
 
+  // Carry the deform channel through the overlay (later layer wins per
+  // slot+attachment key), mirroring the sibling discrete channels. Omitting it
+  // silently drops every state-machine-driven mesh deform.
+  final deformMap =
+      <String, ({String slot, String attachment, List<MeshDelta> deltas})>{};
+  for (final d in base.deforms) deformMap['${d.slot}\x00${d.attachment}'] = d;
+  for (final d in overlay.deforms) deformMap['${d.slot}\x00${d.attachment}'] = d;
+  final deforms = deformMap.values.toList()
+    ..sort((a, b) {
+      final c = a.slot.compareTo(b.slot);
+      return c != 0 ? c : a.attachment.compareTo(b.attachment);
+    });
+
   return MixedPose(
     scalars: scalars,
     vectors: vectors,
@@ -409,6 +422,7 @@ MixedPose _overlayPose(MixedPose base, MixedPose overlay) {
     colors: colors,
     colors2: colors2,
     sequences: sequences,
+    deforms: deforms,
   );
 }
 
