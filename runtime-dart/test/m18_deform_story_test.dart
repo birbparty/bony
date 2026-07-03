@@ -127,6 +127,18 @@ void main() {
     _expectClose(mid.v, 0.5, 'mid v1.v');
   });
 
+  // The three committed goldens sample exactly on the keyframe times, so they
+  // never traverse the sampler's interpolation branch. Drive a fractional time
+  // on the linear key0->key1 span (t=0.25 => eased 0.5 => v1 delta +15) to
+  // exercise (and pin the f32-quantization of) that branch directly.
+  test('interpolated sample at t=0.25 offsets rim vertex to x=65', () {
+    final v1 = _meshBatch(_batchesAt(base, story, 0.25)).vertices[1];
+    _expectClose(v1.x, 65.0, 't=0.25 v1.x');
+    _expectClose(v1.y, 0.0, 't=0.25 v1.y');
+    _expectClose(v1.u, 1.0, 't=0.25 v1.u');
+    _expectClose(v1.v, 0.5, 't=0.25 v1.v');
+  });
+
   test('.bony and .bnb produce identical animated vertices at mid', () {
     final fromJson = loadBonyJson(
       File('../conformance/assets/m18_mesh_deform_anim_rig.bony')

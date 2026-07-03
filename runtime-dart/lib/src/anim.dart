@@ -197,9 +197,13 @@ List<MeshDelta> sampleDeformDeltas(DeformTimeline timeline, double time) {
   final b = _expandDeformKey(next, timeline.vertexCount);
   final out = <MeshDelta>[];
   for (var i = 0; i < timeline.vertexCount; i++) {
+    // Quantize the interpolated delta to f32, matching Nim's `meshDelta`
+    // constructor (model.nim) which the reference sampler routes the
+    // interpolated value through — the apply boundary then re-quantizes
+    // (vertex + delta), a genuine double-quantization the parity contract fixes.
     out.add(MeshDelta(
-      x: a[i].x + (b[i].x - a[i].x) * eased,
-      y: a[i].y + (b[i].y - a[i].y) * eased,
+      x: quantizeF32(a[i].x + (b[i].x - a[i].x) * eased),
+      y: quantizeF32(a[i].y + (b[i].y - a[i].y) * eased),
     ));
   }
   return out;
