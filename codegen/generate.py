@@ -668,10 +668,11 @@ def canonical_json_overrides() -> dict[str, Any]:
                 "uvs": {
                     "type": "array",
                     "minItems": 2,
-                    "items": number,
+                    "items": {"type": "number", "minimum": 0, "maximum": 1},
                     "description": (
-                        "Flat [u0, v0, u1, v1, ...] pairs; length is even and matches the "
-                        "vertex count (loader-validated per docs/mesh-attachment-contract.md)."
+                        "Flat [u0, v0, u1, v1, ...] pairs; each coordinate is unit-range "
+                        "0..1; length is even and matches the vertex count "
+                        "(loader-validated per docs/mesh-attachment-contract.md)."
                     ),
                 },
                 "triangles": {
