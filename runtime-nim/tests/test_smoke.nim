@@ -7731,8 +7731,16 @@ spec "bony draw-batch deform api":
     let data = rotationRig()
     let base = buildDrawBatches(data)
     let deformed = deformDrawBatches(data, base)
-    # Base quad corners are the plain region positions (±1); at least one vertex
-    # moves once the 90° rotation deformer is applied.
+    # Base quad corners are the plain region positions (±1) — pinning that
+    # buildDrawBatches did NOT apply the deformer (a double-apply regression would
+    # move these).
+    var baseIsPlainQuad = true
+    let want = [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)]
+    for i in 0 ..< base[0].vertices.len:
+      if not closeWithin(base[0].vertices[i].x, want[i][0], 1e-6) or
+         not closeWithin(base[0].vertices[i].y, want[i][1], 1e-6):
+        baseIsPlainQuad = false
+    # The 90° rotation moves at least one vertex once the deform stage runs.
     var moved = false
     for i in 0 ..< base[0].vertices.len:
       if not closeWithin(base[0].vertices[i].x, deformed[0].vertices[i].x, 1e-6) or
@@ -7741,11 +7749,57 @@ spec "bony draw-batch deform api":
     then:
       base.len == 1
       deformed.len == 1
+      baseIsPlainQuad
       deformed[0].vertices.len == base[0].vertices.len
       # u/v/color are preserved by the deform stage.
       closeWithin(deformed[0].vertices[0].u, base[0].vertices[0].u, 1e-9)
       closeWithin(deformed[0].vertices[0].r, base[0].vertices[0].r, 1e-9)
       moved
+
+  it "effectiveDeformers samples a keyform-blended warp's control points":
+    # Pins the warp + keyform-blend branch of effectiveDeformers: the resolved
+    # warp's control points come from sampleKeyformPoints at the given samples,
+    # not the record's raw controlPoints.
+    let angle = ParameterAxis(name: "AngleX", minValue: -30.0, maxValue: 30.0, defaultValue: 0.0)
+    let blend = keyformBlend(
+      @[angle],
+      @[
+        keyform(@[parameterSample(angle, -30.0)], @[-5.0, -5.0, 5.0, -5.0, -5.0, 5.0, 5.0, 5.0]),
+        keyform(@[parameterSample(angle, 30.0)], @[-1.0, -1.0, 1.0, -1.0, -1.0, 1.0, 1.0, 1.0]),
+      ],
+    )
+    let data = skeletonData(
+      skeletonHeader("keyform-warp", "0.1.0"),
+      @[boneData("root", "")],
+      parameters = @[angle],
+      deformers = @[
+        DeformerRecord(
+          deformer: warpDeformer("warp",
+            warpLattice(2'u32, 2'u32, -5.0, -5.0, 5.0, 5.0, @[
+              DeformerPoint(x: -5.0, y: -5.0), DeformerPoint(x: 5.0, y: -5.0),
+              DeformerPoint(x: -5.0, y: 5.0), DeformerPoint(x: 5.0, y: 5.0),
+            ])),
+          keyformBlend: blend,
+        ),
+      ],
+    )
+    let samples = defaultParameterSamples(data)
+    let ef = effectiveDeformers(data, samples)
+    let expected = sampleKeyformPoints(blend, samples)
+    var matches = ef.len == 1 and ef[0].warp.controlPoints.len == expected.len
+    if matches:
+      for i in 0 ..< expected.len:
+        if not closeWithin(ef[0].warp.controlPoints[i].x, expected[i].x, 1e-9) or
+           not closeWithin(ef[0].warp.controlPoints[i].y, expected[i].y, 1e-9):
+          matches = false
+    then:
+      ef.len == 1
+      ef[0].kind == warpDeformerKind
+      matches
+      # At AngleX default 0 the blend midpoint differs from BOTH keyform extremes,
+      # proving a genuine sample (not a raw-controlPoints passthrough).
+      not closeWithin(ef[0].warp.controlPoints[0].x, -5.0, 1e-6)
+      not closeWithin(ef[0].warp.controlPoints[0].x, -1.0, 1e-6)
 
   it "deformDrawBatches equals effectiveDeformers + applyDeformersToDrawBatches":
     let data = rotationRig()

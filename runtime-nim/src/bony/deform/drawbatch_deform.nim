@@ -28,7 +28,9 @@ import bony/deform/keyforms
 import bony/deform/parameters
 import bony/mesh/skinning
 
-export deformers, keyforms
+# No re-exports: the public types this module names (`SkeletonData`, `DrawBatch`,
+# `Deformer`, `ParameterSample`) all live in `bony/model`, which the `bony` barrel
+# already exports alongside `deform/deformers` and `deform/keyforms`.
 
 proc effectiveDeformers*(data: SkeletonData;
                          samples: openArray[ParameterSample]): seq[Deformer] =
@@ -62,19 +64,19 @@ proc defaultParameterSamples*(data: SkeletonData): seq[ParameterSample] =
 
 
 proc applyDeformersToDrawBatches*(batches: seq[DrawBatch];
-                                  deformers: openArray[Deformer]): seq[DrawBatch] =
+                                  deforms: openArray[Deformer]): seq[DrawBatch] =
   ## Apply a resolved deformer list to `batches`, returning new batches whose
   ## vertex positions are deformed. Only x/y are updated (u/v and r/g/b/a are
   ## preserved), and the vertex count of every batch is preserved. An empty
-  ## `deformers` list returns `batches` unchanged.
-  if deformers.len == 0:
+  ## `deforms` list returns `batches` unchanged.
+  if deforms.len == 0:
     return batches
   result = batches
   for batchIndex, batch in batches:
     var skinned: seq[SkinnedMeshVertex]
     for v in batch.vertices:
       skinned.add SkinnedMeshVertex(x: v.x, y: v.y, u: v.u, v: v.v)
-    let deformed = applyDeformers(skinned, deformers)
+    let deformed = applyDeformers(skinned, deforms)
     doAssert deformed.len == batch.vertices.len,
       "applyDeformers must preserve vertex count"
     for vertIndex, dv in deformed:
