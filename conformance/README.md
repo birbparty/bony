@@ -39,6 +39,7 @@ conformance/
 | M8 | `m8_rig` | Animation timelines (bone rotate/translate/scale/shear), state machines |
 | M9 | `m9_non_scalar_rig` | Non-scalar animation timelines and state-machine projection |
 | M11 | `m11_clip_rig` | Clipping attachment: convex clip polygon partially covering a region slot, `untilSlot`-bounded range |
+| M12 | `m12_mesh_rig` | Weighted mesh attachment: skinned vertices shared across two bones, per-vertex uvs, triangle list |
 
 The `M5 (IK)` row is a second M5 asset (structured like the standalone M9 row):
 the table is one-asset-per-row, so `m5_ik_rig` gets its own row rather than being
@@ -221,6 +222,63 @@ Notes for readers comparing runtimes:
   `.bnb` clip-load path is additionally covered by
   `runtime-dart/test/m11_clip_bnb_test.dart`).
 
+### M12 mesh rig (`m12_mesh_rig`)
+
+`m12_mesh_rig` is the M4 mesh-attachment conformance asset (the milestone token
+`M12` only names the asset — the registry key band is still M4). It has three
+bones and one draw-order slot:
+
+- `root` — identity.
+- `boneA` — child of `root` at local `(x=10, y=0)`, so its world translation is
+  `(10, 0)`.
+- `boneB` — child of `root` at local `(x=0, y=10)`, so its world translation is
+  `(0, 10)`.
+- `mesh_slot` — references the **weighted** `mesh` attachment (its `bone` is
+  `root`; a weighted mesh ignores the slot bone for skinning, so `slot.bone` only
+  supplies the batch's metadata `world`, not the vertices).
+
+The `mesh` attachment is a 4-vertex, 2-triangle weighted mesh
+(`triangles [0,1,2, 0,2,3]`) with distinct per-vertex uvs
+(`[0,0], [1,0], [1,1], [0,1]`). Its four vertices exercise both the blend and the
+single-influence skinning paths:
+
+- **v0** — shared **50/50** across `boneA` (bind `(0,0)`) and `boneB` (bind
+  `(0,0)`).
+- **v1** — **fully** `boneA`, bind `(4,0)`.
+- **v2** — **fully** `boneB`, bind `(0,4)`.
+- **v3** — shared **50/50** across `boneA` (bind `(2,2)`) and `boneB` (bind
+  `(2,2)`).
+
+**Non-vacuous, skinning-dominated delta.** The shared vertex **v0** in
+`m12_mesh_rig_t0.json` skins to the world position **`(5, 5)`**. That is the
+linear blend `0.5 · boneA·(0,0) + 0.5 · boneB·(0,0) = 0.5·(10,0) + 0.5·(0,10)`,
+which sits **strictly between** the two single-bone FK results it interpolates:
+`boneA`-only would place it at **`(10, 0)`** and `boneB`-only at **`(0, 10)`**.
+The blended point is `≈ 7.07` (`= √(5² + 5²)`) away from **each** single-bone FK
+result — five orders of magnitude above the `1e-4` tolerance — so a runtime that
+drops a weight, uses only one influence, or mis-orders the blend fails the golden.
+The single-influence vertices pin the FK path: **v1** lands at `boneA·(4,0) =
+(14, 0)` and **v2** at `boneB·(0,4) = (0, 14)`. Per-vertex uvs are carried
+straight through (`v2` = `u=1, v=1`), so a runtime that drops or reorders uvs also
+fails.
+
+Region batches carry uniform color `(1,1,1,1)`, and the v1 mesh record has **no**
+per-vertex color, so every mesh vertex's `r/g/b/a` is a uniform `1.0` and color is
+**not** an observable channel here — the golden's non-vacuity rests entirely on
+the skinned geometry, the uvs, and the triangle indices.
+
+Notes for readers comparing runtimes:
+- The golden is reproduced identically from both `m12_mesh_rig.bony` and
+  `conformance/assets/bnb/m12_mesh_rig.bnb` (the JSON and binary loaders agree;
+  the `.bnb` is non-empty at 289 bytes), and regenerates byte-identically on
+  re-run per the float-math contract.
+- Mesh attachments are **not clipped** in v1 (see
+  `docs/mesh-attachment-contract.md`); this rig is single-purpose (one weighted
+  mesh at a setup pose) and deliberately combines no clipping, animation, state
+  machine, constraints, or deformers.
+- Cross-runtime status: the setup-pose golden `m12_mesh_rig_t0.json` is **honored
+  by the Nim reference**; **Dart parity is pending prompt 22**.
+
 ### Image goldens (Nim reference rasterizer only)
 
 Image goldens (`*_play.png`) are Nim-only regression artifacts for the reference
@@ -242,38 +300,61 @@ and do not need to be reproduced by Dart or other runtimes.
 | m8_rig | `m8_rig_play.png` |
 | m9_non_scalar_rig | pending |
 | m11_clip_rig | pending (no PNG golden produced) |
+| m12_mesh_rig | pending (no PNG golden produced) |
 
 ---
 
 ## Numeric golden format (`bony.numeric-golden.v1`)
 
-Each `*_t0.json` file has the format:
+Each `*_t0.json` file has the format (the shape below is the **actual** CLI
+output — mirror `m11_clip_rig_t0.json` / `m12_mesh_rig_t0.json`, not a
+hand-authored abbreviation):
 
 ```json
 {
   "format": "bony.numeric-golden.v1",
   "skeleton": "<name>",
-  "t": 0.0,
+  "version": "1.0.0",
+  "time": 0.0,
   "bones": [
-    {"name": "root", "a": 1.0, "b": 0.0, "c": 0.0, "d": 1.0, "tx": 0.0, "ty": 0.0}
+    {"name": "root", "parent": "",
+     "world": {"a": 1.0, "b": 0.0, "c": 0.0, "d": 1.0, "tx": 0.0, "ty": 0.0}}
   ],
   "slots": [
-    {"name": "head_slot", "attachment": "head", "r": 1.0, "g": 1.0, "b": 1.0, "a": 1.0}
+    {"name": "head_slot", "bone": "root", "attachment": "head",
+     "r": 1.0, "g": 1.0, "b": 1.0, "a": 1.0}
   ],
   "drawBatches": [
-    {"slot": "head_slot", "vertices": [[-25.0, -25.0], [25.0, -25.0], [25.0, 25.0], [-25.0, 25.0]]}
+    {"slot": "head_slot", "bone": "root", "attachment": "head",
+     "texturePage": "", "blendMode": "normal", "clipId": "",
+     "world": {"a": 1.0, "b": 0.0, "c": 0.0, "d": 1.0, "tx": 0.0, "ty": 0.0},
+     "vertices": [
+       {"x": -25.0, "y": -25.0, "u": 0.0, "v": 0.0, "r": 1.0, "g": 1.0, "b": 1.0, "a": 1.0}
+     ],
+     "indices": [0, 1, 2, 2, 3, 0]}
   ]
 }
 ```
 
 Fields:
-- `bones[].{a,b,c,d,tx,ty}` — world transform matrix (column-major 2x3)
-- `slots[].attachment` — active attachment name (or `null`)
-- `slots[].{r,g,b,a}` — projected light color used by draw-batch vertices
-- `slots[].{darkR,darkG,darkB}` — optional projected dark color for two-color timelines
-- `slots[].{sequenceIndex,sequenceDelay,sequenceMode}` — optional sampled sequence metadata
-- `drawBatches` — world-space vertex quads in draw order
-- `deformers` — present only when deformers affect the pose (M7+)
+- `time` — the sampled pose time in seconds (the setup-pose goldens use `0.0`).
+- `bones[].parent` — parent bone name (`""` for a root).
+- `bones[].world.{a,b,c,d,tx,ty}` — world transform matrix (column-major 2×3),
+  nested under a `world` object.
+- `slots[].{bone,attachment}` — the slot's bone and active attachment name.
+- `slots[].{r,g,b,a}` — projected light color used by draw-batch vertices.
+- `slots[].{darkR,darkG,darkB}` — optional projected dark color for two-color timelines.
+- `slots[].{sequenceIndex,sequenceDelay,sequenceMode}` — optional sampled sequence metadata.
+- `drawBatches[].{slot,bone,attachment,texturePage,blendMode,clipId,world}` — the
+  batch's identity and metadata. A **mesh** batch uses the same fields as a region
+  batch — `texturePage` and `blendMode` come from the slot/defaults (`""` /
+  `"normal"`), and `clipId` stays `""` because meshes are not clipped in v1.
+- `drawBatches[].vertices[]` — each vertex is an object
+  `{x, y, u, v, r, g, b, a}` (world position, texture coordinate, and per-vertex
+  color); a mesh carries no golden field a region does not already have.
+- `drawBatches[].indices` — a flat triangle-index list into that batch's
+  `vertices` (region quads use `[0,1,2,2,3,0]`; a mesh uses its own `triangles`).
+- `deformers` — present only when deformers affect the pose (M7+).
 
 **Tolerance**: numeric fields are compared with absolute tolerance `1e-4`.
 String and integer fields (names, indices, blend modes) are compared exactly.
