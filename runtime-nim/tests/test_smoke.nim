@@ -35,6 +35,16 @@ proc raisesBonyLoadError(action: proc(); kind: BonyLoadErrorKind): bool =
   except BonyLoadError as exc:
     exc.kind == kind
 
+proc raisesAnyBonyLoadError(action: proc()): bool =
+  ## True only if `action` raises a BonyLoadError of any kind. A non-BonyLoadError
+  ## (e.g. a Nim Defect) is NOT caught and propagates, failing the caller — which
+  ## is what we want when asserting malformed input never crashes the decoder.
+  try:
+    action()
+    false
+  except BonyLoadError:
+    true
+
 proc closeTo(actual, expected: float64): bool =
   abs(actual - expected) <= 1e-9
 
@@ -6938,7 +6948,7 @@ spec "bony mesh skeleton validation":
         unknownRequiredReference,
       )
 
-  it "round trips an unweighted mesh attachment through JSON":
+  it "round trips an unweighted mesh attachment through JSON and .bnb":
     let jsonText = """
 {
   "skeleton": {"name": "meshrig", "version": "0.1.0"},
@@ -6955,6 +6965,8 @@ spec "bony mesh skeleton validation":
 }
 """
     let fromJson = loadBonyJson(jsonText)
+    let bnbBytes = toBonyBnb(fromJson)
+    let fromBnb = loadBonyBnb(bnbBytes)
     then:
       fromJson.meshAttachments.len == 1
       fromJson.meshAttachments[0].name == "cloth"
@@ -6968,10 +6980,19 @@ spec "bony mesh skeleton validation":
       fromJson.meshAttachments[0].triangles == @[0'u16, 1'u16, 2'u16]
       # The default meshWeighted (false) is omitted from canonical output.
       not toBonyJson(fromJson).contains("\"weighted\"")
-      # Canonical JSON output re-parses to an identical record.
+      # JSON and binary loaders agree on the parsed record.
+      fromBnb.meshAttachments.len == 1
+      fromBnb.meshAttachments[0].name == "cloth"
+      fromBnb.meshAttachments[0].weighted == false
+      fromBnb.meshAttachments[0].vertices[1].x == 1.0
+      fromBnb.meshAttachments[0].uvs[2].v == 1.0
+      fromBnb.meshAttachments[0].triangles == @[0'u16, 1'u16, 2'u16]
+      # Canonical JSON output re-parses to an identical record, and .bnb bytes
+      # are stable across a decode/encode round trip.
       toBonyJson(loadBonyJson(toBonyJson(fromJson))) == toBonyJson(fromJson)
+      toBonyBnb(fromBnb) == bnbBytes
 
-  it "round trips a weighted mesh attachment through JSON":
+  it "round trips a weighted mesh attachment through JSON and .bnb":
     let jsonText = """
 {
   "skeleton": {"name": "meshrig", "version": "0.1.0"},
@@ -6993,6 +7014,8 @@ spec "bony mesh skeleton validation":
 }
 """
     let fromJson = loadBonyJson(jsonText)
+    let bnbBytes = toBonyBnb(fromJson)
+    let fromBnb = loadBonyBnb(bnbBytes)
     then:
       fromJson.meshAttachments.len == 1
       fromJson.meshAttachments[0].weighted == true
@@ -7005,6 +7028,16 @@ spec "bony mesh skeleton validation":
       # weighted:true differs from the default, so it survives the round trip.
       toBonyJson(fromJson).contains("\"weighted\": true")
       toBonyJson(loadBonyJson(toBonyJson(fromJson))) == toBonyJson(fromJson)
+      # Binary loader agrees, incl. string-table-packed influence bone names.
+      fromBnb.meshAttachments[0].weighted == true
+      fromBnb.meshAttachments[0].vertices[1].influences.len == 2
+      fromBnb.meshAttachments[0].vertices[1].influences[0].bone == "root"
+      fromBnb.meshAttachments[0].vertices[1].influences[1].bone == "tip"
+      fromBnb.meshAttachments[0].vertices[1].influences[1].weight == 0.5
+      fromBnb.meshAttachments[0].vertices[2].influences[0].bone == "tip"
+      # The JSON->model->JSON and .bnb decode/encode paths agree with the JSON load.
+      toBonyJson(fromBnb) == toBonyJson(fromJson)
+      toBonyBnb(fromBnb) == bnbBytes
 
   it "runs mesh geometry validation through the JSON load path":
     # A uvs/vertex-count mismatch supplied via JSON must be rejected by
@@ -7047,6 +7080,43 @@ spec "bony mesh skeleton validation":
 """
     then:
       raisesBonyLoadError(proc() = discard loadBonyJson(jsonText), schemaViolation)
+
+  it "rejects every truncation of a weighted mesh .bnb without crashing":
+    # Regression guard for the packed mesh-payload bounds checks: no truncation of
+    # a valid weighted mesh .bnb may escape as a Nim Defect or be silently
+    # accepted. A weighted mesh exercises the varuint influence counts, f32
+    # bind/weight reads, and string-table bone indices in the vertices payload.
+    let jsonText = """
+{
+  "skeleton": {"name": "meshrig", "version": "0.1.0"},
+  "bones": [{"name": "root"}, {"name": "tip", "parent": "root"}],
+  "slots": [{"name": "body", "bone": "root", "attachment": "cloth"}],
+  "meshAttachments": [
+    {
+      "name": "cloth",
+      "weighted": true,
+      "vertices": [
+        {"influences": [{"bone": "root", "bindX": 0, "bindY": 0, "weight": 1}]},
+        {"influences": [{"bone": "root", "bindX": 1, "bindY": 0, "weight": 0.5}, {"bone": "tip", "bindX": 1, "bindY": 0, "weight": 0.5}]},
+        {"influences": [{"bone": "tip", "bindX": 0, "bindY": 1, "weight": 1}]}
+      ],
+      "uvs": [0, 0, 1, 0, 0, 1],
+      "triangles": [0, 1, 2]
+    }
+  ]
+}
+"""
+    let bnbBytes = toBonyBnb(loadBonyJson(jsonText))
+    var allTruncationsRejected = true
+    for cut in 1 ..< bnbBytes.len:
+      let prefix = bnbBytes[0 ..< cut]
+      if not raisesAnyBonyLoadError(proc() = discard loadBonyBnb(prefix)):
+        allTruncationsRejected = false
+        break
+    then:
+      # Sanity: the full stream still loads.
+      loadBonyBnb(bnbBytes).meshAttachments.len == 1
+      allTruncationsRejected
 
 proc clipEvalRig(clipVertices, untilSlot: string): string =
   ## A rig on an identity-transform root bone: a clip slot (own slot), a covered

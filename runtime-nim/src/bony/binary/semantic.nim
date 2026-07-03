@@ -7,6 +7,7 @@ import bony/asset
 import bony/binary/framing
 import bony/generated/wire
 import bony/model
+import bony/mesh/attachments
 import bony/deform/deformers
 import bony/deform/keyforms
 import bony/statemachine/core
@@ -17,6 +18,7 @@ const
   slotTypeKey = 1000'u64
   regionTypeKey = 1001'u64
   clippingAttachmentTypeKey = 3000'u64
+  meshAttachmentTypeKey = 3001'u64
   pathTypeKey = 4000'u64
   pathAttachmentTypeKey = 4001'u64
   ikConstraintTypeKey = 4002'u64
@@ -54,6 +56,10 @@ const
   heightKey = 1015'u64
   verticesKey = 3000'u64
   untilSlotKey = 3001'u64
+  meshWeightedKey = 3002'u64
+  meshVerticesKey = 3003'u64
+  meshUvsKey = 3004'u64
+  meshTrianglesKey = 3005'u64
   targetKey = 4000'u64
   pathKey = 4001'u64
   orderKey = 4002'u64
@@ -513,6 +519,103 @@ proc readBonesPayload(payload: openArray[byte]; table: BnbStringTable): seq[stri
     raise newBonyLoadError(schemaViolation, ".bnb ikConstraint bones payload has trailing bytes")
 
 
+proc writeMeshVerticesPayload(
+  vertices: openArray[MeshVertex]; weighted: bool; table: var BnbStringTable;
+): seq[byte] =
+  ## Frozen mesh vertices layout (docs/mesh-attachment-contract.md): varuint
+  ## vertexCount, then per vertex, unweighted -> (f32 x, f32 y), or weighted ->
+  ## varuint influenceCount then influenceCount*(varuint boneStringIndex, f32
+  ## bindX, f32 bindY, f32 weight). Bone names use the same string-table packing
+  ## as ikConstraint bones (key 4014).
+  result.writeVaruint(uint64(vertices.len))
+  for vertex in vertices:
+    if weighted:
+      result.writeVaruint(uint64(vertex.influences.len))
+      for influence in vertex.influences:
+        result.writeVaruint(table.intern(influence.bone))
+        result.add writeF32Payload(influence.bindX)
+        result.add writeF32Payload(influence.bindY)
+        result.add writeF32Payload(influence.weight)
+    else:
+      result.add writeF32Payload(vertex.x)
+      result.add writeF32Payload(vertex.y)
+
+
+proc readMeshVerticesPayload(
+  payload: openArray[byte]; weighted: bool; table: BnbStringTable;
+): seq[MeshVertex] =
+  var index = 0
+  let count = payload.readVaruint(index)
+  for _ in 0'u64 ..< count:
+    if weighted:
+      let influenceCount = payload.readVaruint(index)
+      var influences: seq[MeshInfluence]
+      for _ in 0'u64 ..< influenceCount:
+        let boneIndex = payload.readVaruint(index)
+        if index + 12 > payload.len:
+          raise newBonyLoadError(schemaViolation, ".bnb meshAttachment vertices payload is truncated")
+        let bindX = readF32Payload(payload[index ..< index + 4], "meshAttachment.vertices.bindX")
+        index += 4
+        let bindY = readF32Payload(payload[index ..< index + 4], "meshAttachment.vertices.bindY")
+        index += 4
+        let weight = readF32Payload(payload[index ..< index + 4], "meshAttachment.vertices.weight")
+        index += 4
+        influences.add meshInfluence(table.stringAt(boneIndex), bindX, bindY, weight)
+      result.add weightedMeshVertex(influences)
+    else:
+      if index + 8 > payload.len:
+        raise newBonyLoadError(schemaViolation, ".bnb meshAttachment vertices payload is truncated")
+      let x = readF32Payload(payload[index ..< index + 4], "meshAttachment.vertices.x")
+      index += 4
+      let y = readF32Payload(payload[index ..< index + 4], "meshAttachment.vertices.y")
+      index += 4
+      result.add unweightedMeshVertex(x, y)
+  if index != payload.len:
+    raise newBonyLoadError(schemaViolation, ".bnb meshAttachment vertices payload has trailing bytes")
+
+
+proc writeMeshUvsPayload(uvs: openArray[MeshUv]): seq[byte] =
+  ## Frozen mesh uvs layout: varuint count then count*(f32 u, f32 v).
+  result.writeVaruint(uint64(uvs.len))
+  for uv in uvs:
+    result.add writeF32Payload(uv.u)
+    result.add writeF32Payload(uv.v)
+
+
+proc readMeshUvsPayload(payload: openArray[byte]): seq[MeshUv] =
+  var index = 0
+  let count = payload.readVaruint(index)
+  for _ in 0'u64 ..< count:
+    if index + 8 > payload.len:
+      raise newBonyLoadError(schemaViolation, ".bnb meshAttachment uvs payload is truncated")
+    let u = readF32Payload(payload[index ..< index + 4], "meshAttachment.uvs.u")
+    index += 4
+    let v = readF32Payload(payload[index ..< index + 4], "meshAttachment.uvs.v")
+    index += 4
+    result.add meshUv(u, v)
+  if index != payload.len:
+    raise newBonyLoadError(schemaViolation, ".bnb meshAttachment uvs payload has trailing bytes")
+
+
+proc writeMeshTrianglesPayload(triangles: openArray[uint16]): seq[byte] =
+  ## Frozen mesh triangles layout: varuint count then count*(varuint vertexIndex).
+  result.writeVaruint(uint64(triangles.len))
+  for triangle in triangles:
+    result.writeVaruint(uint64(triangle))
+
+
+proc readMeshTrianglesPayload(payload: openArray[byte]): seq[uint16] =
+  var index = 0
+  let count = payload.readVaruint(index)
+  for _ in 0'u64 ..< count:
+    let value = payload.readVaruint(index)
+    if value > uint64(high(uint16)):
+      raise newBonyLoadError(schemaViolation, ".bnb meshAttachment triangle index out of range")
+    result.add uint16(value)
+  if index != payload.len:
+    raise newBonyLoadError(schemaViolation, ".bnb meshAttachment triangles payload has trailing bytes")
+
+
 proc writeBlendF32sPayload(values: openArray[float64]): seq[byte] =
   for v in values:
     result.add writeF32Payload(v)
@@ -947,6 +1050,20 @@ proc buildObjectRecords(data: SkeletonData; table: var BnbStringTable; toc: var 
     properties.addStringIfNeeded(toc, table, untilSlotKey, clip.untilSlot, defaultString("clippingAttachment", "untilSlot"))
     result.add BnbObjectRecord(typeKey: clippingAttachmentTypeKey, properties: properties)
 
+  # Mesh attachments: slot-bound deformable meshes. Emitted after clipping
+  # attachments in registry property order [name, meshWeighted, meshVertices,
+  # meshUvs, meshTriangles]. meshWeighted is value-gated (default false); the
+  # packed vertices payload branches on it, and weighted influence bone names use
+  # the same string-table packing as ikConstraint bones.
+  for mesh in data.meshAttachments:
+    var properties: seq[BnbPropertyRecord]
+    properties.addStringIfNeeded(toc, table, nameKey, mesh.name, "", required = true)
+    properties.addBoolIfNeeded(toc, meshWeightedKey, mesh.weighted, defaultBool("meshAttachment", "meshWeighted"))
+    properties.addProperty(toc, meshVerticesKey, writeMeshVerticesPayload(mesh.vertices, mesh.weighted, table))
+    properties.addProperty(toc, meshUvsKey, writeMeshUvsPayload(mesh.uvs))
+    properties.addProperty(toc, meshTrianglesKey, writeMeshTrianglesPayload(mesh.triangles))
+    result.add BnbObjectRecord(typeKey: meshAttachmentTypeKey, properties: properties)
+
   # IK section: canonical object-stream position is after attachments and before
   # paths (docs/binary-canonicalization.md). Emitted only when non-empty so
   # existing IK-free fixtures stay byte-identical. mix/bendPositive are
@@ -1310,6 +1427,7 @@ proc decodeSkeletonObjects(objects: openArray[BnbObjectRecord]; strings: BnbStri
   var regions: seq[RegionAttachment]
   var pathAttachments: seq[PathAttachmentData]
   var clips: seq[ClipAttachmentData]
+  var meshes: seq[MeshAttachment]
   var paths: seq[PathConstraintData]
   var ikConstraints: seq[IkConstraintData]
   var transformConstraints: seq[TransformConstraintData]
@@ -1438,6 +1556,26 @@ proc decodeSkeletonObjects(objects: openArray[BnbObjectRecord]; strings: BnbStri
         properties.readStringProperty(strings, nameKey, "clippingAttachment.name"),
         readClipVerticesPayload(properties[verticesKey]),
         properties.readOptionalStringProperty(strings, untilSlotKey, defaultString("clippingAttachment", "untilSlot")),
+      )
+    of meshAttachmentTypeKey:
+      let properties = record.propertyMap([nameKey, meshWeightedKey, meshVerticesKey, meshUvsKey, meshTrianglesKey])
+      if meshVerticesKey notin properties:
+        raise newBonyLoadError(schemaViolation, ".bnb meshAttachment.meshVertices is required")
+      if meshUvsKey notin properties:
+        raise newBonyLoadError(schemaViolation, ".bnb meshAttachment.meshUvs is required")
+      if meshTrianglesKey notin properties:
+        raise newBonyLoadError(schemaViolation, ".bnb meshAttachment.meshTriangles is required")
+      # meshWeighted selects the vertices payload branch; it defaults to false and
+      # is only present when non-default. The (a)-(g) whole-skeleton checks run
+      # later in validateSkeletonData via skeletonData().
+      let weighted = properties.readOptionalBoolProperty(
+        meshWeightedKey, defaultBool("meshAttachment", "meshWeighted"), "meshAttachment.meshWeighted")
+      meshes.add meshAttachmentData(
+        properties.readStringProperty(strings, nameKey, "meshAttachment.name"),
+        readMeshUvsPayload(properties[meshUvsKey]),
+        readMeshTrianglesPayload(properties[meshTrianglesKey]),
+        readMeshVerticesPayload(properties[meshVerticesKey], weighted, strings),
+        weighted,
       )
     of pathTypeKey:
       flushPendingIfAny()
@@ -1615,7 +1753,7 @@ proc decodeSkeletonObjects(objects: openArray[BnbObjectRecord]; strings: BnbStri
 
   if not hasSkeleton:
     raise newBonyLoadError(schemaViolation, ".bnb skeleton object is required")
-  skeletonData(headerValue, bones, slots, regions, pathAttachments, paths, loadedParameters, loadedDeformers, ikConstraints, transformConstraints, physicsConstraints, clips)
+  skeletonData(headerValue, bones, slots, regions, pathAttachments, paths, loadedParameters, loadedDeformers, ikConstraints, transformConstraints, physicsConstraints, clips, meshes)
 
 
 proc withTarget(timeline: BoneTimeline; target: string): BoneTimeline =
