@@ -318,11 +318,62 @@ The keyframe array is a `bytes`-backed packed blob (like `timelineKeys`). Two op
 **Deciding criterion:** because the deform payload grammar differs from the
 bone/slot timeline grammar (offset + delta-run vs fixed channels), and because the
 readable-JSON override (§1.3, §2.4) is per-property, **Option N (mint `deformKeys`)
-is the cleaner fit** — a distinct payload grammar earns a distinct key. This note
-does not *commit* the choice (that is bony-68lj.4's call), but records the criterion
-so the decision is not made blind. Either way, the **curve tail inside the blob is
-reused verbatim** (§3) — the fork is only about the *property key*, not the curve
-encoding.
+is the cleaner fit** — a distinct payload grammar earns a distinct key. Either way,
+the **curve tail inside the blob is reused verbatim** (§3) — the fork is only about
+the *property key*, not the curve encoding.
+
+### 2.7 FORK RESOLUTION — Option N chosen (bony-68lj.4, RESOLVED)
+**Decision: mint `deformKeys` = 3009 (backingType `bytes`).** Not Option R.
+
+**Decisive grounding — the `layout` anchor pointer.** `PACKED_BYTES_METADATA` in
+`codegen/generate.py:26-63` is keyed by **property id**, and each entry carries a
+`layout` field that is a docs anchor pointer, e.g. (verbatim):
+```python
+"timelineKeys": {
+    "payload": "animationTimelineKeys",
+    "layout": "docs/binary-animation-state-machine-object-families.md#keyframe-payloads",
+    "structuralSchema": "base64Only",
+    "validatedBy": "loader",
+},
+"meshVertices": {
+    "payload": "meshAttachmentVertices",
+    "layout": "docs/mesh-attachment-contract.md#packed-meshvertices-byte-layout-bnb",
+    "structuralSchema": "base64Only",
+    "validatedBy": "loader",
+},
+```
+Because the metadata is **per-property-id**, Option R (reuse `timelineKeys`=2004)
+cannot give the deform payload its own `layout` — `timelineKeys.layout` is already
+bound to `docs/binary-animation-state-machine-object-families.md#keyframe-payloads`
+(shared with bone/slot), and pointing it at the deform contract would break the
+bone/slot schema. **The prompt-23 success criterion — "the wire-schema packedBytes
+`layout` reference points at the deform contract anchor" — is therefore satisfiable
+ONLY under Option N.** Option R would knowingly waive that criterion. We do not
+waive it → Option N.
+
+**Consequences pinned for downstream beads:**
+- **bony-68lj.7** mints `deformKeys` = **3009** (bytes) in `registry/wire.yml`
+  (alongside `deformSkin`=3006, `deformAttachment`=3007, `deformVertexCount`=3008).
+- **bony-68lj.12** adds a `"deformKeys"` entry to `PACKED_BYTES_METADATA` in the
+  exact four-field shape above:
+  ```python
+  "deformKeys": {
+      "payload": "deformTimelineKeys",
+      "layout": "docs/deform-timeline-contract.md#packed-deformtimeline-byte-layout-bnb",
+      "structuralSchema": "base64Only",
+      "validatedBy": "loader",
+  },
+  ```
+  The `layout` anchor is the auto-slug of the contract's `## Packed \`deformTimeline\`
+  byte layout (\`.bnb\`)` heading (bony-68lj.5/.6). The `x-bony-packedBytes` stamp
+  (generate.py:992-995) then fires automatically for the bytes-backed `deformKeys`.
+- **bony-68lj.11** adds a `"deformTimeline"` entry to `canonical_json_overrides()`
+  (generate.py:589), modeled on the `boneTimeline`/`slotTimeline` overrides
+  (generate.py:804-841), reusing the shared `keyframes` helper to unpack `deformKeys`
+  into a readable nested array (see §1.3).
+- Property count: Option N mints **4** M4 property keys (3006-3009), so
+  `bonyPropertyKeys.len` rises by 4 in the change-detector (§2.4); confirm the exact
+  regenerated total when bony-68lj.15 runs.
 
 ---
 
