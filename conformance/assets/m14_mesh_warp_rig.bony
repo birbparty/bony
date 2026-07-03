@@ -1,0 +1,61 @@
+{
+  "skeleton": {
+    "name": "m14-mesh-warp-rig",
+    "version": "1.0.0"
+  },
+  "bones": [
+    {"name": "root"},
+    {"name": "boneA", "parent": "root", "x": 10, "y": 0},
+    {"name": "boneB", "parent": "root", "x": 0, "y": 10}
+  ],
+  "slots": [
+    {"name": "mesh_slot", "bone": "root", "attachment": "mesh"}
+  ],
+  "meshAttachments": [
+    {
+      "name": "mesh",
+      "weighted": true,
+      "vertices": [
+        {"influences": [
+          {"bone": "boneA", "bindX": 0, "bindY": 0, "weight": 0.5},
+          {"bone": "boneB", "bindX": 0, "bindY": 0, "weight": 0.5}
+        ]},
+        {"influences": [
+          {"bone": "boneA", "bindX": 4, "bindY": 0, "weight": 1.0}
+        ]},
+        {"influences": [
+          {"bone": "boneA", "bindX": 0, "bindY": 4, "weight": 1.0}
+        ]},
+        {"influences": [
+          {"bone": "boneB", "bindX": 4, "bindY": 0, "weight": 1.0}
+        ]},
+        {"influences": [
+          {"bone": "boneB", "bindX": 0, "bindY": 4, "weight": 1.0}
+        ]}
+      ],
+      "uvs": [0.5, 0.5, 1, 0, 1, 1, 0, 0, 0, 1],
+      "triangles": [0, 1, 2, 0, 2, 4, 0, 4, 3]
+    }
+  ],
+  "deformers": [
+    {
+      "id": "mesh_warp",
+      "order": 0,
+      "kind": "warp",
+      "warp": {
+        "rows": 2,
+        "cols": 2,
+        "minX": 8.0,
+        "minY": -1.0,
+        "maxX": 15.0,
+        "maxY": 5.0,
+        "controlPoints": [
+          {"x": 11.0, "y": 1.0},
+          {"x": 18.0, "y": 1.0},
+          {"x": 11.0, "y": 7.0},
+          {"x": 18.0, "y": 7.0}
+        ]
+      }
+    }
+  ]
+}
