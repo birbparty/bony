@@ -3726,6 +3726,209 @@ spec "bony package":
         schemaViolation,
       )
 
+  it "round-trips a clip-owned deform timeline through JSON and BNB":
+    const source = """{
+  "skeleton": { "name": "deform-rt", "version": "1.0.0" },
+  "bones": [ { "name": "root" } ],
+  "slots": [ { "name": "cloth", "bone": "root", "attachment": "cloth_mesh" } ],
+  "meshAttachments": [
+    {
+      "name": "cloth_mesh",
+      "weighted": false,
+      "vertices": [ { "x": 0.0, "y": 0.0 }, { "x": 4.0, "y": 0.0 }, { "x": 0.0, "y": 4.0 } ],
+      "uvs": [ 0.0, 0.0, 1.0, 0.0, 0.0, 1.0 ],
+      "triangles": [ 0, 1, 2 ]
+    }
+  ],
+  "animations": [
+    {
+      "name": "wiggle",
+      "deformTimelines": [
+        {
+          "skin": "default",
+          "slot": "cloth",
+          "attachment": "cloth_mesh",
+          "vertexCount": 3,
+          "keyframes": [
+            { "t": 0.0, "offset": 0, "deltas": [ { "x": 1.0, "y": 0.0 }, { "x": 0.0, "y": 2.0 }, { "x": -1.0, "y": -1.0 } ] },
+            { "t": 1.0, "offset": 1, "deltas": [ { "x": 3.0, "y": 0.0 }, { "x": 0.0, "y": 1.0 } ] }
+          ]
+        }
+      ]
+    }
+  ]
+}"""
+    let fromJson = loadBonyJsonAsset(source)
+    let fromBnb = loadBonyBnbAsset(toBonyBnb(fromJson))
+    let jsonDeform = fromJson.animations[0].deformTimelines[0]
+    let bnbDeform = fromBnb.animations[0].deformTimelines[0]
+
+    # JSON- and BNB-loaded timelines must sample identically at several times.
+    var samplesMatch = true
+    for t in [0.0, 0.25, 0.5, 1.0]:
+      let js = sampleDeformDeltas(jsonDeform, t)
+      let bs = sampleDeformDeltas(bnbDeform, t)
+      if js.len != bs.len:
+        samplesMatch = false
+      else:
+        for i in 0 ..< js.len:
+          if not closeTo(js[i].x, bs[i].x) or not closeTo(js[i].y, bs[i].y):
+            samplesMatch = false
+
+    then:
+      fromJson.animations.len == 1
+      fromJson.animations[0].deformTimelines.len == 1
+      fromBnb.animations[0].deformTimelines.len == 1
+      # Field parity from JSON.
+      jsonDeform.skin == "default"
+      jsonDeform.slot == "cloth"
+      jsonDeform.attachment == "cloth_mesh"
+      jsonDeform.vertexCount == 3
+      jsonDeform.keys.len == 2
+      # JSON emit is stable across a re-load.
+      toBonyJson(loadBonyJsonAsset(toBonyJson(fromJson))) == toBonyJson(fromJson)
+      # BNB decode reproduces the same record shape.
+      bnbDeform.skin == jsonDeform.skin
+      bnbDeform.slot == jsonDeform.slot
+      bnbDeform.attachment == jsonDeform.attachment
+      bnbDeform.vertexCount == jsonDeform.vertexCount
+      bnbDeform.keys.len == jsonDeform.keys.len
+      samplesMatch
+
+  it "rejects a deform timeline whose slot/attachment pairing does not resolve":
+    # slotA shows meshA, but the deform timeline targets meshB on slotA — the
+    # (slot, attachment) pairing must be rejected at load (contract edge (g)).
+    const badRig = """{
+  "skeleton": { "name": "bad-deform", "version": "1.0.0" },
+  "bones": [ { "name": "root" } ],
+  "slots": [
+    { "name": "slotA", "bone": "root", "attachment": "meshA" },
+    { "name": "slotB", "bone": "root", "attachment": "meshB" }
+  ],
+  "meshAttachments": [
+    { "name": "meshA", "weighted": false,
+      "vertices": [ { "x": 0.0, "y": 0.0 }, { "x": 1.0, "y": 0.0 }, { "x": 0.0, "y": 1.0 } ],
+      "uvs": [ 0.0, 0.0, 1.0, 0.0, 0.0, 1.0 ], "triangles": [ 0, 1, 2 ] },
+    { "name": "meshB", "weighted": false,
+      "vertices": [ { "x": 0.0, "y": 0.0 }, { "x": 1.0, "y": 0.0 }, { "x": 0.0, "y": 1.0 } ],
+      "uvs": [ 0.0, 0.0, 1.0, 0.0, 0.0, 1.0 ], "triangles": [ 0, 1, 2 ] }
+  ],
+  "animations": [
+    { "name": "wiggle", "deformTimelines": [
+      { "skin": "default", "slot": "slotA", "attachment": "meshB", "vertexCount": 3,
+        "keyframes": [ { "t": 0.0, "offset": 0, "deltas": [ { "x": 1.0, "y": 0.0 }, { "x": 0.0, "y": 1.0 }, { "x": 0.0, "y": 0.0 } ] } ] } ] } ]
+}"""
+    then:
+      raisesBonyLoadError(proc() = discard loadBonyJsonAsset(badRig), unknownRequiredReference)
+
+  it "animates a mesh via a clip deform timeline through the mixer and draw path":
+    const rig = """{
+  "skeleton": { "name": "deform-anim", "version": "1.0.0" },
+  "bones": [ { "name": "root" } ],
+  "slots": [
+    { "name": "slotA", "bone": "root", "attachment": "meshA" },
+    { "name": "slotB", "bone": "root", "attachment": "meshB" }
+  ],
+  "meshAttachments": [
+    {
+      "name": "meshA", "weighted": false,
+      "vertices": [ { "x": 0.0, "y": 0.0 }, { "x": 4.0, "y": 0.0 }, { "x": 0.0, "y": 4.0 } ],
+      "uvs": [ 0.0, 0.0, 1.0, 0.0, 0.0, 1.0 ], "triangles": [ 0, 1, 2 ]
+    },
+    {
+      "name": "meshB", "weighted": false,
+      "vertices": [ { "x": 1.0, "y": 1.0 }, { "x": 5.0, "y": 1.0 }, { "x": 1.0, "y": 5.0 } ],
+      "uvs": [ 0.0, 0.0, 1.0, 0.0, 0.0, 1.0 ], "triangles": [ 0, 1, 2 ]
+    }
+  ],
+  "animations": [
+    {
+      "name": "wiggle",
+      "deformTimelines": [
+        {
+          "skin": "default", "slot": "slotA", "attachment": "meshA", "vertexCount": 3,
+          "keyframes": [
+            { "t": 0.0, "offset": 0, "deltas": [ { "x": 1.0, "y": 0.0 }, { "x": 0.0, "y": 2.0 }, { "x": -1.0, "y": -1.0 } ] },
+            { "t": 1.0, "offset": 0, "deltas": [ { "x": 3.0, "y": 0.0 }, { "x": 0.0, "y": 4.0 }, { "x": -3.0, "y": -3.0 } ] }
+          ]
+        }
+      ]
+    }
+  ]
+}"""
+    let asset = loadBonyJsonAsset(rig)
+    let skel = asset.skeleton
+    let clip = asset.animations[0]
+    let deform = clip.deformTimelines[0]
+    let base = buildDrawBatches(skel)  # setup pose, no override
+
+    proc posedBatches(sampleTime: float64): seq[DrawBatch] =
+      var dataRef = new(SkeletonData)
+      dataRef[] = skel
+      var state = animationState(dataRef, 1)
+      state.setAnimation(0, clip)
+      if sampleTime > 0.0:
+        state.update(sampleTime)
+      let posed = applyPose(skel, state.sample())
+      buildDrawBatches(posed, computeWorldTransforms(posed))
+
+    # (a) full mixer -> buildDrawBatches path: slotA mesh is offset by the
+    # sampled deltas; assert the batch delta equals the direct sample.
+    let atZero = posedBatches(0.0)
+    let sampled0 = sampleDeformDeltas(deform, 0.0)
+    var applyMatches = atZero[0].vertices.len == 3 and base[0].vertices.len == 3
+    for i in 0 ..< 3:
+      if not closeTo(atZero[0].vertices[i].x - base[0].vertices[i].x, sampled0[i].x) or
+         not closeTo(atZero[0].vertices[i].y - base[0].vertices[i].y, sampled0[i].y):
+        applyMatches = false
+
+    # (c) the slotA override does not leak onto slotB's mesh batch.
+    var noLeak = atZero[1].vertices.len == base[1].vertices.len
+    for i in 0 ..< base[1].vertices.len:
+      if not closeTo(atZero[1].vertices[i].x, base[1].vertices[i].x) or
+         not closeTo(atZero[1].vertices[i].y, base[1].vertices[i].y):
+        noLeak = false
+
+    # (a) direct interpolation at the midpoint and endpoint.
+    let half = sampleDeformDeltas(deform, 0.5)
+    let finalDeltas = sampleDeformDeltas(deform, 1.0)
+
+    # (b) a stepped-curve deform key holds until the next key.
+    let meshA = skel.meshAttachments[0]
+    let stepped = deformTimeline("default", "slotA", meshA,
+      @[deformKeyframe(0.0, 0'u32, @[meshDelta(2.0, 0.0), meshDelta(0.0, 0.0), meshDelta(0.0, 0.0)], steppedCurve),
+        deformKeyframe(1.0, 0'u32, @[meshDelta(9.0, 0.0), meshDelta(0.0, 0.0), meshDelta(0.0, 0.0)])])
+    let steppedMid = sampleDeformDeltas(stepped, 0.5)
+
+    # (d) a deform-free clip leaves the mesh batches byte-identical to base.
+    let plain = animationClip(skel, "plain",
+      boneTimelines = @[boneScalarTimeline("root", rotateTimeline, @[scalarKeyframe(0.0, 0.0)])])
+    var plainRef = new(SkeletonData)
+    plainRef[] = skel
+    var plainState = animationState(plainRef, 1)
+    plainState.setAnimation(0, plain)
+    let plainPosed = applyPose(skel, plainState.sample())
+    let plainBatches = buildDrawBatches(plainPosed, computeWorldTransforms(plainPosed))
+    var noDeformIdentical = plainPosed.deformOverrides.len == 0 and plainBatches.len == base.len
+    for b in 0 ..< base.len:
+      for i in 0 ..< base[b].vertices.len:
+        if not closeTo(plainBatches[b].vertices[i].x, base[b].vertices[i].x) or
+           not closeTo(plainBatches[b].vertices[i].y, base[b].vertices[i].y):
+          noDeformIdentical = false
+
+    then:
+      applyMatches
+      noLeak
+      closeTo(half[0].x, 2.0)
+      closeTo(half[1].y, 3.0)
+      closeTo(half[2].x, -2.0)
+      closeTo(finalDeltas[0].x, 3.0)
+      closeTo(finalDeltas[1].y, 4.0)
+      closeTo(finalDeltas[2].x, -3.0)
+      # stepped holds the current key across the interval.
+      closeTo(steppedMid[0].x, 2.0)
+      noDeformIdentical
+
   it "clips mesh triangles to a convex polygon":
     let vertices = @[
       SkinnedMeshVertex(x: -1.0, y: 0.0, u: 0.0, v: 0.0),

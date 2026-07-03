@@ -1396,6 +1396,10 @@ proc applySequencePose(data: SkeletonData; pose: MixedPose): SkeletonData =
         )
     slots.add slotData(slot.name, slot.bone, attachment)
 
+  # Preserve meshAttachments/clippingAttachments AND the transient deform
+  # override so a sequence-rebuilt pose still carries an animated mesh's deltas
+  # through to buildDrawBatches (applySequencePose rebuilds SkeletonData a second
+  # time after applyPose; without this the override would be silently dropped).
   skeletonData(
     data.header,
     data.bones,
@@ -1408,7 +1412,9 @@ proc applySequencePose(data: SkeletonData; pose: MixedPose): SkeletonData =
     data.ikConstraints,
     data.transformConstraints,
     data.physicsConstraints,
-  )
+    data.clippingAttachments,
+    data.meshAttachments,
+  ).withDeformOverrides(data.deformOverrides)
 
 
 proc applyRenderablePose(data: SkeletonData; pose: MixedPose): SkeletonData =

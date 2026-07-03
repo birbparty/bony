@@ -119,6 +119,23 @@ type
     inheritDeform*: bool
     deformAttachment*: string
 
+  MeshDelta* = object
+    ## A single per-vertex mesh offset applied by a deform timeline. Relocated
+    ## here from mesh/deform.nim so both anim/timelines.nim (the DeformTimeline
+    ## record home) and the transient deform override on SkeletonData can name it
+    ## without an import cycle (model.nim sits below timelines.nim).
+    x*: float64
+    y*: float64
+
+  DeformOverride* = object
+    ## A resolved per-slot/attachment dense delta set the mixer stamps on a posed
+    ## SkeletonData so buildDrawBatches can offset a skinned mesh without a time
+    ## parameter. This is a TRANSIENT, non-serialized field: it is excluded from
+    ## validateSkeletonData, the round-trip getter list, and JSON/.bnb emission.
+    slot*: string
+    attachment*: string
+    deltas*: seq[MeshDelta]
+
   PathConstraintData* = object
     name: string
     bone: string
@@ -288,6 +305,9 @@ type
     physicsConstraints: seq[PhysicsConstraintData]
     parameters: seq[ParameterAxis]
     deformers: seq[DeformerRecord]
+    # Transient, non-serialized. Set post-construction by the mixer (applyPose);
+    # never threaded through skeletonData()/validateSkeletonData or emitted.
+    deformOverrides: seq[DeformOverride]
 
   SkeletonInstance* = object
     data: ref SkeletonData
@@ -309,6 +329,10 @@ proc quantizeF32*(value: float64; context = "value"): float64 =
   result = float64(float32(value))
   if classify(result) in {fcNan, fcInf, fcNegInf}:
     raise newBonyLoadError(numericOutOfRange, context & " must fit in f32")
+
+
+proc meshDelta*(x, y: float64): MeshDelta =
+  MeshDelta(x: quantizeF32(x, "deform.delta.x"), y: quantizeF32(y, "deform.delta.y"))
 
 
 proc requireFiniteF64*(value: float64; context = "value"): float64 =
@@ -826,6 +850,14 @@ proc clippingAttachments*(data: SkeletonData): seq[ClipAttachmentData] = data.cl
 
 
 proc meshAttachments*(data: SkeletonData): seq[MeshAttachment] = data.meshAttachments
+proc deformOverrides*(data: SkeletonData): seq[DeformOverride] = data.deformOverrides
+
+proc withDeformOverrides*(data: SkeletonData; overrides: seq[DeformOverride]): SkeletonData =
+  ## Return a copy carrying the transient deform override. Kept out of
+  ## skeletonData()/validateSkeletonData so it never affects load validation,
+  ## round-trip getters, or serialization.
+  result = data
+  result.deformOverrides = overrides
 
 
 proc paths*(data: SkeletonData): seq[PathConstraintData] = data.paths
