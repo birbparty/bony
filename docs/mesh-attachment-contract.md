@@ -117,11 +117,17 @@ arbitrary mesh vertex count is handled without crashing. Per the deformer model:
 - A **rotation** deformer applies **unconditionally** to every vertex.
 
 In both cases `u`/`v` texcoords, vertex color, and the batch's `indices` are
-**preserved**; only the vertex `x`/`y` positions change. The
-`conformance/assets/m13_mesh_deform_rig` fixture pins this: a **5-vertex**
-(deliberately non-quad) weighted mesh under a rotation deformer, with the
-committed golden (`conformance/goldens/m13_mesh_deform_rig_t0.json`) proving Nim
-and Dart produce the same deformed positions within the `1e-4` tolerance.
+**preserved**; only the vertex `x`/`y` positions change. Two fixtures pin this,
+each a **5-vertex** (deliberately non-quad) weighted mesh whose committed golden
+proves Nim and Dart produce the same deformed positions within the `1e-4`
+tolerance:
+
+- `conformance/assets/m13_mesh_deform_rig` — a **rotation** deformer (applies to
+  every vertex); golden `conformance/goldens/m13_mesh_deform_rig_t0.json`.
+- `conformance/assets/m14_mesh_warp_rig` — a **warp** deformer whose lattice box
+  covers only two of the five mesh vertices, proving self-scoping: the two
+  in-bounds vertices are warped while the three out-of-bounds vertices are left
+  unchanged; golden `conformance/goldens/m14_mesh_warp_rig_t0.json`.
 
 Deform **timelines** (animating deformer control points over time) and
 `inheritDeform` remain v1 non-goals (reserved-but-inert); only static, default-
