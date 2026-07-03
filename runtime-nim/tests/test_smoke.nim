@@ -7081,6 +7081,156 @@ spec "bony mesh skeleton validation":
     then:
       raisesBonyLoadError(proc() = discard loadBonyJson(jsonText), schemaViolation)
 
+  # ---- Load-validation rejection matrix (a)-(g), driven through loadBonyJson ----
+  # Each fixture is a single unweighted/weighted mesh referenced by one slot; only
+  # the failing property differs from a valid triangle mesh. Error kinds match
+  # validateMeshAttachment / the mesh value ctors (see docs/mesh-attachment-contract.md).
+
+  it "(a) rejects a mesh whose uvs length does not match the vertex count":
+    let jsonText = """
+{
+  "skeleton": {"name": "meshrig", "version": "0.1.0"},
+  "bones": [{"name": "root"}],
+  "slots": [{"name": "body", "bone": "root", "attachment": "cloth"}],
+  "meshAttachments": [
+    {"name": "cloth",
+     "vertices": [{"x": 0, "y": 0}, {"x": 1, "y": 0}, {"x": 0, "y": 1}],
+     "uvs": [0, 0, 1, 0], "triangles": [0, 1, 2]}
+  ]
+}
+"""
+    then:
+      raisesBonyLoadError(proc() = discard loadBonyJson(jsonText), schemaViolation)
+
+  it "(b) rejects a mesh whose triangle count is not a multiple of three":
+    let jsonText = """
+{
+  "skeleton": {"name": "meshrig", "version": "0.1.0"},
+  "bones": [{"name": "root"}],
+  "slots": [{"name": "body", "bone": "root", "attachment": "cloth"}],
+  "meshAttachments": [
+    {"name": "cloth",
+     "vertices": [{"x": 0, "y": 0}, {"x": 1, "y": 0}, {"x": 0, "y": 1}],
+     "uvs": [0, 0, 1, 0, 0, 1], "triangles": [0, 1]}
+  ]
+}
+"""
+    then:
+      raisesBonyLoadError(proc() = discard loadBonyJson(jsonText), schemaViolation)
+
+  it "(b) rejects a mesh with an out-of-range triangle index":
+    let jsonText = """
+{
+  "skeleton": {"name": "meshrig", "version": "0.1.0"},
+  "bones": [{"name": "root"}],
+  "slots": [{"name": "body", "bone": "root", "attachment": "cloth"}],
+  "meshAttachments": [
+    {"name": "cloth",
+     "vertices": [{"x": 0, "y": 0}, {"x": 1, "y": 0}, {"x": 0, "y": 1}],
+     "uvs": [0, 0, 1, 0, 0, 1], "triangles": [0, 1, 3]}
+  ]
+}
+"""
+    then:
+      raisesBonyLoadError(proc() = discard loadBonyJson(jsonText), unknownRequiredReference)
+
+  it "(c) rejects a weighted mesh whose influence weights do not sum to one":
+    let jsonText = """
+{
+  "skeleton": {"name": "meshrig", "version": "0.1.0"},
+  "bones": [{"name": "root"}],
+  "slots": [{"name": "body", "bone": "root", "attachment": "cloth"}],
+  "meshAttachments": [
+    {"name": "cloth", "weighted": true,
+     "vertices": [
+       {"influences": [{"bone": "root", "bindX": 0, "bindY": 0, "weight": 0.25}]},
+       {"influences": [{"bone": "root", "bindX": 1, "bindY": 0, "weight": 1}]},
+       {"influences": [{"bone": "root", "bindX": 0, "bindY": 1, "weight": 1}]}
+     ],
+     "uvs": [0, 0, 1, 0, 0, 1], "triangles": [0, 1, 2]}
+  ]
+}
+"""
+    then:
+      raisesBonyLoadError(proc() = discard loadBonyJson(jsonText), schemaViolation)
+
+  it "(d) rejects a weighted mesh whose influence names an unknown bone":
+    let jsonText = """
+{
+  "skeleton": {"name": "meshrig", "version": "0.1.0"},
+  "bones": [{"name": "root"}],
+  "slots": [{"name": "body", "bone": "root", "attachment": "cloth"}],
+  "meshAttachments": [
+    {"name": "cloth", "weighted": true,
+     "vertices": [
+       {"influences": [{"bone": "ghost", "bindX": 0, "bindY": 0, "weight": 1}]},
+       {"influences": [{"bone": "root", "bindX": 1, "bindY": 0, "weight": 1}]},
+       {"influences": [{"bone": "root", "bindX": 0, "bindY": 1, "weight": 1}]}
+     ],
+     "uvs": [0, 0, 1, 0, 0, 1], "triangles": [0, 1, 2]}
+  ]
+}
+"""
+    then:
+      raisesBonyLoadError(proc() = discard loadBonyJson(jsonText), unknownRequiredReference)
+
+  it "(e) rejects an empty mesh with no vertices":
+    let jsonText = """
+{
+  "skeleton": {"name": "meshrig", "version": "0.1.0"},
+  "bones": [{"name": "root"}],
+  "slots": [{"name": "body", "bone": "root", "attachment": "cloth"}],
+  "meshAttachments": [
+    {"name": "cloth", "vertices": [], "uvs": [], "triangles": []}
+  ]
+}
+"""
+    then:
+      raisesBonyLoadError(proc() = discard loadBonyJson(jsonText), schemaViolation)
+
+  it "(g) rejects a mesh whose weighted flag disagrees with its vertex shape":
+    # weighted:true but the vertices are plain {x,y}: the reader builds unweighted
+    # vertices, and validateMeshAttachment rejects the flag mismatch.
+    let jsonText = """
+{
+  "skeleton": {"name": "meshrig", "version": "0.1.0"},
+  "bones": [{"name": "root"}],
+  "slots": [{"name": "body", "bone": "root", "attachment": "cloth"}],
+  "meshAttachments": [
+    {"name": "cloth", "weighted": true,
+     "vertices": [{"x": 0, "y": 0}, {"x": 1, "y": 0}, {"x": 0, "y": 1}],
+     "uvs": [0, 0, 1, 0, 0, 1], "triangles": [0, 1, 2]}
+  ]
+}
+"""
+    then:
+      raisesBonyLoadError(proc() = discard loadBonyJson(jsonText), schemaViolation)
+
+  it "(f) round trips an unreferenced mesh (present but inert) through JSON and .bnb":
+    # A mesh in meshAttachments referenced by zero slots is valid and survives the
+    # round trip unchanged (mirrors clipping's inert-clip allowance).
+    let jsonText = """
+{
+  "skeleton": {"name": "meshrig", "version": "0.1.0"},
+  "bones": [{"name": "root"}],
+  "slots": [{"name": "body", "bone": "root"}],
+  "meshAttachments": [
+    {"name": "cloth",
+     "vertices": [{"x": 0, "y": 0}, {"x": 1, "y": 0}, {"x": 0, "y": 1}],
+     "uvs": [0, 0, 1, 0, 0, 1], "triangles": [0, 1, 2]}
+  ]
+}
+"""
+    let fromJson = loadBonyJson(jsonText)
+    let bnbBytes = toBonyBnb(fromJson)
+    let fromBnb = loadBonyBnb(bnbBytes)
+    then:
+      fromJson.meshAttachments.len == 1
+      fromJson.meshAttachments[0].name == "cloth"
+      fromBnb.meshAttachments.len == 1
+      toBonyJson(fromBnb) == toBonyJson(fromJson)
+      toBonyBnb(fromBnb) == bnbBytes
+
   it "rejects every truncation of a weighted mesh .bnb without crashing":
     # Regression guard for the packed mesh-payload bounds checks: no truncation of
     # a valid weighted mesh .bnb may escape as a Nim Defect or be silently
