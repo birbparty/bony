@@ -1,0 +1,7 @@
+{
+  "format": "bony.input-script.v1",
+  "asset": "m17_mesh_clip_rig.bony",
+  "samples": [
+    {"t": 0.0, "inputs": {}}
+  ]
+}

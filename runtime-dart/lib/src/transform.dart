@@ -1287,10 +1287,10 @@ List<DrawBatch> _applyClipping(
   final clipMap = <String, ClippingAttachment>{
     for (final c in data.clippingAttachments) c.name: c,
   };
-  // Meshes are not clipped in v1 (matching Nim): clipDrawBatchPolygon treats a
-  // batch's vertices as one convex ring and fan-triangulates from vertex 0,
-  // ignoring the batch indices, which would destroy a triangle-soup mesh. A
-  // batch whose attachment names a mesh is left untouched (clipId stays '').
+  // Meshes are a triangle *soup* (explicit index list, shared/interior
+  // vertices), so they clip per-triangle via clipDrawBatchTriangles — NOT
+  // through clipDrawBatchPolygon, which reinterprets a batch's vertices as one
+  // convex boundary ring and would destroy the topology.
   final meshNames = <String>{for (final m in data.meshAttachments) m.name};
   final lastSlotIndex = data.slots.length - 1;
 
@@ -1316,9 +1316,10 @@ List<DrawBatch> _applyClipping(
       final sourceSlotIndex = slotIndexByName[result[b].slot]!;
       if (sourceSlotIndex <= ownIndex || sourceSlotIndex > endIndex) continue;
       final batch = result[b];
-      // Skip mesh batches: meshes are not clipped in v1 (see meshNames above).
-      if (meshNames.contains(batch.attachment)) continue;
-      final clipped = clipDrawBatchPolygon(batch.vertices, clipPolygon);
+      // Mesh batches clip per-triangle; region batches clip as a convex ring.
+      final clipped = meshNames.contains(batch.attachment)
+          ? clipDrawBatchTriangles(batch.vertices, batch.indices, clipPolygon)
+          : clipDrawBatchPolygon(batch.vertices, clipPolygon);
       result[b] = DrawBatch(
         slot: batch.slot,
         bone: batch.bone,

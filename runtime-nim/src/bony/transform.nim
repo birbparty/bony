@@ -969,11 +969,17 @@ proc buildDrawBatches*(data: SkeletonData; worlds: seq[Affine2]): seq[DrawBatch]
         if sourceSlotIndex <= ownIndex or sourceSlotIndex > endIndex:
           continue
         if meshes.hasKey(result[batchIdx].attachment):
-          # Meshes are NOT clipped in v1: clipDrawBatchPolygon treats a batch's
-          # vertices as a single convex ring (fan from vertex 0, ignoring the
-          # batch indices), which would destroy a triangle-soup mesh's topology.
-          # Leave clipId == "" and the full triangle set untouched. See
-          # docs/mesh-attachment-contract.md ("meshes not clipped in v1").
+          # Meshes are a triangle *soup* (explicit index list, shared/interior
+          # vertices), so they clip per-triangle via clipDrawBatchTriangles —
+          # NOT through clipDrawBatchPolygon, which reinterprets a batch's
+          # vertices as one convex boundary ring and would destroy the topology.
+          # See docs/mesh-attachment-contract.md ("per-triangle mesh clipping").
+          result[batchIdx].clipId = clip.name
+          let clipped = clipDrawBatchTriangles(
+            result[batchIdx].vertices, result[batchIdx].indices, clipPolygon)
+          if clipped.changed:
+            result[batchIdx].vertices = clipped.vertices
+            result[batchIdx].indices = clipped.indices
           continue
         result[batchIdx].clipId = clip.name
         let clipped = clipDrawBatchPolygon(result[batchIdx].vertices, clipPolygon)

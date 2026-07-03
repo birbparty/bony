@@ -1,4 +1,6 @@
-## M4 clipping of `DrawBatch` quads against a convex clip polygon.
+## M4 clipping of `DrawBatch` geometry against a convex clip polygon:
+## `clipDrawBatchPolygon` clips a region quad as one convex boundary ring, and
+## `clipDrawBatchTriangles` clips a mesh triangle *soup* per-triangle.
 ##
 ## `DrawVertex` carries per-vertex color (r/g/b/a) that `SkinnedMeshVertex`
 ## lacks, so this restates the Sutherland-Hodgman convex-clip geometry from
@@ -148,3 +150,82 @@ proc clipDrawBatchPolygon*(subject: openArray[DrawVertex];
     result.indices.add 0'u16
     result.indices.add uint16(fanIndex)
     result.indices.add uint16(fanIndex + 1)
+
+
+proc vertexInsideClip(vertex: DrawVertex; clip: openArray[ClipPoint];
+                      orientation: float64): bool =
+  ## True when a single vertex is inside *every* clip edge (i.e. inside the whole
+  ## convex clip polygon). Distinct from `allInside`, which tests every vertex of
+  ## a subject.
+  for edgeIndex in 0 ..< clip.len:
+    let a = clip[edgeIndex]
+    let b = clip[(edgeIndex + 1) mod clip.len]
+    if not inside(vertex, a, b, orientation):
+      return false
+  true
+
+
+proc clipDrawBatchTriangles*(subject: openArray[DrawVertex];
+                             indices: openArray[uint16];
+                             clip: openArray[ClipPoint]): DrawBatchClip =
+  ## Clip a triangle-*soup* `DrawBatch` (an explicit `indices` triangle list —
+  ## e.g. a skinned mesh) against a convex clip polygon in the same (world) space.
+  ## Unlike `clipDrawBatchPolygon`, which reinterprets `subject` as a single
+  ## convex boundary ring, this clips **each triangle independently** so shared /
+  ## interior vertices and non-boundary index order are preserved.
+  ##
+  ## Every referenced triangle `(indices[i], indices[i+1], indices[i+2])` is
+  ## Sutherland-Hodgman clipped against `clip`; each surviving clipped convex
+  ## polygon is fan-triangulated (pivot on its own clipped vertex 0) and appended
+  ## to the output with u/v and r/g/b/a interpolated at every clip-edge
+  ## intersection and quantized at the output boundary. Triangles clipped away
+  ## entirely contribute nothing.
+  ##
+  ## `changed = false` (caller keeps the original `vertices`/`indices`) iff every
+  ## referenced vertex is inside the clip polygon — no triangle would be cut.
+  ## Otherwise `changed = true` and `vertices`/`indices` are the freshly
+  ## re-triangulated per-triangle geometry (each triangle emits its own vertices,
+  ## so shared vertices are duplicated across the triangles that use them, exactly
+  ## as the region fan path duplicates a clipped polygon's boundary). A batch
+  ## entirely outside the clip yields an empty (0-vertex / 0-index) `changed`
+  ## result.
+  ##
+  ## Output vertices are `uint16`-indexed to match `DrawBatch.indices`; a mesh
+  ## whose clipped fan would exceed 65535 output vertices is out of scope for v1
+  ## (no conformance rig approaches that bound).
+  if clip.len < 3 or indices.len < 3:
+    return DrawBatchClip(changed: false)
+  let orientation = signedArea(clip)
+  # Fully-inside fast path: if no referenced vertex crosses the clip, no triangle
+  # is cut, so the caller must keep the original vertices/indices untouched.
+  var anyOutside = false
+  var triangle = 0
+  while triangle + 2 < indices.len:
+    for corner in 0 .. 2:
+      if not vertexInsideClip(subject[indices[triangle + corner]], clip, orientation):
+        anyOutside = true
+        break
+    if anyOutside:
+      break
+    triangle += 3
+  if not anyOutside:
+    return DrawBatchClip(changed: false)
+  result = DrawBatchClip(changed: true)
+  triangle = 0
+  while triangle + 2 < indices.len:
+    let tri = [
+      subject[indices[triangle]],
+      subject[indices[triangle + 1]],
+      subject[indices[triangle + 2]],
+    ]
+    triangle += 3
+    let polygon = clipSubject(tri, clip, orientation)
+    if polygon.len < 3:
+      continue
+    let base = uint16(result.vertices.len)
+    for vtx in polygon:
+      result.vertices.add vtx
+    for fanIndex in 1 ..< polygon.len - 1:
+      result.indices.add base
+      result.indices.add base + uint16(fanIndex)
+      result.indices.add base + uint16(fanIndex + 1)

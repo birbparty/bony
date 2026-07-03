@@ -474,7 +474,7 @@ spec "bony package":
         discard loadBonyBnb(fixture)
         inc loaded
     then:
-      loaded == 17  # m1–m5, m5_ik, m5_transform, m5_physics, m7, m8, m9_non_scalar, m11_clip, m12_mesh, m13_mesh_deform, m14_mesh_warp, m15_mesh_unweighted_deform, m16_mesh_multi_deform
+      loaded == 18  # m1–m5, m5_ik, m5_transform, m5_physics, m7, m8, m9_non_scalar, m11_clip, m12_mesh, m13_mesh_deform, m14_mesh_warp, m15_mesh_unweighted_deform, m16_mesh_multi_deform, m17_mesh_clip
 
   it "rejects malformed semantic .bnb payloads":
     then:
@@ -7399,6 +7399,89 @@ spec "bony clipping evaluation":
       closeWithin(bottom.b, 0.0, 1e-6)
       closeWithin(bottom.u, 0.75, 1e-6)
 
+  it "clips a triangle soup per-triangle, preserving a shared interior vertex":
+    # A 4-triangle diamond fan sharing interior center vertex 0. The vertex list
+    # (center, then the four rim points) is NOT a convex boundary ring, so
+    # clipDrawBatchPolygon would mis-triangulate it. clipDrawBatchTriangles clips
+    # each triangle independently: with clip x <= 20, the two triangles touching
+    # the right rim vertex (50,0) are cut while the two left triangles pass
+    # through unchanged.
+    let subject = @[
+      DrawVertex(x: 0.0, y: 0.0, u: 0.5, v: 0.5, r: 1.0, g: 1.0, b: 1.0, a: 1.0),
+      DrawVertex(x: 50.0, y: 0.0, u: 1.0, v: 0.5, r: 1.0, g: 1.0, b: 1.0, a: 1.0),
+      DrawVertex(x: 0.0, y: 50.0, u: 0.5, v: 1.0, r: 1.0, g: 1.0, b: 1.0, a: 1.0),
+      DrawVertex(x: -50.0, y: 0.0, u: 0.0, v: 0.5, r: 1.0, g: 1.0, b: 1.0, a: 1.0),
+      DrawVertex(x: 0.0, y: -50.0, u: 0.5, v: 0.0, r: 1.0, g: 1.0, b: 1.0, a: 1.0),
+    ]
+    let indices = @[0'u16, 1, 2, 0, 2, 3, 0, 3, 4, 0, 4, 1]
+    # Clip x <= 20 (a rectangle spanning that half-plane over the diamond).
+    let clip = @[
+      clipPoint(-100.0, -100.0), clipPoint(20.0, -100.0),
+      clipPoint(20.0, 100.0), clipPoint(-100.0, 100.0),
+    ]
+    let clipped = clipDrawBatchTriangles(subject, indices, clip)
+    # No output vertex sits right of the x = 20 cut; a cut vertex lands at (20,0).
+    var maxX = -1e9
+    var hasCutAtRim = false
+    for v in clipped.vertices:
+      maxX = max(maxX, v.x)
+      if closeWithin(v.x, 20.0, 1e-5) and closeWithin(v.y, 0.0, 1e-5):
+        hasCutAtRim = true
+    # The rim vertex (50,0) that a convex-ring fan would keep is gone.
+    var keptRightRim = false
+    for v in clipped.vertices:
+      if closeWithin(v.x, 50.0, 1e-5): keptRightRim = true
+
+    then:
+      clipped.changed
+      maxX <= 20.0 + 1e-5
+      hasCutAtRim
+      not keptRightRim
+      # indices are a multiple of 3 (well-formed triangle list) and non-empty.
+      clipped.indices.len > 0
+      clipped.indices.len mod 3 == 0
+
+  it "keeps a fully-inside triangle soup unchanged (changed == false)":
+    # Every referenced vertex inside the clip => no triangle is cut, so the caller
+    # keeps its original vertices/indices.
+    let subject = @[
+      DrawVertex(x: 0.0, y: 0.0, u: 0.0, v: 0.0, r: 1.0, g: 1.0, b: 1.0, a: 1.0),
+      DrawVertex(x: 1.0, y: 0.0, u: 1.0, v: 0.0, r: 1.0, g: 1.0, b: 1.0, a: 1.0),
+      DrawVertex(x: 0.0, y: 1.0, u: 0.0, v: 1.0, r: 1.0, g: 1.0, b: 1.0, a: 1.0),
+    ]
+    let indices = @[0'u16, 1, 2]
+    let clip = @[
+      clipPoint(-10.0, -10.0), clipPoint(10.0, -10.0),
+      clipPoint(10.0, 10.0), clipPoint(-10.0, 10.0),
+    ]
+    let clipped = clipDrawBatchTriangles(subject, indices, clip)
+
+    then:
+      not clipped.changed
+      clipped.vertices.len == 0
+      clipped.indices.len == 0
+
+  it "empties a fully-outside triangle soup but reports changed":
+    # Every triangle entirely outside the clip => changed == true with empty
+    # geometry (mirrors the region fully-outside path).
+    let subject = @[
+      DrawVertex(x: 10.0, y: 10.0, u: 0.0, v: 0.0, r: 1.0, g: 1.0, b: 1.0, a: 1.0),
+      DrawVertex(x: 12.0, y: 10.0, u: 1.0, v: 0.0, r: 1.0, g: 1.0, b: 1.0, a: 1.0),
+      DrawVertex(x: 12.0, y: 12.0, u: 1.0, v: 1.0, r: 1.0, g: 1.0, b: 1.0, a: 1.0),
+    ]
+    let indices = @[0'u16, 1, 2]
+    # Clip well to the left of the triangle (x <= 0).
+    let clip = @[
+      clipPoint(-10.0, -10.0), clipPoint(0.0, -10.0),
+      clipPoint(0.0, 10.0), clipPoint(-10.0, 10.0),
+    ]
+    let clipped = clipDrawBatchTriangles(subject, indices, clip)
+
+    then:
+      clipped.changed
+      clipped.vertices.len == 0
+      clipped.indices.len == 0
+
 spec "bony mesh draw batches":
   it "emits an unweighted mesh batch skinned through the slot bone":
     # A slot referencing a mesh must produce one DrawBatch whose world-space
@@ -7499,10 +7582,11 @@ spec "bony mesh draw batches":
       not closeWithin(batch.vertices[0].x, 12.0, 1e-3)
       not closeWithin(batch.vertices[0].y, 6.0, 1e-3)
 
-  it "skips mesh batches in the clip pass (meshes not clipped in v1)":
-    # A mesh slot inside a clip's covered range keeps clipId == "" and its full,
-    # un-fan-collapsed triangle set: clipDrawBatchPolygon would reinterpret the
-    # triangle soup as one convex ring, so the clip pass must skip mesh batches.
+  it "clips mesh batches per-triangle in the clip pass":
+    # A mesh slot inside a clip's covered range is clipped per-triangle: the clip
+    # `mask` (x >= 0) cuts the single triangle (-1,-1),(1,-1),(1,1) whose left
+    # vertex is outside, so the batch gains clipId, drops the left vertex, and
+    # gains two new vertices on the x = 0 cut with interpolated uv.
     let bones = @[boneData("root", "")]
     let prelim = skeletonData(skeletonHeader("cliprig", "0.1.0"), bones)
     let mesh = unweightedMeshAttachment(
@@ -7520,25 +7604,36 @@ spec "bony mesh draw batches":
         slotData("meshSlot", "root", "meshQuad"),
       ],
       clippingAttachments = @[
-        # A clip that WOULD cut the mesh's left vertex (x < 0) if it were applied.
+        # A clip (x >= 0) that cuts the mesh's left vertex (x < 0).
         clipAttachmentData("mask", @[0.0, -3.0, 3.0, -3.0, 3.0, 3.0, 0.0, 3.0], "meshSlot"),
       ],
       meshAttachments = @[mesh],
     )
     let batches = buildDrawBatches(data)
     let batch = batches.batchFor("meshSlot")
+    # Every clipped vertex is on or right of the x = 0 cut.
+    var minX = 1e9
+    var hasCut = false
+    for v in batch.vertices:
+      minX = min(minX, v.x)
+      if closeWithin(v.x, 0.0, 1e-6) and closeWithin(v.y, 0.0, 1e-6):
+        hasCut = true
 
     then:
       batch.attachment == "meshQuad"
-      batch.clipId == ""
-      batch.indices == @[0'u16, 1'u16, 2'u16]
-      batch.vertices.len == 3
+      batch.clipId == "mask"
+      # The clipped triangle becomes a 4-vertex fan (left vertex removed, two new
+      # cut vertices added): indices [0,1,2, 0,2,3].
+      batch.vertices.len == 4
+      batch.indices == @[0'u16, 1'u16, 2'u16, 0'u16, 2'u16, 3'u16]
+      minX >= -1e-6
+      hasCut
 
-  it "clips a region but skips a mesh in the same clip range":
-    # Both a region and a mesh sit inside one clip's covered range. The clip-skip
-    # is per-batch: the region is clipped (clipId set, geometry cut) while the
-    # mesh keeps clipId == "" and its full triangle set. Pins that the skip is a
-    # per-batch `continue`, not a range-wide bail-out.
+  it "clips both a region and a mesh in the same clip range":
+    # Both a region and a mesh sit inside one clip's covered range. Clipping is
+    # per-batch and per-dispatch-arm: the region is clipped as a convex ring
+    # while the mesh is clipped per-triangle, and BOTH gain clipId. Pins that the
+    # mesh arm no longer bails out of the clip pass.
     let bones = @[boneData("root", "")]
     let prelim = skeletonData(skeletonHeader("cliprig", "0.1.0"), bones)
     let mesh = unweightedMeshAttachment(
@@ -7558,8 +7653,8 @@ spec "bony mesh draw batches":
       ],
       @[regionAttachment("body", 2.0, 2.0)],
       clippingAttachments = @[
-        # Clip x >= 0: cuts the left half of both the mesh and the region if
-        # applied. untilSlot=regionSlot so both covered slots are in range.
+        # Clip x >= 0: cuts the left half of both the mesh and the region.
+        # untilSlot=regionSlot so both covered slots are in range.
         clipAttachmentData("mask", @[0.0, -3.0, 3.0, -3.0, 3.0, 3.0, 0.0, 3.0], "regionSlot"),
       ],
       meshAttachments = @[mesh],
@@ -7567,12 +7662,15 @@ spec "bony mesh draw batches":
     let batches = buildDrawBatches(data)
     let meshBatch = batches.batchFor("meshSlot")
     let regionBatch = batches.batchFor("regionSlot")
+    var meshMinX = 1e9
+    for v in meshBatch.vertices:
+      meshMinX = min(meshMinX, v.x)
 
     then:
-      # Mesh: untouched by the clip pass.
-      meshBatch.clipId == ""
-      meshBatch.indices == @[0'u16, 1'u16, 2'u16]
-      meshBatch.vertices.len == 3
+      # Mesh: clipped per-triangle in the same range (clipId set, left vertex cut).
+      meshBatch.clipId == "mask"
+      meshBatch.vertices.len == 4
+      meshMinX >= -1e-6
       # Region: clipped in the same range (clipId set, left half removed).
       regionBatch.clipId == "mask"
       regionBatch.vertices.len >= 3

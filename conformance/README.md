@@ -44,6 +44,7 @@ conformance/
 | M14 | `m14_mesh_warp_rig` | Mesh × warp self-scoping: a warp lattice box covering only 2 of 5 mesh vertices — in-bounds verts warped, out-of-bounds verts unchanged |
 | M15 | `m15_mesh_unweighted_deform_rig` | Unweighted mesh (raw x/y, FK-skinned through the slot bone) under a rotation deformer |
 | M16 | `m16_mesh_multi_deform_rig` | Multiple ordered deformers on a mesh: rotation (order 0) then a warp parented to it (order 1), exercising composition + parent-frame chaining |
+| M17 | `m17_mesh_clip_rig` | Mesh × clipping: a triangle-soup mesh inside a clip range, clipped **per-triangle** (shared interior vertex preserved; some triangles cut, some pass through) |
 
 The `M5 (IK)` row is a second M5 asset (structured like the standalone M9 row):
 the table is one-asset-per-row, so `m5_ik_rig` gets its own row rather than being
@@ -284,16 +285,65 @@ Notes for readers comparing runtimes:
   `conformance/assets/bnb/m12_mesh_rig.bnb` (the JSON and binary loaders agree;
   the `.bnb` is non-empty at 289 bytes), and regenerates byte-identically on
   re-run per the float-math contract.
-- Mesh attachments are **not clipped** in v1 (see
-  `docs/mesh-attachment-contract.md`); this rig is single-purpose (one weighted
-  mesh at a setup pose) and deliberately combines no clipping, animation, state
-  machine, constraints, or deformers.
+- This rig is single-purpose (one weighted mesh at a setup pose) and deliberately
+  combines no clipping, animation, state machine, constraints, or deformers.
+  Mesh × clipping is covered separately by `m17_mesh_clip_rig`.
 - Cross-runtime status: the setup-pose golden `m12_mesh_rig_t0.json` is honored by
   **both** the Nim reference and the Dart runtime — Dart now loads the mesh record
   (JSON + `.bnb`) and skins it in `buildDrawBatches` with the same linear-blend
   formula, matching the golden within `1e-4` (`runtime-dart/test/m10_conformance_test.dart`,
   the `M12-Mesh` group; the Dart `.bnb` mesh decode + skinning path is additionally
   pinned by `runtime-dart/test/m12_mesh_bnb_test.dart`).
+
+### M17 mesh-clip rig (`m17_mesh_clip_rig`)
+
+`m17_mesh_clip_rig` is the per-triangle mesh-clipping conformance asset (the
+milestone token `M17` only names the asset — the registry key band is still M4).
+It combines a **mesh** attachment and a **clipping** attachment, the first rig to
+put a mesh inside a clip's covered range. One identity `root` bone and two
+draw-order slots:
+
+- `clip_slot` — references the `clip_mask` clipping attachment (its own slot);
+  produces no draw batch.
+- `mesh_slot` — an unweighted 5-vertex mesh, **inside** the clip range
+  (`untilSlot: mesh_slot`), so it is clipped.
+
+The `mesh` is a **triangle soup**: a diamond fan of four triangles
+(`triangles [0,1,2, 0,2,3, 0,3,4, 0,4,1]`) all sharing the **interior center
+vertex 0** `(0,0)`, with rim vertices `(50,0)`, `(0,50)`, `(-50,0)`, `(0,-50)`.
+The vertex list is deliberately **not** a convex boundary ring, so the region
+convex-ring clip (`clipDrawBatchPolygon`) would mis-triangulate it — only
+per-triangle clipping (`clipDrawBatchTriangles`) is correct here.
+
+The clip polygon `clip_mask` is the rectangle
+`[(-100,-100), (20,-100), (20,100), (-100,100)]` — the half-plane `x <= 20`.
+
+**Non-vacuous per-triangle delta (geometry + u/v).** Only the right rim vertex
+`(50,0)` is outside `x <= 20`, so the two triangles that use it are cut while the
+two left triangles pass through unchanged. The `mesh_slot` batch in
+`m17_mesh_clip_rig_t0.json` carries `clipId: "clip_mask"` and **14 vertices / 18
+indices** (up from the raw 5 vertices / 12 indices): the two clipped triangles
+each become a 4-vertex fan, and the two interior triangles re-emit their 3
+vertices. The removed corner `(50,0)` appears in **no** output vertex
+(`max x == 20`), and new vertices land on the `x = 20` cut — e.g. `(20,0)` with
+`u = 0.7` (interpolated `0.4` along the `v0→v1` edge from `u=0.5` to `u=1.0`) and
+`(20,30)` with `u=0.7, v=0.8`. Those interpolated u/v values are well above the
+`1e-4` tolerance, so a runtime that skips clipping, clips the mesh as one convex
+ring, or mis-interpolates u/v fails the golden. The shared center vertex `(0,0)`
+appears once per triangle that references it (per-triangle fans duplicate shared
+vertices), which a convex-ring interpretation would not produce.
+
+Notes for readers comparing runtimes:
+- The golden is reproduced identically from both `m17_mesh_clip_rig.bony` and
+  `conformance/assets/bnb/m17_mesh_clip_rig.bnb` (the JSON and binary loaders
+  agree; the `.bnb` is non-empty at 295 bytes), and regenerates byte-identically
+  on re-run per the float-math contract.
+- Cross-runtime status: the setup-pose golden `m17_mesh_clip_rig_t0.json` is
+  honored by **both** the Nim reference and the Dart runtime — Dart clips mesh
+  batches per-triangle in `buildDrawBatches` with the same algorithm, matching the
+  golden within `1e-4` (`runtime-dart/test/m10_conformance_test.dart`, the
+  `M17-MeshClip` group; the Dart `.bnb` mesh-clip path is additionally pinned by
+  `runtime-dart/test/m17_mesh_clip_bnb_test.dart`).
 
 ### Image goldens (Nim reference rasterizer only)
 
@@ -317,6 +367,7 @@ and do not need to be reproduced by Dart or other runtimes.
 | m9_non_scalar_rig | pending |
 | m11_clip_rig | pending (no PNG golden produced) |
 | m12_mesh_rig | pending (no PNG golden produced) |
+| m17_mesh_clip_rig | pending (no PNG golden produced) |
 
 ---
 
@@ -367,7 +418,8 @@ Fields:
 - `drawBatches[].{slot,bone,attachment,texturePage,blendMode,clipId,world}` — the
   batch's identity and metadata. A **mesh** batch uses the same fields as a region
   batch — `texturePage` and `blendMode` come from the slot/defaults (`""` /
-  `"normal"`), and `clipId` stays `""` because meshes are not clipped in v1.
+  `"normal"`), and `clipId` is set to the clip name when the mesh slot falls in a
+  clip's covered range (meshes clip per-triangle; see `m17_mesh_clip_rig`).
 - `drawBatches[].vertices[]` — each vertex is an object
   `{x, y, u, v, r, g, b, a}` (world position, texture coordinate, and per-vertex
   color); a mesh carries no golden field a region does not already have.

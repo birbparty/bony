@@ -1,4 +1,6 @@
-/// M4 clipping of draw-batch quads against a convex clip polygon.
+/// M4 clipping of draw-batch geometry against a convex clip polygon:
+/// [clipDrawBatchPolygon] clips a region quad as one convex boundary ring, and
+/// [clipDrawBatchTriangles] clips a mesh triangle *soup* per-triangle.
 ///
 /// A fresh Dart port of the project-owned Sutherland-Hodgman convex clip
 /// specified in `docs/clipping-attachment-contract.md` and implemented in the
@@ -134,6 +136,17 @@ bool _allInside(
   return true;
 }
 
+// True when a single vertex is inside *every* clip edge (the whole convex clip
+// polygon). Distinct from [_allInside], which tests every vertex of a subject.
+bool _vertexInsideClip(DrawVertex vertex, List<ClipPoint> clip, double orientation) {
+  for (var edgeIndex = 0; edgeIndex < clip.length; edgeIndex++) {
+    final a = clip[edgeIndex];
+    final b = clip[(edgeIndex + 1) % clip.length];
+    if (!_inside(vertex, a, b, orientation)) return false;
+  }
+  return true;
+}
+
 /// Clip a convex draw-batch polygon (boundary order) against a convex clip
 /// polygon in the same (world) space. See [DrawBatchClip].
 DrawBatchClip clipDrawBatchPolygon(
@@ -157,4 +170,66 @@ DrawBatchClip clipDrawBatchPolygon(
       ..add(fanIndex + 1);
   }
   return DrawBatchClip(changed: true, vertices: polygon, indices: indices);
+}
+
+/// Clip a triangle-*soup* draw batch (an explicit [indices] triangle list, e.g.
+/// a skinned mesh) against a convex clip polygon in the same (world) space.
+///
+/// Unlike [clipDrawBatchPolygon], which reinterprets [subject] as a single
+/// convex boundary ring, this clips **each triangle independently** so shared /
+/// interior vertices and non-boundary index order are preserved. Each referenced
+/// triangle is Sutherland-Hodgman clipped; each surviving clipped convex polygon
+/// is fan-triangulated (pivot on its own clipped vertex 0) and appended to the
+/// output with `u, v, r, g, b, a` interpolated at every clip-edge intersection
+/// and quantized at the output boundary.
+///
+/// `changed == false` (caller keeps the original vertices/indices) iff every
+/// referenced vertex is inside the clip polygon — no triangle would be cut.
+/// Otherwise [vertices]/[indices] are the freshly re-triangulated per-triangle
+/// geometry (each triangle emits its own vertices, so shared vertices are
+/// duplicated across the triangles that use them). A batch entirely outside the
+/// clip yields an empty (0-vertex / 0-index) `changed` result. Matches the Nim
+/// reference `clipDrawBatchTriangles` within the `1e-4` tolerance.
+DrawBatchClip clipDrawBatchTriangles(
+  List<DrawVertex> subject,
+  List<int> indices,
+  List<ClipPoint> clip,
+) {
+  if (clip.length < 3 || indices.length < 3) {
+    return const DrawBatchClip(changed: false);
+  }
+  final orientation = _signedArea(clip);
+  // Fully-inside fast path: if no referenced vertex crosses the clip, no triangle
+  // is cut, so the caller must keep the original vertices/indices untouched.
+  var anyOutside = false;
+  for (var triangle = 0; triangle + 2 < indices.length; triangle += 3) {
+    for (var corner = 0; corner < 3; corner++) {
+      if (!_vertexInsideClip(subject[indices[triangle + corner]], clip, orientation)) {
+        anyOutside = true;
+        break;
+      }
+    }
+    if (anyOutside) break;
+  }
+  if (!anyOutside) return const DrawBatchClip(changed: false);
+  final outVertices = <DrawVertex>[];
+  final outIndices = <int>[];
+  for (var triangle = 0; triangle + 2 < indices.length; triangle += 3) {
+    final tri = <DrawVertex>[
+      subject[indices[triangle]],
+      subject[indices[triangle + 1]],
+      subject[indices[triangle + 2]],
+    ];
+    final polygon = _clipSubject(tri, clip, orientation);
+    if (polygon.length < 3) continue;
+    final base = outVertices.length;
+    outVertices.addAll(polygon);
+    for (var fanIndex = 1; fanIndex < polygon.length - 1; fanIndex++) {
+      outIndices
+        ..add(base)
+        ..add(base + fanIndex)
+        ..add(base + fanIndex + 1);
+    }
+  }
+  return DrawBatchClip(changed: true, vertices: outVertices, indices: outIndices);
 }
