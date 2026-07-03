@@ -7533,3 +7533,79 @@ spec "bony mesh draw batches":
       batch.clipId == ""
       batch.indices == @[0'u16, 1'u16, 2'u16]
       batch.vertices.len == 3
+
+  it "clips a region but skips a mesh in the same clip range":
+    # Both a region and a mesh sit inside one clip's covered range. The clip-skip
+    # is per-batch: the region is clipped (clipId set, geometry cut) while the
+    # mesh keeps clipId == "" and its full triangle set. Pins that the skip is a
+    # per-batch `continue`, not a range-wide bail-out.
+    let bones = @[boneData("root", "")]
+    let prelim = skeletonData(skeletonHeader("cliprig", "0.1.0"), bones)
+    let mesh = unweightedMeshAttachment(
+      prelim,
+      "meshQuad",
+      @[meshUv(0.0, 0.0), meshUv(1.0, 0.0), meshUv(1.0, 1.0)],
+      @[0'u16, 1'u16, 2'u16],
+      @[unweightedMeshVertex(-1.0, -1.0), unweightedMeshVertex(1.0, -1.0), unweightedMeshVertex(1.0, 1.0)],
+    )
+    let data = skeletonData(
+      skeletonHeader("cliprig", "0.1.0"),
+      bones,
+      @[
+        slotData("clipSlot", "root", "mask"),
+        slotData("meshSlot", "root", "meshQuad"),
+        slotData("regionSlot", "root", "body"),
+      ],
+      @[regionAttachment("body", 2.0, 2.0)],
+      clippingAttachments = @[
+        # Clip x >= 0: cuts the left half of both the mesh and the region if
+        # applied. untilSlot=regionSlot so both covered slots are in range.
+        clipAttachmentData("mask", @[0.0, -3.0, 3.0, -3.0, 3.0, 3.0, 0.0, 3.0], "regionSlot"),
+      ],
+      meshAttachments = @[mesh],
+    )
+    let batches = buildDrawBatches(data)
+    let meshBatch = batches.batchFor("meshSlot")
+    let regionBatch = batches.batchFor("regionSlot")
+
+    then:
+      # Mesh: untouched by the clip pass.
+      meshBatch.clipId == ""
+      meshBatch.indices == @[0'u16, 1'u16, 2'u16]
+      meshBatch.vertices.len == 3
+      # Region: clipped in the same range (clipId set, left half removed).
+      regionBatch.clipId == "mask"
+      regionBatch.vertices.len >= 3
+
+  it "emits batches in slot draw order across mesh and region dispatch arms":
+    # Interleaved region/mesh/region slots must emit in slot order, proving both
+    # dispatch arms append to `result`/`batchSlotIndex` in the same pass without
+    # reordering.
+    let bones = @[boneData("root", "")]
+    let prelim = skeletonData(skeletonHeader("demo", "0.1.0"), bones)
+    let mesh = unweightedMeshAttachment(
+      prelim,
+      "midMesh",
+      @[meshUv(0.0, 0.0), meshUv(1.0, 0.0), meshUv(1.0, 1.0)],
+      @[0'u16, 1'u16, 2'u16],
+      @[unweightedMeshVertex(0.0, 0.0), unweightedMeshVertex(1.0, 0.0), unweightedMeshVertex(1.0, 1.0)],
+    )
+    let data = skeletonData(
+      skeletonHeader("demo", "0.1.0"),
+      bones,
+      @[
+        slotData("regionA", "root", "bodyA"),
+        slotData("meshB", "root", "midMesh"),
+        slotData("regionC", "root", "bodyC"),
+      ],
+      @[regionAttachment("bodyA", 2.0, 2.0), regionAttachment("bodyC", 2.0, 2.0)],
+      meshAttachments = @[mesh],
+    )
+    let batches = buildDrawBatches(data)
+
+    then:
+      batches.len == 3
+      batches[0].slot == "regionA"
+      batches[1].slot == "meshB"
+      batches[1].attachment == "midMesh"
+      batches[2].slot == "regionC"

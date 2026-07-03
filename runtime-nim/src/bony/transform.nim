@@ -875,6 +875,10 @@ proc buildDrawBatches*(data: SkeletonData; worlds: seq[Affine2]): seq[DrawBatch]
     if slot.attachment.len == 0:
       continue
     if meshes.hasKey(slot.attachment):
+      # Keying dispatch on the `meshes` table alone is unambiguous because
+      # attachment names are cross-collection unique — validateSkeletonData
+      # rejects a mesh name that collides with a region or clip name (model.nim),
+      # so a name resolves to at most one of the three tables.
       # Mesh dispatch MUST precede the non-region guard below: a mesh-referencing
       # slot is neither a region nor a clip, so the guard would drop it silently.
       # Skin per-vertex world positions (FK for unweighted, linear-blend for
@@ -883,6 +887,10 @@ proc buildDrawBatches*(data: SkeletonData; worlds: seq[Affine2]): seq[DrawBatch]
       # fields (texturePage/blendMode/clipId/world) mirror the region path so a
       # region and a mesh on the same slot are indistinguishable there.
       let mesh = meshes[slot.attachment]
+      # `world` is the slot-bone world used only as batch metadata (mirroring the
+      # region path); it does NOT transform the mesh vertices. Skinning consumes
+      # the full `worlds` array directly — a weighted vertex blends across its
+      # influence bones and ignores slot.bone entirely.
       let world = worlds[boneIndex[slot.bone]]
       let skinned = skinMeshVertices(data, worlds, slot.bone, mesh)
       var meshVerts = newSeq[DrawVertex](skinned.len)
