@@ -89,6 +89,44 @@ path would reinterpret its vertex list as one convex ring and destroy its
 topology. Correct per-triangle mesh clipping is a deliberate follow-on milestone
 (tracked as a follow-up bead), not part of v1.
 
+### Deforming a mesh attachment (normative)
+
+Warp and rotation deformers **do** apply to mesh batches, identically to region
+batches. Deformers act on the **resolved draw-batch vertex positions** — i.e.
+**after** skinning (`skinMeshVertices`) for a mesh, and after the region-quad
+build for a region — over **every** base batch, not just region quads. Both
+runtimes apply the same operation, at different layers:
+
+- **Dart**: inside the runtime `buildDrawBatches`
+  (`runtime-dart/lib/src/transform.dart`), which maps every base batch through
+  `applyDeformers`.
+- **Nim**: in the golden/render layer via `applyDeformersToDrawBatches`
+  (`cli/bony_cli.nim`), which iterates every batch. The Nim runtime library
+  `buildDrawBatches` (`runtime-nim/src/bony/transform.nim`) itself returns
+  **undeformed** batches for meshes *and* regions alike — deformer application is
+  a golden/render-layer concern in Nim, applied uniformly to both attachment
+  kinds, so the two runtimes agree on the deformed output the goldens encode.
+
+`applyDeformers` is **vertex-count-agnostic**: it iterates the batch's vertices
+regardless of count and makes **no region-quad (4-vertex) assumption**, so an
+arbitrary mesh vertex count is handled without crashing. Per the deformer model:
+
+- A **warp** deformer self-scopes via its setup bounds — a mesh vertex whose
+  setup-pose `(x, y)` falls outside the lattice's `[minX, maxX] × [minY, maxY]`
+  box (i.e. normalized `u` or `v` outside `0..1`) is left **unchanged**.
+- A **rotation** deformer applies **unconditionally** to every vertex.
+
+In both cases `u`/`v` texcoords, vertex color, and the batch's `indices` are
+**preserved**; only the vertex `x`/`y` positions change. The
+`conformance/assets/m13_mesh_deform_rig` fixture pins this: a **5-vertex**
+(deliberately non-quad) weighted mesh under a rotation deformer, with the
+committed golden (`conformance/goldens/m13_mesh_deform_rig_t0.json`) proving Nim
+and Dart produce the same deformed positions within the `1e-4` tolerance.
+
+Deform **timelines** (animating deformer control points over time) and
+`inheritDeform` remain v1 non-goals (reserved-but-inert); only static, default-
+parameter deformer evaluation is pinned here.
+
 ## Load-validated invariants
 
 A mesh is rejected at load unless all hold (these restate `validateMeshAttachment`
