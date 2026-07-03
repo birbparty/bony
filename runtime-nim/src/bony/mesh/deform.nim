@@ -1,98 +1,16 @@
 ## M4 per-vertex mesh deform timeline sampling.
+##
+## The plain-data record types (`MeshDelta`, `DeformKeyframe`, `DeformTimeline`)
+## and their constructors/validators were relocated up the import DAG so an
+## `AnimationClip` can own deform timelines without a cycle: `MeshDelta` lives in
+## `bony/model`, and `DeformKeyframe`/`DeformTimeline` (plus `deformKeyframe*`/
+## `deformTimeline*`/`validateDeformTimeline*`) live in `bony/anim/timelines`.
+## This module keeps the sampler/apply procs, which additionally depend on the
+## skinned-mesh vertex type.
 
 import bony/anim/timelines
 import bony/mesh/skinning
 import bony/model
-
-type
-  MeshDelta* = object
-    x*: float64
-    y*: float64
-
-  DeformKeyframe* = object
-    time*: float64
-    offset*: uint32
-    deltas*: seq[MeshDelta]
-    curve*: TimelineCurve
-
-  DeformTimeline* = object
-    skin*: string
-    slot*: string
-    attachment*: string
-    vertexCount*: int
-    keys*: seq[DeformKeyframe]
-
-
-proc meshDelta*(x, y: float64): MeshDelta =
-  MeshDelta(x: quantizeF32(x, "deform.delta.x"), y: quantizeF32(y, "deform.delta.y"))
-
-
-proc deformKeyframe*(
-  time: float64;
-  offset: uint32;
-  deltas: openArray[MeshDelta];
-  curve = linearTimelineCurve;
-): DeformKeyframe =
-  DeformKeyframe(
-    time: quantizeF32(time, "deform.key.time"),
-    offset: offset,
-    deltas: @deltas,
-    curve: curve,
-  )
-
-
-proc deformKeyframe*(
-  time: float64;
-  offset: uint32;
-  deltas: openArray[MeshDelta];
-  curve: TimelineCurveKind;
-): DeformKeyframe =
-  deformKeyframe(time, offset, deltas, timelineCurve(curve))
-
-
-proc validateDeformKey(key: DeformKeyframe; vertexCount: int) =
-  let storedTime = quantizeF32(key.time, "deform.key.time")
-  if storedTime < 0:
-    raise newBonyLoadError(schemaViolation, "deform key time must be non-negative")
-  if key.deltas.len == 0:
-    raise newBonyLoadError(schemaViolation, "deform key must contain at least one delta")
-  if int(key.offset) + key.deltas.len > vertexCount:
-    raise newBonyLoadError(schemaViolation, "deform key range exceeds mesh vertex count")
-  for delta in key.deltas:
-    discard quantizeF32(delta.x, "deform.delta.x")
-    discard quantizeF32(delta.y, "deform.delta.y")
-
-
-proc validateDeformTimeline*(timeline: DeformTimeline) =
-  if timeline.skin.len == 0:
-    raise newBonyLoadError(schemaViolation, "deform timeline skin must not be empty")
-  if timeline.slot.len == 0:
-    raise newBonyLoadError(schemaViolation, "deform timeline slot must not be empty")
-  if timeline.attachment.len == 0:
-    raise newBonyLoadError(schemaViolation, "deform timeline attachment must not be empty")
-  if timeline.vertexCount <= 0:
-    raise newBonyLoadError(schemaViolation, "deform timeline vertex count must be positive")
-  if timeline.keys.len == 0:
-    raise newBonyLoadError(schemaViolation, "deform timeline must contain at least one keyframe")
-  for index, key in timeline.keys:
-    validateDeformKey(key, timeline.vertexCount)
-    if index > 0 and timeline.keys[index - 1].time >= key.time:
-      raise newBonyLoadError(schemaViolation, "deform key times must be strictly increasing")
-
-
-proc deformTimeline*(
-  skin, slot: string;
-  mesh: MeshAttachment;
-  keys: openArray[DeformKeyframe];
-): DeformTimeline =
-  result = DeformTimeline(
-    skin: skin,
-    slot: slot,
-    attachment: mesh.deformAttachment,
-    vertexCount: mesh.vertices.len,
-    keys: @keys,
-  )
-  validateDeformTimeline(result)
 
 
 proc zeroDeltas(vertexCount: int): seq[MeshDelta] =

@@ -3726,6 +3726,75 @@ spec "bony package":
         schemaViolation,
       )
 
+  it "round-trips a clip-owned deform timeline through JSON and BNB":
+    const source = """{
+  "skeleton": { "name": "deform-rt", "version": "1.0.0" },
+  "bones": [ { "name": "root" } ],
+  "slots": [ { "name": "cloth", "bone": "root", "attachment": "cloth_mesh" } ],
+  "meshAttachments": [
+    {
+      "name": "cloth_mesh",
+      "weighted": false,
+      "vertices": [ { "x": 0.0, "y": 0.0 }, { "x": 4.0, "y": 0.0 }, { "x": 0.0, "y": 4.0 } ],
+      "uvs": [ 0.0, 0.0, 1.0, 0.0, 0.0, 1.0 ],
+      "triangles": [ 0, 1, 2 ]
+    }
+  ],
+  "animations": [
+    {
+      "name": "wiggle",
+      "deformTimelines": [
+        {
+          "skin": "default",
+          "slot": "cloth",
+          "attachment": "cloth_mesh",
+          "vertexCount": 3,
+          "keyframes": [
+            { "t": 0.0, "offset": 0, "deltas": [ { "x": 1.0, "y": 0.0 }, { "x": 0.0, "y": 2.0 }, { "x": -1.0, "y": -1.0 } ] },
+            { "t": 1.0, "offset": 1, "deltas": [ { "x": 3.0, "y": 0.0 }, { "x": 0.0, "y": 1.0 } ] }
+          ]
+        }
+      ]
+    }
+  ]
+}"""
+    let fromJson = loadBonyJsonAsset(source)
+    let fromBnb = loadBonyBnbAsset(toBonyBnb(fromJson))
+    let jsonDeform = fromJson.animations[0].deformTimelines[0]
+    let bnbDeform = fromBnb.animations[0].deformTimelines[0]
+
+    # JSON- and BNB-loaded timelines must sample identically at several times.
+    var samplesMatch = true
+    for t in [0.0, 0.25, 0.5, 1.0]:
+      let js = sampleDeformDeltas(jsonDeform, t)
+      let bs = sampleDeformDeltas(bnbDeform, t)
+      if js.len != bs.len:
+        samplesMatch = false
+      else:
+        for i in 0 ..< js.len:
+          if not closeTo(js[i].x, bs[i].x) or not closeTo(js[i].y, bs[i].y):
+            samplesMatch = false
+
+    then:
+      fromJson.animations.len == 1
+      fromJson.animations[0].deformTimelines.len == 1
+      fromBnb.animations[0].deformTimelines.len == 1
+      # Field parity from JSON.
+      jsonDeform.skin == "default"
+      jsonDeform.slot == "cloth"
+      jsonDeform.attachment == "cloth_mesh"
+      jsonDeform.vertexCount == 3
+      jsonDeform.keys.len == 2
+      # JSON emit is stable across a re-load.
+      toBonyJson(loadBonyJsonAsset(toBonyJson(fromJson))) == toBonyJson(fromJson)
+      # BNB decode reproduces the same record shape.
+      bnbDeform.skin == jsonDeform.skin
+      bnbDeform.slot == jsonDeform.slot
+      bnbDeform.attachment == jsonDeform.attachment
+      bnbDeform.vertexCount == jsonDeform.vertexCount
+      bnbDeform.keys.len == jsonDeform.keys.len
+      samplesMatch
+
   it "clips mesh triangles to a convex polygon":
     let vertices = @[
       SkinnedMeshVertex(x: -1.0, y: 0.0, u: 0.0, v: 0.0),

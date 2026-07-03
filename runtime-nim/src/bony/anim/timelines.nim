@@ -1,6 +1,6 @@
 ## M3 bone, slot, and event timeline data structures.
 
-import std/[math, sets]
+import std/[math, sets, tables]
 
 import bony/model
 
@@ -134,12 +134,33 @@ type
     color2Keys: seq[Color2Keyframe]
     sequenceKeys: seq[SequenceKeyframe]
 
+  DeformKeyframe* = object
+    ## One keyframe of a deform timeline: a sparse `offset`-anchored run of
+    ## per-vertex `deltas` at `time`, interpolated with `curve`. Relocated here
+    ## from mesh/deform.nim (it carries a same-module `TimelineCurve`) so a clip
+    ## can own `DeformTimeline`s without a timelines<->deform import cycle.
+    time*: float64
+    offset*: uint32
+    deltas*: seq[MeshDelta]
+    curve*: TimelineCurve
+
+  DeformTimeline* = object
+    ## A clip-owned per-vertex mesh-offset (FFD) timeline targeting the mesh
+    ## attachment named `attachment` on slot `slot` under skin `skin`. See
+    ## docs/deform-timeline-contract.md.
+    skin*: string
+    slot*: string
+    attachment*: string
+    vertexCount*: int
+    keys*: seq[DeformKeyframe]
+
   AnimationClip* = object
     name: string
     duration: float64
     boneTimelines: seq[BoneTimeline]
     slotTimelines: seq[SlotTimeline]
     eventTimelines: seq[EventTimeline]
+    deformTimelines: seq[DeformTimeline]
 
 const
   linearTimelineCurve* = TimelineCurve(kind: linearCurve)
@@ -178,6 +199,7 @@ proc duration*(clip: AnimationClip): float64 = clip.duration
 proc boneTimelines*(clip: AnimationClip): seq[BoneTimeline] = clip.boneTimelines
 proc slotTimelines*(clip: AnimationClip): seq[SlotTimeline] = clip.slotTimelines
 proc eventTimelines*(clip: AnimationClip): seq[EventTimeline] = clip.eventTimelines
+proc deformTimelines*(clip: AnimationClip): seq[DeformTimeline] = clip.deformTimelines
 proc keys*(timeline: EventTimeline): seq[EventKeyframe] = timeline.keys
 
 proc validateTimelineTarget(target, context: string) =
@@ -575,12 +597,86 @@ proc eventTimeline*(keys: openArray[EventKeyframe]): EventTimeline =
   validateEventTimeline(result, "event timeline")
 
 
+proc deformKeyframe*(
+  time: float64;
+  offset: uint32;
+  deltas: openArray[MeshDelta];
+  curve = linearTimelineCurve;
+): DeformKeyframe =
+  DeformKeyframe(
+    time: quantizeF32(time, "deform.key.time"),
+    offset: offset,
+    deltas: @deltas,
+    curve: curve,
+  )
+
+
+proc deformKeyframe*(
+  time: float64;
+  offset: uint32;
+  deltas: openArray[MeshDelta];
+  curve: TimelineCurveKind;
+): DeformKeyframe =
+  deformKeyframe(time, offset, deltas, timelineCurve(curve))
+
+
+proc validateDeformKey(key: DeformKeyframe; vertexCount: int) =
+  let storedTime = quantizeF32(key.time, "deform.key.time")
+  if storedTime < 0:
+    raise newBonyLoadError(schemaViolation, "deform key time must be non-negative")
+  if key.deltas.len == 0:
+    raise newBonyLoadError(schemaViolation, "deform key must contain at least one delta")
+  if int(key.offset) + key.deltas.len > vertexCount:
+    raise newBonyLoadError(schemaViolation, "deform key range exceeds mesh vertex count")
+  for delta in key.deltas:
+    discard quantizeF32(delta.x, "deform.delta.x")
+    discard quantizeF32(delta.y, "deform.delta.y")
+
+
+proc validateDeformTimeline*(timeline: DeformTimeline) =
+  if timeline.skin.len == 0:
+    raise newBonyLoadError(schemaViolation, "deform timeline skin must not be empty")
+  if timeline.slot.len == 0:
+    raise newBonyLoadError(schemaViolation, "deform timeline slot must not be empty")
+  if timeline.attachment.len == 0:
+    raise newBonyLoadError(schemaViolation, "deform timeline attachment must not be empty")
+  if timeline.vertexCount <= 0:
+    raise newBonyLoadError(schemaViolation, "deform timeline vertex count must be positive")
+  if timeline.keys.len == 0:
+    raise newBonyLoadError(schemaViolation, "deform timeline must contain at least one keyframe")
+  for index, key in timeline.keys:
+    validateDeformKey(key, timeline.vertexCount)
+    if index > 0 and timeline.keys[index - 1].time >= key.time:
+      raise newBonyLoadError(schemaViolation, "deform key times must be strictly increasing")
+
+
+proc deformTimeline*(
+  skin, slot: string;
+  mesh: MeshAttachment;
+  keys: openArray[DeformKeyframe];
+): DeformTimeline =
+  result = DeformTimeline(
+    skin: skin,
+    slot: slot,
+    attachment: mesh.deformAttachment,
+    vertexCount: mesh.vertices.len,
+    keys: @keys,
+  )
+  validateDeformTimeline(result)
+
+
+proc lastTime(timeline: DeformTimeline): float64 =
+  validateDeformTimeline(timeline)
+  timeline.keys[^1].time
+
+
 proc animationClip*(
   data: SkeletonData;
   name: string;
   boneTimelines: openArray[BoneTimeline] = [];
   slotTimelines: openArray[SlotTimeline] = [];
   eventTimelines: openArray[EventTimeline] = [];
+  deformTimelines: openArray[DeformTimeline] = [];
 ): AnimationClip =
   if name.len == 0:
     raise newBonyLoadError(schemaViolation, "animation name must not be empty")
@@ -588,12 +684,15 @@ proc animationClip*(
   var boneNames = initHashSet[string]()
   var slotNames = initHashSet[string]()
   var regionNames = initHashSet[string]()
+  var meshVertexCounts = initTable[string, int]()
   for bone in data.bones:
     boneNames.incl(bone.name)
   for slot in data.slots:
     slotNames.incl(slot.name)
   for region in data.regions:
     regionNames.incl(region.name)
+  for mesh in data.meshAttachments:
+    meshVertexCounts[mesh.name] = mesh.vertices.len
 
   var duration = 0.0
   for timeline in boneTimelines:
@@ -613,6 +712,19 @@ proc animationClip*(
   for timeline in eventTimelines:
     validateEventTimeline(timeline, "event timeline")
     duration = max(duration, timeline.lastTime)
+  for timeline in deformTimelines:
+    validateDeformTimeline(timeline)
+    # Reserved default-skin identity (docs/deform-timeline-contract.md edge case
+    # (a)); a future skin milestone widens the accepted set.
+    if timeline.skin != "default":
+      raise newBonyLoadError(schemaViolation, "deform timeline skin must be \"default\": " & timeline.skin)
+    if timeline.slot notin slotNames:
+      raise newBonyLoadError(unknownRequiredReference, "unknown deform timeline slot: " & timeline.slot)
+    if timeline.attachment notin meshVertexCounts:
+      raise newBonyLoadError(unknownRequiredReference, "unknown deform timeline mesh attachment: " & timeline.attachment)
+    if timeline.vertexCount != meshVertexCounts[timeline.attachment]:
+      raise newBonyLoadError(schemaViolation, "deform timeline vertex count does not match mesh: " & timeline.attachment)
+    duration = max(duration, timeline.lastTime)
 
   AnimationClip(
     name: name,
@@ -620,6 +732,7 @@ proc animationClip*(
     boneTimelines: @boneTimelines,
     slotTimelines: @slotTimelines,
     eventTimelines: @eventTimelines,
+    deformTimelines: @deformTimelines,
   )
 
 

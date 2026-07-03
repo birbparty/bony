@@ -27,6 +27,7 @@ const
   animationClipTypeKey = 2000'u64
   boneTimelineTypeKey = 2001'u64
   slotTimelineTypeKey = 2002'u64
+  deformTimelineTypeKey = 3002'u64
   stateMachineTypeKey = 7000'u64
   stateMachineInputTypeKey = 7001'u64
   stateMachineLayerTypeKey = 7002'u64
@@ -50,6 +51,7 @@ const
   inheritScaleKey = 1008'u64
   inheritReflectionKey = 1009'u64
   transformModeKey = 1010'u64
+  slotKey = 1011'u64
   boneKey = 1012'u64
   attachmentKey = 1013'u64
   widthKey = 1014'u64
@@ -60,6 +62,10 @@ const
   meshVerticesKey = 3003'u64
   meshUvsKey = 3004'u64
   meshTrianglesKey = 3005'u64
+  deformSkinKey = 3006'u64
+  deformAttachmentKey = 3007'u64
+  deformVertexCountKey = 3008'u64
+  deformKeysKey = 3009'u64
   targetKey = 4000'u64
   pathKey = 4001'u64
   orderKey = 4002'u64
@@ -852,6 +858,42 @@ proc writeTimelineKeys(timeline: SlotTimeline; regionIndexes: Table[string, int]
       result.writeVaruint(key.mode.sequenceModeTag)
 
 
+proc writeDeformKeys(timeline: DeformTimeline): seq[byte] =
+  ## Packed `deformKeys` payload; layout frozen by
+  ## docs/deform-timeline-contract.md#packed-deformtimeline-byte-layout-bnb.
+  result.writeVaruint(uint64(timeline.keys.len))
+  for key in timeline.keys:
+    result.writeF32To(key.time)
+    result.writeVaruint(uint64(key.offset))
+    result.writeVaruint(uint64(key.deltas.len))
+    for delta in key.deltas:
+      result.writeF32To(delta.x)
+      result.writeF32To(delta.y)
+    result.writeCurve(key.curve)
+
+
+proc readDeformKeys(payload: openArray[byte]; context: string): seq[DeformKeyframe] =
+  var index = 0
+  let count = payload.readVaruint(index)
+  if count == 0:
+    raise newBonyLoadError(schemaViolation, ".bnb " & context & " must contain at least one key")
+  for _ in 0'u64 ..< count:
+    let time = payload.readF32From(index, context & ".time")
+    let offset = payload.readVaruint(index)
+    let deltaCount = payload.readVaruint(index)
+    if deltaCount == 0:
+      raise newBonyLoadError(schemaViolation, ".bnb " & context & " key must contain at least one delta")
+    var deltas: seq[MeshDelta]
+    for _ in 0'u64 ..< deltaCount:
+      deltas.add meshDelta(
+        payload.readF32From(index, context & ".dx"),
+        payload.readF32From(index, context & ".dy"),
+      )
+    result.add deformKeyframe(time, uint32(offset), deltas, payload.readCurve(index, context & ".curve"))
+  if index != payload.len:
+    raise newBonyLoadError(schemaViolation, ".bnb " & context & " has trailing bytes")
+
+
 proc readBoneTimelineKeys(kind: BoneTimelineKind; payload: openArray[byte]; context: string): BoneTimeline =
   var index = 0
   let count = payload.readVaruint(index)
@@ -1265,6 +1307,16 @@ proc buildObjectRecords(asset: BonyAsset; table: var BnbStringTable; toc: var Ta
       properties.addUintIfNeeded(toc, slotTimelineKindKey, timeline.kind.slotTimelineKindTag, required = true)
       properties.addProperty(toc, timelineKeysKey, timeline.writeTimelineKeys(regionIndexes))
       result.add BnbObjectRecord(typeKey: slotTimelineTypeKey, properties: properties)
+    for timeline in clip.deformTimelines:
+      if timeline.slot notin slotIndexes:
+        raise newBonyLoadError(unknownRequiredReference, ".bnb deform timeline references unknown slot: " & timeline.slot)
+      var properties: seq[BnbPropertyRecord]
+      properties.addStringIfNeeded(toc, table, deformSkinKey, timeline.skin, "", required = true)
+      properties.addStringIfNeeded(toc, table, slotKey, timeline.slot, "", required = true)
+      properties.addStringIfNeeded(toc, table, deformAttachmentKey, timeline.attachment, "", required = true)
+      properties.addUintIfNeeded(toc, deformVertexCountKey, uint64(timeline.vertexCount), required = true)
+      properties.addProperty(toc, deformKeysKey, writeDeformKeys(timeline))
+      result.add BnbObjectRecord(typeKey: deformTimelineTypeKey, properties: properties)
 
   for machine in asset.stateMachines:
     var machineProperties: seq[BnbPropertyRecord]
@@ -1786,17 +1838,24 @@ proc decodeAnimationObjects(
   var currentName = ""
   var currentBoneTimelines: seq[BoneTimeline]
   var currentSlotTimelines: seq[SlotTimeline]
+  var currentDeformTimelines: seq[DeformTimeline]
   var seen = initHashSet[string]()
+  var meshesByName = initTable[string, MeshAttachment]()
+  for mesh in skeleton.meshAttachments:
+    meshesByName[mesh.name] = mesh
 
   template flushAnimation() =
     if currentName.len > 0:
       if currentName in seen:
         raise newBonyLoadError(duplicateKey, "duplicate animation name: " & currentName)
       seen.incl(currentName)
-      result.add animationClip(skeleton, currentName, currentBoneTimelines, currentSlotTimelines)
+      result.add animationClip(
+        skeleton, currentName, currentBoneTimelines, currentSlotTimelines,
+        deformTimelines = currentDeformTimelines)
       currentName = ""
       currentBoneTimelines = @[]
       currentSlotTimelines = @[]
+      currentDeformTimelines = @[]
 
   for record in objects:
     case record.typeKey
@@ -1826,6 +1885,23 @@ proc decodeAnimationObjects(
         raise newBonyLoadError(schemaViolation, ".bnb slotTimeline.timelineKeys is required")
       let kind = slotTimelineKindFromTag(properties.readRequiredUintProperty(slotTimelineKindKey, "slotTimeline.kind"))
       currentSlotTimelines.add readSlotTimelineKeys(kind, properties[timelineKeysKey], skeleton.regions, "slotTimeline.timelineKeys").withTarget(skeleton.slots[slotIndex].name)
+    of deformTimelineTypeKey:
+      if currentName.len == 0:
+        raise newBonyLoadError(schemaViolation, ".bnb deformTimeline record without animationClip")
+      let properties = record.propertyMap([deformSkinKey, slotKey, deformAttachmentKey, deformVertexCountKey, deformKeysKey])
+      let skin = properties.readStringProperty(strings, deformSkinKey, "deformTimeline.skin")
+      let slot = properties.readStringProperty(strings, slotKey, "deformTimeline.slot")
+      let attachment = properties.readStringProperty(strings, deformAttachmentKey, "deformTimeline.attachment")
+      let vertexCount = int(properties.readRequiredUintProperty(deformVertexCountKey, "deformTimeline.vertexCount"))
+      if deformKeysKey notin properties:
+        raise newBonyLoadError(schemaViolation, ".bnb deformTimeline.deformKeys is required")
+      if attachment notin meshesByName:
+        raise newBonyLoadError(unknownRequiredReference, ".bnb deformTimeline references unknown mesh attachment: " & attachment)
+      let mesh = meshesByName[attachment]
+      if vertexCount != mesh.vertices.len:
+        raise newBonyLoadError(schemaViolation, ".bnb deformTimeline vertex count does not match mesh: " & attachment)
+      let keys = readDeformKeys(properties[deformKeysKey], "deformTimeline.deformKeys")
+      currentDeformTimelines.add deformTimeline(skin, slot, mesh, keys)
     of stateMachineTypeKey:
       flushAnimation()
     else:

@@ -119,6 +119,14 @@ type
     inheritDeform*: bool
     deformAttachment*: string
 
+  MeshDelta* = object
+    ## A single per-vertex mesh offset applied by a deform timeline. Relocated
+    ## here from mesh/deform.nim so both anim/timelines.nim (the DeformTimeline
+    ## record home) and the transient deform override on SkeletonData can name it
+    ## without an import cycle (model.nim sits below timelines.nim).
+    x*: float64
+    y*: float64
+
   PathConstraintData* = object
     name: string
     bone: string
@@ -309,6 +317,10 @@ proc quantizeF32*(value: float64; context = "value"): float64 =
   result = float64(float32(value))
   if classify(result) in {fcNan, fcInf, fcNegInf}:
     raise newBonyLoadError(numericOutOfRange, context & " must fit in f32")
+
+
+proc meshDelta*(x, y: float64): MeshDelta =
+  MeshDelta(x: quantizeF32(x, "deform.delta.x"), y: quantizeF32(y, "deform.delta.y"))
 
 
 proc requireFiniteF64*(value: float64; context = "value"): float64 =

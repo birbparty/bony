@@ -811,11 +811,14 @@ proc parseCurveFromNode(kfObj: JsonNode; curveKey, kfCtx: string): TimelineCurve
 proc parseBonyAnimations(root: JsonNode; data: SkeletonData): Table[string, AnimationClip] =
   if not root.hasKey("animations"):
     return initTable[string, AnimationClip]()
+  var meshesByName = initTable[string, MeshAttachment]()
+  for mesh in data.meshAttachments:
+    meshesByName[mesh.name] = mesh
   let animsNode = requireArray(root["animations"], "animations")
   for animIndex, animNode in animsNode.elems:
     let ctx = "animations[" & $animIndex & "]"
     let aObj = requireObject(animNode, ctx)
-    validateKnownKeys(aObj, ["name", "boneTimelines", "slotTimelines"], ctx)
+    validateKnownKeys(aObj, ["name", "boneTimelines", "slotTimelines", "deformTimelines"], ctx)
     let animName = requiredString(aObj, "name", ctx)
     if animName.len == 0:
       raise newBonyLoadError(schemaViolation, ctx & ".name must not be empty")
@@ -970,7 +973,49 @@ proc parseBonyAnimations(root: JsonNode; data: SkeletonData): Table[string, Anim
           slotTimelines.add slotSequenceTimeline(slot, sequenceKeys)
         else:
           raise newBonyLoadError(schemaViolation, stCtx & ".property unknown: " & propStr)
-    result[animName] = animationClip(data, animName, boneTimelines, slotTimelines)
+    var deformTimelines: seq[DeformTimeline] = @[]
+    if aObj.hasKey("deformTimelines"):
+      let dtListNode = requireArray(aObj["deformTimelines"], ctx & ".deformTimelines")
+      for dtIndex, dtNode in dtListNode.elems:
+        let dtCtx = ctx & ".deformTimelines[" & $dtIndex & "]"
+        let dtObj = requireObject(dtNode, dtCtx)
+        validateKnownKeys(dtObj, ["skin", "slot", "attachment", "vertexCount", "keyframes"], dtCtx)
+        let skin = requiredString(dtObj, "skin", dtCtx)
+        let slot = requiredString(dtObj, "slot", dtCtx)
+        let attachment = requiredString(dtObj, "attachment", dtCtx)
+        let vertexCount = requiredInt(dtObj, "vertexCount", dtCtx)
+        if attachment notin meshesByName:
+          raise newBonyLoadError(unknownRequiredReference, dtCtx & ".attachment names unknown mesh: " & attachment)
+        let mesh = meshesByName[attachment]
+        if vertexCount != mesh.vertices.len:
+          raise newBonyLoadError(schemaViolation, dtCtx & ".vertexCount does not match mesh: " & attachment)
+        if not dtObj.hasKey("keyframes"):
+          raise newBonyLoadError(schemaViolation, dtCtx & ".keyframes is required")
+        let kfListNode = requireArray(dtObj["keyframes"], dtCtx & ".keyframes")
+        var deformKeys: seq[DeformKeyframe] = @[]
+        for kfIndex, kfNode in kfListNode.elems:
+          let kfCtx = dtCtx & ".keyframes[" & $kfIndex & "]"
+          let kfObj = requireObject(kfNode, kfCtx)
+          validateKnownKeys(kfObj, ["t", "offset", "deltas", "curve", "c1x", "c1y", "c2x", "c2y"], kfCtx)
+          let kfTime = requiredF64(kfObj, "t", kfCtx)
+          let offset = requiredInt(kfObj, "offset", kfCtx)
+          if offset < 0:
+            raise newBonyLoadError(schemaViolation, kfCtx & ".offset must be non-negative")
+          if not kfObj.hasKey("deltas"):
+            raise newBonyLoadError(schemaViolation, kfCtx & ".deltas is required")
+          let deltasNode = requireArray(kfObj["deltas"], kfCtx & ".deltas")
+          var deltas: seq[MeshDelta] = @[]
+          for dIndex, dNode in deltasNode.elems:
+            let dCtx = kfCtx & ".deltas[" & $dIndex & "]"
+            let dObj = requireObject(dNode, dCtx)
+            validateKnownKeys(dObj, ["x", "y"], dCtx)
+            deltas.add meshDelta(
+              optionalFloat(dObj, "x", 0.0, dCtx),
+              optionalFloat(dObj, "y", 0.0, dCtx),
+            )
+          deformKeys.add deformKeyframe(kfTime, uint32(offset), deltas, parseCurveFromNode(kfObj, "curve", kfCtx))
+        deformTimelines.add deformTimeline(skin, slot, mesh, deformKeys)
+    result[animName] = animationClip(data, animName, boneTimelines, slotTimelines, deformTimelines = deformTimelines)
 
 
 proc parseBonyStateMachines(
@@ -1393,6 +1438,55 @@ proc appendAnimationsJson(result: var string; animations: openArray[AnimationCli
               result.add "\n"
               result.addIndent(indent + 5)
               result.add "}"
+          result.add "\n"
+          result.addIndent(indent + 4)
+          result.add "]\n"
+          result.addIndent(indent + 3)
+          result.add "}"
+        result.add "\n"
+        result.addIndent(indent + 2)
+        result.add "]"
+      if anim.deformTimelines.len > 0:
+        result.addFieldPrefix("deformTimelines", indent + 2, first)
+        result.add "[\n"
+        for tlIndex, timeline in anim.deformTimelines:
+          if tlIndex > 0:
+            result.add ",\n"
+          result.addIndent(indent + 3)
+          result.add "{\n"
+          var tlFirst = true
+          result.addStringField("skin", timeline.skin, indent + 4, tlFirst)
+          result.addStringField("slot", timeline.slot, indent + 4, tlFirst)
+          result.addStringField("attachment", timeline.attachment, indent + 4, tlFirst)
+          result.addIntField("vertexCount", timeline.vertexCount, indent + 4, tlFirst)
+          result.addFieldPrefix("keyframes", indent + 4, tlFirst)
+          result.add "[\n"
+          for keyIndex, key in timeline.keys:
+            if keyIndex > 0: result.add ",\n"
+            result.addIndent(indent + 5)
+            result.add "{\n"
+            var kFirst = true
+            result.addNumberField("t", key.time, indent + 6, kFirst)
+            result.addIntField("offset", int(key.offset), indent + 6, kFirst)
+            result.addFieldPrefix("deltas", indent + 6, kFirst)
+            result.add "[\n"
+            for dIndex, delta in key.deltas:
+              if dIndex > 0: result.add ",\n"
+              result.addIndent(indent + 7)
+              result.add "{\n"
+              var dFirst = true
+              result.addNumberField("x", delta.x, indent + 8, dFirst)
+              result.addNumberField("y", delta.y, indent + 8, dFirst)
+              result.add "\n"
+              result.addIndent(indent + 7)
+              result.add "}"
+            result.add "\n"
+            result.addIndent(indent + 6)
+            result.add "]"
+            result.appendCurveFields(key.curve, indent + 6, kFirst)
+            result.add "\n"
+            result.addIndent(indent + 5)
+            result.add "}"
           result.add "\n"
           result.addIndent(indent + 4)
           result.add "]\n"
