@@ -103,8 +103,13 @@ MeshAttachment _parseMeshAttachment(Map<String, dynamic> j) {
     );
   }).toList();
 
-  // uvs are a flat [u0, v0, u1, v1, ...] list; pair them into MeshUv.
+  // uvs are a flat [u0, v0, u1, v1, ...] list; pair them into MeshUv. An odd
+  // length is malformed (a dropped coordinate) — reject it explicitly rather
+  // than silently truncating and surfacing a confusing count mismatch later.
   final uvsRaw = _required<List<dynamic>>(j['uvs'], 'meshAttachment.uvs');
+  if (uvsRaw.length.isOdd) {
+    throw const FormatException('meshAttachment.uvs must have even length');
+  }
   final uvs = <MeshUv>[];
   for (var i = 0; i + 1 < uvsRaw.length; i += 2) {
     uvs.add(MeshUv(
@@ -785,6 +790,63 @@ void _validate(SkeletonData data) {
       throw FormatException(
           'mesh attachment name collides with a clipping attachment name: '
           '${m.name}');
+    }
+    // Geometry/reference invariants (a)-(g), ported from Nim
+    // validateMeshAttachment (runtime-nim/src/bony/model.nim) so a malformed mesh
+    // that Nim rejects at load is rejected here too — not accepted silently or
+    // crashed on later in _skinMeshVertices. See docs/mesh-attachment-contract.md.
+    if (m.vertices.isEmpty) {
+      throw FormatException('$ctx must contain at least one vertex');
+    }
+    if (m.uvs.length != m.vertices.length) {
+      throw FormatException('$ctx.uvs count must match vertex count');
+    }
+    for (final uv in m.uvs) {
+      if (uv.u < 0.0 || uv.u > 1.0 || uv.v < 0.0 || uv.v > 1.0) {
+        throw FormatException('$ctx.uvs must be in 0..1');
+      }
+    }
+    if (m.triangles.isEmpty || m.triangles.length % 3 != 0) {
+      throw FormatException('$ctx.triangles must contain index triplets');
+    }
+    for (final index in m.triangles) {
+      if (index < 0 || index >= m.vertices.length) {
+        throw FormatException('$ctx triangle index out of range');
+      }
+    }
+    for (var vi = 0; vi < m.vertices.length; vi++) {
+      final v = m.vertices[vi];
+      if (v.weighted != m.weighted) {
+        throw FormatException('$ctx vertices must match mesh weighted flag');
+      }
+      if (v.weighted) {
+        if (v.influences.isEmpty) {
+          throw FormatException(
+              '$ctx.vertices[$vi] weighted vertex must contain at least one influence');
+        }
+        var sum = 0.0;
+        for (final influence in v.influences) {
+          if (influence.bone.isEmpty) {
+            throw FormatException('$ctx influence bone must not be empty');
+          }
+          if (influence.weight < 0.0) {
+            throw FormatException('$ctx influence weight must be non-negative');
+          }
+          if (!boneNames.contains(influence.bone)) {
+            throw FormatException(
+                'unknown mesh influence bone: ${influence.bone}');
+          }
+          sum += influence.weight;
+        }
+        // weightSumTolerance = 1e-4 in the Nim reference.
+        if ((sum - 1.0).abs() > 1e-4) {
+          throw FormatException(
+              '$ctx.vertices[$vi] weighted influences must sum to 1');
+        }
+      } else if (v.influences.isNotEmpty) {
+        throw FormatException(
+            '$ctx.vertices[$vi] unweighted vertex must not contain influences');
+      }
     }
   }
 

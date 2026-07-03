@@ -22,4 +22,6 @@ paths:
   - test/m10_conformance_test.dart
   - test/m11_clip_bnb_test.dart
   - test/m11_clip_validation_test.dart
+  - test/m12_mesh_bnb_test.dart
+  - test/m12_mesh_validation_test.dart
   - test/version_test.dart
