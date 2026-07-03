@@ -35,6 +35,16 @@ proc raisesBonyLoadError(action: proc(); kind: BonyLoadErrorKind): bool =
   except BonyLoadError as exc:
     exc.kind == kind
 
+proc raisesAnyBonyLoadError(action: proc()): bool =
+  ## True only if `action` raises a BonyLoadError of any kind. A non-BonyLoadError
+  ## (e.g. a Nim Defect) is NOT caught and propagates, failing the caller — which
+  ## is what we want when asserting malformed input never crashes the decoder.
+  try:
+    action()
+    false
+  except BonyLoadError:
+    true
+
 proc closeTo(actual, expected: float64): bool =
   abs(actual - expected) <= 1e-9
 
@@ -7070,6 +7080,43 @@ spec "bony mesh skeleton validation":
 """
     then:
       raisesBonyLoadError(proc() = discard loadBonyJson(jsonText), schemaViolation)
+
+  it "rejects every truncation of a weighted mesh .bnb without crashing":
+    # Regression guard for the packed mesh-payload bounds checks: no truncation of
+    # a valid weighted mesh .bnb may escape as a Nim Defect or be silently
+    # accepted. A weighted mesh exercises the varuint influence counts, f32
+    # bind/weight reads, and string-table bone indices in the vertices payload.
+    let jsonText = """
+{
+  "skeleton": {"name": "meshrig", "version": "0.1.0"},
+  "bones": [{"name": "root"}, {"name": "tip", "parent": "root"}],
+  "slots": [{"name": "body", "bone": "root", "attachment": "cloth"}],
+  "meshAttachments": [
+    {
+      "name": "cloth",
+      "weighted": true,
+      "vertices": [
+        {"influences": [{"bone": "root", "bindX": 0, "bindY": 0, "weight": 1}]},
+        {"influences": [{"bone": "root", "bindX": 1, "bindY": 0, "weight": 0.5}, {"bone": "tip", "bindX": 1, "bindY": 0, "weight": 0.5}]},
+        {"influences": [{"bone": "tip", "bindX": 0, "bindY": 1, "weight": 1}]}
+      ],
+      "uvs": [0, 0, 1, 0, 0, 1],
+      "triangles": [0, 1, 2]
+    }
+  ]
+}
+"""
+    let bnbBytes = toBonyBnb(loadBonyJson(jsonText))
+    var allTruncationsRejected = true
+    for cut in 1 ..< bnbBytes.len:
+      let prefix = bnbBytes[0 ..< cut]
+      if not raisesAnyBonyLoadError(proc() = discard loadBonyBnb(prefix)):
+        allTruncationsRejected = false
+        break
+    then:
+      # Sanity: the full stream still loads.
+      loadBonyBnb(bnbBytes).meshAttachments.len == 1
+      allTruncationsRejected
 
 proc clipEvalRig(clipVertices, untilSlot: string): string =
   ## A rig on an identity-transform root bone: a clip slot (own slot), a covered
