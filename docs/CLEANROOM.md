@@ -77,3 +77,26 @@ conformance assets, or importers:
 - Confirm no build step or script fetches prior-art runtime source.
 - Update `docs/PROVENANCE.md` when a new source of implementation evidence is
   introduced.
+
+## Checklist Satisfaction Record
+
+Net-new serialized identifiers confirmed against the review checklist above.
+
+### Mesh Attachment Serialized Names (2026-07-02, bead `bony-lzj.1`)
+
+- **Net-new identifiers**: type `meshAttachment` (+ skeleton array
+  `meshAttachments`); property keys `meshWeighted`, `meshVertices`, `meshUvs`,
+  `meshTriangles`; canonical-JSON fields `weighted`, `vertices`, `uvs`,
+  `triangles`.
+- **Explainable without prior-art source**: yes — the names come from `bony`'s
+  own pre-existing mesh runtime types (`runtime-nim/src/bony/mesh/attachments.nim`,
+  `mesh/skinning.nim`) and generic mesh / linear-blend-skinning terminology; the
+  record and its packed byte layouts are specified in
+  `docs/mesh-attachment-contract.md`.
+- **Project-owned & documented**: keys (type `3001`, properties `3002`–`3005` in
+  the M4 band) live in `registry/wire.yml`; defaults in `spec/defaults.yml`;
+  schema in `spec/`; the model/skinning formula/weight encoding are project-owned.
+- **No build-step fetch of prior-art source**: confirmed.
+- **PROVENANCE updated**: yes — see "Mesh Attachment Schema Names (2026-07-02)"
+  in `docs/PROVENANCE.md`.
+- **Result**: checklist **satisfied**.

@@ -140,6 +140,41 @@ documentation prose.
 - **CI enforcement**: registry/defaults/codegen consistency is enforced by
   `codegen/generate.py --check`; clean-room posture is enforced by code review.
 
+### Mesh Attachment Schema Names (2026-07-02)
+
+- **Reason needed**: The M4 mesh-attachment milestone (bead `bony-lzj.1`)
+  introduces a new loadable, deformable attachment record and needs
+  project-owned identifiers for its type, fields, and packed byte layouts.
+- **Classification**: project-owned design — not an external source of
+  implementation truth.
+- **What is recorded**: the serialized identifiers `meshAttachment` (type),
+  `meshAttachments` (skeleton-level array), and the property keys `meshWeighted`,
+  `meshVertices`, `meshUvs`, `meshTriangles`, along with the canonical-JSON field
+  names `weighted`, `vertices`, `uvs`, and `triangles`, were taken from `bony`'s
+  own pre-existing (previously non-serialized) mesh runtime types in
+  `runtime-nim/src/bony/mesh/attachments.nim` and `runtime-nim/src/bony/mesh/skinning.nim`
+  (`MeshAttachment`, `MeshVertex`, `MeshUv`, `MeshInfluence`) and generic mesh /
+  linear-blend-skinning terminology — **not** from any surveyed product. The mesh
+  model (slot-bound triangle mesh referenced through the existing
+  `slot.attachment` field), the weighted/unweighted vertex forms, the per-vertex
+  bone influences with bind pose and weight, the three packed byte layouts
+  (`meshVertices`/`meshUvs`/`meshTriangles`), and the forward-referenced
+  linear-blend skinning formula are specified in
+  `docs/mesh-attachment-contract.md`.
+- **Source**: none. The names, field set, weight encoding, and skinning formula
+  were **not** derived from any third-party runtime's mesh/skin field set, wire
+  layout, type/property keys, or documentation prose (DragonBones, Spine, Rive,
+  Live2D, Lottie).
+- **Cleanroom compliance**: confirmed against the `docs/CLEANROOM.md` review
+  checklist — the record can be explained from `bony`'s own mesh runtime,
+  `docs/mesh-attachment-contract.md`, and public linear-blend-skinning math; the
+  new identifiers, keys (type `3001`, properties `3002`–`3005` in the M4 band),
+  object ordering, and binary encoding are project-owned and documented in
+  `registry/`, `spec/`, and `docs/`; no build step fetches prior-art source. Logged
+  in the `docs/CLEANROOM.md` checklist-satisfaction record.
+- **CI enforcement**: registry/defaults/codegen consistency is enforced by
+  `codegen/generate.py --check`; clean-room posture is enforced by code review.
+
 ## Source Introduction Rule
 
 When a new external dependency, reference, algorithm paper, or importer input
