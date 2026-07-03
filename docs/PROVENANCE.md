@@ -175,6 +175,41 @@ documentation prose.
 - **CI enforcement**: registry/defaults/codegen consistency is enforced by
   `codegen/generate.py --check`; clean-room posture is enforced by code review.
 
+### Deform Timeline Schema Names (2026-07-03)
+
+- **Reason needed**: The M4 deform-timeline milestone (epic `bony-68lj`, prompt 23)
+  introduces a new clip-owned animation record (animated per-vertex mesh offsets)
+  and needs project-owned identifiers for its type, fields, and packed byte layout.
+- **Classification**: project-owned design — not an external source of
+  implementation truth.
+- **What is recorded**: the serialized identifiers `deformTimeline` (type `3002`),
+  the property keys `deformSkin` (`3006`), `deformAttachment` (`3007`),
+  `deformVertexCount` (`3008`), and `deformKeys` (`3009`) in the M4 band (the `slot`
+  binding reuses the existing `slot` property key `1011`), along with the
+  canonical-JSON field names `skin`, `slot`, `attachment`, `vertexCount`, and
+  `keyframes`, were taken from `bony`'s own pre-existing (previously non-serialized)
+  deform runtime types in `runtime-nim/src/bony/mesh/deform.nim` (`DeformTimeline`,
+  `DeformKeyframe`, `MeshDelta`) and generic animation/geometry terminology — **not**
+  from any surveyed product. Note the runtime keyframe-list field `keys` is exposed
+  as the readable canonical-JSON name `keyframes`. The record model, the sparse
+  per-vertex delta runs, the deterministic sampling algorithm, and the packed
+  `deformKeys` byte layout (which reuses the existing bone/slot timeline curve tail
+  verbatim, minting no second curve encoding) are specified in
+  `docs/deform-timeline-contract.md`.
+- **Source**: none. The names, field set, delta-run encoding, sampling formula, and
+  type/property keys were **not** derived from any third-party runtime's deform/mesh
+  field set, wire layout, keys, or documentation prose (DragonBones, Spine, Rive,
+  Live2D, Lottie).
+- **Cleanroom compliance**: confirmed against the `docs/CLEANROOM.md` review
+  checklist — the record can be explained from `bony`'s own deform runtime,
+  `docs/deform-timeline-contract.md`, and the pre-existing timeline curve encoding;
+  the new identifiers, keys (type `3002`, properties `3006`–`3009` in the M4 band),
+  object ordering, and binary encoding are project-owned and documented in
+  `registry/`, `spec/`, and `docs/`; no build step fetches prior-art source. Logged
+  in the `docs/CLEANROOM.md` checklist-satisfaction record.
+- **CI enforcement**: registry/defaults/codegen consistency is enforced by
+  `codegen/generate.py --check`; clean-room posture is enforced by code review.
+
 ## Source Introduction Rule
 
 When a new external dependency, reference, algorithm paper, or importer input

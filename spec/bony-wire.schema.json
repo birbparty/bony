@@ -39,6 +39,12 @@
         "$ref": "#/$defs/meshAttachment"
       }
     },
+    "deformTimelines": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/deformTimeline"
+      }
+    },
     "paths": {
       "type": "array",
       "items": {
@@ -1150,6 +1156,42 @@
         "slotIndex",
         "slotTimelineKind",
         "timelineKeys"
+      ]
+    },
+    "deformTimeline": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "deformSkin": {
+          "type": "string"
+        },
+        "slot": {
+          "type": "string"
+        },
+        "deformAttachment": {
+          "type": "string"
+        },
+        "deformVertexCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "deformKeys": {
+          "type": "string",
+          "contentEncoding": "base64",
+          "x-bony-packedBytes": {
+            "payload": "deformTimelineKeys",
+            "layout": "docs/deform-timeline-contract.md#packed-deformtimeline-byte-layout-bnb",
+            "structuralSchema": "base64Only",
+            "validatedBy": "loader"
+          }
+        }
+      },
+      "required": [
+        "deformAttachment",
+        "deformKeys",
+        "deformSkin",
+        "deformVertexCount",
+        "slot"
       ]
     },
     "stateMachine": {

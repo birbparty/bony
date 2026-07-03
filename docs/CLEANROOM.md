@@ -100,3 +100,24 @@ Net-new serialized identifiers confirmed against the review checklist above.
 - **PROVENANCE updated**: yes — see "Mesh Attachment Schema Names (2026-07-02)"
   in `docs/PROVENANCE.md`.
 - **Result**: checklist **satisfied**.
+
+### Deform Timeline Serialized Names (2026-07-03, epic `bony-68lj`)
+
+- **Net-new identifiers**: type `deformTimeline`; property keys `deformSkin`,
+  `deformAttachment`, `deformVertexCount`, `deformKeys` (the `slot` binding reuses
+  the existing `slot` property key); canonical-JSON fields `skin`, `slot`,
+  `attachment`, `vertexCount`, `keyframes` (the runtime `keys` field is exposed as
+  `keyframes`).
+- **Explainable without prior-art source**: yes — the names come from `bony`'s own
+  pre-existing deform runtime types (`runtime-nim/src/bony/mesh/deform.nim`:
+  `DeformTimeline`, `DeformKeyframe`, `MeshDelta`) and generic animation/geometry
+  terminology; the record, sampling algorithm, and packed byte layout are specified
+  in `docs/deform-timeline-contract.md`, and the curve tail reuses the pre-existing
+  bone/slot timeline encoding (no second curve encoding minted).
+- **Project-owned & documented**: keys (type `3002`, properties `3006`–`3009` in the
+  M4 band) live in `registry/wire.yml`; defaults in `spec/defaults.yml`; schema in
+  `spec/`; the model/sampling formula/delta-run encoding are project-owned.
+- **No build-step fetch of prior-art source**: confirmed.
+- **PROVENANCE updated**: yes — see "Deform Timeline Schema Names (2026-07-03)" in
+  `docs/PROVENANCE.md`.
+- **Result**: checklist **satisfied**.
