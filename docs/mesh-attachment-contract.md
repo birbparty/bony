@@ -128,6 +128,18 @@ tolerance:
   covers only two of the five mesh vertices, proving self-scoping: the two
   in-bounds vertices are warped while the three out-of-bounds vertices are left
   unchanged; golden `conformance/goldens/m14_mesh_warp_rig_t0.json`.
+- `conformance/assets/m15_mesh_unweighted_deform_rig` — an **unweighted** mesh
+  (raw `x`/`y`, FK-skinned through the slot bone) under a rotation deformer,
+  proving the deformer path is independent of the weighted-vs-unweighted
+  skinning branch; golden `m15_mesh_unweighted_deform_rig_t0.json`.
+- `conformance/assets/m16_mesh_multi_deform_rig` — **two ordered deformers** on a
+  mesh (a rotation, then a warp **parented** to it), proving ordered composition
+  and parent-frame chaining (`transformFrame`) agree across runtimes on a mesh
+  vertex set; golden `m16_mesh_multi_deform_rig_t0.json`.
+
+Dart `.bnb` decode of these deform rigs is gated by
+`runtime-dart/test/mesh_deform_bnb_test.dart` (deformed batches from `.bnb` must
+equal those from `.bony`).
 
 Deform **timelines** (animating deformer control points over time) and
 `inheritDeform` remain v1 non-goals (reserved-but-inert); only static, default-
