@@ -418,8 +418,12 @@ void _ensureStrictlyIncreasing(List<double> times, String ctx) {
   }
 }
 
-List<AnimationClip> _parseAnimations(List<dynamic> anims) {
+List<AnimationClip> _parseAnimations(
+    List<dynamic> anims, List<MeshAttachment> meshes) {
   final result = <AnimationClip>[];
+  final meshesByName = <String, MeshAttachment>{
+    for (final m in meshes) m.name: m,
+  };
   final seen = <String>{};
   for (var ai = 0; ai < anims.length; ai++) {
     final anim = anims[ai] as Map<String, dynamic>;
@@ -534,11 +538,77 @@ List<AnimationClip> _parseAnimations(List<dynamic> anims) {
       slotTimelines.add(tl);
     }
 
+    final deformTimelines = <DeformTimeline>[];
+    final dtList = anim['deformTimelines'] as List<dynamic>? ?? const [];
+    for (var di = 0; di < dtList.length; di++) {
+      final dt = dtList[di] as Map<String, dynamic>;
+      final dtCtx = '$ctx.deformTimelines[$di]';
+      final skin = _required<String>(dt['skin'], '$dtCtx.skin');
+      if (skin != 'default') {
+        throw FormatException('$dtCtx.skin must be "default" in v1: $skin');
+      }
+      final slot = _required<String>(dt['slot'], '$dtCtx.slot');
+      final attachment = _required<String>(dt['attachment'], '$dtCtx.attachment');
+      final vertexCount = _required<num>(dt['vertexCount'], '$dtCtx.vertexCount').toInt();
+      final mesh = meshesByName[attachment];
+      if (mesh == null) {
+        throw FormatException('$dtCtx.attachment names unknown mesh: $attachment');
+      }
+      if (vertexCount != mesh.vertices.length) {
+        throw FormatException('$dtCtx.vertexCount does not match mesh: $attachment');
+      }
+      final kfList = _required<List<dynamic>>(dt['keyframes'], '$dtCtx.keyframes');
+      if (kfList.isEmpty) {
+        throw FormatException('$dtCtx.keyframes must not be empty');
+      }
+      final keys = <DeformKeyframe>[];
+      for (var ki = 0; ki < kfList.length; ki++) {
+        final kf = kfList[ki] as Map<String, dynamic>;
+        final kfCtx = '$dtCtx.keyframes[$ki]';
+        final t = quantizeF32(_required<num>(kf['t'], '$kfCtx.t').toDouble());
+        final offset = (kf['offset'] as num?)?.toInt() ?? 0;
+        if (offset < 0) {
+          throw FormatException('$kfCtx.offset must be non-negative');
+        }
+        final deltasRaw = _required<List<dynamic>>(kf['deltas'], '$kfCtx.deltas');
+        if (deltasRaw.isEmpty) {
+          throw FormatException('$kfCtx must contain at least one delta');
+        }
+        final deltas = <MeshDelta>[];
+        for (final d in deltasRaw) {
+          final dm = d as Map<String, dynamic>;
+          deltas.add(MeshDelta(
+            x: quantizeF32((dm['x'] as num?)?.toDouble() ?? 0.0),
+            y: quantizeF32((dm['y'] as num?)?.toDouble() ?? 0.0),
+          ));
+        }
+        if (offset + deltas.length > vertexCount) {
+          throw FormatException('$kfCtx deform key range exceeds mesh vertex count');
+        }
+        keys.add(DeformKeyframe(
+          time: t,
+          offset: offset,
+          deltas: deltas,
+          curve: _parseCurve(kf, kfCtx),
+        ));
+      }
+      _ensureStrictlyIncreasing(keys.map((k) => k.time).toList(), dtCtx);
+      if (keys.last.time > duration) duration = keys.last.time;
+      deformTimelines.add(DeformTimeline(
+        skin: skin,
+        slot: slot,
+        attachment: attachment,
+        vertexCount: vertexCount,
+        keys: keys,
+      ));
+    }
+
     result.add(AnimationClip(
         name: name,
         duration: duration,
         boneTimelines: boneTimelines,
-        slotTimelines: slotTimelines));
+        slotTimelines: slotTimelines,
+        deformTimelines: deformTimelines));
   }
   return result;
 }
@@ -1223,6 +1293,8 @@ const int _bnbWarpLattice = 6002;
 const int _bnbRotationDeformer = 6003;
 const int _bnbKeyformBlend = 6004;
 const int _bnbKeyform = 6005;
+// Deform (FFD) timeline type key (M4).
+const int _bnbDeformTimeline = 3002;
 
 // .bnb property keys.
 const int _bkName = 1;
@@ -1254,6 +1326,14 @@ const int _bkMeshWeighted = 3002;
 const int _bkMeshVertices = 3003;
 const int _bkMeshUvs = 3004;
 const int _bkMeshTriangles = 3005;
+// Deform (FFD) timeline property keys (M4). slot reuses the shared slot-name
+// string key 1011; deformKeys is a packed `bytes` payload
+// (docs/deform-timeline-contract.md#packed-deformtimeline-byte-layout-bnb).
+const int _bkDeformSkin = 3006;
+const int _bkDeformSlot = 1011;
+const int _bkDeformAttachment = 3007;
+const int _bkDeformVertexCount = 3008;
+const int _bkDeformKeys = 3009;
 const int _bkTarget = 4000;
 const int _bkPath = 4001;
 const int _bkOrder = 4002;
@@ -1352,6 +1432,7 @@ const _bnbKnownTypes = {
   _bnbAnimationClip,
   _bnbBoneTimeline,
   _bnbSlotTimeline,
+  _bnbDeformTimeline,
   _bnbParameter,
   _bnbDeformer,
   _bnbWarpLattice,
@@ -1958,8 +2039,50 @@ SlotTimeline _bSlotTimelineKeys(
   }
 }
 
+/// Decode a packed `deformKeys` bytes payload into deform keyframes. Mirrors the
+/// Nim `readDeformKeys` layout (binary/semantic.nim): varuint count, then per
+/// key f32 time, varuint offset, varuint deltaCount, deltaCount*(f32 x, f32 y),
+/// curve. Delta values arrive f32 already (readF32).
+List<DeformKeyframe> _bDeformTimelineKeys(
+    Uint8List payload, int vertexCount, String ctx) {
+  final c = _BnbCur(payload);
+  final count = c.readVaruint();
+  if (count == 0) {
+    throw FormatException('.bnb $ctx must contain at least one key');
+  }
+  final keys = <DeformKeyframe>[];
+  for (var i = 0; i < count; i++) {
+    final time = c.readF32();
+    final offset = c.readVaruint();
+    if (offset < 0) {
+      throw FormatException('.bnb $ctx.offset must be non-negative');
+    }
+    final deltaCount = c.readVaruint();
+    if (deltaCount == 0) {
+      throw FormatException('.bnb $ctx key must contain at least one delta');
+    }
+    final deltas = <MeshDelta>[];
+    for (var d = 0; d < deltaCount; d++) {
+      deltas.add(MeshDelta(x: c.readF32(), y: c.readF32()));
+    }
+    if (offset + deltas.length > vertexCount) {
+      throw FormatException('.bnb $ctx deform key range exceeds mesh vertex count');
+    }
+    keys.add(DeformKeyframe(
+      time: time,
+      offset: offset,
+      deltas: deltas,
+      curve: _bCurve(c, '$ctx.curve'),
+    ));
+  }
+  _bCheckExhausted(c, ctx);
+  _ensureStrictlyIncreasing(keys.map((k) => k.time).toList(), ctx);
+  return keys;
+}
+
 double _animationDuration(
-    List<BoneTimeline> boneTimelines, List<SlotTimeline> slotTimelines) {
+    List<BoneTimeline> boneTimelines, List<SlotTimeline> slotTimelines,
+    [List<DeformTimeline> deformTimelines = const []]) {
   var duration = 0.0;
   for (final timeline in boneTimelines) {
     if (timeline.vectorKeys.isNotEmpty &&
@@ -1993,6 +2116,11 @@ double _animationDuration(
       duration = timeline.sequenceKeys.last.time;
     }
   }
+  for (final timeline in deformTimelines) {
+    if (timeline.keys.isNotEmpty && timeline.keys.last.time > duration) {
+      duration = timeline.keys.last.time;
+    }
+  }
   return duration;
 }
 
@@ -2022,6 +2150,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
   var currentAnimationName = '';
   var currentBoneTimelines = <BoneTimeline>[];
   var currentSlotTimelines = <SlotTimeline>[];
+  var currentDeformTimelines = <DeformTimeline>[];
   var currentMachineName = '';
   var machineInputs = <StateMachineInput>[];
   var machineLayers = <StateMachineLayer>[];
@@ -2042,13 +2171,16 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
     }
     animations.add(AnimationClip(
       name: currentAnimationName,
-      duration: _animationDuration(currentBoneTimelines, currentSlotTimelines),
+      duration: _animationDuration(
+          currentBoneTimelines, currentSlotTimelines, currentDeformTimelines),
       boneTimelines: currentBoneTimelines,
       slotTimelines: currentSlotTimelines,
+      deformTimelines: currentDeformTimelines,
     ));
     currentAnimationName = '';
     currentBoneTimelines = [];
     currentSlotTimelines = [];
+    currentDeformTimelines = [];
   }
 
   String stateNameAt(List<StateMachineState> states, int index, String ctx) {
@@ -2463,6 +2595,52 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
           payload,
           regions,
           'slotTimeline.timelineKeys',
+        ));
+      case _bnbDeformTimeline:
+        // Relies on meshAttachment objects being decoded before deform-timeline
+        // objects: the encoder emits meshes (type 3001) before animation clips,
+        // and the SM-only reordering above never moves a mesh after a clip, so
+        // `meshes` is fully populated for the vertexCount lookup below.
+        flushPending();
+        if (currentAnimationName.isEmpty)
+          throw const FormatException(
+              '.bnb deformTimeline without animationClip');
+        final skin = _bStr(obj, _bkDeformSkin, strings, 'deformTimeline.skin');
+        if (skin != 'default') {
+          throw FormatException(
+              '.bnb deformTimeline.skin must be "default" in v1: $skin');
+        }
+        final slot = _bStr(obj, _bkDeformSlot, strings, 'deformTimeline.slot');
+        final attachment =
+            _bStr(obj, _bkDeformAttachment, strings, 'deformTimeline.attachment');
+        final vertexCount = _bRequiredVaruint(
+            obj, _bkDeformVertexCount, 'deformTimeline.vertexCount');
+        MeshAttachment? mesh;
+        for (final m in meshes) {
+          if (m.name == attachment) {
+            mesh = m;
+            break;
+          }
+        }
+        if (mesh == null) {
+          throw FormatException(
+              '.bnb deformTimeline.attachment names unknown mesh: $attachment');
+        }
+        if (vertexCount != mesh.vertices.length) {
+          throw FormatException(
+              '.bnb deformTimeline.vertexCount does not match mesh: $attachment');
+        }
+        final payload = obj.props[_bkDeformKeys];
+        if (payload == null)
+          throw const FormatException(
+              '.bnb deformTimeline.deformKeys is required');
+        currentDeformTimelines.add(DeformTimeline(
+          skin: skin,
+          slot: slot,
+          attachment: attachment,
+          vertexCount: vertexCount,
+          keys: _bDeformTimelineKeys(
+              payload, vertexCount, 'deformTimeline.deformKeys'),
         ));
       case _bnbStateMachine:
         flushPending();
@@ -3115,7 +3293,7 @@ SkeletonData loadBonyJson(String jsonText) {
 
   final animsRaw = root['animations'];
   final animations = animsRaw is List<dynamic>
-      ? _parseAnimations(animsRaw)
+      ? _parseAnimations(animsRaw, meshAttachments)
       : const <AnimationClip>[];
 
   final paramsRaw = root['parameters'];

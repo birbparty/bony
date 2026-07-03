@@ -4,6 +4,7 @@
 
 import 'dart:math' as math;
 import 'model.dart';
+import 'deform.dart' show quantizeF32;
 
 // --- Bézier easing (16-sample table + 2 Newton-Raphson refinements) ---
 
@@ -153,6 +154,61 @@ SequenceKeyframe sampleSlotSequence(SlotTimeline timeline, double time) {
   return keys[_findSpanBy(keys, (k) => k.time, time)];
 }
 
+/// Expand a deform keyframe's sparse `offset`-anchored delta run into a dense
+/// per-vertex delta list of length [vertexCount] (unset vertices are zero).
+List<MeshDelta> _expandDeformKey(DeformKeyframe key, int vertexCount) {
+  final out = List<MeshDelta>.filled(
+      vertexCount, const MeshDelta(x: 0.0, y: 0.0));
+  for (var i = 0; i < key.deltas.length; i++) {
+    out[key.offset + i] = key.deltas[i];
+  }
+  return out;
+}
+
+/// Sample a deform (FFD) timeline at [time] into a dense per-vertex delta list.
+///
+/// Ports `sampleDeformDeltas` (runtime-nim/src/bony/mesh/deform.nim:112-137):
+/// nearest-preceding-key search, stepped short-circuit, and linear
+/// interpolation of the dense/expanded deltas by the eased curve value. The
+/// per-delta values are already f32-quantized at load; only the sample time is
+/// quantized here (matching the Nim boundary), and the final vertex
+/// quantization happens in `applyDeformDeltas` at draw time.
+List<MeshDelta> sampleDeformDeltas(DeformTimeline timeline, double time) {
+  final keys = timeline.keys;
+  final storedTime = quantizeF32(time);
+  if (storedTime < 0) {
+    throw const FormatException('deform sample time must be non-negative');
+  }
+  var index = 0;
+  while (index < keys.length - 1 && storedTime >= keys[index + 1].time) {
+    index++;
+  }
+  final current = keys[index];
+  if (index == keys.length - 1 || storedTime <= current.time) {
+    return _expandDeformKey(current, timeline.vertexCount);
+  }
+  final next = keys[index + 1];
+  if (current.curve.kind == TimelineCurveKind.stepped) {
+    return _expandDeformKey(current, timeline.vertexCount);
+  }
+  final t = (storedTime - current.time) / (next.time - current.time);
+  final eased = evaluateCurve(current.curve, t);
+  final a = _expandDeformKey(current, timeline.vertexCount);
+  final b = _expandDeformKey(next, timeline.vertexCount);
+  final out = <MeshDelta>[];
+  for (var i = 0; i < timeline.vertexCount; i++) {
+    // Quantize the interpolated delta to f32, matching Nim's `meshDelta`
+    // constructor (model.nim) which the reference sampler routes the
+    // interpolated value through — the apply boundary then re-quantizes
+    // (vertex + delta), a genuine double-quantization the parity contract fixes.
+    out.add(MeshDelta(
+      x: quantizeF32(a[i].x + (b[i].x - a[i].x) * eased),
+      y: quantizeF32(a[i].y + (b[i].y - a[i].y) * eased),
+    ));
+  }
+  return out;
+}
+
 // --- Mixer types ---
 
 enum MixBlend { first, replace, add }
@@ -203,6 +259,14 @@ class _MixedSequence {
   SequenceKeyframe value;
 }
 
+class _MixedDeform {
+  _MixedDeform(
+      {required this.slot, required this.attachment, required this.deltas});
+  final String slot;
+  final String attachment;
+  List<MeshDelta> deltas;
+}
+
 /// A snapshot of sampled animation channel values, ready to apply to a skeleton.
 ///
 /// Covers all channel types tracked by the Nim reference runtime (mixer.nim):
@@ -223,6 +287,7 @@ class MixedPose {
     this.colors = const [],
     this.colors2 = const [],
     this.sequences = const [],
+    this.deforms = const [],
   });
   final List<({String bone, BoneTimelineKind kind, double value})> scalars;
   final List<({String bone, BoneTimelineKind kind, double x, double y})> vectors;
@@ -231,6 +296,7 @@ class MixedPose {
   final List<({String slot, SlotTimelineKind kind, ColorRgba color})> colors;
   final List<({String slot, ColorRgba2 color})> colors2;
   final List<({String slot, SequenceKeyframe value})> sequences;
+  final List<({String slot, String attachment, List<MeshDelta> deltas})> deforms;
 }
 
 String _scalarKey(String bone, BoneTimelineKind kind) => '$bone\x00${kind.index}';
@@ -538,6 +604,7 @@ class AnimationState {
     final colors = <String, _MixedColor>{};
     final colors2 = <String, _MixedColor2>{};
     final sequences = <String, _MixedSequence>{};
+    final deforms = <String, _MixedDeform>{};
 
     for (var ti = 0; ti < tracks.length; ti++) {
       final track = tracks[ti];
@@ -547,9 +614,9 @@ class AnimationState {
       final mixWeight = track._currentMixWeight;
       final prev = track.previous;
       if (prev != null) {
-        _applyEntry(scalars, vectors, attachments, inherits, colors, colors2, sequences, track, prev, 1.0 - mixWeight);
+        _applyEntry(scalars, vectors, attachments, inherits, colors, colors2, sequences, deforms, track, prev, 1.0 - mixWeight);
       }
-      _applyEntry(scalars, vectors, attachments, inherits, colors, colors2, sequences, track, cur, mixWeight);
+      _applyEntry(scalars, vectors, attachments, inherits, colors, colors2, sequences, deforms, track, cur, mixWeight);
     }
 
     final scalarList = scalars.values.map((e) => (bone: e.bone, kind: e.kind, value: e.value)).toList()
@@ -582,6 +649,14 @@ class AnimationState {
     final sequenceList = sequences.values.map((e) => (slot: e.slot, value: e.value)).toList()
       ..sort((a, b) => a.slot.compareTo(b.slot));
 
+    final deformList = deforms.values
+        .map((e) => (slot: e.slot, attachment: e.attachment, deltas: e.deltas))
+        .toList()
+      ..sort((a, b) {
+        final c = a.slot.compareTo(b.slot);
+        return c != 0 ? c : a.attachment.compareTo(b.attachment);
+      });
+
     return MixedPose(
       scalars: scalarList,
       vectors: vectorList,
@@ -590,6 +665,7 @@ class AnimationState {
       colors: colorList,
       colors2: color2List,
       sequences: sequenceList,
+      deforms: deformList,
     );
   }
 
@@ -601,6 +677,7 @@ class AnimationState {
     Map<String, _MixedColor> colors,
     Map<String, _MixedColor2> colors2,
     Map<String, _MixedSequence> sequences,
+    Map<String, _MixedDeform> deforms,
     AnimationTrack track,
     TrackEntry entry,
     double weight,
@@ -639,6 +716,16 @@ class AnimationState {
             _putSequence(sequences, tl.slot, sampleSlotSequence(tl, t));
         }
       }
+      // A deform timeline resolves like an attachment channel: thresholded /
+      // winner-take-by-track-weight, NOT weight-blended (see the "Cross-track
+      // mixing" section of docs/deform-timeline-contract.md).
+      for (final tl in entry.clip.deformTimelines) {
+        deforms['${tl.slot}\x00${tl.attachment}'] = _MixedDeform(
+          slot: tl.slot,
+          attachment: tl.attachment,
+          deltas: sampleDeformDeltas(tl, t),
+        );
+      }
     }
   }
 }
@@ -654,8 +741,48 @@ SkeletonData applyPose(SkeletonData data, MixedPose pose) {
   final hasVectors = pose.vectors.isNotEmpty;
   final hasInherits = pose.inherits.isNotEmpty;
   final hasAttachments = pose.attachments.isNotEmpty;
+  final hasDeforms = pose.deforms.isNotEmpty;
 
-  if (!hasScalars && !hasVectors && !hasInherits && !hasAttachments) return data;
+  // Resolve the mixed deform set into the transient per-slot/attachment dense
+  // override carried on the posed SkeletonData (consumed by buildDrawBatches
+  // immediately after skinning; excluded from serialization). Mirrors the Nim
+  // seam (mixer.nim applyPose -> withDeformOverrides).
+  final overrides = <DeformOverride>[
+    for (final d in pose.deforms)
+      DeformOverride(slot: d.slot, attachment: d.attachment, deltas: d.deltas),
+  ];
+
+  if (!hasScalars &&
+      !hasVectors &&
+      !hasInherits &&
+      !hasAttachments &&
+      !hasDeforms) {
+    return data;
+  }
+  if (!hasScalars && !hasVectors && !hasInherits && !hasAttachments) {
+    // Only deform overrides changed: bones/slots are untouched, so avoid a full
+    // rebuild and just stamp the override onto the input skeleton. Copies every
+    // field (incl. meshAttachments/clippingAttachments) so the animated mesh
+    // survives to buildDrawBatches.
+    return SkeletonData(
+      header: data.header,
+      bones: data.bones,
+      slots: data.slots,
+      regions: data.regions,
+      paths: data.paths,
+      pathAttachments: data.pathAttachments,
+      clippingAttachments: data.clippingAttachments,
+      meshAttachments: data.meshAttachments,
+      ikConstraints: data.ikConstraints,
+      transformConstraints: data.transformConstraints,
+      physicsConstraints: data.physicsConstraints,
+      animations: data.animations,
+      parameters: data.parameters,
+      deformers: data.deformers,
+      stateMachines: data.stateMachines,
+      deformOverrides: overrides,
+    );
+  }
 
   // Build lookups.
   final scalarLookup = <String, double>{};
@@ -718,6 +845,13 @@ SkeletonData applyPose(SkeletonData data, MixedPose pose) {
     regions: data.regions,
     paths: data.paths,
     pathAttachments: data.pathAttachments,
+    // Preserve mesh and clipping attachments so an animated mesh (and any clip)
+    // survives the pose rebuild through to buildDrawBatches — omitting them
+    // silently dropped every mesh/clip from a bone-or-slot-animated pose, the
+    // same bug class as the constraint preservation below. Also required so the
+    // deform override staged here has a mesh to apply to.
+    clippingAttachments: data.clippingAttachments,
+    meshAttachments: data.meshAttachments,
     // Preserve IK constraints so a posed skeleton still solves IK at pose time
     // (computeWorldTransforms evaluates them). Omitting these silently dropped
     // all IK from any animated pose.
@@ -735,5 +869,6 @@ SkeletonData applyPose(SkeletonData data, MixedPose pose) {
     parameters: data.parameters,
     deformers: data.deformers,
     stateMachines: data.stateMachines,
+    deformOverrides: overrides,
   );
 }

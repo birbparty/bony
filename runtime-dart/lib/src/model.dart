@@ -323,6 +323,7 @@ class SkeletonData {
     this.parameters = const [],
     this.deformers = const [],
     this.stateMachines = const [],
+    this.deformOverrides = const [],
   });
 
   final SkeletonHeader header;
@@ -340,6 +341,12 @@ class SkeletonData {
   final List<ParameterAxis> parameters;
   final List<DeformerRecord> deformers;
   final List<StateMachineData> stateMachines;
+
+  /// Transient per-slot/attachment deform-timeline override staged by
+  /// `applyPose` and applied to skinned mesh vertices in `buildDrawBatches`.
+  /// Non-serialized: excluded from any `.bony`/`.bnb` round-trip, mirroring the
+  /// Nim reference seam (docs/deform-timeline-contract.md).
+  final List<DeformOverride> deformOverrides;
 }
 
 // --- M7 deformer types ---
@@ -603,6 +610,48 @@ class SequenceKeyframe {
   final SequenceMode mode;
 }
 
+/// A single per-vertex mesh offset (`x`, `y`) for a deform (FFD) timeline.
+class MeshDelta {
+  const MeshDelta({required this.x, required this.y});
+  final double x;
+  final double y;
+}
+
+/// One keyframe of a deform timeline: a sparse `offset`-anchored run of
+/// per-vertex [deltas] at [time], interpolated with [curve]. Mirrors the Nim
+/// `DeformKeyframe` record (anim/timelines.nim).
+class DeformKeyframe {
+  const DeformKeyframe({
+    required this.time,
+    required this.offset,
+    required this.deltas,
+    this.curve = TimelineCurve.linear,
+  });
+  final double time;
+  final int offset;
+  final List<MeshDelta> deltas;
+  final TimelineCurve curve;
+}
+
+/// A clip-owned per-vertex mesh-offset (FFD) timeline targeting the mesh
+/// attachment named [attachment] on slot [slot] under skin [skin]. See
+/// docs/deform-timeline-contract.md. The model keys a mesh by its name, so
+/// [attachment] is the mesh name.
+class DeformTimeline {
+  const DeformTimeline({
+    required this.skin,
+    required this.slot,
+    required this.attachment,
+    required this.vertexCount,
+    required this.keys,
+  });
+  final String skin;
+  final String slot;
+  final String attachment;
+  final int vertexCount;
+  final List<DeformKeyframe> keys;
+}
+
 class BoneTimeline {
   const BoneTimeline({
     required this.bone,
@@ -641,11 +690,28 @@ class AnimationClip {
     required this.duration,
     required this.boneTimelines,
     this.slotTimelines = const [],
+    this.deformTimelines = const [],
   });
   final String name;
   final double duration;
   final List<BoneTimeline> boneTimelines;
   final List<SlotTimeline> slotTimelines;
+  final List<DeformTimeline> deformTimelines;
+}
+
+/// A deform timeline resolved to a dense per-vertex delta set at a sample time,
+/// keyed by its target [slot] + mesh [attachment]. Staged transiently on the
+/// posed [SkeletonData] by `applyPose` and consumed by `buildDrawBatches`
+/// immediately after skinning; it is never serialized (mirrors the Nim seam).
+class DeformOverride {
+  const DeformOverride({
+    required this.slot,
+    required this.attachment,
+    required this.deltas,
+  });
+  final String slot;
+  final String attachment;
+  final List<MeshDelta> deltas;
 }
 
 /// 2D affine world transform matrix (column-major: [a c tx / b d ty / 0 0 1]).

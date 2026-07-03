@@ -1159,6 +1159,29 @@ List<DrawVertex> _skinMeshVertices(
   return out;
 }
 
+/// Offset skinned mesh [vertices] by a dense per-vertex deform [deltas] list,
+/// re-quantizing to f32 at the boundary. Ports `applyDeformDeltas`
+/// (runtime-nim/src/bony/mesh/deform.nim:140-153): position is offset, u/v and
+/// colour carry through unchanged.
+List<DrawVertex> _applyDeformDeltas(
+    List<DrawVertex> vertices, List<MeshDelta> deltas) {
+  final out = <DrawVertex>[];
+  for (var i = 0; i < vertices.length; i++) {
+    final v = vertices[i];
+    out.add(DrawVertex(
+      x: quantizeF32(v.x + deltas[i].x),
+      y: quantizeF32(v.y + deltas[i].y),
+      u: v.u,
+      v: v.v,
+      r: v.r,
+      g: v.g,
+      b: v.b,
+      a: v.a,
+    ));
+  }
+  return out;
+}
+
 List<DrawBatch> buildDrawBatches(SkeletonData data) {
   final worlds = computeWorldTransforms(data);
   final boneIndex = <String, int>{};
@@ -1170,6 +1193,12 @@ List<DrawBatch> buildDrawBatches(SkeletonData data) {
   };
   final meshMap = <String, MeshAttachment>{
     for (final m in data.meshAttachments) m.name: m,
+  };
+  // Transient deform-timeline overrides staged on the posed skeleton by
+  // applyPose, keyed by slot name + mesh attachment (the mixer produces one
+  // entry per slot/attachment).
+  final deformMap = <String, List<MeshDelta>>{
+    for (final o in data.deformOverrides) '${o.slot}\x00${o.attachment}': o.deltas,
   };
 
   final baseBatches = <DrawBatch>[];
@@ -1185,6 +1214,15 @@ List<DrawBatch> buildDrawBatches(SkeletonData data) {
       final mesh = meshMap[slot.attachment];
       if (mesh != null) {
         final world = worlds[boneIndex[slot.bone]!];
+        var meshVerts = _skinMeshVertices(worlds, boneIndex, slot.bone, mesh);
+        // Deform-timeline stage: offset skinned vertices by the posed override
+        // for this slot/attachment, immediately after skinning and before the
+        // M7 deformer and clipping stages (normative order — see
+        // docs/deform-timeline-contract.md).
+        final deltas = deformMap['${slot.name}\x00${mesh.name}'];
+        if (deltas != null && deltas.length == meshVerts.length) {
+          meshVerts = _applyDeformDeltas(meshVerts, deltas);
+        }
         baseBatches.add(DrawBatch(
           slot: slot.name,
           bone: slot.bone,
@@ -1193,7 +1231,7 @@ List<DrawBatch> buildDrawBatches(SkeletonData data) {
           texturePage: '',
           clipId: '',
           world: world,
-          vertices: _skinMeshVertices(worlds, boneIndex, slot.bone, mesh),
+          vertices: meshVerts,
           indices: List<int>.from(mesh.triangles),
         ));
       }
