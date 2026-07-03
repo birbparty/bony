@@ -1,0 +1,10 @@
+{
+  "format": "bony.input-script.v1",
+  "asset": "m18_mesh_deform_anim_rig.bony",
+  "stateMachine": "deform_story",
+  "samples": [
+    {"name": "rest", "t": 0.0, "inputs": {}},
+    {"name": "mid", "t": 0.5, "inputs": {}},
+    {"name": "end", "t": 1.0, "inputs": {}}
+  ]
+}

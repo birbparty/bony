@@ -1,0 +1,135 @@
+{
+  "format": "bony.numeric-golden.v1",
+  "skeleton": "m18-mesh-deform-anim-rig",
+  "version": "1.0.0",
+  "time": 0.0,
+  "stateMachine": "deform_story",
+  "sample": "rest",
+  "inputs": [],
+  "layers": [
+    {
+      "name": "mesh",
+      "state": "wiggle",
+      "time": 0.0,
+      "pose": {
+        "scalars": [],
+        "vectors": [],
+        "attachments": [],
+        "inherits": [],
+        "colors": [],
+        "colors2": [],
+        "sequences": []
+      }
+    }
+  ],
+  "events": [],
+  "bones": [
+    {
+      "name": "root",
+      "parent": "",
+      "world": {
+        "a": 1.0,
+        "b": 0.0,
+        "c": 6.123233995736766e-17,
+        "d": 1.0,
+        "tx": 0.0,
+        "ty": 0.0
+      }
+    }
+  ],
+  "slots": [
+    {
+      "name": "mesh_slot",
+      "bone": "root",
+      "attachment": "panel",
+      "r": 1.0,
+      "g": 1.0,
+      "b": 1.0,
+      "a": 1.0
+    }
+  ],
+  "drawBatches": [
+    {
+      "slot": "mesh_slot",
+      "bone": "root",
+      "attachment": "panel",
+      "texturePage": "",
+      "blendMode": "normal",
+      "clipId": "",
+      "world": {
+        "a": 1.0,
+        "b": 0.0,
+        "c": 6.123233995736766e-17,
+        "d": 1.0,
+        "tx": 0.0,
+        "ty": 0.0
+      },
+      "vertices": [
+        {
+          "x": 0.0,
+          "y": 0.0,
+          "u": 0.5,
+          "v": 0.5,
+          "r": 1.0,
+          "g": 1.0,
+          "b": 1.0,
+          "a": 1.0
+        },
+        {
+          "x": 50.0,
+          "y": 0.0,
+          "u": 1.0,
+          "v": 0.5,
+          "r": 1.0,
+          "g": 1.0,
+          "b": 1.0,
+          "a": 1.0
+        },
+        {
+          "x": 3.0616168932349032e-15,
+          "y": 50.0,
+          "u": 0.5,
+          "v": 1.0,
+          "r": 1.0,
+          "g": 1.0,
+          "b": 1.0,
+          "a": 1.0
+        },
+        {
+          "x": -50.0,
+          "y": 0.0,
+          "u": 0.0,
+          "v": 0.5,
+          "r": 1.0,
+          "g": 1.0,
+          "b": 1.0,
+          "a": 1.0
+        },
+        {
+          "x": -3.0616168932349032e-15,
+          "y": -50.0,
+          "u": 0.5,
+          "v": 0.0,
+          "r": 1.0,
+          "g": 1.0,
+          "b": 1.0,
+          "a": 1.0
+        }
+      ],
+      "indices": [
+        0,
+        1,
+        2,
+        0,
+        2,
+        3,
+        0,
+        3,
+        4,
+        0,
+        4,
+        1
+      ]
+    }
+  ]
+}

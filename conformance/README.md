@@ -45,6 +45,7 @@ conformance/
 | M15 | `m15_mesh_unweighted_deform_rig` | Unweighted mesh (raw x/y, FK-skinned through the slot bone) under a rotation deformer |
 | M16 | `m16_mesh_multi_deform_rig` | Multiple ordered deformers on a mesh: rotation (order 0) then a warp parented to it (order 1), exercising composition + parent-frame chaining |
 | M17 | `m17_mesh_clip_rig` | Mesh × clipping: a triangle-soup mesh inside a clip range, clipped **per-triangle** (shared interior vertex preserved; some triangles cut, some pass through) |
+| M18 | `m18_mesh_deform_anim_rig` | Animated mesh deform: a clip-owned deform timeline moves mesh vertices over time; first nonzero-time mesh golden |
 
 The `M5 (IK)` row is a second M5 asset (structured like the standalone M9 row):
 the table is one-asset-per-row, so `m5_ik_rig` gets its own row rather than being
@@ -345,6 +346,93 @@ Notes for readers comparing runtimes:
   `M17-MeshClip` group; the Dart `.bnb` mesh-clip path is additionally pinned by
   `runtime-dart/test/m17_mesh_clip_bnb_test.dart`).
 
+### M18 mesh-deform-anim rig (`m18_mesh_deform_anim_rig`)
+
+`m18_mesh_deform_anim_rig` is the first **animated (nonzero-time) mesh**
+conformance rig — every earlier mesh asset (`m12`–`m17`) is a setup-pose (`t=0`)
+golden. It proves the cross-runtime **deform-timeline** contract: a clip-owned
+`deformTimeline` that moves a mesh's vertices over time, sampled through the
+state-machine story path (the milestone token `M18` only names the asset — the
+registry key band is still M4).
+
+The rig is deliberately single-purpose: one identity `root` bone and one
+draw-order slot `mesh_slot` referencing an **unweighted** 5-vertex diamond-fan
+mesh `panel` (center `(0,0)`, rim `(50,0)`, `(0,50)`, `(-50,0)`, `(0,-50)`;
+`triangles [0,1,2, 0,2,3, 0,3,4, 0,4,1]`). Unweighted geometry keeps the golden's
+motion attributable **solely** to the deform deltas, not to skinning. There is
+**no** M7 deformer, clipping, constraint, weighting, or per-vertex color on this
+mesh (per the prompt-24 normative-order scope guard, the deform-vs-M7 ordering
+stays documented-but-unexercised in v1).
+
+**The deform timeline.** One animation clip `wiggle` owns a `deformTimeline`
+(skin `"default"`, slot `mesh_slot`, attachment `panel`, `vertexCount 5`) with
+three keyframes that offset **only the right rim vertex 1** (`offset: 1`, a
+single-delta run):
+
+| key | `t` | delta at v1 | curve (segment to next key) |
+|-----|----:|------------:|-----------------------------|
+| 0 | `0.0` | `(0, 0)` | `linear` |
+| 1 | `0.5` | `(+30, 0)` | `stepped` |
+| 2 | `1.0` | `(+6, 0)`  | — (last key) |
+
+Key 0 carries a **zero-magnitude** `(0,0)` delta rather than an empty deltas list
+(`validateDeformKey` rejects an empty run, `anim/timelines.nim`), so the rest
+sample renders the static mesh while still validating. A state machine
+`deform_story` has one layer `mesh` playing `wiggle` (the simplest
+SM-plays-one-clip precedent, mirroring `m9_non_scalar`).
+
+One story script drives it:
+- `m18_deform_story.json` — state-machine story with samples `rest` (t=0),
+  `mid` (t=0.5), `end` (t=1.0) → goldens `m18_deform_story_<sample>.json`.
+
+**Non-vacuous vertex sweep (geometry + u/v carry-through).** The three story
+samples land exactly on the three keyframe times, so each golden reads its
+keyframe's deltas directly. Reading the `mesh_slot` batch's animated **vertex 1**
+world position in `drawBatches[].vertices` (the mesh is in identity `root` space,
+so world = base + delta):
+
+| sample | v1 world `x` | v1 `(u, v)` | Δ from rest |
+|--------|-------------:|-------------|------------:|
+| `rest` (t=0)   | `50.0` | `(1.0, 0.5)` | — |
+| `mid` (t=0.5)  | `80.0` | `(1.0, 0.5)` | `+30.0` |
+| `end` (t=1.0)  | `56.0` | `(1.0, 0.5)` | `+6.0` |
+
+The animated vertex sweeps `x: 50 → 80 → 56` — every inter-sample delta
+(`+30.0`, `−24.0`) is far above the `1e-4` conformance tolerance. The other four
+vertices are unchanged, and v1's `u/v` (`1.0, 0.5`) are **carried through the
+deform untouched** (deform offsets position, not texture coordinates). A runtime
+that ignores the deform timeline renders the static mesh (v1 `x = 50`) at every
+sample and therefore **fails at `mid` and `end`**. The three goldens are **not**
+byte-identical to each other (distinct mesh geometry at `mid`/`end`, plus
+distinct `time`/`sample`/layer-time metadata) and none matches a static-mesh
+render.
+
+Notes for readers comparing runtimes:
+- The goldens are reproduced identically from both `m18_mesh_deform_anim_rig.bony`
+  and `conformance/assets/bnb/m18_mesh_deform_anim_rig.bnb` (the JSON and binary
+  loaders agree; the `.bnb` is non-empty at 371 bytes), and regenerate
+  byte-identically on re-run per the float-math contract.
+- Serialized vertex positions are f32-quantized at the mesh output boundary
+  (`applyDeformDeltas` quantizes `x`/`y`); the deltas here are exact integers so
+  no rounding is visible.
+- The `curve` kinds (`linear` on `rest→mid`, `stepped` on `mid→end`) are
+  structural: because the samples are keyframe-aligned, `sampleDeformDeltas`
+  returns each keyframe's deltas directly without traversing the
+  interpolation/stepped branches — those paths are exercised by the unit sampler
+  tests, not by these goldens.
+- The per-layer `layers[].pose` object in these goldens carries **no** `deforms`
+  array — the resolved deform override is transient (excluded from the pose
+  serialization per docs/deform-timeline-contract.md). The deform's effect is
+  observable only in `drawBatches[].vertices`, which is therefore the non-vacuity
+  anchor for this rig (not the layer pose).
+- The `deform_story` machine is **single-layer**, so these goldens drive the
+  deform through the aggregate pose but do not exercise multi-layer deform
+  *overlay* (one layer's deform merging over another's) — that coverage is tracked
+  in `bony-353d`.
+- Cross-runtime status: the `m18_deform_story_*` goldens are currently honored by
+  the **Nim reference** runtime only. The Dart runtime consumes them in the
+  deform-timeline parity slice (`26-dart-deform-timeline-parity.md`).
+
 ### Image goldens (Nim reference rasterizer only)
 
 Image goldens (`*_play.png`) are Nim-only regression artifacts for the reference
@@ -368,6 +456,7 @@ and do not need to be reproduced by Dart or other runtimes.
 | m11_clip_rig | pending (no PNG golden produced) |
 | m12_mesh_rig | pending (no PNG golden produced) |
 | m17_mesh_clip_rig | pending (no PNG golden produced) |
+| m18_mesh_deform_anim_rig | pending (no PNG golden produced) |
 
 ---
 
