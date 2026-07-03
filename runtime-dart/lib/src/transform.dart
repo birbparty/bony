@@ -1111,6 +1111,54 @@ DrawVertex _vertex(Affine2 world, double lx, double ly, double u, double v) {
 ///
 /// Each slot with a non-empty attachment that resolves to a region becomes one
 /// [DrawBatch] with 4 vertices and 6 indices (two triangles).
+/// Linear-blend skinning for a mesh attachment's setup vertices, ported fresh to
+/// match the Nim `skinMeshVertices` formula and evaluation order
+/// (docs/mesh-attachment-contract.md) so both runtimes agree within 1e-4:
+///
+///   weighted:   worldPos = sum_i weight_i * (boneWorld_i * (bindX_i, bindY_i)),
+///               influences accumulated in stored order.
+///   unweighted: worldPos = slotBoneWorld * (x, y)  (FK).
+///
+/// Output x/y/u/v are f32-quantized at the boundary (matching Nim's
+/// SkinnedMeshVertex). Meshes carry no per-vertex color in v1, so r=g=b=a=1.
+List<DrawVertex> _skinMeshVertices(
+  List<Affine2> worlds,
+  Map<String, int> boneIndex,
+  String slotBone,
+  MeshAttachment mesh,
+) {
+  final out = <DrawVertex>[];
+  for (var i = 0; i < mesh.vertices.length; i++) {
+    final vertex = mesh.vertices[i];
+    final uv = mesh.uvs[i];
+    var x = 0.0;
+    var y = 0.0;
+    if (vertex.weighted) {
+      for (final influence in vertex.influences) {
+        final w = worlds[boneIndex[influence.bone]!];
+        final p = _transformPoint(w, influence.bindX, influence.bindY);
+        x += influence.weight * p.x;
+        y += influence.weight * p.y;
+      }
+    } else {
+      final p = _transformPoint(worlds[boneIndex[slotBone]!], vertex.x, vertex.y);
+      x = p.x;
+      y = p.y;
+    }
+    out.add(DrawVertex(
+      x: quantizeF32(x),
+      y: quantizeF32(y),
+      u: quantizeF32(uv.u),
+      v: quantizeF32(uv.v),
+      r: 1.0,
+      g: 1.0,
+      b: 1.0,
+      a: 1.0,
+    ));
+  }
+  return out;
+}
+
 List<DrawBatch> buildDrawBatches(SkeletonData data) {
   final worlds = computeWorldTransforms(data);
   final boneIndex = <String, int>{};
@@ -1120,12 +1168,37 @@ List<DrawBatch> buildDrawBatches(SkeletonData data) {
   final regionMap = <String, RegionAttachment>{
     for (final r in data.regions) r.name: r,
   };
+  final meshMap = <String, MeshAttachment>{
+    for (final m in data.meshAttachments) m.name: m,
+  };
 
   final baseBatches = <DrawBatch>[];
   for (final slot in data.slots) {
     if (slot.attachment.isEmpty) continue;
     final region = regionMap[slot.attachment];
-    if (region == null) continue;
+    if (region == null) {
+      // A slot may instead reference a mesh. Attachment names are cross-collection
+      // unique (load-validated), so a non-region name resolves to at most one mesh.
+      // Skin its vertices (FK for unweighted, linear-blend for weighted) and emit
+      // one batch in this slot's draw-order position, with metadata mirroring the
+      // region path and the Nim reference (docs/mesh-attachment-contract.md).
+      final mesh = meshMap[slot.attachment];
+      if (mesh != null) {
+        final world = worlds[boneIndex[slot.bone]!];
+        baseBatches.add(DrawBatch(
+          slot: slot.name,
+          bone: slot.bone,
+          attachment: slot.attachment,
+          blendMode: 'normal',
+          texturePage: '',
+          clipId: '',
+          world: world,
+          vertices: _skinMeshVertices(worlds, boneIndex, slot.bone, mesh),
+          indices: List<int>.from(mesh.triangles),
+        ));
+      }
+      continue;
+    }
 
     final world = worlds[boneIndex[slot.bone]!];
     final hw = region.width * 0.5;
@@ -1214,6 +1287,11 @@ List<DrawBatch> _applyClipping(
   final clipMap = <String, ClippingAttachment>{
     for (final c in data.clippingAttachments) c.name: c,
   };
+  // Meshes are not clipped in v1 (matching Nim): clipDrawBatchPolygon treats a
+  // batch's vertices as one convex ring and fan-triangulates from vertex 0,
+  // ignoring the batch indices, which would destroy a triangle-soup mesh. A
+  // batch whose attachment names a mesh is left untouched (clipId stays '').
+  final meshNames = <String>{for (final m in data.meshAttachments) m.name};
   final lastSlotIndex = data.slots.length - 1;
 
   final result = List<DrawBatch>.from(batches);
@@ -1238,6 +1316,8 @@ List<DrawBatch> _applyClipping(
       final sourceSlotIndex = slotIndexByName[result[b].slot]!;
       if (sourceSlotIndex <= ownIndex || sourceSlotIndex > endIndex) continue;
       final batch = result[b];
+      // Skip mesh batches: meshes are not clipped in v1 (see meshNames above).
+      if (meshNames.contains(batch.attachment)) continue;
       final clipped = clipDrawBatchPolygon(batch.vertices, clipPolygon);
       result[b] = DrawBatch(
         slot: batch.slot,

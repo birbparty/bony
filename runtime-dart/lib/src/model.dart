@@ -236,6 +236,76 @@ class ClippingAttachment {
   final String untilSlot;
 }
 
+/// One bone influence on a weighted mesh vertex: the vertex's bind position in
+/// `bone`'s local space and its blend weight. Mirrors the Nim `MeshInfluence`.
+class MeshInfluence {
+  const MeshInfluence({
+    required this.bone,
+    required this.bindX,
+    required this.bindY,
+    required this.weight,
+  });
+
+  final String bone;
+  final double bindX;
+  final double bindY;
+  final double weight;
+}
+
+/// One mesh vertex: either a flat bone-local position (`x`,`y`, unweighted) or a
+/// set of weighted bone `influences`. `weighted` agrees with the owning mesh's
+/// `weighted` flag. Mirrors the Nim `MeshVertex`.
+class MeshVertex {
+  const MeshVertex.unweighted(this.x, this.y)
+      : weighted = false,
+        influences = const [];
+
+  const MeshVertex.weighted(this.influences)
+      : weighted = true,
+        x = 0.0,
+        y = 0.0;
+
+  final bool weighted;
+  final double x;
+  final double y;
+  final List<MeshInfluence> influences;
+}
+
+/// A per-vertex texture coordinate. Mirrors the Nim `MeshUv`.
+class MeshUv {
+  const MeshUv(this.u, this.v);
+
+  final double u;
+  final double v;
+}
+
+/// A slot-bound deformable triangle mesh with per-vertex texture coordinates and
+/// either flat bone-local positions or per-vertex weighted bone influences
+/// (skinning). Mirrors the Nim `MeshAttachment` and the prompt-19 contract.
+class MeshAttachment {
+  const MeshAttachment({
+    required this.name,
+    required this.weighted,
+    required this.vertices,
+    required this.uvs,
+    required this.triangles,
+  });
+
+  final String name;
+
+  /// Whether vertices carry per-vertex bone influences (skinning) rather than
+  /// flat bone-local positions.
+  final bool weighted;
+
+  final List<MeshVertex> vertices;
+
+  /// One texture coordinate per vertex (`uvs.length == vertices.length`).
+  final List<MeshUv> uvs;
+
+  /// Flat vertex-index triples (`triangles.length` is a multiple of 3).
+  final List<int> triangles;
+}
+
 class SkeletonData {
   const SkeletonData({
     required this.header,
@@ -245,6 +315,7 @@ class SkeletonData {
     required this.paths,
     required this.pathAttachments,
     this.clippingAttachments = const [],
+    this.meshAttachments = const [],
     this.ikConstraints = const [],
     this.transformConstraints = const [],
     this.physicsConstraints = const [],
@@ -261,6 +332,7 @@ class SkeletonData {
   final List<PathConstraintData> paths;
   final List<PathAttachment> pathAttachments;
   final List<ClippingAttachment> clippingAttachments;
+  final List<MeshAttachment> meshAttachments;
   final List<IkConstraintData> ikConstraints;
   final List<TransformConstraintData> transformConstraints;
   final List<PhysicsConstraintData> physicsConstraints;

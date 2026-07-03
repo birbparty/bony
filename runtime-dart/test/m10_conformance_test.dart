@@ -200,4 +200,10 @@ void main() {
     '../conformance/assets/m11_clip_rig.bony',
     '../conformance/goldens/m11_clip_rig_t0.json',
   );
+
+  _checkGolden(
+    'M12-Mesh',
+    '../conformance/assets/m12_mesh_rig.bony',
+    '../conformance/goldens/m12_mesh_rig_t0.json',
+  );
 }
