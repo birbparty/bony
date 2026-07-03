@@ -420,6 +420,15 @@ Notes for readers comparing runtimes:
   returns each keyframe's deltas directly without traversing the
   interpolation/stepped branches — those paths are exercised by the unit sampler
   tests, not by these goldens.
+- The per-layer `layers[].pose` object in these goldens carries **no** `deforms`
+  array — the resolved deform override is transient (excluded from the pose
+  serialization per docs/deform-timeline-contract.md). The deform's effect is
+  observable only in `drawBatches[].vertices`, which is therefore the non-vacuity
+  anchor for this rig (not the layer pose).
+- The `deform_story` machine is **single-layer**, so these goldens drive the
+  deform through the aggregate pose but do not exercise multi-layer deform
+  *overlay* (one layer's deform merging over another's) — that coverage is tracked
+  in `bony-353d`.
 - Cross-runtime status: the `m18_deform_story_*` goldens are currently honored by
   the **Nim reference** runtime only. The Dart runtime consumes them in the
   deform-timeline parity slice (`26-dart-deform-timeline-parity.md`).
