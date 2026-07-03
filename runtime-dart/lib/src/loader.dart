@@ -2597,6 +2597,10 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
           'slotTimeline.timelineKeys',
         ));
       case _bnbDeformTimeline:
+        // Relies on meshAttachment objects being decoded before deform-timeline
+        // objects: the encoder emits meshes (type 3001) before animation clips,
+        // and the SM-only reordering above never moves a mesh after a clip, so
+        // `meshes` is fully populated for the vertexCount lookup below.
         flushPending();
         if (currentAnimationName.isEmpty)
           throw const FormatException(
