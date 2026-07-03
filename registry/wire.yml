@@ -238,6 +238,12 @@ typeKeys:
     milestone: M4
     ownerBead: bony-lzj.1
     doc: Slot-bound deformable mesh attachment; format/load only in this slice (weighted skinning deferred to prompt 20).
+  - id: deformTimeline
+    key: 3002
+    status: active
+    milestone: M4
+    ownerBead: bony-68lj
+    doc: Clip-owned deform timeline animating a mesh attachment's per-vertex offsets over time; format/schema only in this slice (loader/mixer wiring deferred to prompt 24).
   - id: path
     key: 4000
     status: active
@@ -547,6 +553,34 @@ propertyKeys:
     milestone: M4
     ownerBead: bony-lzj.1
     doc: Packed mesh triangle indices; varuint count then count*(varuint vertexIndex) forming triangle triples.
+  - id: deformSkin
+    key: 3006
+    backingType: string
+    status: active
+    milestone: M4
+    ownerBead: bony-68lj
+    doc: Skin identity a deform timeline binds to; the reserved "default" skin in v1.
+  - id: deformAttachment
+    key: 3007
+    backingType: string
+    status: active
+    milestone: M4
+    ownerBead: bony-68lj
+    doc: Mesh attachment name (deform key) a deform timeline animates; equals the referenced mesh name.
+  - id: deformVertexCount
+    key: 3008
+    backingType: varuint
+    status: active
+    milestone: M4
+    ownerBead: bony-68lj
+    doc: Mesh vertex count a deform timeline's per-vertex delta runs index against; must equal the referenced mesh's vertex count.
+  - id: deformKeys
+    key: 3009
+    backingType: bytes
+    status: active
+    milestone: M4
+    ownerBead: bony-68lj
+    doc: Packed deform keyframe payload; see docs/deform-timeline-contract.md#packed-deformtimeline-byte-layout-bnb.
   - id: target
     key: 4000
     backingType: string
@@ -1231,7 +1265,7 @@ objects:
   - type: animationClip
     properties:
       - name
-    doc: Animation clip parent record; followed immediately by owned boneTimeline and slotTimeline records.
+    doc: Animation clip parent record; followed immediately by owned boneTimeline, slotTimeline, and deformTimeline records.
   - type: boneTimeline
     properties:
       - boneIndex
@@ -1244,6 +1278,14 @@ objects:
       - slotTimelineKind
       - timelineKeys
     doc: Slot timeline child record owned by the most recent animationClip.
+  - type: deformTimeline
+    properties:
+      - deformSkin
+      - slot
+      - deformAttachment
+      - deformVertexCount
+      - deformKeys
+    doc: Deform timeline child record owned by the most recent animationClip; animates a mesh attachment's per-vertex offsets.
   - type: stateMachine
     properties:
       - name

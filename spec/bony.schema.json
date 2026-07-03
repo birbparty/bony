@@ -39,6 +39,12 @@
         "$ref": "#/$defs/meshAttachment"
       }
     },
+    "deformTimelines": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/deformTimeline"
+      }
+    },
     "paths": {
       "type": "array",
       "items": {
@@ -1098,6 +1104,13 @@
             "$ref": "#/$defs/slotTimeline"
           },
           "default": []
+        },
+        "deformTimelines": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/deformTimeline"
+          },
+          "default": []
         }
       },
       "required": [
@@ -1191,6 +1204,51 @@
         "keyframes",
         "property",
         "slot"
+      ]
+    },
+    "deformTimeline": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "skin": {
+          "type": "string",
+          "minLength": 1
+        },
+        "slot": {
+          "type": "string",
+          "minLength": 1
+        },
+        "attachment": {
+          "type": "string",
+          "minLength": 1
+        },
+        "vertexCount": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "keyframes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "t": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "t"
+            ]
+          }
+        }
+      },
+      "required": [
+        "attachment",
+        "keyframes",
+        "skin",
+        "slot",
+        "vertexCount"
       ]
     },
     "stateMachine": {

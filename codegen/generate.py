@@ -60,6 +60,12 @@ PACKED_BYTES_METADATA: dict[str, dict[str, Any]] = {
         "structuralSchema": "base64Only",
         "validatedBy": "loader",
     },
+    "deformKeys": {
+        "payload": "deformTimelineKeys",
+        "layout": "docs/deform-timeline-contract.md#packed-deformtimeline-byte-layout-bnb",
+        "structuralSchema": "base64Only",
+        "validatedBy": "loader",
+    },
 }
 
 
@@ -798,6 +804,11 @@ def canonical_json_overrides() -> dict[str, Any]:
                     "items": {"$ref": "#/$defs/slotTimeline"},
                     "default": [],
                 },
+                "deformTimelines": {
+                    "type": "array",
+                    "items": {"$ref": "#/$defs/deformTimeline"},
+                    "default": [],
+                },
             },
             "required": ["name"],
         },
@@ -838,6 +849,18 @@ def canonical_json_overrides() -> dict[str, Any]:
                 "keyframes": keyframes,
             },
             "required": ["keyframes", "property", "slot"],
+        },
+        "deformTimeline": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "skin": named_string,
+                "slot": named_string,
+                "attachment": named_string,
+                "vertexCount": {"type": "integer", "minimum": 1},
+                "keyframes": keyframes,
+            },
+            "required": ["attachment", "keyframes", "skin", "slot", "vertexCount"],
         },
         "stateMachine": {
             "type": "object",

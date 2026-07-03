@@ -363,6 +363,9 @@ objectDefaults:
   - object: slotTimeline
     ownerBead: bony-cl8.9
     properties: {}
+  - object: deformTimeline
+    ownerBead: bony-68lj
+    properties: {}
   - object: stateMachine
     ownerBead: bony-cl8.9
     properties: {}
@@ -680,6 +683,26 @@ requiredProperties:
     property: timelineKeys
     reason: Slot timelines need packed keyframe data.
     ownerBead: bony-cl8.9
+  - object: deformTimeline
+    property: deformSkin
+    reason: Deform timelines bind to a skin identity (the reserved "default" skin in v1).
+    ownerBead: bony-68lj
+  - object: deformTimeline
+    property: slot
+    reason: Deform timelines must name the slot whose attachment is deformed.
+    ownerBead: bony-68lj
+  - object: deformTimeline
+    property: deformAttachment
+    reason: Deform timelines must name the mesh attachment they animate.
+    ownerBead: bony-68lj
+  - object: deformTimeline
+    property: deformVertexCount
+    reason: Deform delta runs index against the mesh vertex count.
+    ownerBead: bony-68lj
+  - object: deformTimeline
+    property: deformKeys
+    reason: Deform timelines need packed keyframe data.
+    ownerBead: bony-68lj
   - object: stateMachine
     property: name
     reason: State machines are referenced by stable unique names.
