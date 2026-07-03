@@ -1,0 +1,56 @@
+{
+  "skeleton": {
+    "name": "m18-mesh-deform-anim-rig",
+    "version": "1.0.0"
+  },
+  "bones": [
+    {"name": "root"}
+  ],
+  "slots": [
+    {"name": "mesh_slot", "bone": "root", "attachment": "panel"}
+  ],
+  "meshAttachments": [
+    {
+      "name": "panel",
+      "weighted": false,
+      "vertices": [
+        {"x": 0, "y": 0},
+        {"x": 50, "y": 0},
+        {"x": 0, "y": 50},
+        {"x": -50, "y": 0},
+        {"x": 0, "y": -50}
+      ],
+      "uvs": [0.5, 0.5, 1, 0.5, 0.5, 1, 0, 0.5, 0.5, 0],
+      "triangles": [0, 1, 2, 0, 2, 3, 0, 3, 4, 0, 4, 1]
+    }
+  ],
+  "animations": [
+    {
+      "name": "wiggle",
+      "deformTimelines": [
+        {
+          "skin": "default",
+          "slot": "mesh_slot",
+          "attachment": "panel",
+          "vertexCount": 5,
+          "keyframes": [
+            {"t": 0.0, "offset": 1, "deltas": [{"x": 0, "y": 0}], "curve": "linear"},
+            {"t": 0.5, "offset": 1, "deltas": [{"x": 30, "y": 0}], "curve": "stepped"},
+            {"t": 1.0, "offset": 1, "deltas": [{"x": 6, "y": 0}]}
+          ]
+        }
+      ]
+    }
+  ],
+  "stateMachines": [
+    {
+      "name": "deform_story",
+      "layers": [
+        {
+          "name": "mesh",
+          "states": [{"name": "wiggle", "kind": "clip", "clip": "wiggle"}]
+        }
+      ]
+    }
+  ]
+}

@@ -474,7 +474,7 @@ spec "bony package":
         discard loadBonyBnb(fixture)
         inc loaded
     then:
-      loaded == 18  # m1–m5, m5_ik, m5_transform, m5_physics, m7, m8, m9_non_scalar, m11_clip, m12_mesh, m13_mesh_deform, m14_mesh_warp, m15_mesh_unweighted_deform, m16_mesh_multi_deform, m17_mesh_clip
+      loaded == 19  # m1–m5, m5_ik, m5_transform, m5_physics, m7, m8, m9_non_scalar, m11_clip, m12_mesh, m13_mesh_deform, m14_mesh_warp, m15_mesh_unweighted_deform, m16_mesh_multi_deform, m17_mesh_clip, m18_mesh_deform_anim
 
   it "rejects malformed semantic .bnb payloads":
     then:

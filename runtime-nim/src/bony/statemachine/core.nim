@@ -773,6 +773,15 @@ proc color2Order(a, b: MixedColor2): int = cmp(a.target, b.target)
 proc sequenceOrder(a, b: MixedSequence): int = cmp(a.target, b.target)
 
 
+proc deformKey(value: MixedDeform): string = value.slot & "\0" & value.attachment
+
+
+proc deformOrder(a, b: MixedDeform): int =
+  result = cmp(a.slot, b.slot)
+  if result == 0:
+    result = cmp(a.attachment, b.attachment)
+
+
 proc overlayPose(base: var MixedPose; layer: MixedPose) =
   var scalars = initTable[string, MixedScalar]()
   var vectors = initTable[string, MixedVector]()
@@ -781,6 +790,7 @@ proc overlayPose(base: var MixedPose; layer: MixedPose) =
   var colors = initTable[string, MixedColor]()
   var colors2 = initTable[string, MixedColor2]()
   var sequences = initTable[string, MixedSequence]()
+  var deforms = initTable[string, MixedDeform]()
   for value in base.scalars:
     scalars[value.scalarKey] = value
   for value in base.vectors:
@@ -795,6 +805,8 @@ proc overlayPose(base: var MixedPose; layer: MixedPose) =
     colors2[value.target] = value
   for value in base.sequences:
     sequences[value.target] = value
+  for value in base.deforms:
+    deforms[value.deformKey] = value
   for value in layer.scalars:
     scalars[value.scalarKey] = value
   for value in layer.vectors:
@@ -809,6 +821,8 @@ proc overlayPose(base: var MixedPose; layer: MixedPose) =
     colors2[value.target] = value
   for value in layer.sequences:
     sequences[value.target] = value
+  for value in layer.deforms:
+    deforms[value.deformKey] = value
   base = MixedPose()
   for value in scalars.values:
     base.scalars.add value
@@ -831,6 +845,9 @@ proc overlayPose(base: var MixedPose; layer: MixedPose) =
   for value in sequences.values:
     base.sequences.add value
   base.sequences.sort(sequenceOrder)
+  for value in deforms.values:
+    base.deforms.add value
+  base.deforms.sort(deformOrder)
 
 
 proc addWeightedPose(
