@@ -6938,7 +6938,7 @@ spec "bony mesh skeleton validation":
         unknownRequiredReference,
       )
 
-  it "round trips an unweighted mesh attachment through JSON":
+  it "round trips an unweighted mesh attachment through JSON and .bnb":
     let jsonText = """
 {
   "skeleton": {"name": "meshrig", "version": "0.1.0"},
@@ -6955,6 +6955,8 @@ spec "bony mesh skeleton validation":
 }
 """
     let fromJson = loadBonyJson(jsonText)
+    let bnbBytes = toBonyBnb(fromJson)
+    let fromBnb = loadBonyBnb(bnbBytes)
     then:
       fromJson.meshAttachments.len == 1
       fromJson.meshAttachments[0].name == "cloth"
@@ -6968,10 +6970,19 @@ spec "bony mesh skeleton validation":
       fromJson.meshAttachments[0].triangles == @[0'u16, 1'u16, 2'u16]
       # The default meshWeighted (false) is omitted from canonical output.
       not toBonyJson(fromJson).contains("\"weighted\"")
-      # Canonical JSON output re-parses to an identical record.
+      # JSON and binary loaders agree on the parsed record.
+      fromBnb.meshAttachments.len == 1
+      fromBnb.meshAttachments[0].name == "cloth"
+      fromBnb.meshAttachments[0].weighted == false
+      fromBnb.meshAttachments[0].vertices[1].x == 1.0
+      fromBnb.meshAttachments[0].uvs[2].v == 1.0
+      fromBnb.meshAttachments[0].triangles == @[0'u16, 1'u16, 2'u16]
+      # Canonical JSON output re-parses to an identical record, and .bnb bytes
+      # are stable across a decode/encode round trip.
       toBonyJson(loadBonyJson(toBonyJson(fromJson))) == toBonyJson(fromJson)
+      toBonyBnb(fromBnb) == bnbBytes
 
-  it "round trips a weighted mesh attachment through JSON":
+  it "round trips a weighted mesh attachment through JSON and .bnb":
     let jsonText = """
 {
   "skeleton": {"name": "meshrig", "version": "0.1.0"},
@@ -6993,6 +7004,8 @@ spec "bony mesh skeleton validation":
 }
 """
     let fromJson = loadBonyJson(jsonText)
+    let bnbBytes = toBonyBnb(fromJson)
+    let fromBnb = loadBonyBnb(bnbBytes)
     then:
       fromJson.meshAttachments.len == 1
       fromJson.meshAttachments[0].weighted == true
@@ -7005,6 +7018,16 @@ spec "bony mesh skeleton validation":
       # weighted:true differs from the default, so it survives the round trip.
       toBonyJson(fromJson).contains("\"weighted\": true")
       toBonyJson(loadBonyJson(toBonyJson(fromJson))) == toBonyJson(fromJson)
+      # Binary loader agrees, incl. string-table-packed influence bone names.
+      fromBnb.meshAttachments[0].weighted == true
+      fromBnb.meshAttachments[0].vertices[1].influences.len == 2
+      fromBnb.meshAttachments[0].vertices[1].influences[0].bone == "root"
+      fromBnb.meshAttachments[0].vertices[1].influences[1].bone == "tip"
+      fromBnb.meshAttachments[0].vertices[1].influences[1].weight == 0.5
+      fromBnb.meshAttachments[0].vertices[2].influences[0].bone == "tip"
+      # The JSON->model->JSON and .bnb decode/encode paths agree with the JSON load.
+      toBonyJson(fromBnb) == toBonyJson(fromJson)
+      toBonyBnb(fromBnb) == bnbBytes
 
   it "runs mesh geometry validation through the JSON load path":
     # A uvs/vertex-count mismatch supplied via JSON must be rejected by
