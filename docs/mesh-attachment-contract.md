@@ -122,12 +122,18 @@ runtimes apply the same operation, at different layers:
 - **Dart**: inside the runtime `buildDrawBatches`
   (`runtime-dart/lib/src/transform.dart`), which maps every base batch through
   `applyDeformers`.
-- **Nim**: in the golden/render layer via `applyDeformersToDrawBatches`
-  (`cli/bony_cli.nim`), which iterates every batch. The Nim runtime library
-  `buildDrawBatches` (`runtime-nim/src/bony/transform.nim`) itself returns
-  **undeformed** batches for meshes *and* regions alike — deformer application is
-  a golden/render-layer concern in Nim, applied uniformly to both attachment
-  kinds, so the two runtimes agree on the deformed output the goldens encode.
+- **Nim**: as a distinct stage *after* `buildDrawBatches`, via the exported
+  runtime module `bony/deform/drawbatch_deform`
+  (`runtime-nim/src/bony/deform/drawbatch_deform.nim`, re-exported by `bony`),
+  which iterates every batch. The Nim runtime library `buildDrawBatches`
+  (`runtime-nim/src/bony/transform.nim`) itself returns **undeformed** batches for
+  meshes *and* regions alike — deformer application is a separate stage in Nim,
+  applied uniformly to both attachment kinds, so the two runtimes agree on the
+  deformed output the goldens encode. A **library** consumer finishes the pipeline
+  with the exported `deformDrawBatches(data, buildDrawBatches(data))` (or the
+  lower-level `effectiveDeformers` + `applyDeformersToDrawBatches` pair); the CLI
+  (`cli/bony_cli.nim`) delegates to the same functions, so there is one shared
+  implementation and no double-apply in the CLI golden path.
 
 `applyDeformers` is **vertex-count-agnostic**: it iterates the batch's vertices
 regardless of count and makes **no region-quad (4-vertex) assumption**, so an

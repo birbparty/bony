@@ -12,6 +12,7 @@ import bony/constraints/physics_constraints
 import bony/constraints/transform_constraints
 import bony/constraints/update_cache
 import bony/deform/deformers
+import bony/deform/drawbatch_deform
 import bony/deform/keyforms
 import bony/deform/parameter_timelines
 import bony/deform/parameters
@@ -40,6 +41,7 @@ export update_cache
 export clipping
 export drawbatch_clipping
 export deformers
+export drawbatch_deform
 export keyforms
 export parameter_timelines
 export parameters
