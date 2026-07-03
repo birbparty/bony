@@ -284,8 +284,12 @@ Notes for readers comparing runtimes:
   `docs/mesh-attachment-contract.md`); this rig is single-purpose (one weighted
   mesh at a setup pose) and deliberately combines no clipping, animation, state
   machine, constraints, or deformers.
-- Cross-runtime status: the setup-pose golden `m12_mesh_rig_t0.json` is **honored
-  by the Nim reference**; **Dart parity is pending prompt 22**.
+- Cross-runtime status: the setup-pose golden `m12_mesh_rig_t0.json` is honored by
+  **both** the Nim reference and the Dart runtime — Dart now loads the mesh record
+  (JSON + `.bnb`) and skins it in `buildDrawBatches` with the same linear-blend
+  formula, matching the golden within `1e-4` (`runtime-dart/test/m10_conformance_test.dart`,
+  the `M12-Mesh` group; the Dart `.bnb` mesh decode + skinning path is additionally
+  pinned by `runtime-dart/test/m12_mesh_bnb_test.dart`).
 
 ### Image goldens (Nim reference rasterizer only)
 

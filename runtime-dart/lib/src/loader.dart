@@ -69,6 +69,66 @@ ClippingAttachment _parseClippingAttachment(Map<String, dynamic> j) {
   );
 }
 
+MeshAttachment _parseMeshAttachment(Map<String, dynamic> j) {
+  final weighted = (j['weighted'] as bool?) ?? false;
+  final verticesRaw =
+      _required<List<dynamic>>(j['vertices'], 'meshAttachment.vertices');
+  final vertices = verticesRaw.map((raw) {
+    final v = raw as Map<String, dynamic>;
+    // Quantize each numeric to f32 at load, matching the Nim mesh constructors
+    // (meshInfluence / unweightedMeshVertex) and the .bnb path (which reads f32),
+    // so the JSON and binary loaders agree bit-for-bit.
+    if (v.containsKey('influences')) {
+      final influencesRaw = _required<List<dynamic>>(
+          v['influences'], 'meshAttachment.vertex.influences');
+      return MeshVertex.weighted(influencesRaw.map((iraw) {
+        final i = iraw as Map<String, dynamic>;
+        return MeshInfluence(
+          bone: _required<String>(i['bone'], 'meshAttachment.influence.bone'),
+          bindX: quantizeF32(
+              _required<num>(i['bindX'], 'meshAttachment.influence.bindX')
+                  .toDouble()),
+          bindY: quantizeF32(
+              _required<num>(i['bindY'], 'meshAttachment.influence.bindY')
+                  .toDouble()),
+          weight: quantizeF32(
+              _required<num>(i['weight'], 'meshAttachment.influence.weight')
+                  .toDouble()),
+        );
+      }).toList());
+    }
+    return MeshVertex.unweighted(
+      quantizeF32(_required<num>(v['x'], 'meshAttachment.vertex.x').toDouble()),
+      quantizeF32(_required<num>(v['y'], 'meshAttachment.vertex.y').toDouble()),
+    );
+  }).toList();
+
+  // uvs are a flat [u0, v0, u1, v1, ...] list; pair them into MeshUv. An odd
+  // length is malformed (a dropped coordinate) — reject it explicitly rather
+  // than silently truncating and surfacing a confusing count mismatch later.
+  final uvsRaw = _required<List<dynamic>>(j['uvs'], 'meshAttachment.uvs');
+  if (uvsRaw.length.isOdd) {
+    throw const FormatException('meshAttachment.uvs must have even length');
+  }
+  final uvs = <MeshUv>[];
+  for (var i = 0; i + 1 < uvsRaw.length; i += 2) {
+    uvs.add(MeshUv(
+      quantizeF32((uvsRaw[i] as num).toDouble()),
+      quantizeF32((uvsRaw[i + 1] as num).toDouble()),
+    ));
+  }
+
+  final trianglesRaw =
+      _required<List<dynamic>>(j['triangles'], 'meshAttachment.triangles');
+  return MeshAttachment(
+    name: _required<String>(j['name'], 'meshAttachment.name'),
+    weighted: weighted,
+    vertices: vertices,
+    uvs: uvs,
+    triangles: trianglesRaw.map((t) => (t as num).toInt()).toList(),
+  );
+}
+
 PathConstraintData _parsePath(Map<String, dynamic> j) {
   return PathConstraintData(
     name: _required<String>(j['name'], 'path.name'),
@@ -709,6 +769,87 @@ void _validate(SkeletonData data) {
     }
   }
 
+  // Mesh attachment names also share the slot.attachment namespace with regions
+  // and clips. Mirror the Nim loader's cross-collection uniqueness guard
+  // (runtime-nim/src/bony/model.nim): a mesh name must not collide with a region
+  // or clip name.
+  final meshNames = <String>{};
+  for (var i = 0; i < data.meshAttachments.length; i++) {
+    final m = data.meshAttachments[i];
+    final ctx = 'meshAttachments[$i]';
+    if (m.name.isEmpty) throw FormatException('$ctx.name must not be empty');
+    if (!meshNames.add(m.name)) {
+      throw FormatException('duplicate mesh attachment name: ${m.name}');
+    }
+    if (regionNames.contains(m.name)) {
+      throw FormatException(
+          'mesh attachment name collides with a region attachment name: '
+          '${m.name}');
+    }
+    if (clipNames.contains(m.name)) {
+      throw FormatException(
+          'mesh attachment name collides with a clipping attachment name: '
+          '${m.name}');
+    }
+    // Geometry/reference invariants (a)-(g), ported from Nim
+    // validateMeshAttachment (runtime-nim/src/bony/model.nim) so a malformed mesh
+    // that Nim rejects at load is rejected here too — not accepted silently or
+    // crashed on later in _skinMeshVertices. See docs/mesh-attachment-contract.md.
+    if (m.vertices.isEmpty) {
+      throw FormatException('$ctx must contain at least one vertex');
+    }
+    if (m.uvs.length != m.vertices.length) {
+      throw FormatException('$ctx.uvs count must match vertex count');
+    }
+    for (final uv in m.uvs) {
+      if (uv.u < 0.0 || uv.u > 1.0 || uv.v < 0.0 || uv.v > 1.0) {
+        throw FormatException('$ctx.uvs must be in 0..1');
+      }
+    }
+    if (m.triangles.isEmpty || m.triangles.length % 3 != 0) {
+      throw FormatException('$ctx.triangles must contain index triplets');
+    }
+    for (final index in m.triangles) {
+      if (index < 0 || index >= m.vertices.length) {
+        throw FormatException('$ctx triangle index out of range');
+      }
+    }
+    for (var vi = 0; vi < m.vertices.length; vi++) {
+      final v = m.vertices[vi];
+      if (v.weighted != m.weighted) {
+        throw FormatException('$ctx vertices must match mesh weighted flag');
+      }
+      if (v.weighted) {
+        if (v.influences.isEmpty) {
+          throw FormatException(
+              '$ctx.vertices[$vi] weighted vertex must contain at least one influence');
+        }
+        var sum = 0.0;
+        for (final influence in v.influences) {
+          if (influence.bone.isEmpty) {
+            throw FormatException('$ctx influence bone must not be empty');
+          }
+          if (influence.weight < 0.0) {
+            throw FormatException('$ctx influence weight must be non-negative');
+          }
+          if (!boneNames.contains(influence.bone)) {
+            throw FormatException(
+                'unknown mesh influence bone: ${influence.bone}');
+          }
+          sum += influence.weight;
+        }
+        // weightSumTolerance = 1e-4 in the Nim reference.
+        if ((sum - 1.0).abs() > 1e-4) {
+          throw FormatException(
+              '$ctx.vertices[$vi] weighted influences must sum to 1');
+        }
+      } else if (v.influences.isNotEmpty) {
+        throw FormatException(
+            '$ctx.vertices[$vi] unweighted vertex must not contain influences');
+      }
+    }
+  }
+
   final slotNames = <String>{};
   for (var i = 0; i < data.slots.length; i++) {
     final s = data.slots[i];
@@ -719,7 +860,8 @@ void _validate(SkeletonData data) {
     }
     if (s.attachment.isNotEmpty &&
         !regionNames.contains(s.attachment) &&
-        !clipNames.contains(s.attachment)) {
+        !clipNames.contains(s.attachment) &&
+        !meshNames.contains(s.attachment)) {
       throw FormatException('unknown slot attachment: ${s.attachment}');
     }
     if (!slotNames.add(s.name)) {
@@ -1057,6 +1199,7 @@ const int _bnbBone = 2;
 const int _bnbSlot = 1000;
 const int _bnbRegion = 1001;
 const int _bnbClippingAttachment = 3000;
+const int _bnbMeshAttachment = 3001;
 const int _bnbPath = 4000;
 const int _bnbPathAttachment = 4001;
 const int _bnbIkConstraint = 4002;
@@ -1104,6 +1247,13 @@ const int _bkHeight = 1015;
 // payload (varuint count + count*(f32 x, f32 y)); untilSlot is a string.
 const int _bkVertices = 3000;
 const int _bkUntilSlot = 3001;
+// Mesh attachment property keys (M4). meshVertices/meshUvs/meshTriangles are
+// packed `bytes` payloads per docs/mesh-attachment-contract.md; meshWeighted is
+// a value-gated bool (default false).
+const int _bkMeshWeighted = 3002;
+const int _bkMeshVertices = 3003;
+const int _bkMeshUvs = 3004;
+const int _bkMeshTriangles = 3005;
 const int _bkTarget = 4000;
 const int _bkPath = 4001;
 const int _bkOrder = 4002;
@@ -1193,6 +1343,7 @@ const _bnbKnownTypes = {
   _bnbSlot,
   _bnbRegion,
   _bnbClippingAttachment,
+  _bnbMeshAttachment,
   _bnbPath,
   _bnbPathAttachment,
   _bnbIkConstraint,
@@ -1433,6 +1584,82 @@ List<double> _bClipVertices(_BnbObj obj) {
     out.add(c.readF32());
   }
   _bCheckExhausted(c, 'clippingAttachment.vertices');
+  return out;
+}
+
+/// Decode the required mesh `meshVertices` payload. Frozen layout
+/// (docs/mesh-attachment-contract.md): varuint vertexCount, then per vertex —
+/// unweighted -> (f32 x, f32 y); weighted -> varuint influenceCount then
+/// influenceCount * (varuint boneStringIndex, f32 bindX, f32 bindY, f32 weight).
+/// Bone names resolve through the same string table as ikConstraint bones.
+/// Matches runtime-nim's writeMeshVerticesPayload/readMeshVerticesPayload
+/// (semantic.nim), including the trailing-bytes check.
+List<MeshVertex> _bMeshVertices(
+    _BnbObj obj, bool weighted, List<String> strings) {
+  final payload = obj.props[_bkMeshVertices];
+  if (payload == null) {
+    throw const FormatException('.bnb meshAttachment.vertices is required');
+  }
+  final c = _BnbCur(payload);
+  final count = c.readVaruint();
+  final out = <MeshVertex>[];
+  for (var i = 0; i < count; i++) {
+    if (weighted) {
+      final influenceCount = c.readVaruint();
+      final influences = <MeshInfluence>[];
+      for (var k = 0; k < influenceCount; k++) {
+        final bone = c.readStr(strings);
+        final bindX = c.readF32();
+        final bindY = c.readF32();
+        final weight = c.readF32();
+        influences.add(MeshInfluence(
+            bone: bone, bindX: bindX, bindY: bindY, weight: weight));
+      }
+      out.add(MeshVertex.weighted(influences));
+    } else {
+      final x = c.readF32();
+      final y = c.readF32();
+      out.add(MeshVertex.unweighted(x, y));
+    }
+  }
+  _bCheckExhausted(c, 'meshAttachment.vertices');
+  return out;
+}
+
+/// Decode the required mesh `meshUvs` payload: varuint count then
+/// count * (f32 u, f32 v). Matches runtime-nim's writeMeshUvsPayload /
+/// readMeshUvsPayload (semantic.nim), including the trailing-bytes check.
+List<MeshUv> _bMeshUvs(_BnbObj obj) {
+  final payload = obj.props[_bkMeshUvs];
+  if (payload == null) {
+    throw const FormatException('.bnb meshAttachment.uvs is required');
+  }
+  final c = _BnbCur(payload);
+  final count = c.readVaruint();
+  final out = <MeshUv>[];
+  for (var i = 0; i < count; i++) {
+    out.add(MeshUv(c.readF32(), c.readF32()));
+  }
+  _bCheckExhausted(c, 'meshAttachment.uvs');
+  return out;
+}
+
+/// Decode the required mesh `meshTriangles` payload: varuint count then
+/// count * (varuint vertexIndex). Matches runtime-nim's
+/// writeMeshTrianglesPayload / readMeshTrianglesPayload (semantic.nim),
+/// including the trailing-bytes check.
+List<int> _bMeshTriangles(_BnbObj obj) {
+  final payload = obj.props[_bkMeshTriangles];
+  if (payload == null) {
+    throw const FormatException('.bnb meshAttachment.triangles is required');
+  }
+  final c = _BnbCur(payload);
+  final count = c.readVaruint();
+  final out = <int>[];
+  for (var i = 0; i < count; i++) {
+    out.add(c.readVaruint());
+  }
+  _bCheckExhausted(c, 'meshAttachment.triangles');
   return out;
 }
 
@@ -1784,6 +2011,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
   final paths = <PathConstraintData>[];
   final pathAttachments = <PathAttachment>[];
   final clips = <ClippingAttachment>[];
+  final meshes = <MeshAttachment>[];
   final ikConstraints = <IkConstraintData>[];
   final transformConstraints = <TransformConstraintData>[];
   final physicsConstraints = <PhysicsConstraintData>[];
@@ -1981,6 +2209,16 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
           untilSlot: _bStr(obj, _bkUntilSlot, strings,
               'clippingAttachment.untilSlot',
               def: ''),
+        ));
+      case _bnbMeshAttachment:
+        flushPending();
+        final meshWeighted = _bBool(obj, _bkMeshWeighted, def: false);
+        meshes.add(MeshAttachment(
+          name: _bStr(obj, _bkName, strings, 'meshAttachment.name'),
+          weighted: meshWeighted,
+          vertices: _bMeshVertices(obj, meshWeighted, strings),
+          uvs: _bMeshUvs(obj),
+          triangles: _bMeshTriangles(obj),
         ));
       case _bnbPath:
         flushPending();
@@ -2548,6 +2786,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
     paths: paths,
     pathAttachments: pathAttachments,
     clippingAttachments: clips,
+    meshAttachments: meshes,
     ikConstraints: ikConstraints,
     transformConstraints: transformConstraints,
     physicsConstraints: physicsConstraints,
@@ -2855,6 +3094,11 @@ SkeletonData loadBonyJson(String jsonText) {
           .map((c) => _parseClippingAttachment(c as Map<String, dynamic>))
           .toList();
 
+  final meshAttachments =
+      ((root['meshAttachments'] as List<dynamic>?) ?? [])
+          .map((m) => _parseMeshAttachment(m as Map<String, dynamic>))
+          .toList();
+
   final ikConstraints = ((root['ikConstraints'] as List<dynamic>?) ?? [])
       .map((ik) => _parseIk(ik as Map<String, dynamic>))
       .toList();
@@ -2906,6 +3150,7 @@ SkeletonData loadBonyJson(String jsonText) {
     paths: paths,
     pathAttachments: pathAttachments,
     clippingAttachments: clippingAttachments,
+    meshAttachments: meshAttachments,
     ikConstraints: ikConstraints,
     transformConstraints: transformConstraints,
     physicsConstraints: physicsConstraints,
