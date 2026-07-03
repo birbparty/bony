@@ -72,6 +72,7 @@ validation, and (where applicable) the deterministic runtime algorithm.
 |----------|----------------|
 | [clipping-attachment-contract.md](clipping-attachment-contract.md) | Slot-bound convex clipping attachment: format, load validation, `untilSlot`-inclusive range + no-overlap rule, packed `vertices` byte layout, and the (forward-referenced) deterministic Sutherland–Hodgman clip algorithm |
 | [mesh-attachment-contract.md](mesh-attachment-contract.md) | Slot-bound deformable mesh attachment: format, load-validated `(a)-(g)` invariants, the three packed `meshVertices`/`meshUvs`/`meshTriangles` byte layouts, and the (forward-referenced) deterministic linear-blend skinning algorithm |
+| [deform-timeline-contract.md](deform-timeline-contract.md) | Clip-owned deform timeline animating a mesh attachment's per-vertex offsets: format, load-validated `(a)-(g)` invariants, the packed `deformKeys` byte layout (reusing the shared bone/slot curve tail), and the (forward-referenced, prompt-24) deterministic sampling algorithm and reserved-skin/cross-track mixing rules |
 
 ---
 
