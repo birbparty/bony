@@ -16,6 +16,7 @@
 
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 import 'package:test/test.dart';
 import 'package:bony/bony.dart';
 
@@ -104,9 +105,10 @@ void main() {
     ];
     final verts = batches.single.vertices;
     for (var i = 0; i < skinned.length; i++) {
-      final dx = (verts[i].x - skinned[i][0]).abs();
-      final dy = (verts[i].y - skinned[i][1]).abs();
-      expect(dx > 0.1 || dy > 0.1, isTrue,
+      final dx = verts[i].x - skinned[i][0];
+      final dy = verts[i].y - skinned[i][1];
+      final dist = math.sqrt(dx * dx + dy * dy);
+      expect(dist, greaterThan(0.5),
           reason: 'v$i should have been deformed away from skinned '
               '(${skinned[i][0]},${skinned[i][1]}) but is (${verts[i].x},${verts[i].y})');
     }
