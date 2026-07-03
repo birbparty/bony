@@ -7,6 +7,7 @@ import bony/constraints/update_cache
 import bony/constraints/ik
 import bony/constraints/transform_constraints
 import bony/constraints/physics_constraints
+import bony/mesh/deform
 import bony/mesh/drawbatch_clipping
 import bony/mesh/skinning
 import bony/model
@@ -853,6 +854,9 @@ proc buildDrawBatches*(data: SkeletonData; worlds: seq[Affine2]): seq[DrawBatch]
   var regions = initTable[string, RegionAttachment]()
   var meshes = initTable[string, MeshAttachment]()
   var clips = initTable[string, ClipAttachmentData]()
+  # Transient deform-timeline override stamped on the posed data by the mixer,
+  # keyed by slot name (a slot shows one attachment at a time).
+  var deformBySlot = initTable[string, DeformOverride]()
 
   for index, bone in data.bones:
     boneIndex[bone.name] = index
@@ -862,6 +866,8 @@ proc buildDrawBatches*(data: SkeletonData; worlds: seq[Affine2]): seq[DrawBatch]
     meshes[mesh.name] = mesh
   for clip in data.clippingAttachments:
     clips[clip.name] = clip
+  for override in data.deformOverrides:
+    deformBySlot[override.slot] = override
 
   var slotIndexByName = initTable[string, int]()
   for index, slot in data.slots:
@@ -892,7 +898,15 @@ proc buildDrawBatches*(data: SkeletonData; worlds: seq[Affine2]): seq[DrawBatch]
       # the full `worlds` array directly — a weighted vertex blends across its
       # influence bones and ignores slot.bone entirely.
       let world = worlds[boneIndex[slot.bone]]
-      let skinned = skinMeshVertices(data, worlds, slot.bone, mesh)
+      var skinned = skinMeshVertices(data, worlds, slot.bone, mesh)
+      # Deform-timeline stage: offset skinned vertices by the posed override for
+      # this slot/attachment, immediately after skinning and before the M7
+      # deformer and clipping stages (normative order — see
+      # docs/deform-timeline-contract.md). Region batches are never offset.
+      if slot.name in deformBySlot:
+        let override = deformBySlot[slot.name]
+        if override.attachment == mesh.name and override.deltas.len == skinned.len:
+          skinned = applyDeformDeltas(skinned, override.deltas)
       var meshVerts = newSeq[DrawVertex](skinned.len)
       for i, sv in skinned:
         meshVerts[i] = meshVertex(sv)

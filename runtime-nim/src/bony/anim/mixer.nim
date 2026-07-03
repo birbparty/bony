@@ -3,6 +3,7 @@
 import std/[algorithm, math, strutils, tables]
 
 import bony/anim/timelines
+import bony/mesh/deform
 import bony/model
 
 type
@@ -25,6 +26,13 @@ type
   MixedAttachment* = object
     target*: string
     attachment*: string
+
+  MixedDeform* = object
+    ## A deform timeline resolved to a dense per-vertex delta set at the track
+    ## time, keyed by its target slot + mesh attachment.
+    slot*: string
+    attachment*: string
+    deltas*: seq[MeshDelta]
 
   MixedInherit* = object
     target*: string
@@ -56,6 +64,7 @@ type
     colors*: seq[MixedColor]
     colors2*: seq[MixedColor2]
     sequences*: seq[MixedSequence]
+    deforms*: seq[MixedDeform]
 
   TrackEntry* = object
     clip*: AnimationClip
@@ -442,6 +451,7 @@ proc applyEntry(
   colors: var Table[string, MixedColor];
   colors2: var Table[string, MixedColor2];
   sequences: var Table[string, MixedSequence];
+  deforms: var Table[string, MixedDeform];
   entry: TrackEntry;
   track: AnimationTrack;
   weight: float64;
@@ -473,6 +483,15 @@ proc applyEntry(
         let sample = timeline.sampleSequenceKey(sampleTime)
         let frameCount = max(sequenceFrameCount(data, timeline.target), sample.index + 1'u32)
         sequences[timeline.target] = MixedSequence(target: timeline.target, value: timeline.sampleSequence(sampleTime, frameCount))
+    # A deform timeline resolves like an attachment channel: thresholded /
+    # winner-take-by-track-weight, NOT weight-blended (see the "Cross-track
+    # mixing" section of docs/deform-timeline-contract.md).
+    for timeline in entry.clip.deformTimelines:
+      deforms[timeline.slot & "\0" & timeline.attachment] = MixedDeform(
+        slot: timeline.slot,
+        attachment: timeline.attachment,
+        deltas: sampleDeformDeltas(timeline, sampleTime),
+      )
 
 
 proc scalarOrder(a, b: MixedScalar): int =
@@ -489,6 +508,12 @@ proc vectorOrder(a, b: MixedVector): int =
 
 proc attachmentOrder(a, b: MixedAttachment): int = cmp(a.target, b.target)
 proc inheritOrder(a, b: MixedInherit): int = cmp(a.target, b.target)
+
+
+proc deformOrder(a, b: MixedDeform): int =
+  result = cmp(a.slot, b.slot)
+  if result == 0:
+    result = cmp(a.attachment, b.attachment)
 
 
 proc colorOrder(a, b: MixedColor): int =
@@ -509,13 +534,14 @@ proc sample*(state: AnimationState): MixedPose =
   var colors = initTable[string, MixedColor]()
   var colors2 = initTable[string, MixedColor2]()
   var sequences = initTable[string, MixedSequence]()
+  var deforms = initTable[string, MixedDeform]()
   for track in state.tracks:
     if not track.hasCurrent:
       continue
     let mixWeight = track.currentMixWeight
     if track.hasPrevious:
-      applyEntry(state.data, scalars, vectors, attachments, inherits, colors, colors2, sequences, track.previous, track, 1.0 - mixWeight)
-    applyEntry(state.data, scalars, vectors, attachments, inherits, colors, colors2, sequences, track.current, track, mixWeight)
+      applyEntry(state.data, scalars, vectors, attachments, inherits, colors, colors2, sequences, deforms, track.previous, track, 1.0 - mixWeight)
+    applyEntry(state.data, scalars, vectors, attachments, inherits, colors, colors2, sequences, deforms, track.current, track, mixWeight)
   for value in scalars.values:
     result.scalars.add value
   result.scalars.sort(scalarOrder)
@@ -537,6 +563,9 @@ proc sample*(state: AnimationState): MixedPose =
   for value in sequences.values:
     result.sequences.add value
   result.sequences.sort(sequenceOrder)
+  for value in deforms.values:
+    result.deforms.add value
+  result.deforms.sort(deformOrder)
 
 
 proc applyPose*(data: SkeletonData; pose: MixedPose): SkeletonData =
@@ -544,8 +573,21 @@ proc applyPose*(data: SkeletonData; pose: MixedPose): SkeletonData =
   let hasVectors = pose.vectors.len > 0
   let hasInherits = pose.inherits.len > 0
   let hasAttachments = pose.attachments.len > 0
-  if not hasScalars and not hasVectors and not hasInherits and not hasAttachments:
+  let hasDeforms = pose.deforms.len > 0
+
+  # Resolve the mixed deform set into the transient per-slot/attachment dense
+  # override carried on the posed SkeletonData (consumed by buildDrawBatches
+  # immediately after skinning; excluded from validation and serialization).
+  var overrides: seq[DeformOverride]
+  for value in pose.deforms:
+    overrides.add DeformOverride(slot: value.slot, attachment: value.attachment, deltas: value.deltas)
+
+  if not hasScalars and not hasVectors and not hasInherits and not hasAttachments and not hasDeforms:
     return data
+  if not hasScalars and not hasVectors and not hasInherits and not hasAttachments:
+    # Only deform overrides changed: bones/slots are untouched, so avoid a full
+    # rebuild and just stamp the override onto the input pose.
+    return data.withDeformOverrides(overrides)
 
   var scalarLookup = initTable[string, float64]()
   for value in pose.scalars:
@@ -614,7 +656,9 @@ proc applyPose*(data: SkeletonData; pose: MixedPose): SkeletonData =
       attachmentLookup.getOrDefault(slot.name, slot.attachment),
     )
 
-  skeletonData(
+  # meshAttachments/clippingAttachments MUST be carried forward: a mesh must
+  # survive the pose rebuild to be skinned (and deform-offset) in buildDrawBatches.
+  result = skeletonData(
     data.header,
     bones,
     slots,
@@ -626,4 +670,7 @@ proc applyPose*(data: SkeletonData; pose: MixedPose): SkeletonData =
     data.ikConstraints,
     data.transformConstraints,
     data.physicsConstraints,
+    data.clippingAttachments,
+    data.meshAttachments,
   )
+  result = result.withDeformOverrides(overrides)

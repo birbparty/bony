@@ -127,6 +127,15 @@ type
     x*: float64
     y*: float64
 
+  DeformOverride* = object
+    ## A resolved per-slot/attachment dense delta set the mixer stamps on a posed
+    ## SkeletonData so buildDrawBatches can offset a skinned mesh without a time
+    ## parameter. This is a TRANSIENT, non-serialized field: it is excluded from
+    ## validateSkeletonData, the round-trip getter list, and JSON/.bnb emission.
+    slot*: string
+    attachment*: string
+    deltas*: seq[MeshDelta]
+
   PathConstraintData* = object
     name: string
     bone: string
@@ -296,6 +305,9 @@ type
     physicsConstraints: seq[PhysicsConstraintData]
     parameters: seq[ParameterAxis]
     deformers: seq[DeformerRecord]
+    # Transient, non-serialized. Set post-construction by the mixer (applyPose);
+    # never threaded through skeletonData()/validateSkeletonData or emitted.
+    deformOverrides: seq[DeformOverride]
 
   SkeletonInstance* = object
     data: ref SkeletonData
@@ -838,6 +850,14 @@ proc clippingAttachments*(data: SkeletonData): seq[ClipAttachmentData] = data.cl
 
 
 proc meshAttachments*(data: SkeletonData): seq[MeshAttachment] = data.meshAttachments
+proc deformOverrides*(data: SkeletonData): seq[DeformOverride] = data.deformOverrides
+
+proc withDeformOverrides*(data: SkeletonData; overrides: seq[DeformOverride]): SkeletonData =
+  ## Return a copy carrying the transient deform override. Kept out of
+  ## skeletonData()/validateSkeletonData so it never affects load validation,
+  ## round-trip getters, or serialization.
+  result = data
+  result.deformOverrides = overrides
 
 
 proc paths*(data: SkeletonData): seq[PathConstraintData] = data.paths
