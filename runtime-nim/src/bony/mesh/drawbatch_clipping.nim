@@ -152,8 +152,11 @@ proc clipDrawBatchPolygon*(subject: openArray[DrawVertex];
     result.indices.add uint16(fanIndex + 1)
 
 
-proc insideAll(vertex: DrawVertex; clip: openArray[ClipPoint];
-               orientation: float64): bool =
+proc vertexInsideClip(vertex: DrawVertex; clip: openArray[ClipPoint];
+                      orientation: float64): bool =
+  ## True when a single vertex is inside *every* clip edge (i.e. inside the whole
+  ## convex clip polygon). Distinct from `allInside`, which tests every vertex of
+  ## a subject.
   for edgeIndex in 0 ..< clip.len:
     let a = clip[edgeIndex]
     let b = clip[(edgeIndex + 1) mod clip.len]
@@ -199,7 +202,7 @@ proc clipDrawBatchTriangles*(subject: openArray[DrawVertex];
   var triangle = 0
   while triangle + 2 < indices.len:
     for corner in 0 .. 2:
-      if not insideAll(subject[indices[triangle + corner]], clip, orientation):
+      if not vertexInsideClip(subject[indices[triangle + corner]], clip, orientation):
         anyOutside = true
         break
     if anyOutside:

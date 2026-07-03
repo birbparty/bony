@@ -136,7 +136,9 @@ bool _allInside(
   return true;
 }
 
-bool _insideAll(DrawVertex vertex, List<ClipPoint> clip, double orientation) {
+// True when a single vertex is inside *every* clip edge (the whole convex clip
+// polygon). Distinct from [_allInside], which tests every vertex of a subject.
+bool _vertexInsideClip(DrawVertex vertex, List<ClipPoint> clip, double orientation) {
   for (var edgeIndex = 0; edgeIndex < clip.length; edgeIndex++) {
     final a = clip[edgeIndex];
     final b = clip[(edgeIndex + 1) % clip.length];
@@ -202,7 +204,7 @@ DrawBatchClip clipDrawBatchTriangles(
   var anyOutside = false;
   for (var triangle = 0; triangle + 2 < indices.length; triangle += 3) {
     for (var corner = 0; corner < 3; corner++) {
-      if (!_insideAll(subject[indices[triangle + corner]], clip, orientation)) {
+      if (!_vertexInsideClip(subject[indices[triangle + corner]], clip, orientation)) {
         anyOutside = true;
         break;
       }

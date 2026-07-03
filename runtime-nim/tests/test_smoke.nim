@@ -7461,6 +7461,27 @@ spec "bony clipping evaluation":
       clipped.vertices.len == 0
       clipped.indices.len == 0
 
+  it "empties a fully-outside triangle soup but reports changed":
+    # Every triangle entirely outside the clip => changed == true with empty
+    # geometry (mirrors the region fully-outside path).
+    let subject = @[
+      DrawVertex(x: 10.0, y: 10.0, u: 0.0, v: 0.0, r: 1.0, g: 1.0, b: 1.0, a: 1.0),
+      DrawVertex(x: 12.0, y: 10.0, u: 1.0, v: 0.0, r: 1.0, g: 1.0, b: 1.0, a: 1.0),
+      DrawVertex(x: 12.0, y: 12.0, u: 1.0, v: 1.0, r: 1.0, g: 1.0, b: 1.0, a: 1.0),
+    ]
+    let indices = @[0'u16, 1, 2]
+    # Clip well to the left of the triangle (x <= 0).
+    let clip = @[
+      clipPoint(-10.0, -10.0), clipPoint(0.0, -10.0),
+      clipPoint(0.0, 10.0), clipPoint(-10.0, 10.0),
+    ]
+    let clipped = clipDrawBatchTriangles(subject, indices, clip)
+
+    then:
+      clipped.changed
+      clipped.vertices.len == 0
+      clipped.indices.len == 0
+
 spec "bony mesh draw batches":
   it "emits an unweighted mesh batch skinned through the slot bone":
     # A slot referencing a mesh must produce one DrawBatch whose world-space
