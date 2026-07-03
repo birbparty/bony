@@ -1,0 +1,38 @@
+{
+  "skeleton": {
+    "name": "m12-mesh-rig",
+    "version": "1.0.0"
+  },
+  "bones": [
+    {"name": "root"},
+    {"name": "boneA", "parent": "root", "x": 10, "y": 0},
+    {"name": "boneB", "parent": "root", "x": 0, "y": 10}
+  ],
+  "slots": [
+    {"name": "mesh_slot", "bone": "root", "attachment": "mesh"}
+  ],
+  "meshAttachments": [
+    {
+      "name": "mesh",
+      "weighted": true,
+      "vertices": [
+        {"influences": [
+          {"bone": "boneA", "bindX": 0, "bindY": 0, "weight": 0.5},
+          {"bone": "boneB", "bindX": 0, "bindY": 0, "weight": 0.5}
+        ]},
+        {"influences": [
+          {"bone": "boneA", "bindX": 4, "bindY": 0, "weight": 1.0}
+        ]},
+        {"influences": [
+          {"bone": "boneB", "bindX": 0, "bindY": 4, "weight": 1.0}
+        ]},
+        {"influences": [
+          {"bone": "boneA", "bindX": 2, "bindY": 2, "weight": 0.25},
+          {"bone": "boneB", "bindX": 2, "bindY": 2, "weight": 0.75}
+        ]}
+      ],
+      "uvs": [0, 0, 1, 0, 1, 1, 0, 1],
+      "triangles": [0, 1, 2, 0, 2, 3]
+    }
+  ]
+}
