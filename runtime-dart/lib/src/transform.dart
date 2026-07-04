@@ -1220,7 +1220,19 @@ List<DrawBatch> buildDrawBatches(SkeletonData data) {
         // M7 deformer and clipping stages (normative order — see
         // docs/deform-timeline-contract.md).
         final deltas = deformMap['${slot.name}\x00${mesh.name}'];
-        if (deltas != null && deltas.length == meshVerts.length) {
+        if (deltas != null) {
+          // Nim's applyDeformDeltas raises schemaViolation on a count mismatch
+          // rather than silently rendering the undeformed mesh. Match that: keep
+          // the absence guard (no override for this slot/mesh), but a present
+          // override whose length disagrees with the skinned vertices is a domain
+          // error (defensively unreachable — the loader pins vertexCount ==
+          // mesh.vertices.length — but a future invariant break must fail loudly
+          // in Dart as it does in Nim, not hide as a static draw).
+          if (deltas.length != meshVerts.length) {
+            throw FormatException(
+                'deform delta count must match skinned vertex count: '
+                '${deltas.length} vs ${meshVerts.length}');
+          }
           meshVerts = _applyDeformDeltas(meshVerts, deltas);
         }
         baseBatches.add(DrawBatch(
