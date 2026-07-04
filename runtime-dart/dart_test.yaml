@@ -29,4 +29,5 @@ paths:
   - test/m15_mesh_unweighted_deform_test.dart
   - test/m16_mesh_multi_deform_test.dart
   - test/mesh_deform_bnb_test.dart
+  - test/deform_strictness_test.dart
   - test/version_test.dart

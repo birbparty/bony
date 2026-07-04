@@ -165,15 +165,76 @@ List<MeshDelta> _expandDeformKey(DeformKeyframe key, int vertexCount) {
   return out;
 }
 
+/// Structural validation of a deform timeline, mirroring Nim's
+/// `validateDeformTimeline` (runtime-nim/src/bony/anim/timelines.nim). Nim re-runs
+/// this at the top of every `sampleDeformDeltas`, so a directly-constructed
+/// (non-loader) timeline with a bad shape fails loudly with a domain error at the
+/// sample boundary instead of surfacing a raw `RangeError` deep in delta
+/// expansion. The loader already enforces these invariants, so this is
+/// defensively-unreachable in the normal load path — it exists for cross-runtime
+/// parity with the Nim reference.
+void validateDeformTimeline(DeformTimeline timeline) {
+  if (timeline.skin.isEmpty) {
+    throw const FormatException('deform timeline skin must not be empty');
+  }
+  if (timeline.slot.isEmpty) {
+    throw const FormatException('deform timeline slot must not be empty');
+  }
+  if (timeline.attachment.isEmpty) {
+    throw const FormatException('deform timeline attachment must not be empty');
+  }
+  if (timeline.vertexCount <= 0) {
+    throw const FormatException('deform timeline vertex count must be positive');
+  }
+  if (timeline.keys.isEmpty) {
+    throw const FormatException(
+        'deform timeline must contain at least one keyframe');
+  }
+  for (var i = 0; i < timeline.keys.length; i++) {
+    final key = timeline.keys[i];
+    // Nim quantizeF32 raises on non-finite before the sign check; Dart's
+    // quantizeF32 silently round-trips NaN/Inf, so guard finiteness explicitly to
+    // reject the same key times Nim does (numericOutOfRange -> domain error).
+    if (!key.time.isFinite) {
+      throw const FormatException('deform key time must be a finite f32 value');
+    }
+    if (quantizeF32(key.time) < 0) {
+      throw const FormatException('deform key time must be non-negative');
+    }
+    if (key.deltas.isEmpty) {
+      throw const FormatException('deform key must contain at least one delta');
+    }
+    // Nim's `offset` is unsigned, so it guards only the upper bound; Dart's `int`
+    // can be negative, so guard both ends to keep the failure a domain error
+    // rather than a raw RangeError in _expandDeformKey.
+    if (key.offset < 0 ||
+        key.offset + key.deltas.length > timeline.vertexCount) {
+      throw const FormatException('deform key range exceeds mesh vertex count');
+    }
+    if (i > 0 && timeline.keys[i - 1].time >= key.time) {
+      throw const FormatException(
+          'deform key times must be strictly increasing');
+    }
+    // Nim validateDeformKey routes every delta through quantizeF32, which raises
+    // on non-finite; mirror that so a NaN/Inf delta can't reach a rendered vertex.
+    for (final d in key.deltas) {
+      if (!d.x.isFinite || !d.y.isFinite) {
+        throw const FormatException('deform delta must be a finite f32 value');
+      }
+    }
+  }
+}
+
 /// Sample a deform (FFD) timeline at [time] into a dense per-vertex delta list.
 ///
 /// Ports `sampleDeformDeltas` (runtime-nim/src/bony/mesh/deform.nim:112-137):
-/// nearest-preceding-key search, stepped short-circuit, and linear
-/// interpolation of the dense/expanded deltas by the eased curve value. The
-/// per-delta values are already f32-quantized at load; only the sample time is
-/// quantized here (matching the Nim boundary), and the final vertex
-/// quantization happens in `applyDeformDeltas` at draw time.
+/// per-sample structural validate, nearest-preceding-key search, stepped
+/// short-circuit, and linear interpolation of the dense/expanded deltas by the
+/// eased curve value. The per-delta values are already f32-quantized at load;
+/// only the sample time is quantized here (matching the Nim boundary), and the
+/// final vertex quantization happens in `applyDeformDeltas` at draw time.
 List<MeshDelta> sampleDeformDeltas(DeformTimeline timeline, double time) {
+  validateDeformTimeline(timeline);
   final keys = timeline.keys;
   final storedTime = quantizeF32(time);
   if (storedTime < 0) {
