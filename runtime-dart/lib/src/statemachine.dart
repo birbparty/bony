@@ -514,6 +514,16 @@ MixedPose _blendPoses(SkeletonData data, MixedPose lo, MixedPose hi, double t) {
   final sequences = snapPose.sequences.map((s) => s).toList()
     ..sort((a, b) => a.slot.compareTo(b.slot));
 
+  // Deforms resolve winner-take-by-track-weight (docs/deform-timeline-contract.md),
+  // like an attachment channel — the higher-weight clip's deltas win outright, never
+  // a linear blend of the two sparse delta runs. So they snap with the other stepped
+  // channels rather than lerping.
+  final deforms = snapPose.deforms.map((d) => d).toList()
+    ..sort((a, b) {
+      final c = a.slot.compareTo(b.slot);
+      return c != 0 ? c : a.attachment.compareTo(b.attachment);
+    });
+
   // --- Colors: per-channel lerp ---
   final colChannels = <String, ({String slot, SlotTimelineKind kind})>{};
   for (final c in lo.colors) colChannels['${c.slot}\x00${c.kind.index}'] = (slot: c.slot, kind: c.kind);
@@ -579,6 +589,7 @@ MixedPose _blendPoses(SkeletonData data, MixedPose lo, MixedPose hi, double t) {
     colors: colors,
     colors2: colors2,
     sequences: sequences,
+    deforms: deforms,
   );
 }
 

@@ -893,6 +893,7 @@ proc addWeightedPose(
     output.attachments = pose.attachments
     output.inherits = pose.inherits
     output.sequences = pose.sequences
+    output.deforms = pose.deforms
 
 
 proc setupScalarValue(data: ref SkeletonData; value: MixedScalar): float64 =
@@ -1011,6 +1012,9 @@ proc blendedPose(data: ref SkeletonData; lowPose, highPose: MixedPose; t: float6
     )
   result.attachments = weighted.attachments
   result.inherits = weighted.inherits
+  # Discrete channels inherit the winner's already-sorted order (set wholesale by
+  # addWeightedPose's replaceDiscrete branch), so no re-sort is needed here.
+  result.deforms = weighted.deforms
   for value in colors.values:
     result.colors.add value
   result.colors.sort(colorOrder)

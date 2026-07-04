@@ -309,6 +309,65 @@ void main() {
     });
   });
 
+  group('M8 blend1d deform channel (bony-353d parity)', () {
+    // Regression: the blend1d path (_blendPoses) silently dropped the deforms
+    // channel, so a blend state playing a deform-timeline clip rendered the
+    // static mesh — the same bug fixed on the Nim side. Deforms resolve
+    // winner-take-by-track-weight (docs/deform-timeline-contract.md): the
+    // higher-weight clip's deltas win outright, never a linear blend.
+    const fixture = '{"skeleton":{"name":"blenddeform"},'
+        '"bones":[{"name":"root"}],'
+        '"slots":[{"name":"body","bone":"root","attachment":"cloth"}],'
+        '"meshAttachments":[{"name":"cloth","weighted":false,'
+        '"vertices":[{"x":0,"y":0},{"x":50,"y":0},{"x":0,"y":50}],'
+        '"uvs":[0,0,1,0,0,1],"triangles":[0,1,2]}],'
+        '"animations":['
+        '{"name":"low","deformTimelines":[{"skin":"default","slot":"body",'
+        '"attachment":"cloth","vertexCount":3,'
+        '"keyframes":[{"t":0.0,"offset":0,"deltas":[{"x":2,"y":0}]}]}]},'
+        '{"name":"high","deformTimelines":[{"skin":"default","slot":"body",'
+        '"attachment":"cloth","vertexCount":3,'
+        '"keyframes":[{"t":0.0,"offset":0,"deltas":[{"x":5,"y":0}]}]}]}'
+        '],'
+        '"stateMachines":[{"name":"m",'
+        '"inputs":[{"name":"speed","kind":"number"}],'
+        '"layers":[{"name":"base","states":['
+        '{"name":"move","kind":"blend1d","blendInput":"speed",'
+        '"blendClips":[{"clip":"low","value":0.0},{"clip":"high","value":1.0}]}'
+        '],"transitions":[]}]'
+        '}]}';
+
+    late SkeletonData blendData;
+    late StateMachineData blendSm;
+
+    setUpAll(() {
+      blendData = loadBonyJson(fixture);
+      blendSm = blendData.stateMachines[0];
+    });
+
+    test('t<0.5 carries the low clip deform outright', () {
+      final rt = initStateMachineRuntime(blendSm);
+      rt.setNumberInput('speed', 0.25);
+      final eval = rt.evaluate(blendData);
+      expect(eval.pose.deforms, hasLength(1));
+      expect(eval.pose.deforms[0].slot, 'body');
+      expect(eval.pose.deforms[0].attachment, 'cloth');
+      // low is the higher-weight winner (weight 0.75) at t=0.25.
+      expect((eval.pose.deforms[0].deltas[0].x - 2.0).abs(),
+          lessThanOrEqualTo(1e-4));
+    });
+
+    test('t>=0.5 carries the high clip deform, not a weighted sum', () {
+      final rt = initStateMachineRuntime(blendSm);
+      rt.setNumberInput('speed', 0.75);
+      final eval = rt.evaluate(blendData);
+      expect(eval.pose.deforms, hasLength(1));
+      // high wins outright: 5.0, NOT the blended 5*0.75 + 2*0.25 = 4.25.
+      expect((eval.pose.deforms[0].deltas[0].x - 5.0).abs(),
+          lessThanOrEqualTo(1e-4));
+    });
+  });
+
   group('M8 cross-reference validation', () {
     // Minimal fixture with two animations, two inputs, two layers, and a listener.
     // Each test breaks exactly one cross-reference.
