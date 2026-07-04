@@ -5216,6 +5216,11 @@ spec "bony package":
     var highWins = initStateMachineRuntime(machine)
     highWins.setNumberInput("speed", 0.75)
     let highEval = highWins.evaluate(data)
+    # Tie-break: t == 0.5 snaps to high (matches addWeightedPose's t >= 0.5 and
+    # the Dart runtime's `t >= 0.5 ? hi : lo`).
+    var tieWins = initStateMachineRuntime(machine)
+    tieWins.setNumberInput("speed", 0.5)
+    let tieEval = tieWins.evaluate(data)
 
     then:
       # t=0.25 -> low clip is the higher-weight winner (weight 0.75).
@@ -5227,10 +5232,15 @@ spec "bony package":
       # toward 2.0 (a weighted sum would land at 5*0.75 + 2*0.25 = 4.25).
       highEval.pose.deforms.len == 1
       closeTo(highEval.pose.deforms[0].deltas[0].x, 5.0)
+      # t == 0.5 -> high wins the tie outright (5.0, not blended).
+      tieEval.pose.deforms.len == 1
+      closeTo(tieEval.pose.deforms[0].deltas[0].x, 5.0)
 
   it "carries deforms through multi-layer overlay pose aggregation":
-    # Locks the overlayPose deforms branch (bony-353d notes): two layers each
-    # drive the same (slot, mesh) deform; the top layer wins outright in the
+    # Locks the pre-existing overlayPose deforms branch (bony-353d notes) — this
+    # path was NOT changed by the blend1D fix, so this is a characterization test
+    # for the overlay seam rather than a regression test for this bug. Two layers
+    # each drive the same (slot, mesh) deform; the top layer wins outright in the
     # aggregated pose, and the base layer's deltas are fully replaced.
     let bones = @[boneData("root", "", localTransform(scaleX = 1.0, scaleY = 1.0))]
     let prelim = skeletonData(skeletonHeader("demo", "0.1.0"), bones)
