@@ -99,6 +99,57 @@ proc animationFixture(): SkeletonData =
     @[regionAttachment("idle", 1.0, 1.0), regionAttachment("wave", 1.0, 1.0)],
   )
 
+# Completeness-guard scaffolding (bony-bna8): a skeleton + clip that drive ALL
+# eight MixedPose channels at once, so a channel silently dropped by any pose
+# aggregator (overlayPose / addWeightedPose / blendedPose) shows up as an empty
+# field. `body` carries the slot channels (attachment swap + colors + sequence);
+# `meshSlot` shows the `cloth` mesh a deform timeline animates; `root` carries the
+# bone channels (scalar + vector + inherit).
+proc allChannelFixture(): SkeletonData =
+  let prelim = skeletonData(skeletonHeader("demo", "0.1.0"), @[boneData("root", "")])
+  let cloth = unweightedMeshAttachment(
+    prelim,
+    "cloth",
+    @[meshUv(0.0, 0.0), meshUv(1.0, 0.0), meshUv(1.0, 1.0)],
+    @[0'u16, 1'u16, 2'u16],
+    @[unweightedMeshVertex(0.0, 0.0), unweightedMeshVertex(1.0, 0.0), unweightedMeshVertex(1.0, 1.0)],
+  )
+  skeletonData(
+    skeletonHeader("demo", "0.1.0"),
+    @[boneData("root", "")],
+    @[slotData("body", "root", ""), slotData("meshSlot", "root", "cloth")],
+    @[regionAttachment("idle", 1.0, 1.0), regionAttachment("wave", 1.0, 1.0)],
+    meshAttachments = @[cloth],
+  )
+
+proc allChannelClip(data: SkeletonData; name: string): AnimationClip =
+  animationClip(
+    data,
+    name,
+    @[
+      boneScalarTimeline("root", rotateTimeline, @[scalarKeyframe(0.0, 30.0)]),
+      boneVectorTimeline("root", translateTimeline, @[vector2Keyframe(0.0, 4.0, 5.0)]),
+      boneInheritTimeline("root", @[inheritKeyframe(0.0)]),
+    ],
+    @[
+      slotAttachmentTimeline("body", @[attachmentKeyframe(0.0, "idle")]),
+      slotColorTimeline("body", rgbaTimeline, @[colorKeyframe(0.0, colorRgba(0.5, 0.25, 0.75, 1.0))]),
+      slotColor2Timeline("body", @[color2Keyframe(0.0, colorRgba2(colorRgba(1.0, 1.0, 1.0, 1.0), 0.1, 0.2, 0.3))]),
+      slotSequenceTimeline("body", @[sequenceKeyframe(0.0, 2'u32, 0.1, sequenceLoop)]),
+    ],
+    deformTimelines = @[deformTimeline("default", "meshSlot", data.meshAttachments[0],
+      @[deformKeyframe(0.0, 0'u32, @[meshDelta(2.0, 0.0)])])],
+  )
+
+# Names of any MixedPose seq channel that came back empty. Iterates via fieldPairs
+# so a future channel #9 is covered automatically: if it is added to MixedPose but
+# not threaded through an aggregator (or not driven by allChannelClip), it lands
+# here and the guard tests fail loudly instead of silently rendering nothing.
+proc droppedChannels(pose: MixedPose): seq[string] =
+  for name, field in pose.fieldPairs:
+    if field.len == 0:
+      result.add name
+
 spec "bony package":
   it "exposes version":
     then:
@@ -5291,6 +5342,53 @@ spec "bony package":
       evaluated.pose.deforms[0].slot == "body"
       evaluated.pose.deforms[0].attachment == "cloth"
       closeTo(evaluated.pose.deforms[0].deltas[0].x, 7.0)
+
+  it "threads every MixedPose channel through blend1D aggregation":
+    # Completeness guard (bony-bna8): blend1D routes through sampleBlendPose ->
+    # blendedPose -> addWeightedPose. A channel dropped by any of them (as deforms
+    # was) surfaces here as an empty field. Both blend clips drive all 8 channels,
+    # so the winner (t=0.75 -> high) must carry every one.
+    let data = new SkeletonData
+    data[] = allChannelFixture()
+    let clip = allChannelClip(data[], "all")
+    let machine = stateMachine(
+      "machine",
+      @[
+        stateMachineLayer(
+          "base",
+          @[stateMachineBlendState("move", "speed",
+            @[stateMachineBlendClip(clip, 0.0), stateMachineBlendClip(clip, 1.0)])],
+        ),
+      ],
+      @[stateMachineNumberInput("speed", 0.75)],
+    )
+    var rt = initStateMachineRuntime(machine)
+    rt.setNumberInput("speed", 0.75)
+    rt.update(0.0)
+    let evaluated = rt.evaluate(data)
+
+    then:
+      droppedChannels(evaluated.pose) == newSeq[string]()
+
+  it "threads every MixedPose channel through multi-layer overlay aggregation":
+    # Completeness guard (bony-bna8): the overlayPose seam aggregates layers. Two
+    # layers each drive all 8 channels; none may drop from the aggregated pose.
+    let data = new SkeletonData
+    data[] = allChannelFixture()
+    let clip = allChannelClip(data[], "all")
+    let machine = stateMachine(
+      "machine",
+      @[
+        stateMachineLayer("base", @[stateMachineState("hold", clip)]),
+        stateMachineLayer("overlay", @[stateMachineState("hold", clip)]),
+      ],
+    )
+    var rt = initStateMachineRuntime(machine)
+    rt.update(0.0)
+    let evaluated = rt.evaluate(data)
+
+    then:
+      droppedChannels(evaluated.pose) == newSeq[string]()
 
   it "rejects invalid state-machine core data":
     let data = animationFixture()
