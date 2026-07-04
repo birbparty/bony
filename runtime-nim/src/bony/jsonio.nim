@@ -818,7 +818,7 @@ proc parseBonyAnimations(root: JsonNode; data: SkeletonData): Table[string, Anim
   for animIndex, animNode in animsNode.elems:
     let ctx = "animations[" & $animIndex & "]"
     let aObj = requireObject(animNode, ctx)
-    validateKnownKeys(aObj, ["name", "boneTimelines", "slotTimelines", "deformTimelines"], ctx)
+    validateKnownKeys(aObj, ["name", "boneTimelines", "slotTimelines", "eventTimelines", "deformTimelines"], ctx)
     let animName = requiredString(aObj, "name", ctx)
     if animName.len == 0:
       raise newBonyLoadError(schemaViolation, ctx & ".name must not be empty")
@@ -1015,7 +1015,37 @@ proc parseBonyAnimations(root: JsonNode; data: SkeletonData): Table[string, Anim
             )
           deformKeys.add deformKeyframe(kfTime, uint32(offset), deltas, parseCurveFromNode(kfObj, "curve", kfCtx))
         deformTimelines.add deformTimeline(skin, slot, mesh, deformKeys)
-    result[animName] = animationClip(data, animName, boneTimelines, slotTimelines, deformTimelines = deformTimelines)
+    var eventTimelines: seq[EventTimeline] = @[]
+    if aObj.hasKey("eventTimelines"):
+      let etListNode = requireArray(aObj["eventTimelines"], ctx & ".eventTimelines")
+      for etIndex, etNode in etListNode.elems:
+        let etCtx = ctx & ".eventTimelines[" & $etIndex & "]"
+        let etObj = requireObject(etNode, etCtx)
+        validateKnownKeys(etObj, ["keyframes"], etCtx)
+        if not etObj.hasKey("keyframes"):
+          raise newBonyLoadError(schemaViolation, etCtx & ".keyframes is required")
+        let kfListNode = requireArray(etObj["keyframes"], etCtx & ".keyframes")
+        var eventKeys: seq[EventKeyframe] = @[]
+        for kfIndex, kfNode in kfListNode.elems:
+          let kfCtx = etCtx & ".keyframes[" & $kfIndex & "]"
+          let kfObj = requireObject(kfNode, kfCtx)
+          validateKnownKeys(kfObj,
+            ["t", "name", "intValue", "floatValue", "stringValue", "audioPath", "volume", "balance"], kfCtx)
+          let kfTime = requiredF64(kfObj, "t", kfCtx)
+          let evName = requiredString(kfObj, "name", kfCtx)
+          let intValue = optionalInt(kfObj, "intValue", 0, kfCtx)
+          if intValue < int(low(int32)) or intValue > int(high(int32)):
+            raise newBonyLoadError(numericOutOfRange, kfCtx & ".intValue is out of int32 range")
+          let floatValue = optionalFloat(kfObj, "floatValue", 0.0, kfCtx)
+          let stringValue = optionalString(kfObj, "stringValue", "", kfCtx)
+          let audioPath = optionalString(kfObj, "audioPath", "", kfCtx)
+          let volume = optionalFloat(kfObj, "volume", 1.0, kfCtx)
+          let balance = optionalFloat(kfObj, "balance", 0.0, kfCtx)
+          let event = eventData(evName, int32(intValue), floatValue, stringValue, audioPath, volume, balance)
+          eventKeys.add eventKeyframe(kfTime, event)
+        eventTimelines.add eventTimeline(eventKeys)
+    result[animName] = animationClip(data, animName, boneTimelines, slotTimelines,
+      eventTimelines = eventTimelines, deformTimelines = deformTimelines)
 
 
 proc parseBonyStateMachines(
@@ -1484,6 +1514,48 @@ proc appendAnimationsJson(result: var string; animations: openArray[AnimationCli
             result.addIndent(indent + 6)
             result.add "]"
             result.appendCurveFields(key.curve, indent + 6, kFirst)
+            result.add "\n"
+            result.addIndent(indent + 5)
+            result.add "}"
+          result.add "\n"
+          result.addIndent(indent + 4)
+          result.add "]\n"
+          result.addIndent(indent + 3)
+          result.add "}"
+        result.add "\n"
+        result.addIndent(indent + 2)
+        result.add "]"
+      if anim.eventTimelines.len > 0:
+        result.addFieldPrefix("eventTimelines", indent + 2, first)
+        result.add "[\n"
+        for tlIndex, timeline in anim.eventTimelines:
+          if tlIndex > 0:
+            result.add ",\n"
+          result.addIndent(indent + 3)
+          result.add "{\n"
+          var tlFirst = true
+          result.addFieldPrefix("keyframes", indent + 4, tlFirst)
+          result.add "[\n"
+          for keyIndex, key in timeline.keys:
+            if keyIndex > 0: result.add ",\n"
+            result.addIndent(indent + 5)
+            result.add "{\n"
+            var kFirst = true
+            let event = key.event
+            result.addNumberField("t", key.time, indent + 6, kFirst)
+            result.addStringField("name", event.name, indent + 6, kFirst)
+            if event.intValue != 0:
+              result.addIntField("intValue", int(event.intValue), indent + 6, kFirst)
+            if event.floatValue != 0.0:
+              result.addNumberField("floatValue", event.floatValue, indent + 6, kFirst)
+            if event.stringValue.len > 0:
+              result.addStringField("stringValue", event.stringValue, indent + 6, kFirst)
+            if event.audioPath.len > 0:
+              result.addStringField("audioPath", event.audioPath, indent + 6, kFirst)
+            if event.volume != 1.0:
+              result.addNumberField("volume", event.volume, indent + 6, kFirst)
+            if event.balance != 0.0:
+              result.addNumberField("balance", event.balance, indent + 6, kFirst)
             result.add "\n"
             result.addIndent(indent + 5)
             result.add "}"

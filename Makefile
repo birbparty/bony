@@ -30,3 +30,4 @@ test:
 	cd runtime-nim && nim c -r --hints:off tests/test_bnb_byte_stability.nim
 	cd runtime-nim && nim c -r --hints:off tests/test_bnb_fuzz.nim
 	cd runtime-nim && nim c -r --hints:off tests/test_json_bnb_json_idempotency.nim
+	cd runtime-nim && nim c -r --hints:off tests/test_event_timeline.nim
