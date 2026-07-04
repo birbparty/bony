@@ -40,14 +40,15 @@ contains two field-type inaccuracies corrected here.
 
 ## (2) volume / balance bounds — CONFIRMED "carried verbatim" (with a type correction)
 
-- **CORRECTION to prompt 27:** the Nim source declares `volume`, `balance`, AND
-  `floatValue` as **`float64`**, not `float32`. `EventData` (`timelines.nim`
-  ~:99–106):
+- **CORRECTION to prompt 27:** the Nim source declares `volume` and `balance` as
+  **`float64`**, not `float32`. (Prompt 27 already had `floatValue` right as
+  `f64/f32-quantized`; only `volume`/`balance` were mis-labeled `f32` there.)
+  `EventData` (`timelines.nim` ~:99–106):
   ```nim
   EventData* = object
     name*: string
     intValue*: int32
-    floatValue*: float64   # prompt 27 said "f32" — actually f64 declared
+    floatValue*: float64   # prompt 27: "f64/f32-quantized" — matches source
     stringValue*: string
     audioPath*: string
     volume*: float64       # prompt 27 said "f32" — actually f64 declared
@@ -67,6 +68,15 @@ contains two field-type inaccuracies corrected here.
   as **carried verbatim modulo f32 quantization** — invents no clamp. The declared
   type is `float64` but effective precision is `f32` (quantized on construction),
   and cross-runtime compare tolerance is `1e-4` per `docs/float-math-contract.md`.
+- **WIRE WIDTH (packed layout — do NOT emit f64):** `floatValue`, `volume`, and
+  `balance` each pack on the `.bnb` wire as a **4-byte little-endian IEEE-754 f32**,
+  NOT 8-byte f64. The `float64` above is an in-memory runtime type only; every
+  value is `quantizeF32`'d on construction, so 4-byte f32 on the wire is lossless
+  and required for parity. This mirrors how every other timeline float payload is
+  written — `writeF32To` → `writeF32Payload` (`binary/semantic.nim` ~:678–679, :203)
+  — and matches the deform packed layout (`docs/deform-timeline-contract.md`
+  "Packed deformTimeline byte layout"). The packed-layout author (prompt 28) MUST
+  pin `floatValue`/`volume`/`balance` = f32, alongside `intValue` = svarint (§3).
 
 ## (3) intValue encoding — CONFIRMED svarint (zigzag LEB128), not fixed i32
 
@@ -137,6 +147,11 @@ contains two field-type inaccuracies corrected here.
   same way it reaches deform records. Rationale: prompt 27 designates deform
   (prompt 23) as the closest landed analog; consistency with it minimizes new
   loader surface in prompt 28.
+- **Name note for prompt 28:** the auto-emitted root-level binary collection and
+  the per-clip canonical-JSON array (§4) both use the literal name `eventTimelines`
+  — this is the same dual-name shape `deformTimelines` already has, so the loader
+  reaches records via the root `eventTimelines` collection exactly as it does for
+  `deformTimelines`. No name disambiguation is needed.
 
 ## Codegen touchpoints for prompt 28 (confirmed to exist)
 
@@ -155,10 +170,14 @@ contains two field-type inaccuracies corrected here.
 
 ## Net corrections carried forward (do not lose these)
 
-1. `volume`/`balance`/`floatValue` are declared **`float64`** (not f32 as prompt 27
-   states), f32-quantized on construction, **never clamped** → "carried verbatim".
-2. `intValue` packs as **zigzag signed varint (svarint)**, never fixed i32.
+1. `volume`/`balance` are declared **`float64`** (prompt 27 mis-labeled them `f32`;
+   `floatValue` was already correct as f64/f32-quantized). All three are
+   f32-quantized on construction, **never clamped** → "carried verbatim".
+2. **Packed wire widths:** `floatValue`/`volume`/`balance` pack as **4-byte f32**
+   (NOT f64 — the runtime `float64` is in-memory only); `intValue` packs as a
+   **zigzag signed varint (svarint)**, never fixed i32.
 3. `eventTimeline` is **NOT** hidden → auto-emits a root-level `eventTimelines`
-   collection (mirrors deformTimeline).
+   collection (mirrors deformTimeline); root collection and per-clip array share
+   that name, as `deformTimelines` already does.
 4. There is **no existing event serialization** to reuse; the packed layout is
    minted by this milestone, mirroring deform/timeline conventions.
