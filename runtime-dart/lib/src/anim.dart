@@ -192,6 +192,12 @@ void validateDeformTimeline(DeformTimeline timeline) {
   }
   for (var i = 0; i < timeline.keys.length; i++) {
     final key = timeline.keys[i];
+    // Nim quantizeF32 raises on non-finite before the sign check; Dart's
+    // quantizeF32 silently round-trips NaN/Inf, so guard finiteness explicitly to
+    // reject the same key times Nim does (numericOutOfRange -> domain error).
+    if (!key.time.isFinite) {
+      throw const FormatException('deform key time must be a finite f32 value');
+    }
     if (quantizeF32(key.time) < 0) {
       throw const FormatException('deform key time must be non-negative');
     }
@@ -208,6 +214,13 @@ void validateDeformTimeline(DeformTimeline timeline) {
     if (i > 0 && timeline.keys[i - 1].time >= key.time) {
       throw const FormatException(
           'deform key times must be strictly increasing');
+    }
+    // Nim validateDeformKey routes every delta through quantizeF32, which raises
+    // on non-finite; mirror that so a NaN/Inf delta can't reach a rendered vertex.
+    for (final d in key.deltas) {
+      if (!d.x.isFinite || !d.y.isFinite) {
+        throw const FormatException('deform delta must be a finite f32 value');
+      }
     }
   }
 }

@@ -141,6 +141,26 @@ void main() {
           throwsFormatException);
     });
 
+    test('non-finite key time raises FormatException', () {
+      // Nim quantizeF32 raises numericOutOfRange on NaN/Inf; Dart's silently
+      // round-trips, so the explicit finiteness guard keeps parity.
+      for (final t in const [double.nan, double.infinity, double.negativeInfinity]) {
+        final timeline = _timeline(keys: [
+          DeformKeyframe(time: t, offset: 0, deltas: const [MeshDelta(x: 1, y: 0)]),
+        ]);
+        expect(() => sampleDeformDeltas(timeline, 0.0), throwsFormatException,
+            reason: 'time=$t');
+      }
+    });
+
+    test('non-finite delta raises FormatException', () {
+      final timeline = _timeline(keys: const [
+        DeformKeyframe(
+            time: 0.0, offset: 0, deltas: [MeshDelta(x: double.nan, y: 0)]),
+      ]);
+      expect(() => sampleDeformDeltas(timeline, 0.0), throwsFormatException);
+    });
+
     test('a valid timeline still samples its dense deltas', () {
       final timeline = _timeline(keys: const [
         DeformKeyframe(time: 0.0, offset: 0, deltas: [MeshDelta(x: 2, y: 0)]),
