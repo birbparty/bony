@@ -66,6 +66,12 @@ PACKED_BYTES_METADATA: dict[str, dict[str, Any]] = {
         "structuralSchema": "base64Only",
         "validatedBy": "loader",
     },
+    "eventKeys": {
+        "payload": "eventTimelineKeys",
+        "layout": "docs/event-timeline-contract.md#packed-eventtimeline-byte-layout-bnb",
+        "structuralSchema": "base64Only",
+        "validatedBy": "loader",
+    },
 }
 
 
@@ -605,6 +611,29 @@ def canonical_json_overrides() -> dict[str, Any]:
             "required": ["t"],
         },
     }
+    # Event keyframes enumerate the readable EventData fields (docs/event-timeline-contract.md
+    # "Model"); optional-field defaults mirror the eventData constructor
+    # (runtime-nim/src/bony/anim/timelines.nim eventData). Unlike bone/slot/deform keyframes
+    # (which carry unenumerated packed fields), the event keyframe shape is fully specified.
+    event_keyframes = {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "t": {"type": "number"},
+                "name": named_string,
+                "intValue": {"type": "integer", "default": 0},
+                "floatValue": {"type": "number", "default": 0.0},
+                "stringValue": {"type": "string", "default": ""},
+                "audioPath": {"type": "string", "default": ""},
+                "volume": {"type": "number", "default": 1.0},
+                "balance": {"type": "number", "default": 0.0},
+            },
+            "required": ["name", "t"],
+        },
+    }
     return {
         "ikConstraint": {
             "type": "object",
@@ -809,6 +838,11 @@ def canonical_json_overrides() -> dict[str, Any]:
                     "items": {"$ref": "#/$defs/deformTimeline"},
                     "default": [],
                 },
+                "eventTimelines": {
+                    "type": "array",
+                    "items": {"$ref": "#/$defs/eventTimeline"},
+                    "default": [],
+                },
             },
             "required": ["name"],
         },
@@ -861,6 +895,14 @@ def canonical_json_overrides() -> dict[str, Any]:
                 "keyframes": keyframes,
             },
             "required": ["attachment", "keyframes", "skin", "slot", "vertexCount"],
+        },
+        "eventTimeline": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "keyframes": event_keyframes,
+            },
+            "required": ["keyframes"],
         },
         "stateMachine": {
             "type": "object",

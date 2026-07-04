@@ -210,6 +210,40 @@ documentation prose.
 - **CI enforcement**: registry/defaults/codegen consistency is enforced by
   `codegen/generate.py --check`; clean-room posture is enforced by code review.
 
+### Event Timeline Schema Names (2026-07-04)
+
+- **Reason needed**: The M3 event-timeline milestone (epic `bony-0ofc`, prompt 27)
+  serializes `bony`'s pre-existing (previously non-serialized) clip-owned event
+  runtime and needs project-owned identifiers for its record type, packed property,
+  canonical-JSON fields, and dispatch golden channel.
+- **Classification**: project-owned design — not an external source of
+  implementation truth.
+- **What is recorded**: the serialized identifiers `eventTimeline` (type `2003`) and
+  `eventKeys` (bytes property `2005`) in the M3 band; the net-new serialized names
+  `eventTimelines` (the clip-owned array) and `animationEvents` (the numeric-golden
+  dispatch channel, deliberately distinct from the M8 state-machine `events` array);
+  and the canonical-JSON keyframe field names `t`, `name`, `intValue`, `floatValue`,
+  `stringValue`, `audioPath`, `volume`, `balance` were taken from `bony`'s own
+  pre-existing event runtime types in `runtime-nim/src/bony/anim/timelines.nim`
+  (`EventData`, `EventKeyframe`, `EventTimeline`) and `runtime-nim/src/bony/anim/mixer.nim`
+  (`DispatchedEvent`) and generic animation terminology — **not** from any surveyed
+  product. The record model, the **non-decreasing** (not strictly increasing) time
+  rule, the audio-metadata-only non-goal, and the packed `eventKeys` byte layout
+  (svarint `intValue`, `f32` value floats, string-table-interned strings, no curve
+  tail) are specified in `docs/event-timeline-contract.md`.
+- **Source**: none. The names, field set, string/int encoding, dispatch semantics,
+  and type/property keys were **not** derived from any third-party runtime's event
+  field set, wire layout, keys, or documentation prose (DragonBones, Spine, Rive,
+  Live2D, Lottie).
+- **Cleanroom compliance**: confirmed against the `docs/CLEANROOM.md` review
+  checklist — the record can be explained from `bony`'s own event runtime,
+  `docs/event-timeline-contract.md`, and the pre-existing string-table/varint/f32 wire
+  primitives; the new identifiers, keys (type `2003`, property `2005` in the M3 band),
+  child object ordering, and binary encoding are project-owned and documented in
+  `registry/`, `spec/`, and `docs/`; no build step fetches prior-art source.
+- **CI enforcement**: registry/defaults/codegen consistency is enforced by
+  `codegen/generate.py --check`; clean-room posture is enforced by code review.
+
 ## Source Introduction Rule
 
 When a new external dependency, reference, algorithm paper, or importer input

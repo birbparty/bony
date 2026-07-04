@@ -315,7 +315,7 @@ typeKeys:
     status: active
     milestone: M3
     ownerBead: bony-cl8.9
-    doc: Animation clip parent record; followed by owned boneTimeline and slotTimeline records.
+    doc: Animation clip parent record; followed by owned boneTimeline, slotTimeline, deformTimeline, then eventTimeline records, in that emitted order.
   - id: boneTimeline
     key: 2001
     status: active
@@ -328,6 +328,12 @@ typeKeys:
     milestone: M3
     ownerBead: bony-cl8.9
     doc: Slot animation timeline child record owned by the most recent animationClip.
+  - id: eventTimeline
+    key: 2003
+    status: active
+    milestone: M3
+    ownerBead: bony-0ofc
+    doc: Clip-owned (target-less) event timeline child record owned by the most recent animationClip; see docs/event-timeline-contract.md.
   - id: stateMachine
     key: 7000
     status: active
@@ -966,6 +972,13 @@ propertyKeys:
     milestone: M3
     ownerBead: bony-cl8.9
     doc: Packed timeline keyframe payload; see docs/binary-animation-state-machine-object-families.md.
+  - id: eventKeys
+    key: 2005
+    backingType: bytes
+    status: active
+    milestone: M3
+    ownerBead: bony-0ofc
+    doc: Packed event keyframe payload; see docs/event-timeline-contract.md#packed-eventtimeline-byte-layout-bnb.
   - id: stateMachineInputKind
     key: 7000
     backingType: varuint
@@ -1265,7 +1278,7 @@ objects:
   - type: animationClip
     properties:
       - name
-    doc: Animation clip parent record; followed immediately by owned boneTimeline, slotTimeline, and deformTimeline records.
+    doc: Animation clip parent record; followed immediately by owned boneTimeline, slotTimeline, deformTimeline, then eventTimeline records, in that order.
   - type: boneTimeline
     properties:
       - boneIndex
@@ -1286,6 +1299,10 @@ objects:
       - deformVertexCount
       - deformKeys
     doc: Deform timeline child record owned by the most recent animationClip; animates a mesh attachment's per-vertex offsets.
+  - type: eventTimeline
+    properties:
+      - eventKeys
+    doc: Clip-owned (target-less) event timeline child record owned by the most recent animationClip; carries only the packed event keyframe payload.
   - type: stateMachine
     properties:
       - name

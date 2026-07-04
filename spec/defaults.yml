@@ -366,6 +366,9 @@ objectDefaults:
   - object: deformTimeline
     ownerBead: bony-68lj
     properties: {}
+  - object: eventTimeline
+    ownerBead: bony-0ofc
+    properties: {}
   - object: stateMachine
     ownerBead: bony-cl8.9
     properties: {}
@@ -703,6 +706,10 @@ requiredProperties:
     property: deformKeys
     reason: Deform timelines need packed keyframe data.
     ownerBead: bony-68lj
+  - object: eventTimeline
+    property: eventKeys
+    reason: Event timelines carry all keyframe data (time + EventData fields) in the packed eventKeys payload; it is the record's only property.
+    ownerBead: bony-0ofc
   - object: stateMachine
     property: name
     reason: State machines are referenced by stable unique names.

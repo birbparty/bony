@@ -129,6 +129,12 @@
         "$ref": "#/$defs/slotTimeline"
       }
     },
+    "eventTimelines": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/eventTimeline"
+      }
+    },
     "stateMachines": {
       "type": "array",
       "items": {
@@ -1192,6 +1198,25 @@
         "deformSkin",
         "deformVertexCount",
         "slot"
+      ]
+    },
+    "eventTimeline": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "eventKeys": {
+          "type": "string",
+          "contentEncoding": "base64",
+          "x-bony-packedBytes": {
+            "payload": "eventTimelineKeys",
+            "layout": "docs/event-timeline-contract.md#packed-eventtimeline-byte-layout-bnb",
+            "structuralSchema": "base64Only",
+            "validatedBy": "loader"
+          }
+        }
+      },
+      "required": [
+        "eventKeys"
       ]
     },
     "stateMachine": {

@@ -93,6 +93,12 @@
         "$ref": "#/$defs/animationClip"
       }
     },
+    "eventTimelines": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/eventTimeline"
+      }
+    },
     "stateMachines": {
       "type": "array",
       "items": {
@@ -1111,6 +1117,13 @@
             "$ref": "#/$defs/deformTimeline"
           },
           "default": []
+        },
+        "eventTimelines": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/eventTimeline"
+          },
+          "default": []
         }
       },
       "required": [
@@ -1249,6 +1262,60 @@
         "skin",
         "slot",
         "vertexCount"
+      ]
+    },
+    "eventTimeline": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "keyframes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "t": {
+                "type": "number"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "intValue": {
+                "type": "integer",
+                "default": 0
+              },
+              "floatValue": {
+                "type": "number",
+                "default": 0.0
+              },
+              "stringValue": {
+                "type": "string",
+                "default": ""
+              },
+              "audioPath": {
+                "type": "string",
+                "default": ""
+              },
+              "volume": {
+                "type": "number",
+                "default": 1.0
+              },
+              "balance": {
+                "type": "number",
+                "default": 0.0
+              }
+            },
+            "required": [
+              "name",
+              "t"
+            ]
+          }
+        }
+      },
+      "required": [
+        "keyframes"
       ]
     },
     "stateMachine": {
