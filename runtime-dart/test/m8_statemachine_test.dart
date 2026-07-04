@@ -368,6 +368,85 @@ void main() {
     });
   });
 
+  group('M8 MixedPose channel completeness guard (bony-bna8)', () {
+    // Mirrors the Nim completeness guard: a fixture whose clip drives ALL eight
+    // MixedPose channels, pushed through the blend1D (_blendPoses/_addWeighted)
+    // and multi-layer overlay (_overlayPose) aggregators. If a channel is dropped
+    // by any aggregator (as deforms was in blend1D), it shows up empty here.
+    // Dart lacks cheap field reflection, so the enumeration is explicit — adding
+    // a channel #9 means adding it to _droppedChannels and to the fixture.
+    const fixture = '{"skeleton":{"name":"allchan"},'
+        '"bones":[{"name":"root"}],'
+        '"slots":[{"name":"body","bone":"root","attachment":""},'
+        '{"name":"meshSlot","bone":"root","attachment":"cloth"}],'
+        '"regions":[{"name":"idle","width":1,"height":1},'
+        '{"name":"wave","width":1,"height":1}],'
+        '"meshAttachments":[{"name":"cloth","weighted":false,'
+        '"vertices":[{"x":0,"y":0},{"x":50,"y":0},{"x":0,"y":50}],'
+        '"uvs":[0,0,1,0,0,1],"triangles":[0,1,2]}],'
+        '"animations":[{"name":"all",'
+        '"boneTimelines":['
+        '{"bone":"root","property":"rotate","keyframes":[{"t":0.0,"value":30}]},'
+        '{"bone":"root","property":"translate","keyframes":[{"t":0.0,"x":4,"y":5}]},'
+        '{"bone":"root","property":"inherit","keyframes":[{"t":0.0}]}'
+        '],'
+        '"slotTimelines":['
+        '{"slot":"body","property":"attachment","keyframes":[{"t":0.0,"attachment":"idle"}]},'
+        '{"slot":"body","property":"rgba","keyframes":[{"t":0.0,"r":0.5,"g":0.25,"b":0.75,"a":1}]},'
+        '{"slot":"body","property":"rgba2","keyframes":[{"t":0.0,"r":1,"g":1,"b":1,"a":1,"dr":0.1,"dg":0.2,"db":0.3}]},'
+        '{"slot":"body","property":"sequence","keyframes":[{"t":0.0,"index":2,"delay":0.1,"mode":"loop"}]}'
+        '],'
+        '"deformTimelines":[{"skin":"default","slot":"meshSlot","attachment":"cloth",'
+        '"vertexCount":3,"keyframes":[{"t":0.0,"offset":0,"deltas":[{"x":2,"y":0}]}]}]'
+        '}],'
+        '"stateMachines":['
+        '{"name":"blendm","inputs":[{"name":"speed","kind":"number"}],'
+        '"layers":[{"name":"base","states":['
+        '{"name":"move","kind":"blend1d","blendInput":"speed",'
+        '"blendClips":[{"clip":"all","value":0.0},{"clip":"all","value":1.0}]}'
+        '],"transitions":[]}]},'
+        '{"name":"overlaym","inputs":[],'
+        '"layers":['
+        '{"name":"base","states":[{"name":"hold","kind":"clip","clip":"all"}],"transitions":[]},'
+        '{"name":"overlay","states":[{"name":"hold","kind":"clip","clip":"all"}],"transitions":[]}'
+        ']}'
+        ']}';
+
+    late SkeletonData chanData;
+
+    List<String> droppedChannels(MixedPose p) => [
+          if (p.scalars.isEmpty) 'scalars',
+          if (p.vectors.isEmpty) 'vectors',
+          if (p.attachments.isEmpty) 'attachments',
+          if (p.inherits.isEmpty) 'inherits',
+          if (p.colors.isEmpty) 'colors',
+          if (p.colors2.isEmpty) 'colors2',
+          if (p.sequences.isEmpty) 'sequences',
+          if (p.deforms.isEmpty) 'deforms',
+        ];
+
+    setUpAll(() {
+      chanData = loadBonyJson(fixture);
+    });
+
+    test('blend1D aggregation drops no MixedPose channel', () {
+      final sm = chanData.stateMachines.firstWhere((s) => s.name == 'blendm');
+      final rt = initStateMachineRuntime(sm);
+      rt.setNumberInput('speed', 0.75);
+      rt.update(0.0);
+      final eval = rt.evaluate(chanData);
+      expect(droppedChannels(eval.pose), isEmpty);
+    });
+
+    test('multi-layer overlay aggregation drops no MixedPose channel', () {
+      final sm = chanData.stateMachines.firstWhere((s) => s.name == 'overlaym');
+      final rt = initStateMachineRuntime(sm);
+      rt.update(0.0);
+      final eval = rt.evaluate(chanData);
+      expect(droppedChannels(eval.pose), isEmpty);
+    });
+  });
+
   group('M8 cross-reference validation', () {
     // Minimal fixture with two animations, two inputs, two layers, and a listener.
     // Each test breaks exactly one cross-reference.
