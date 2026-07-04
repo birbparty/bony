@@ -3944,6 +3944,21 @@ spec "bony package":
     let half = sampleDeformDeltas(deform, 0.5)
     let finalDeltas = sampleDeformDeltas(deform, 1.0)
 
+    # (a) drive the SAME interpolation through the full mixer -> buildDrawBatches
+    # path at the midpoint and endpoint too, so the draw-path offset is exercised
+    # at three distinct times (t=0.0/0.5/1.0), not only t=0: the batch's per-vertex
+    # delta from base must equal the directly-sampled delta at each time.
+    let atHalf = posedBatches(0.5)
+    let atFinal = posedBatches(1.0)
+    var drawPathInterpMatches =
+      atHalf[0].vertices.len == 3 and atFinal[0].vertices.len == 3
+    for i in 0 ..< 3:
+      if not closeTo(atHalf[0].vertices[i].x - base[0].vertices[i].x, half[i].x) or
+         not closeTo(atHalf[0].vertices[i].y - base[0].vertices[i].y, half[i].y) or
+         not closeTo(atFinal[0].vertices[i].x - base[0].vertices[i].x, finalDeltas[i].x) or
+         not closeTo(atFinal[0].vertices[i].y - base[0].vertices[i].y, finalDeltas[i].y):
+        drawPathInterpMatches = false
+
     # (b) a stepped-curve deform key holds until the next key.
     let meshA = skel.meshAttachments[0]
     let stepped = deformTimeline("default", "slotA", meshA,
@@ -3969,6 +3984,7 @@ spec "bony package":
 
     then:
       applyMatches
+      drawPathInterpMatches
       noLeak
       closeTo(half[0].x, 2.0)
       closeTo(half[1].y, 3.0)
