@@ -368,6 +368,65 @@ void main() {
     });
   });
 
+  group('M8 blend asymmetric-clip setup fallback (bony-6dkk)', () {
+    // The low and high blend clips drive DIFFERENT bones, so each numeric channel
+    // is present in only one clip. _blendPoses must union the channels and fall
+    // back to the SETUP pose for the side that lacks a key (setupScalar/
+    // setupVector). Mirrors the Nim guard; pins Nim<->Dart parity on this path.
+    const fixture = '{"skeleton":{"name":"allasym"},'
+        '"bones":[{"name":"root"},'
+        '{"name":"a","parent":"root","x":100,"y":200,"rotation":10},'
+        '{"name":"b","parent":"root","x":300,"y":400,"rotation":20}],'
+        '"animations":['
+        '{"name":"low","boneTimelines":['
+        '{"bone":"a","property":"rotate","keyframes":[{"t":0.0,"value":40}]},'
+        '{"bone":"a","property":"translate","keyframes":[{"t":0.0,"x":4,"y":6}]}'
+        ']},'
+        '{"name":"high","boneTimelines":['
+        '{"bone":"b","property":"rotate","keyframes":[{"t":0.0,"value":80}]},'
+        '{"bone":"b","property":"translate","keyframes":[{"t":0.0,"x":10,"y":2}]}'
+        ']}'
+        '],'
+        '"stateMachines":[{"name":"m",'
+        '"inputs":[{"name":"speed","kind":"number"}],'
+        '"layers":[{"name":"base","states":['
+        '{"name":"move","kind":"blend1d","blendInput":"speed",'
+        '"blendClips":[{"clip":"low","value":0.0},{"clip":"high","value":1.0}]}'
+        '],"transitions":[]}]'
+        '}]}';
+
+    late SkeletonData asymData;
+    late StateMachineData asymSm;
+
+    setUpAll(() {
+      asymData = loadBonyJson(fixture);
+      asymSm = asymData.stateMachines[0];
+    });
+
+    test('unions both clips channels with setup-pose fallback at t=0.5', () {
+      final rt = initStateMachineRuntime(asymSm);
+      rt.setNumberInput('speed', 0.5);
+      final eval = rt.evaluate(asymData);
+      // Union of both clips (sorted a before b), not just the winner's channels.
+      expect(eval.pose.scalars, hasLength(2));
+      expect(eval.pose.scalars[0].bone, 'a');
+      expect(eval.pose.scalars[1].bone, 'b');
+      // a: low=40, high falls back to setup rotation 10 -> 40 + (10-40)*0.5 = 25.
+      expect((eval.pose.scalars[0].value - 25.0).abs(), lessThanOrEqualTo(1e-4));
+      // b: low falls back to setup rotation 20, high=80 -> 20 + (80-20)*0.5 = 50.
+      expect((eval.pose.scalars[1].value - 50.0).abs(), lessThanOrEqualTo(1e-4));
+      expect(eval.pose.vectors, hasLength(2));
+      expect(eval.pose.vectors[0].bone, 'a');
+      expect(eval.pose.vectors[1].bone, 'b');
+      // a: low=(4,6), high falls back to setup (100,200) -> (52,103).
+      expect((eval.pose.vectors[0].x - 52.0).abs(), lessThanOrEqualTo(1e-4));
+      expect((eval.pose.vectors[0].y - 103.0).abs(), lessThanOrEqualTo(1e-4));
+      // b: low falls back to setup (300,400), high=(10,2) -> (155,201).
+      expect((eval.pose.vectors[1].x - 155.0).abs(), lessThanOrEqualTo(1e-4));
+      expect((eval.pose.vectors[1].y - 201.0).abs(), lessThanOrEqualTo(1e-4));
+    });
+  });
+
   group('M8 MixedPose channel completeness guard (bony-bna8)', () {
     // Mirrors the Nim completeness guard: a fixture whose clip drives ALL eight
     // MixedPose channels, pushed through the blend1D (_blendPoses/_addWeighted)

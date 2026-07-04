@@ -5370,6 +5370,70 @@ spec "bony package":
     then:
       droppedChannels(evaluated.pose) == newSeq[string]()
 
+  it "blends asymmetric clips per-channel with setup-pose fallback":
+    # bony-6dkk: the low and high blend clips drive DIFFERENT bones, so each
+    # numeric channel is present in only one clip. blendedPose must union the
+    # channels and fall back to the SETUP pose value for the side that lacks a
+    # key (setupScalarValue/setupVectorValue) — the completeness guard uses
+    # identical clips and never exercises these per-channel fallback branches.
+    let bones = @[
+      boneData("root", ""),
+      boneData("a", "root", localTransform(x = 100.0, y = 200.0, rotation = 10.0)),
+      boneData("b", "root", localTransform(x = 300.0, y = 400.0, rotation = 20.0)),
+    ]
+    var dataValue = skeletonData(skeletonHeader("demo", "0.1.0"), bones)
+    let data = new SkeletonData
+    data[] = dataValue
+    let low = animationClip(
+      data[],
+      "low",
+      @[
+        boneScalarTimeline("a", rotateTimeline, @[scalarKeyframe(0.0, 40.0)]),
+        boneVectorTimeline("a", translateTimeline, @[vector2Keyframe(0.0, 4.0, 6.0)]),
+      ],
+    )
+    let high = animationClip(
+      data[],
+      "high",
+      @[
+        boneScalarTimeline("b", rotateTimeline, @[scalarKeyframe(0.0, 80.0)]),
+        boneVectorTimeline("b", translateTimeline, @[vector2Keyframe(0.0, 10.0, 2.0)]),
+      ],
+    )
+    let machine = stateMachine(
+      "machine",
+      @[
+        stateMachineLayer(
+          "base",
+          @[stateMachineBlendState("move", "speed",
+            @[stateMachineBlendClip(low, 0.0), stateMachineBlendClip(high, 1.0)])],
+        ),
+      ],
+      @[stateMachineNumberInput("speed", 0.5)],
+    )
+    var rt = initStateMachineRuntime(machine)
+    rt.setNumberInput("speed", 0.5)
+    let evaluated = rt.evaluate(data)
+
+    then:
+      # Union of both clips' channels (sorted a before b), not just the winner's.
+      evaluated.pose.scalars.len == 2
+      evaluated.pose.scalars[0].target == "a"
+      evaluated.pose.scalars[1].target == "b"
+      # a: keyed low=40, high falls back to setup rotation 10 -> 40 + (10-40)*0.5 = 25.
+      closeTo(evaluated.pose.scalars[0].value, 25.0)
+      # b: low falls back to setup rotation 20, keyed high=80 -> 20 + (80-20)*0.5 = 50.
+      closeTo(evaluated.pose.scalars[1].value, 50.0)
+      evaluated.pose.vectors.len == 2
+      evaluated.pose.vectors[0].target == "a"
+      evaluated.pose.vectors[1].target == "b"
+      # a: keyed low=(4,6), high falls back to setup (100,200) -> (52,103).
+      closeTo(evaluated.pose.vectors[0].x, 52.0)
+      closeTo(evaluated.pose.vectors[0].y, 103.0)
+      # b: low falls back to setup (300,400), keyed high=(10,2) -> (155,201).
+      closeTo(evaluated.pose.vectors[1].x, 155.0)
+      closeTo(evaluated.pose.vectors[1].y, 201.0)
+
   it "threads every MixedPose channel through multi-layer overlay aggregation":
     # Completeness guard (bony-bna8): the overlayPose seam aggregates layers. Two
     # layers each drive all 8 channels; none may drop from the aggregated pose.
