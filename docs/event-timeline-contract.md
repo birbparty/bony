@@ -141,8 +141,9 @@ existing standalone validators `validateEventName` (`timelines.nim:210–212`),
 4. **Non-empty event name** — every keyframe's `event.name` is non-empty
    (`validateEventName`).
 5. **Quantizable value floats** — every keyframe's `floatValue`, `volume`, and `balance`
-   are finite and `f32`-quantizable (`validateEventData` re-quantizes them as a
-   round-trip check). They are **not** range-checked (see edge case (e)).
+   are `f32`-quantized (`validateEventData` re-quantizes them as a round-trip check,
+   per `quantizeF32`/`docs/float-math-contract.md`). They are **not** range-checked
+   (see edge case (e)).
 
 All float components (`time`, `floatValue`, `volume`, `balance`) are quantized to `f32`
 on construction per `docs/float-math-contract.md`; the same `1e-4` cross-runtime
@@ -165,50 +166,73 @@ validate).
 | (d) zero keyframes on a declared event timeline | **Reject** — an event timeline must contain at least one keyframe (`schemaViolation`, `requireKeys`). |
 | (e) `volume` / `balance` outside any particular range | **Accepted, carried verbatim.** The runtime imposes **no** `0..1` / `-1..1` (or any) clamp on `volume`/`balance`/`floatValue`: `eventData` only `f32`-quantizes them (`timelines.nim:474,477–478`) and the mixer copies the event through unchanged (`mixer.nim:217,224`). `quantizeChannel`'s `0..1` clamp (`timelines.nim:221–224`) applies to **colors only**, never events, and the mixer's `clamp01` (`mixer.nim:95`) applies to track alpha/weights, never event fields. This contract invents **no** clamp the runtime does not have. |
 
-## Packed `eventKeys` byte layout (`.bnb`)
+## Packed `eventTimeline` byte layout (`.bnb`)
 
 The keyframe payload is carried by the **`eventKeys`** property (M3 propertyKey `2005`,
 `backingType: bytes`), minted by the registry/codegen slices. The property's
 `x-bony-packedBytes` `layout` reference in the generated wire schema points at this
 section's stable anchor
-(`docs/event-timeline-contract.md#packed-eventkeys-byte-layout-bnb`), set in
+(`docs/event-timeline-contract.md#packed-eventtimeline-byte-layout-bnb`), set in
 `PACKED_BYTES_METADATA` (`codegen/generate.py`) keyed by `eventKeys` — a **new** entry,
 **not** a reuse of `timelineKeys` (`2004`), which already points at the curve-tailed
-bone/slot layout.
+bone/slot layout. (The anchor is named after the **record** — `eventTimeline` — mirroring
+the deform contract's `#packed-deformtimeline-byte-layout-bnb`, even though the carrying
+property is `eventKeys`.)
 
 **Strings intern into the global string table (`varuint` index, NOT inline bytes).**
 Each of the three per-keyframe strings (`name`, `stringValue`, `audioPath`) is encoded in
 the payload as a **`varuint` string-table index** — the same global-string-table mechanism
-object-level string properties (`bones`, `deformAttachment`) use — **not** as an inline
+that packed payloads already use for their internal strings — **not** as an inline
 `length` + UTF-8 run. This is **required** by the binding canonicalization contract, not a
 free choice: `docs/binary-canonicalization.md` §String Table mandates that the canonical
 writer "visit every string encoded anywhere inside emitted payloads, including strings
-nested inside future composite payloads" (`binary-canonicalization.md:116–118`) and, for
+nested inside future composite payloads" (`binary-canonicalization.md:117–118`) and, for
 this animation/state-machine slice specifically, that "if a future … packed payload
 includes strings, those strings **must be interned** at the point they are visited by that
 payload's explicitly declared packed field order" (`:215–218`); the M6 byte-stability gate
-checks exactly this (`:298–299`). `eventKeys` is the **first string-bearing packed
-payload**, so prompt 28 adds the interning-traversal for it (visiting `name`, then
-`stringValue`, then `audioPath` per keyframe in the frozen field order below) — this is
-obligatory under the canonicalization contract, so an inline encoding is **not** an
-option. (This supersedes prompt 27's provisional "inline lengths" recommendation, which
-prompt 27 explicitly gated on this very confirmation against
+checks exactly this (`:298–299`). So an inline encoding of `eventKeys` strings is **not** a
+conformant option. (This supersedes prompt 27's provisional "inline lengths"
+recommendation, which prompt 27 explicitly gated on this very confirmation against
 `docs/binary-canonicalization.md`.)
 
+`eventKeys` is **not** new machinery: string-bearing packed payloads already exist and
+already intern into the global table — deformer `blendAxes`
+(`writeBlendAxesPayload`/`readBlendAxesPayload`, `binary/semantic.nim:460–480`) and IK
+constraint `bones` (`writeBonesPayload`/`readBonesPayload`, `:508–525`) — so prompt 28
+**reuses** the existing `intern`/`stringAt` mechanism (`binary/framing.nim`) rather than
+adding a first-of-its-kind traversal. (Prompt 27's premise that this would be "the first
+string-bearing packed payload" is inaccurate; the precedent proves feasibility on both
+encode and decode.) The `deformAttachment` string, by contrast, is an **object-level**
+property, not a packed-payload-internal string — the packed-payload precedents to follow
+are `blendAxes` and IK `bones`.
+
+**Interning traversal order (row-major — pin for byte parity).** The canonical writer
+visits keyframes by **ascending key index** (`binary-canonicalization.md:210`, and
+array-like payloads "by ascending element index" `:121`), and within each keyframe the
+three strings in field order `name`, `stringValue`, `audioPath`. The full traversal is
+therefore `key0.name, key0.stringValue, key0.audioPath, key1.name, …` (row-major, **not**
+column-major). Prompt 28 MUST intern in this order so the emitted string-table indices —
+and thus the bytes — match across runtimes.
+
 Empty strings still intern: `stringValue`/`audioPath` may be empty, and the empty string
-is a valid table entry the index points at; `name` is non-empty (edge case (a)). The
-string table is emitted as a top-level section (`binary-canonicalization.md` header
-`bit1`, `:270`) and is resolvable during object/payload decode, exactly as it already is
-for `deformAttachment`.
+interns as an ordinary **first-seen** table entry the index points at (it is **not** a
+reserved index `0`; `intern("")` succeeds via `framing.nim`); `name` is non-empty (edge
+case (a)). The string table is emitted as a top-level section
+(`binary-canonicalization.md` header `bit1`, `:270`) parsed **before** the object stream
+(section order `:45–56`), so it is fully populated and resolvable when an `eventKeys`
+payload is decoded — exactly as `blendAxes`/`bones` resolve their indices via
+`table.stringAt(index)` today.
 
 **`intValue` is a signed varint (svarint), NOT a fixed 4-byte i32.** `bony` encodes
 every signed integer on the wire as a zigzag LEB128 varint via `writeVarint`
 (`binary/framing.nim:103–105`: `(value << 1) xor (value >> 63)`), read back by
-`readVarint`. `eventKeys` follows that established convention rather than minting a new
-fixed-width i32 encoding. (This supersedes prompt 27's provisional "i32 intValue" prose,
-which was corrected during grounding — see `.agents/plans/event-timeline-grounding-findings.md`
-§3. `EventData.intValue` remains an `int32` in memory; only its wire encoding is pinned as
-svarint.)
+`readVarint`. This is the type `docs/binary-canonicalization.md:66–67` calls **`varint`**;
+this contract writes **`svarint`** as a reminder it is the *signed* zigzag form, but it is
+the same encoding — no new wire type is minted. `eventKeys` follows that established
+convention rather than a fixed-width i32. (This supersedes prompt 27's provisional "i32
+intValue" prose, corrected during grounding — see
+`.agents/plans/event-timeline-grounding-findings.md` §3. `EventData.intValue` remains an
+`int32` in memory; only its wire encoding is pinned as `svarint`/`varint`.)
 
 **The three value floats are 4-byte `f32`.** `floatValue`, `volume`, and `balance` each
 pack as a **4-byte little-endian IEEE-754 `f32`**, NOT 8-byte `f64` — the runtime
@@ -286,7 +310,10 @@ Comparison rule: `name`/`stringValue`/`audioPath`/`trackIndex`/`intValue` compar
 `dispatchEvents` (`mixer.nim:196–232`) is **delta-based**: it fires the events whose
 keyframe time falls in the **half-open window** it is advanced across —
 `key.time > fromTime and key.time ≤ toTime` (`mixer.nim:223`) — and `advancePlaying`
-**early-returns on a zero advance** (`amount <= 0`, `mixer.nim:236`). `update` **resets**
+**early-returns on a zero advance** (`amount <= 0`, `mixer.nim:236`). (In the non-looping
+branch the window end is clamped to `min(toTime, clip.duration)`, `mixer.nim:220`, so an
+event authored past `clip.duration` never fires; the normative `{0, 0.5, 1.0}` examples all
+sit within `duration`.) `update` **resets**
 the dispatched-event list at the start of every call (`state.events.setLen(0)`,
 `mixer.nim:264`). The story runner advances **incrementally** by `sample.time -
 previousTime` per sample (the physics-story precedent, `cli/bony_cli.nim:1456–1474`).
