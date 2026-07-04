@@ -374,7 +374,8 @@ void main() {
     // and multi-layer overlay (_overlayPose) aggregators. If a channel is dropped
     // by any aggregator (as deforms was in blend1D), it shows up empty here.
     // Dart lacks cheap field reflection, so the enumeration is explicit — adding
-    // a channel #9 means adding it to _droppedChannels and to the fixture.
+    // a channel #9 means adding it to droppedChannels and to the fixture (the
+    // 'enumerates all MixedPose channels' tripwire below backstops the count).
     const fixture = '{"skeleton":{"name":"allchan"},'
         '"bones":[{"name":"root"}],'
         '"slots":[{"name":"body","bone":"root","attachment":""},'
@@ -444,6 +445,24 @@ void main() {
       rt.update(0.0);
       final eval = rt.evaluate(chanData);
       expect(droppedChannels(eval.pose), isEmpty);
+    });
+
+    test('droppedChannels enumerates every MixedPose channel', () {
+      // Genuineness + tripwire: an empty pose must flag ALL channels. This proves
+      // droppedChannels isn't a tautology (each isEmpty branch fires) and pins the
+      // enumeration size — if a 9th MixedPose channel is added, this count breaks
+      // and points the author at droppedChannels, the manual backstop for the
+      // reflection the Nim fieldPairs guard gets for free.
+      const empty = MixedPose(
+        scalars: [],
+        vectors: [],
+        attachments: [],
+        inherits: [],
+        colors: [],
+        colors2: [],
+        sequences: [],
+      );
+      expect(droppedChannels(empty), hasLength(8));
     });
   });
 
