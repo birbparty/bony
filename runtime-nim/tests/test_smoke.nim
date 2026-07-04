@@ -5164,6 +5164,124 @@ spec "bony package":
       closeTo(evaluated.pose.vectors[0].x, 1.5)
       closeTo(evaluated.pose.vectors[0].y, 1.5)
 
+  it "carries the winning deform channel through blend1D pose composition":
+    # Regression (bony-353d): blend1D (sampleBlendPose -> blendedPose ->
+    # addWeightedPose) silently dropped the deforms channel, so a blend state
+    # playing a clip with a deform timeline rendered the static mesh. Deforms
+    # resolve winner-take-by-track-weight (docs/deform-timeline-contract.md), so
+    # the higher-weight clip's deform wins outright — never a linear blend of the
+    # two sparse delta runs.
+    let bones = @[boneData("root", "", localTransform(scaleX = 1.0, scaleY = 1.0))]
+    let prelim = skeletonData(skeletonHeader("demo", "0.1.0"), bones)
+    let mesh = unweightedMeshAttachment(
+      prelim,
+      "cloth",
+      @[meshUv(0.0, 0.0), meshUv(1.0, 0.0), meshUv(1.0, 1.0)],
+      @[0'u16, 1'u16, 2'u16],
+      @[unweightedMeshVertex(0.0, 0.0), unweightedMeshVertex(1.0, 0.0), unweightedMeshVertex(1.0, 1.0)],
+    )
+    var dataValue = skeletonData(
+      skeletonHeader("demo", "0.1.0"),
+      bones,
+      @[slotData("body", "root", "cloth")],
+      meshAttachments = @[mesh],
+    )
+    let data = new SkeletonData
+    data[] = dataValue
+    let low = animationClip(
+      data[],
+      "low",
+      deformTimelines = @[deformTimeline("default", "body", mesh,
+        @[deformKeyframe(0.0, 0'u32, @[meshDelta(2.0, 0.0), meshDelta(0.0, 0.0), meshDelta(0.0, 0.0)])])],
+    )
+    let high = animationClip(
+      data[],
+      "high",
+      deformTimelines = @[deformTimeline("default", "body", mesh,
+        @[deformKeyframe(0.0, 0'u32, @[meshDelta(5.0, 0.0), meshDelta(0.0, 0.0), meshDelta(0.0, 0.0)])])],
+    )
+    let machine = stateMachine(
+      "machine",
+      @[
+        stateMachineLayer(
+          "base",
+          @[stateMachineBlendState("move", "speed", @[stateMachineBlendClip(low, 0.0), stateMachineBlendClip(high, 1.0)])],
+        ),
+      ],
+      @[stateMachineNumberInput("speed", 0.25)],
+    )
+    var lowWins = initStateMachineRuntime(machine)
+    lowWins.setNumberInput("speed", 0.25)
+    let lowEval = lowWins.evaluate(data)
+    var highWins = initStateMachineRuntime(machine)
+    highWins.setNumberInput("speed", 0.75)
+    let highEval = highWins.evaluate(data)
+
+    then:
+      # t=0.25 -> low clip is the higher-weight winner (weight 0.75).
+      lowEval.pose.deforms.len == 1
+      lowEval.pose.deforms[0].slot == "body"
+      lowEval.pose.deforms[0].attachment == "cloth"
+      closeTo(lowEval.pose.deforms[0].deltas[0].x, 2.0)
+      # t=0.75 -> high clip wins; deltas are the winner's outright, NOT blended
+      # toward 2.0 (a weighted sum would land at 5*0.75 + 2*0.25 = 4.25).
+      highEval.pose.deforms.len == 1
+      closeTo(highEval.pose.deforms[0].deltas[0].x, 5.0)
+
+  it "carries deforms through multi-layer overlay pose aggregation":
+    # Locks the overlayPose deforms branch (bony-353d notes): two layers each
+    # drive the same (slot, mesh) deform; the top layer wins outright in the
+    # aggregated pose, and the base layer's deltas are fully replaced.
+    let bones = @[boneData("root", "", localTransform(scaleX = 1.0, scaleY = 1.0))]
+    let prelim = skeletonData(skeletonHeader("demo", "0.1.0"), bones)
+    let mesh = unweightedMeshAttachment(
+      prelim,
+      "cloth",
+      @[meshUv(0.0, 0.0), meshUv(1.0, 0.0), meshUv(1.0, 1.0)],
+      @[0'u16, 1'u16, 2'u16],
+      @[unweightedMeshVertex(0.0, 0.0), unweightedMeshVertex(1.0, 0.0), unweightedMeshVertex(1.0, 1.0)],
+    )
+    var dataValue = skeletonData(
+      skeletonHeader("demo", "0.1.0"),
+      bones,
+      @[slotData("body", "root", "cloth")],
+      meshAttachments = @[mesh],
+    )
+    let data = new SkeletonData
+    data[] = dataValue
+    let baseClip = animationClip(
+      data[],
+      "baseDeform",
+      deformTimelines = @[deformTimeline("default", "body", mesh,
+        @[deformKeyframe(0.0, 0'u32, @[meshDelta(2.0, 0.0), meshDelta(0.0, 0.0), meshDelta(0.0, 0.0)])])],
+    )
+    let overlayClip = animationClip(
+      data[],
+      "overlayDeform",
+      deformTimelines = @[deformTimeline("default", "body", mesh,
+        @[deformKeyframe(0.0, 0'u32, @[meshDelta(7.0, 0.0), meshDelta(0.0, 0.0), meshDelta(0.0, 0.0)])])],
+    )
+    let machine = stateMachine(
+      "machine",
+      @[
+        stateMachineLayer("base", @[stateMachineState("hold", baseClip)]),
+        stateMachineLayer("overlay", @[stateMachineState("hold", overlayClip)]),
+      ],
+    )
+    let evaluated = initStateMachineRuntime(machine).evaluate(data)
+
+    then:
+      evaluated.layers.len == 2
+      evaluated.layers[0].pose.deforms.len == 1
+      closeTo(evaluated.layers[0].pose.deforms[0].deltas[0].x, 2.0)
+      evaluated.layers[1].pose.deforms.len == 1
+      closeTo(evaluated.layers[1].pose.deforms[0].deltas[0].x, 7.0)
+      # Aggregated pose: top layer's deform wins outright, base is replaced.
+      evaluated.pose.deforms.len == 1
+      evaluated.pose.deforms[0].slot == "body"
+      evaluated.pose.deforms[0].attachment == "cloth"
+      closeTo(evaluated.pose.deforms[0].deltas[0].x, 7.0)
+
   it "rejects invalid state-machine core data":
     let data = animationFixture()
     let idle = animationClip(data, "idle")
