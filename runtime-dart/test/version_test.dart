@@ -24,10 +24,13 @@ void main() {
     // meshTriangles), plus the M4 deformTimeline object (typeKey 3002, property
     // keys deformSkin/deformAttachment/deformVertexCount/deformKeys 3006..3009
     // — slot reuses the shared 1011, no defaults, 5 required deformSkin/slot/
-    // deformAttachment/deformVertexCount/deformKeys).
-    expect(bonyTypeKeys, hasLength(29));
-    expect(bonyPropertyKeys, hasLength(105));
+    // deformAttachment/deformVertexCount/deformKeys), plus the M3 event-timeline
+    // milestone eventTimeline object (typeKey 2003, property key eventKeys 2005 —
+    // no defaults, 1 required eventKeys; the record's only property packs the
+    // whole keyframe list per docs/event-timeline-contract.md).
+    expect(bonyTypeKeys, hasLength(30));
+    expect(bonyPropertyKeys, hasLength(106));
     expect(bonyPropertyDefaults, hasLength(55));
-    expect(bonyRequiredProperties, hasLength(79));
+    expect(bonyRequiredProperties, hasLength(80));
   });
 }
