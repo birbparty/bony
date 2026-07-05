@@ -22,16 +22,31 @@ T _required<T>(dynamic value, String field) {
 }
 
 BoneData _parseBone(Map<String, dynamic> j) {
+  double field(String key, double defaultValue) {
+    final raw = j[key];
+    if (raw == null) return quantizeF32(defaultValue);
+    if (raw is! num) {
+      throw FormatException(
+        'field bone.$key: expected num, got ${raw.runtimeType}',
+      );
+    }
+    final value = quantizeF32(raw.toDouble());
+    if (!value.isFinite) {
+      throw FormatException('bone.$key must be a finite f32 value');
+    }
+    return value;
+  }
+
   return BoneData(
     name: _required<String>(j['name'], 'bone.name'),
     parent: (j['parent'] as String?) ?? '',
-    x: (j['x'] as num?)?.toDouble() ?? 0.0,
-    y: (j['y'] as num?)?.toDouble() ?? 0.0,
-    rotation: (j['rotation'] as num?)?.toDouble() ?? 0.0,
-    scaleX: (j['scaleX'] as num?)?.toDouble() ?? 1.0,
-    scaleY: (j['scaleY'] as num?)?.toDouble() ?? 1.0,
-    shearX: (j['shearX'] as num?)?.toDouble() ?? 0.0,
-    shearY: (j['shearY'] as num?)?.toDouble() ?? 0.0,
+    x: field('x', 0.0),
+    y: field('y', 0.0),
+    rotation: field('rotation', 0.0),
+    scaleX: field('scaleX', 1.0),
+    scaleY: field('scaleY', 1.0),
+    shearX: field('shearX', 0.0),
+    shearY: field('shearY', 0.0),
     inheritRotation: (j['inheritRotation'] as bool?) ?? true,
     inheritScale: (j['inheritScale'] as bool?) ?? true,
     inheritReflection: (j['inheritReflection'] as bool?) ?? true,
@@ -1556,7 +1571,11 @@ class _BnbCur {
     _need(4, '.bnb f32');
     final v = _bd.getFloat32(pos, Endian.little);
     pos += 4;
-    return v.toDouble();
+    final q = quantizeF32(v.toDouble());
+    if (!q.isFinite) {
+      throw const FormatException('.bnb f32 must be a finite f32 value');
+    }
+    return q;
   }
 
   double readF64() {
@@ -1657,7 +1676,7 @@ String _bStr(_BnbObj obj, int key, List<String> strings, String ctx,
 double _bF32(_BnbObj obj, int key, String ctx, {double? def}) {
   final payload = obj.props[key];
   if (payload == null) {
-    if (def != null) return def;
+    if (def != null) return quantizeF32(def);
     throw FormatException('.bnb required property missing: $ctx');
   }
   final c = _BnbCur(payload);
