@@ -89,6 +89,7 @@ type
     evaluated: EvaluatedStateMachine
     posedData: SkeletonData
     worlds: seq[Affine2]
+    animationEvents: seq[DispatchedEvent]
 
   StateMachineGolden = object
     present: bool
@@ -1453,6 +1454,28 @@ proc executeStateMachineScript(
   # physics constraints advancePhysics is exactly computeWorldTransforms, so
   # existing (physics-free) story goldens are unchanged.
   var physicsStates = newPhysicsStates(data)
+  # Event-timeline dispatch bridge (docs/event-timeline-contract.md "Dispatch
+  # output channel"). The clip mixer's event dispatch is never reached along the
+  # state-machine story path — the SM runner steps layer time and samples poses
+  # directly, it never drives an AnimationState. So we mirror each layer's active
+  # clip onto its own single-track AnimationState and advance that track by the
+  # same per-sample delta the state machine is advanced by. `AnimationState.update`
+  # resets its event list every call, so the events collected per sample are
+  # exactly the events fired in that inter-sample window (the incremental,
+  # reset-per-sample parity contract prompts 29/30 depend on) — never the
+  # cumulative [0, t] window. A state transition reloads that layer's track (time
+  # reset to 0), mirroring the SM layer-time reset.
+  var layerAnimStates = newSeq[AnimationState](runtime.layers.len)
+  for animState in layerAnimStates.mitems:
+    animState = animationState()
+  var layerLoadedStates = newSeq[string](runtime.layers.len)
+  # Previous post-update layer time, per layer. Layer time is monotonic
+  # non-decreasing (dt is non-negative and looping never resets it), so a
+  # decrease can only mean a state transition reset layer time to 0 — including
+  # a self-transition (A->A), which is legal and keeps the state name unchanged.
+  # We detect that reset by time, not by name, so a self-transition still reloads
+  # the mirrored track instead of silently desyncing it forever.
+  var layerPrevTimes = newSeq[float64](runtime.layers.len)
   var previousTime = 0.0
   var matched = false
   for index, sample in script.samples:
@@ -1461,6 +1484,33 @@ proc executeStateMachineScript(
     let evaluated = runtime.evaluate(dataRef)
     let posed = data.applyRenderablePose(evaluated.pose)
     let worlds = advancePhysics(posed, physicsStates, sample.time - previousTime)
+    var sampleEvents: seq[DispatchedEvent]
+    for layerIndex in 0 ..< runtime.layers.len:
+      let layerRt = runtime.layers[layerIndex]
+      let active = layerRt.currentState()
+      let layerTimeReset = layerRt.time < layerPrevTimes[layerIndex]
+      layerPrevTimes[layerIndex] = layerRt.time
+      if active.kind != clipState:
+        # A 1D blend has no single owning clip; event dispatch across a blend is
+        # out of scope for this slice. Disarm so a later clip re-entry reloads.
+        layerLoadedStates[layerIndex] = ""
+        continue
+      # Reload the mirrored track on a state change OR a same-name layer-time
+      # reset (self-transition). Note: a transition observed here is a hard cut —
+      # the outgoing clip's events in this sample's partial pre-transition window
+      # are intentionally NOT dispatched, matching the SM's instantaneous pose
+      # evaluation and layer-time reset (the incremental parity contract prompts
+      # 29/30 reproduce). Only the post-update active clip dispatches.
+      if layerLoadedStates[layerIndex] != active.name or layerTimeReset:
+        layerAnimStates[layerIndex].setAnimation(0, active.clip, active.loop)
+        layerLoadedStates[layerIndex] = active.name
+      # Advance this layer's track to the SM layer's post-update (raw) time. In
+      # steady state this is the inter-sample step; right after a (re)load the
+      # track sits at 0 and advances to the post-reset layer time.
+      let amount = max(0.0, layerRt.time - layerAnimStates[layerIndex].tracks[0].current.time)
+      layerAnimStates[layerIndex].update(amount)
+      for dispatched in layerAnimStates[layerIndex].events:
+        sampleEvents.add dispatched
     if sample.sampleMatches(index, selector):
       matched = true
       result.add StateMachineRunSample(
@@ -1470,6 +1520,7 @@ proc executeStateMachineScript(
         evaluated: evaluated,
         posedData: posed,
         worlds: worlds,
+        animationEvents: sampleEvents,
       )
     previousTime = sample.time
   if not matched:
@@ -1702,11 +1753,32 @@ proc stateMachineEventsJson(runtime: StateMachineRuntime): JsonNode =
     result.add node
 
 
+proc animationEventsJson(events: seq[DispatchedEvent]): JsonNode =
+  ## Clip-dispatched events surfaced under the numeric golden's distinct
+  ## `animationEvents` channel (docs/event-timeline-contract.md "Dispatch output
+  ## channel"); flattens each DispatchedEvent + its EventData. Kept separate from
+  ## the M8 state-machine listener `events` array.
+  result = newJArray()
+  for dispatched in events:
+    var node = newJObject()
+    node["name"] = newJString(dispatched.event.name)
+    node["trackIndex"] = newJInt(dispatched.trackIndex)
+    node["time"] = newJFloat(dispatched.time)
+    node["intValue"] = newJInt(int(dispatched.event.intValue))
+    node["floatValue"] = newJFloat(dispatched.event.floatValue)
+    node["stringValue"] = newJString(dispatched.event.stringValue)
+    node["audioPath"] = newJString(dispatched.event.audioPath)
+    node["volume"] = newJFloat(dispatched.event.volume)
+    node["balance"] = newJFloat(dispatched.event.balance)
+    result.add node
+
+
 proc numericGoldenJson(
     data: SkeletonData;
     time: float64;
     state: StateMachineGolden = StateMachineGolden();
     physicsWorlds: seq[Affine2] = @[];
+    animationEvents: seq[DispatchedEvent] = @[];
 ): string =
   validateSkeletonData(data)
   # The story runner advances the stateful physics stage and threads the
@@ -1740,6 +1812,10 @@ proc numericGoldenJson(
     root["inputs"] = stateMachineInputsJson(state.runtime)
     root["layers"] = stateMachineLayersJson(state.evaluated)
     root["events"] = stateMachineEventsJson(state.runtime)
+  # Distinct clip-dispatched-event channel; omitted when empty (setup-pose
+  # callers, and story samples whose inter-sample window fired nothing).
+  if animationEvents.len > 0:
+    root["animationEvents"] = animationEventsJson(animationEvents)
 
   var bones = newJArray()
   let boneData = data.bones
@@ -1858,6 +1934,7 @@ proc writeNumericGolden(args: seq[string]) =
         evaluated: sample.evaluated,
       ),
       sample.worlds,
+      sample.animationEvents,
     ))
     return
 

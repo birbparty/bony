@@ -27,6 +27,7 @@ const
   animationClipTypeKey = 2000'u64
   boneTimelineTypeKey = 2001'u64
   slotTimelineTypeKey = 2002'u64
+  eventTimelineTypeKey = 2003'u64
   deformTimelineTypeKey = 3002'u64
   stateMachineTypeKey = 7000'u64
   stateMachineInputTypeKey = 7001'u64
@@ -98,6 +99,7 @@ const
   slotIndexKey = 2002'u64
   slotTimelineKindKey = 2003'u64
   timelineKeysKey = 2004'u64
+  eventKeysKey = 2005'u64
   stateMachineInputKindKey = 7000'u64
   inputDefaultBoolKey = 7001'u64
   inputDefaultNumberKey = 7002'u64
@@ -894,6 +896,47 @@ proc readDeformKeys(payload: openArray[byte]; context: string): seq[DeformKeyfra
     raise newBonyLoadError(schemaViolation, ".bnb " & context & " has trailing bytes")
 
 
+proc writeEventKeys(timeline: EventTimeline; table: var BnbStringTable): seq[byte] =
+  ## Packed `eventKeys` payload; layout frozen by
+  ## docs/event-timeline-contract.md#packed-eventtimeline-byte-layout-bnb.
+  ## Events are not interpolated, so there is NO curve tail. The three
+  ## per-keyframe strings (name, stringValue, audioPath) intern into the global
+  ## string table in that row-major field order; intValue is a zigzag svarint.
+  result.writeVaruint(uint64(timeline.keys.len))
+  for key in timeline.keys:
+    let event = key.event
+    result.writeF32To(key.time)
+    result.writeVaruint(table.intern(event.name))
+    result.writeVarint(int64(event.intValue))
+    result.writeF32To(event.floatValue)
+    result.writeVaruint(table.intern(event.stringValue))
+    result.writeVaruint(table.intern(event.audioPath))
+    result.writeF32To(event.volume)
+    result.writeF32To(event.balance)
+
+
+proc readEventKeys(payload: openArray[byte]; table: BnbStringTable; context: string): seq[EventKeyframe] =
+  var index = 0
+  let count = payload.readVaruint(index)
+  if count == 0:
+    raise newBonyLoadError(schemaViolation, ".bnb " & context & " must contain at least one key")
+  for _ in 0'u64 ..< count:
+    let time = payload.readF32From(index, context & ".time")
+    let name = table.stringAt(payload.readVaruint(index))
+    let intValue = payload.readVarint(index)
+    if intValue < int64(low(int32)) or intValue > int64(high(int32)):
+      raise newBonyLoadError(numericOutOfRange, ".bnb " & context & ".intValue is out of int32 range")
+    let floatValue = payload.readF32From(index, context & ".floatValue")
+    let stringValue = table.stringAt(payload.readVaruint(index))
+    let audioPath = table.stringAt(payload.readVaruint(index))
+    let volume = payload.readF32From(index, context & ".volume")
+    let balance = payload.readF32From(index, context & ".balance")
+    let event = eventData(name, int32(intValue), floatValue, stringValue, audioPath, volume, balance)
+    result.add eventKeyframe(time, event)
+  if index != payload.len:
+    raise newBonyLoadError(schemaViolation, ".bnb " & context & " has trailing bytes")
+
+
 proc readBoneTimelineKeys(kind: BoneTimelineKind; payload: openArray[byte]; context: string): BoneTimeline =
   var index = 0
   let count = payload.readVaruint(index)
@@ -1317,6 +1360,10 @@ proc buildObjectRecords(asset: BonyAsset; table: var BnbStringTable; toc: var Ta
       properties.addUintIfNeeded(toc, deformVertexCountKey, uint64(timeline.vertexCount), required = true)
       properties.addProperty(toc, deformKeysKey, writeDeformKeys(timeline))
       result.add BnbObjectRecord(typeKey: deformTimelineTypeKey, properties: properties)
+    for timeline in clip.eventTimelines:
+      var properties: seq[BnbPropertyRecord]
+      properties.addProperty(toc, eventKeysKey, writeEventKeys(timeline, table))
+      result.add BnbObjectRecord(typeKey: eventTimelineTypeKey, properties: properties)
 
   for machine in asset.stateMachines:
     var machineProperties: seq[BnbPropertyRecord]
@@ -1838,6 +1885,7 @@ proc decodeAnimationObjects(
   var currentName = ""
   var currentBoneTimelines: seq[BoneTimeline]
   var currentSlotTimelines: seq[SlotTimeline]
+  var currentEventTimelines: seq[EventTimeline]
   var currentDeformTimelines: seq[DeformTimeline]
   var seen = initHashSet[string]()
   var meshesByName = initTable[string, MeshAttachment]()
@@ -1851,10 +1899,12 @@ proc decodeAnimationObjects(
       seen.incl(currentName)
       result.add animationClip(
         skeleton, currentName, currentBoneTimelines, currentSlotTimelines,
+        eventTimelines = currentEventTimelines,
         deformTimelines = currentDeformTimelines)
       currentName = ""
       currentBoneTimelines = @[]
       currentSlotTimelines = @[]
+      currentEventTimelines = @[]
       currentDeformTimelines = @[]
 
   for record in objects:
@@ -1885,6 +1935,14 @@ proc decodeAnimationObjects(
         raise newBonyLoadError(schemaViolation, ".bnb slotTimeline.timelineKeys is required")
       let kind = slotTimelineKindFromTag(properties.readRequiredUintProperty(slotTimelineKindKey, "slotTimeline.kind"))
       currentSlotTimelines.add readSlotTimelineKeys(kind, properties[timelineKeysKey], skeleton.regions, "slotTimeline.timelineKeys").withTarget(skeleton.slots[slotIndex].name)
+    of eventTimelineTypeKey:
+      if currentName.len == 0:
+        raise newBonyLoadError(schemaViolation, ".bnb eventTimeline record without animationClip")
+      let properties = record.propertyMap([eventKeysKey])
+      if eventKeysKey notin properties:
+        raise newBonyLoadError(schemaViolation, ".bnb eventTimeline.eventKeys is required")
+      let keys = readEventKeys(properties[eventKeysKey], strings, "eventTimeline.eventKeys")
+      currentEventTimelines.add eventTimeline(keys)
     of deformTimelineTypeKey:
       if currentName.len == 0:
         raise newBonyLoadError(schemaViolation, ".bnb deformTimeline record without animationClip")

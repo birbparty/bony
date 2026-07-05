@@ -25,6 +25,8 @@ task test, "Run the Nim smoke tests":
   exec "nim c -r tests/test_bnb_byte_stability.nim"
   exec "nim c -r tests/test_bnb_fuzz.nim"
   exec "nim c -r tests/test_json_bnb_json_idempotency.nim"
+  # Event-timeline load + eventKeys .bnb round-trip + load-validation invariants.
+  exec "nim c -r tests/test_event_timeline.nim"
 
 task bench, "Run the non-gating perf harness (always exits 0)":
   exec "nim c -r bench_perf.nim"
