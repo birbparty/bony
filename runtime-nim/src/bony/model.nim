@@ -119,6 +119,15 @@ type
     inheritDeform*: bool
     deformAttachment*: string
 
+  SkinEntryData* = object
+    slot: string
+    attachment: string
+    target: string
+
+  SkinData* = object
+    name: string
+    entries: seq[SkinEntryData]
+
   MeshDelta* = object
     ## A single per-vertex mesh offset applied by a deform timeline. Relocated
     ## here from mesh/deform.nim so both anim/timelines.nim (the DeformTimeline
@@ -303,6 +312,7 @@ type
     ikConstraints: seq[IkConstraintData]
     transformConstraints: seq[TransformConstraintData]
     physicsConstraints: seq[PhysicsConstraintData]
+    skins: seq[SkinData]
     parameters: seq[ParameterAxis]
     deformers: seq[DeformerRecord]
     # Transient, non-serialized. Set post-construction by the mixer (applyPose);
@@ -522,6 +532,14 @@ proc meshAttachmentData*(
   )
 
 
+proc skinEntryData*(slot, attachment, target: string): SkinEntryData =
+  SkinEntryData(slot: slot, attachment: attachment, target: target)
+
+
+proc skinData*(name: string; entries: openArray[SkinEntryData] = []): SkinData =
+  SkinData(name: name, entries: @entries)
+
+
 proc pathConstraintData*(
   name, bone, target, path: string;
   order = 0;
@@ -733,6 +751,12 @@ proc name*(clip: ClipAttachmentData): string = clip.name
 proc vertices*(clip: ClipAttachmentData): seq[float64] = clip.vertices
 proc untilSlot*(clip: ClipAttachmentData): string = clip.untilSlot
 
+proc slot*(entry: SkinEntryData): string = entry.slot
+proc attachment*(entry: SkinEntryData): string = entry.attachment
+proc target*(entry: SkinEntryData): string = entry.target
+proc name*(skin: SkinData): string = skin.name
+proc entries*(skin: SkinData): seq[SkinEntryData] = skin.entries
+
 
 proc name*(path: PathConstraintData): string = path.name
 proc bone*(path: PathConstraintData): string = path.bone
@@ -880,6 +904,9 @@ proc transformConstraints*(data: SkeletonData): seq[TransformConstraintData] = d
 proc physicsConstraints*(data: SkeletonData): seq[PhysicsConstraintData] = data.physicsConstraints
 
 
+proc skins*(data: SkeletonData): seq[SkinData] = data.skins
+
+
 proc parameters*(data: SkeletonData): seq[ParameterAxis] = data.parameters
 
 
@@ -887,6 +914,39 @@ proc deformers*(data: SkeletonData): seq[DeformerRecord] = data.deformers
 
 
 proc data*(instance: SkeletonInstance): ref SkeletonData = instance.data
+
+
+proc hasSkin*(data: SkeletonData; skinName: string): bool =
+  if data.skins.len == 0:
+    return skinName == "default"
+  for skin in data.skins:
+    if skin.name == skinName:
+      return true
+  false
+
+
+proc resolveSkinAttachmentTarget*(data: SkeletonData; activeSkin, slotName, attachmentName: string): string =
+  ## Resolve a slot-visible attachment through first-class skins. Legacy assets
+  ## without explicit skins synthesize the historical default behavior: the
+  ## visible attachment name is the concrete target name.
+  if attachmentName.len == 0:
+    return ""
+  if data.skins.len == 0:
+    return attachmentName
+  for skin in data.skins:
+    if skin.name == activeSkin:
+      for entry in skin.entries:
+        if entry.slot == slotName and entry.attachment == attachmentName:
+          return entry.target
+      break
+  if activeSkin != "default":
+    for skin in data.skins:
+      if skin.name == "default":
+        for entry in skin.entries:
+          if entry.slot == slotName and entry.attachment == attachmentName:
+            return entry.target
+        break
+  ""
 
 
 proc modeForFlags*(inheritRotation, inheritScale, inheritReflection: bool): TransformMode =
@@ -935,6 +995,7 @@ proc validateSkeletonData*(
   physicsConstraints: openArray[PhysicsConstraintData] = [];
   clippingAttachments: openArray[ClipAttachmentData] = [];
   meshAttachments: openArray[MeshAttachment] = [];
+  skins: openArray[SkinData] = [];
 ) =
   if header.name.len == 0:
     raise newBonyLoadError(schemaViolation, "skeleton.name must not be empty")
@@ -1037,6 +1098,7 @@ proc validateSkeletonData*(
     allMeshNames.incl(mesh.name)
     validateMeshAttachment(bones, mesh)
 
+  var resolvedSlotAttachments = newSeq[string](slots.len)
   for index, slot in slots:
     let context = "slots[" & $index & "]"
     if slot.name.len == 0:
@@ -1045,10 +1107,65 @@ proc validateSkeletonData*(
       raise newBonyLoadError(duplicateKey, "duplicate slot name: " & slot.name)
     if slot.bone notin allNames:
       raise newBonyLoadError(unknownRequiredReference, "unknown slot bone: " & slot.bone)
-    if slot.attachment.len > 0 and slot.attachment notin allRegionNames and
+    if skins.len == 0 and slot.attachment.len > 0 and slot.attachment notin allRegionNames and
         slot.attachment notin allClipNames and slot.attachment notin allMeshNames:
       raise newBonyLoadError(unknownRequiredReference, "unknown slot attachment: " & slot.attachment)
+    if skins.len == 0:
+      resolvedSlotAttachments[index] = slot.attachment
     allSlotNames.incl(slot.name)
+
+  if skins.len > 0:
+    var skinNames = initHashSet[string]()
+    var defaultCount = 0
+    var skinEntryTargets = initTable[string, string]()
+    for skinIndex, skin in skins:
+      let skinContext = "skins[" & $skinIndex & "]"
+      if skin.name.len == 0:
+        raise newBonyLoadError(schemaViolation, skinContext & ".name must not be empty")
+      if skin.name in skinNames:
+        raise newBonyLoadError(duplicateKey, "duplicate skin name: " & skin.name)
+      if skin.name == "default":
+        inc defaultCount
+      skinNames.incl(skin.name)
+      var seenEntries = initHashSet[string]()
+      for entryIndex, entry in skin.entries:
+        let entryContext = skinContext & ".entries[" & $entryIndex & "]"
+        if entry.slot.len == 0:
+          raise newBonyLoadError(schemaViolation, entryContext & ".slot must not be empty")
+        if entry.attachment.len == 0:
+          raise newBonyLoadError(schemaViolation, entryContext & ".attachment must not be empty")
+        if entry.target.len == 0:
+          raise newBonyLoadError(schemaViolation, entryContext & ".target must not be empty")
+        if entry.slot notin allSlotNames:
+          raise newBonyLoadError(unknownRequiredReference, "unknown skin entry slot: " & entry.slot)
+        let localKey = entry.slot & "\0" & entry.attachment
+        if localKey in seenEntries:
+          raise newBonyLoadError(duplicateKey,
+            "duplicate skin entry: " & skin.name & "/" & entry.slot & "/" & entry.attachment)
+        seenEntries.incl(localKey)
+        var targetMatches = 0
+        if entry.target in allRegionNames:
+          inc targetMatches
+        if entry.target in allClipNames:
+          inc targetMatches
+        if entry.target in allMeshNames:
+          inc targetMatches
+        if targetMatches == 0:
+          raise newBonyLoadError(unknownRequiredReference, "unknown skin entry target: " & entry.target)
+        if targetMatches > 1:
+          raise newBonyLoadError(duplicateKey, "ambiguous skin entry target: " & entry.target)
+        skinEntryTargets[skin.name & "\0" & localKey] = entry.target
+    if defaultCount != 1:
+      raise newBonyLoadError(schemaViolation, "skins must contain exactly one default skin")
+    for index, slot in slots:
+      if slot.attachment.len == 0:
+        resolvedSlotAttachments[index] = ""
+        continue
+      let key = "default" & "\0" & slot.name & "\0" & slot.attachment
+      if key notin skinEntryTargets:
+        raise newBonyLoadError(unknownRequiredReference,
+          "slot attachment does not resolve through default skin: " & slot.name & "/" & slot.attachment)
+      resolvedSlotAttachments[index] = skinEntryTargets[key]
 
   # Clip range + no-overlap validation. A clip's range starts at the slot that
   # references it (via slot.attachment) and runs through untilSlot inclusive, or
@@ -1071,23 +1188,24 @@ proc validateSkeletonData*(
     var activeUntil = -1
     var activeName = ""
     for index, slot in slots:
-      if slot.attachment.len == 0 or slot.attachment notin allClipNames:
+      let resolvedAttachment = resolvedSlotAttachments[index]
+      if resolvedAttachment.len == 0 or resolvedAttachment notin allClipNames:
         continue
-      let clip = clipByName[slot.attachment]
+      let clip = clipByName[resolvedAttachment]
       let ownIndex = index
       let endIndex =
         if clip.untilSlot.len > 0: slotIndexByName[clip.untilSlot]
         else: lastSlotIndex
       if endIndex <= ownIndex:
         raise newBonyLoadError(schemaViolation,
-          "clipping attachment '" & slot.attachment & "' on slot '" & slot.name &
+          "clipping attachment '" & resolvedAttachment & "' on slot '" & slot.name &
             "' has an empty range (untilSlot at or before the clip's own slot)")
       if ownIndex <= activeUntil:
         raise newBonyLoadError(schemaViolation,
-          "clipping ranges overlap: '" & slot.attachment & "' begins while '" &
+          "clipping ranges overlap: '" & resolvedAttachment & "' begins while '" &
             activeName & "' is still active")
       activeUntil = endIndex
-      activeName = slot.attachment
+      activeName = resolvedAttachment
 
   var allPathAttachmentNames = initHashSet[string]()
   for index, pathAttachment in pathAttachments:
@@ -1265,10 +1383,11 @@ proc skeletonData*(
   physicsConstraints: openArray[PhysicsConstraintData] = [];
   clippingAttachments: openArray[ClipAttachmentData] = [];
   meshAttachments: openArray[MeshAttachment] = [];
+  skins: openArray[SkinData] = [];
 ): SkeletonData =
   validateSkeletonData(
     header, bones, slots, regions, pathAttachments, paths, parameters, deformers, ikConstraints,
-    transformConstraints, physicsConstraints, clippingAttachments, meshAttachments,
+    transformConstraints, physicsConstraints, clippingAttachments, meshAttachments, skins,
   )
   result.header = header
   result.bones = @bones
@@ -1283,13 +1402,14 @@ proc skeletonData*(
   result.ikConstraints = @ikConstraints
   result.transformConstraints = @transformConstraints
   result.physicsConstraints = @physicsConstraints
+  result.skins = @skins
 
 
 proc validateSkeletonData*(data: SkeletonData) =
   validateSkeletonData(
     data.header, data.bones, data.slots, data.regions, data.pathAttachments, data.paths,
     data.parameters, data.deformers, data.ikConstraints, data.transformConstraints,
-    data.physicsConstraints, data.clippingAttachments, data.meshAttachments,
+    data.physicsConstraints, data.clippingAttachments, data.meshAttachments, data.skins,
   )
 
 

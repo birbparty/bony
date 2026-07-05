@@ -1,6 +1,6 @@
 ## M1 .bony JSON loader/serializer.
 
-import std/[json, math, sets, strutils, tables]
+import std/[algorithm, json, math, sets, strutils, tables]
 
 import bony/generated/wire
 import bony/asset
@@ -323,7 +323,7 @@ proc loadBonyJson*(text: string): SkeletonData =
       raise newBonyLoadError(schemaViolation, "invalid JSON: " & exc.msg)
 
   let root = requireObject(parsed, "root")
-  validateKnownKeys(root, ["skeleton", "bones", "slots", "regions", "clippingAttachments", "meshAttachments", "pathAttachments", "paths", "ikConstraints", "transformConstraints", "physicsConstraints", "parameters", "deformers", "animations", "stateMachines"], "root")
+  validateKnownKeys(root, ["skeleton", "bones", "slots", "regions", "clippingAttachments", "meshAttachments", "pathAttachments", "paths", "ikConstraints", "transformConstraints", "physicsConstraints", "skins", "parameters", "deformers", "animations", "stateMachines"], "root")
 
   if not root.hasKey("skeleton"):
     raise newBonyLoadError(schemaViolation, "root.skeleton is required")
@@ -655,6 +655,30 @@ proc loadBonyJson*(text: string): SkeletonData =
         mix = optionalFloat(pcObject, "physicsMix", defaultFloat(physicsConstraintTypeId, "physicsMix"), context),
       )
 
+  var loadedSkins: seq[SkinData] = @[]
+  if root.hasKey("skins"):
+    let skinsNode = requireArray(root["skins"], "skins")
+    for skinIndex, skinNode in skinsNode.elems:
+      let context = "skins[" & $skinIndex & "]"
+      let skinObject = requireObject(skinNode, context)
+      validateKnownKeys(skinObject, ["name", "entries"], context)
+      var entries: seq[SkinEntryData] = @[]
+      if skinObject.hasKey("entries"):
+        let entriesNode = requireArray(skinObject["entries"], context & ".entries")
+        for entryIndex, entryNode in entriesNode.elems:
+          let entryContext = context & ".entries[" & $entryIndex & "]"
+          let entryObject = requireObject(entryNode, entryContext)
+          validateKnownKeys(entryObject, ["slot", "attachment", "target"], entryContext)
+          entries.add skinEntryData(
+            requiredString(entryObject, "slot", entryContext),
+            requiredString(entryObject, "attachment", entryContext),
+            requiredString(entryObject, "target", entryContext),
+          )
+      loadedSkins.add skinData(
+        requiredString(skinObject, "name", context),
+        entries,
+      )
+
   var loadedParameters: seq[ParameterAxis] = @[]
   if root.hasKey("parameters"):
     let parametersNode = requireArray(root["parameters"], "parameters")
@@ -784,7 +808,11 @@ proc loadBonyJson*(text: string): SkeletonData =
 
       loadedDeformers.add DeformerRecord(deformer: deformer, keyformBlend: blend)
 
-  result = skeletonData(loadedHeader, loadedBones, loadedSlots, loadedRegions, loadedPathAttachments, loadedPaths, loadedParameters, loadedDeformers, loadedIkConstraints, loadedTransformConstraints, loadedPhysicsConstraints, loadedClippingAttachments, loadedMeshAttachments)
+  result = skeletonData(
+    loadedHeader, loadedBones, loadedSlots, loadedRegions, loadedPathAttachments, loadedPaths,
+    loadedParameters, loadedDeformers, loadedIkConstraints, loadedTransformConstraints,
+    loadedPhysicsConstraints, loadedClippingAttachments, loadedMeshAttachments, loadedSkins,
+  )
   let loadedAnimClips = parseBonyAnimations(root, result)
   discard parseBonyStateMachines(root, result, loadedAnimClips)
 
@@ -984,11 +1012,18 @@ proc parseBonyAnimations(root: JsonNode; data: SkeletonData): Table[string, Anim
         let slot = requiredString(dtObj, "slot", dtCtx)
         let attachment = requiredString(dtObj, "attachment", dtCtx)
         let vertexCount = requiredInt(dtObj, "vertexCount", dtCtx)
-        if attachment notin meshesByName:
-          raise newBonyLoadError(unknownRequiredReference, dtCtx & ".attachment names unknown mesh: " & attachment)
-        let mesh = meshesByName[attachment]
+        if not data.hasSkin(skin):
+          raise newBonyLoadError(unknownRequiredReference, dtCtx & ".skin names unknown skin: " & skin)
+        let resolvedAttachment = data.resolveSkinAttachmentTarget(skin, slot, attachment)
+        if resolvedAttachment.len == 0:
+          raise newBonyLoadError(unknownRequiredReference,
+            dtCtx & " does not resolve through skin lookup: " & skin & "/" & slot & "/" & attachment)
+        if resolvedAttachment notin meshesByName:
+          raise newBonyLoadError(unknownRequiredReference,
+            dtCtx & ".attachment resolves to non-mesh or unknown target: " & resolvedAttachment)
+        let mesh = meshesByName[resolvedAttachment]
         if vertexCount != mesh.vertices.len:
-          raise newBonyLoadError(schemaViolation, dtCtx & ".vertexCount does not match mesh: " & attachment)
+          raise newBonyLoadError(schemaViolation, dtCtx & ".vertexCount does not match mesh: " & resolvedAttachment)
         if not dtObj.hasKey("keyframes"):
           raise newBonyLoadError(schemaViolation, dtCtx & ".keyframes is required")
         let kfListNode = requireArray(dtObj["keyframes"], dtCtx & ".keyframes")
@@ -1014,7 +1049,7 @@ proc parseBonyAnimations(root: JsonNode; data: SkeletonData): Table[string, Anim
               optionalFloat(dObj, "y", 0.0, dCtx),
             )
           deformKeys.add deformKeyframe(kfTime, uint32(offset), deltas, parseCurveFromNode(kfObj, "curve", kfCtx))
-        deformTimelines.add deformTimeline(skin, slot, mesh, deformKeys)
+        deformTimelines.add deformTimeline(skin, slot, attachment, mesh, deformKeys)
     var eventTimelines: seq[EventTimeline] = @[]
     if aObj.hasKey("eventTimelines"):
       let etListNode = requireArray(aObj["eventTimelines"], ctx & ".eventTimelines")
@@ -1734,6 +1769,68 @@ proc appendStateMachinesJson(result: var string; machines: openArray[StateMachin
   result.add "]"
 
 
+proc orderedSkins(data: SkeletonData): seq[SkinData] =
+  for skin in data.skins:
+    if skin.name == "default":
+      result.add skin
+      break
+  for skin in data.skins:
+    if skin.name != "default":
+      result.add skin
+
+
+proc sortedSkinEntries(data: SkeletonData; skin: SkinData): seq[SkinEntryData] =
+  result = skin.entries
+  var slotOrder = initTable[string, int]()
+  for index, slot in data.slots:
+    slotOrder[slot.name] = index
+  result.sort(proc(a, b: SkinEntryData): int =
+    result = cmp(slotOrder.getOrDefault(a.slot, high(int)), slotOrder.getOrDefault(b.slot, high(int)))
+    if result == 0:
+      result = cmp(a.attachment, b.attachment)
+  )
+
+
+proc appendSkinsJson(result: var string; data: SkeletonData; indent = 1) =
+  result.addIndent(indent)
+  result.add "\"skins\": ["
+  if data.skins.len > 0:
+    result.add "\n"
+    let skins = orderedSkins(data)
+    for skinIndex, skin in skins:
+      if skinIndex > 0:
+        result.add ",\n"
+      result.addIndent(indent + 1)
+      result.add "{\n"
+      var first = true
+      result.addStringField("name", skin.name, indent + 2, first)
+      let entries = sortedSkinEntries(data, skin)
+      if entries.len > 0:
+        result.addFieldPrefix("entries", indent + 2, first)
+        result.add "[\n"
+        for entryIndex, entry in entries:
+          if entryIndex > 0:
+            result.add ",\n"
+          result.addIndent(indent + 3)
+          result.add "{\n"
+          var entryFirst = true
+          result.addStringField("slot", entry.slot, indent + 4, entryFirst)
+          result.addStringField("attachment", entry.attachment, indent + 4, entryFirst)
+          result.addStringField("target", entry.target, indent + 4, entryFirst)
+          result.add "\n"
+          result.addIndent(indent + 3)
+          result.add "}"
+        result.add "\n"
+        result.addIndent(indent + 2)
+        result.add "]"
+      result.add "\n"
+      result.addIndent(indent + 1)
+      result.add "}"
+    result.add "\n"
+    result.addIndent(indent)
+  result.add "]"
+
+
 proc toBonyJson*(data: SkeletonData): string =
   validateSkeletonData(data)
   result.add "{\n"
@@ -2073,6 +2170,10 @@ proc toBonyJson*(data: SkeletonData): string =
     result.add "\n"
     result.addIndent(1)
     result.add "]"
+
+  if data.skins.len > 0:
+    result.add ",\n"
+    result.appendSkinsJson(data)
 
   if data.parameters.len > 0:
     result.add ",\n"

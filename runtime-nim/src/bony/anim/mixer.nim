@@ -487,9 +487,14 @@ proc applyEntry(
     # winner-take-by-track-weight, NOT weight-blended (see the "Cross-track
     # mixing" section of docs/deform-timeline-contract.md).
     for timeline in entry.clip.deformTimelines:
-      deforms[timeline.slot & "\0" & timeline.attachment] = MixedDeform(
+      let resolvedAttachment =
+        if data.isNil: timeline.attachment
+        else: data[].resolveSkinAttachmentTarget(timeline.skin, timeline.slot, timeline.attachment)
+      if resolvedAttachment.len == 0:
+        continue
+      deforms[timeline.slot & "\0" & resolvedAttachment] = MixedDeform(
         slot: timeline.slot,
-        attachment: timeline.attachment,
+        attachment: resolvedAttachment,
         deltas: sampleDeformDeltas(timeline, sampleTime),
       )
 
@@ -672,5 +677,6 @@ proc applyPose*(data: SkeletonData; pose: MixedPose): SkeletonData =
     data.physicsConstraints,
     data.clippingAttachments,
     data.meshAttachments,
+    data.skins,
   )
   result = result.withDeformOverrides(overrides)

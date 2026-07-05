@@ -839,7 +839,7 @@ proc meshVertex(sv: SkinnedMeshVertex): DrawVertex =
   )
 
 
-proc buildDrawBatches*(data: SkeletonData; worlds: seq[Affine2]): seq[DrawBatch] =
+proc buildDrawBatches*(data: SkeletonData; worlds: seq[Affine2]; activeSkin = "default"): seq[DrawBatch] =
   ## Build draw batches using caller-supplied world transforms. Callers that have
   ## advanced the stateful physics stage pass the physics-adjusted worlds here so
   ## draw-batch vertices reflect physics. `worlds[i]` must be the world transform
@@ -871,6 +871,7 @@ proc buildDrawBatches*(data: SkeletonData; worlds: seq[Affine2]): seq[DrawBatch]
     deformBySlotAttachment[override.slot & "\0" & override.attachment] = override
 
   var slotIndexByName = initTable[string, int]()
+  var resolvedSlotAttachment = newSeq[string](data.slots.len)
   for index, slot in data.slots:
     slotIndexByName[slot.name] = index
 
@@ -881,7 +882,11 @@ proc buildDrawBatches*(data: SkeletonData; worlds: seq[Affine2]): seq[DrawBatch]
   for slotIdx, slot in data.slots:
     if slot.attachment.len == 0:
       continue
-    if meshes.hasKey(slot.attachment):
+    let attachment = data.resolveSkinAttachmentTarget(activeSkin, slot.name, slot.attachment)
+    resolvedSlotAttachment[slotIdx] = attachment
+    if attachment.len == 0:
+      continue
+    if meshes.hasKey(attachment):
       # Keying dispatch on the `meshes` table alone is unambiguous because
       # attachment names are cross-collection unique — validateSkeletonData
       # rejects a mesh name that collides with a region or clip name (model.nim),
@@ -893,7 +898,7 @@ proc buildDrawBatches*(data: SkeletonData; worlds: seq[Affine2]): seq[DrawBatch]
       # hold, then emit one batch in this slot's draw-order position. Metadata
       # fields (texturePage/blendMode/clipId/world) mirror the region path so a
       # region and a mesh on the same slot are indistinguishable there.
-      let mesh = meshes[slot.attachment]
+      let mesh = meshes[attachment]
       # `world` is the slot-bone world used only as batch metadata (mirroring the
       # region path); it does NOT transform the mesh vertices. Skinning consumes
       # the full `worlds` array directly — a weighted vertex blends across its
@@ -915,7 +920,7 @@ proc buildDrawBatches*(data: SkeletonData; worlds: seq[Affine2]): seq[DrawBatch]
       result.add DrawBatch(
         slot: slot.name,
         bone: slot.bone,
-        attachment: slot.attachment,
+        attachment: attachment,
         texturePage: "",
         blendMode: "normal",
         clipId: "",
@@ -925,12 +930,12 @@ proc buildDrawBatches*(data: SkeletonData; worlds: seq[Affine2]): seq[DrawBatch]
       )
       batchSlotIndex.add slotIdx
       continue
-    if not regions.hasKey(slot.attachment):
+    if not regions.hasKey(attachment):
       # A slot whose attachment names a clipping attachment (or any non-region)
       # produces no draw batch. This guard also prevents the `regions[...]`
       # Table lookup below from raising KeyError on a clip-named slot.
       continue
-    let region = regions[slot.attachment]
+    let region = regions[attachment]
     let index = boneIndex[slot.bone]
     let world = worlds[index]
     let halfWidth = region.width * 0.5
@@ -938,7 +943,7 @@ proc buildDrawBatches*(data: SkeletonData; worlds: seq[Affine2]): seq[DrawBatch]
     result.add DrawBatch(
       slot: slot.name,
       bone: slot.bone,
-      attachment: slot.attachment,
+      attachment: attachment,
       texturePage: "",
       blendMode: "normal",
       clipId: "",
@@ -961,9 +966,10 @@ proc buildDrawBatches*(data: SkeletonData; worlds: seq[Affine2]): seq[DrawBatch]
   if data.clippingAttachments.len > 0:
     let lastSlotIndex = data.slots.len - 1
     for slotIdx, slot in data.slots:
-      if slot.attachment.len == 0 or not clips.hasKey(slot.attachment):
+      let attachment = resolvedSlotAttachment[slotIdx]
+      if attachment.len == 0 or not clips.hasKey(attachment):
         continue
-      let clip = clips[slot.attachment]
+      let clip = clips[attachment]
       let ownIndex = slotIdx
       let endIndex =
         if clip.untilSlot.len > 0: slotIndexByName[clip.untilSlot]
@@ -1008,3 +1014,8 @@ proc buildDrawBatches*(data: SkeletonData): seq[DrawBatch] =
   ## Convenience overload: recompute worlds from the pure world-transform pass.
   ## Use the `worlds` overload when a physics stage has adjusted bone worlds.
   buildDrawBatches(data, computeWorldTransforms(data))
+
+
+proc buildDrawBatches*(data: SkeletonData; activeSkin: string): seq[DrawBatch] =
+  ## Convenience overload for runtime skin selection with pure world transforms.
+  buildDrawBatches(data, computeWorldTransforms(data), activeSkin)

@@ -1,6 +1,6 @@
 ## M6/M7 semantic .bnb encoder/decoder for the current SkeletonData model.
 
-import std/[json, sets, strutils, tables]
+import std/[algorithm, json, sets, strutils, tables]
 
 import bony/anim/timelines
 import bony/asset
@@ -19,6 +19,8 @@ const
   regionTypeKey = 1001'u64
   clippingAttachmentTypeKey = 3000'u64
   meshAttachmentTypeKey = 3001'u64
+  skinTypeKey = 3003'u64
+  skinEntryTypeKey = 3004'u64
   pathTypeKey = 4000'u64
   pathAttachmentTypeKey = 4001'u64
   ikConstraintTypeKey = 4002'u64
@@ -67,6 +69,8 @@ const
   deformAttachmentKey = 3007'u64
   deformVertexCountKey = 3008'u64
   deformKeysKey = 3009'u64
+  skinAttachmentKey = 3010'u64
+  skinTargetKey = 3011'u64
   targetKey = 4000'u64
   pathKey = 4001'u64
   orderKey = 4002'u64
@@ -1214,6 +1218,37 @@ proc buildObjectRecords(data: SkeletonData; table: var BnbStringTable; toc: var 
     properties.addFloatIfNeeded(toc, physicsMixKey, pc.mix, defaultFloat("physicsConstraint", "physicsMix"), required = pc.hasMix)
     result.add BnbObjectRecord(typeKey: physicsConstraintTypeKey, properties: properties)
 
+  proc orderedSkins(): seq[SkinData] =
+    for skin in data.skins:
+      if skin.name == "default":
+        result.add skin
+        break
+    for skin in data.skins:
+      if skin.name != "default":
+        result.add skin
+
+  proc sortedSkinEntries(skin: SkinData): seq[SkinEntryData] =
+    result = skin.entries
+    var slotOrder = initTable[string, int]()
+    for index, slot in data.slots:
+      slotOrder[slot.name] = index
+    result.sort(proc(a, b: SkinEntryData): int =
+      result = cmp(slotOrder.getOrDefault(a.slot, high(int)), slotOrder.getOrDefault(b.slot, high(int)))
+      if result == 0:
+        result = cmp(a.attachment, b.attachment)
+    )
+
+  for skin in orderedSkins():
+    var properties: seq[BnbPropertyRecord]
+    properties.addStringIfNeeded(toc, table, nameKey, skin.name, "", required = true)
+    result.add BnbObjectRecord(typeKey: skinTypeKey, properties: properties)
+    for entry in sortedSkinEntries(skin):
+      var entryProperties: seq[BnbPropertyRecord]
+      entryProperties.addStringIfNeeded(toc, table, slotKey, entry.slot, "", required = true)
+      entryProperties.addStringIfNeeded(toc, table, skinAttachmentKey, entry.attachment, "", required = true)
+      entryProperties.addStringIfNeeded(toc, table, skinTargetKey, entry.target, "", required = true)
+      result.add BnbObjectRecord(typeKey: skinEntryTypeKey, properties: entryProperties)
+
   for param in data.parameters:
     var properties: seq[BnbPropertyRecord]
     properties.addStringIfNeeded(toc, table, nameKey, param.name, "", required = true)
@@ -1531,6 +1566,7 @@ proc decodeSkeletonObjects(objects: openArray[BnbObjectRecord]; strings: BnbStri
   var ikConstraints: seq[IkConstraintData]
   var transformConstraints: seq[TransformConstraintData]
   var physicsConstraints: seq[PhysicsConstraintData]
+  var skins: seq[SkinData]
   var loadedParameters: seq[ParameterAxis]
   var loadedDeformers: seq[DeformerRecord]
 
@@ -1546,6 +1582,8 @@ proc decodeSkeletonObjects(objects: openArray[BnbObjectRecord]; strings: BnbStri
   var pendingBlendValueCount = 0
   var pendingBlendAxes: seq[ParameterAxis] = @[]
   var pendingKeyforms: seq[Keyform] = @[]
+  var currentSkinName = ""
+  var currentSkinEntries: seq[SkinEntryData] = @[]
 
   template flushPendingIfAny() =
     if deformerPending and geometryReady:
@@ -1558,6 +1596,12 @@ proc decodeSkeletonObjects(objects: openArray[BnbObjectRecord]; strings: BnbStri
       pendingKeyforms = @[]
     elif deformerPending:
       raise newBonyLoadError(schemaViolation, ".bnb deformer header has no following geometry record")
+
+  template flushSkinIfAny() =
+    if currentSkinName.len > 0:
+      skins.add skinData(currentSkinName, currentSkinEntries)
+      currentSkinName = ""
+      currentSkinEntries = @[]
 
   for record in objects:
     case record.typeKey
@@ -1751,6 +1795,7 @@ proc decodeSkeletonObjects(objects: openArray[BnbObjectRecord]; strings: BnbStri
         mix = properties.readOptionalFloatProperty(physicsMixKey, defaultFloat("physicsConstraint", "physicsMix"), "physicsConstraint.physicsMix"),
       )
     of parameterTypeKey:
+      flushSkinIfAny()
       flushPendingIfAny()
       let properties = record.propertyMap([nameKey, parameterMinKey, parameterMaxKey, parameterDefaultKey])
       let paramName = properties.readStringProperty(strings, nameKey, "parameter.name")
@@ -1767,7 +1812,24 @@ proc decodeSkeletonObjects(objects: openArray[BnbObjectRecord]; strings: BnbStri
         maxValue: paramMax,
         defaultValue: paramDefault,
       )
+    of skinTypeKey:
+      flushPendingIfAny()
+      flushSkinIfAny()
+      let properties = record.propertyMap([nameKey])
+      currentSkinName = properties.readStringProperty(strings, nameKey, "skin.name")
+      currentSkinEntries = @[]
+    of skinEntryTypeKey:
+      flushPendingIfAny()
+      if currentSkinName.len == 0:
+        raise newBonyLoadError(schemaViolation, ".bnb skinEntry record without preceding skin")
+      let properties = record.propertyMap([slotKey, skinAttachmentKey, skinTargetKey])
+      currentSkinEntries.add skinEntryData(
+        properties.readStringProperty(strings, slotKey, "skinEntry.slot"),
+        properties.readStringProperty(strings, skinAttachmentKey, "skinEntry.skinAttachment"),
+        properties.readStringProperty(strings, skinTargetKey, "skinEntry.skinTarget"),
+      )
     of deformerTypeKey:
+      flushSkinIfAny()
       flushPendingIfAny()
       let properties = record.propertyMap([deformerIdKey, parentKey, deformerOrderKey, deformerKindKey])
       pendingId = readStringPayload(
@@ -1845,14 +1907,19 @@ proc decodeSkeletonObjects(objects: openArray[BnbObjectRecord]; strings: BnbStri
         coordinates.add ParameterSample(name: axis.name, value: coordFs[axisIndex])
       pendingKeyforms.add Keyform(coordinates: coordinates, values: valueFs)
     else:
+      flushSkinIfAny()
       flushPendingIfAny()
       discard
 
+  flushSkinIfAny()
   flushPendingIfAny()
 
   if not hasSkeleton:
     raise newBonyLoadError(schemaViolation, ".bnb skeleton object is required")
-  skeletonData(headerValue, bones, slots, regions, pathAttachments, paths, loadedParameters, loadedDeformers, ikConstraints, transformConstraints, physicsConstraints, clips, meshes)
+  skeletonData(
+    headerValue, bones, slots, regions, pathAttachments, paths, loadedParameters, loadedDeformers,
+    ikConstraints, transformConstraints, physicsConstraints, clips, meshes, skins,
+  )
 
 
 proc withTarget(timeline: BoneTimeline; target: string): BoneTimeline =
@@ -1953,13 +2020,20 @@ proc decodeAnimationObjects(
       let vertexCount = int(properties.readRequiredUintProperty(deformVertexCountKey, "deformTimeline.vertexCount"))
       if deformKeysKey notin properties:
         raise newBonyLoadError(schemaViolation, ".bnb deformTimeline.deformKeys is required")
-      if attachment notin meshesByName:
-        raise newBonyLoadError(unknownRequiredReference, ".bnb deformTimeline references unknown mesh attachment: " & attachment)
-      let mesh = meshesByName[attachment]
+      if not skeleton.hasSkin(skin):
+        raise newBonyLoadError(unknownRequiredReference, ".bnb deformTimeline references unknown skin: " & skin)
+      let resolvedAttachment = skeleton.resolveSkinAttachmentTarget(skin, slot, attachment)
+      if resolvedAttachment.len == 0:
+        raise newBonyLoadError(unknownRequiredReference,
+          ".bnb deformTimeline does not resolve through skin lookup: " & skin & "/" & slot & "/" & attachment)
+      if resolvedAttachment notin meshesByName:
+        raise newBonyLoadError(unknownRequiredReference,
+          ".bnb deformTimeline references non-mesh or unknown target: " & resolvedAttachment)
+      let mesh = meshesByName[resolvedAttachment]
       if vertexCount != mesh.vertices.len:
-        raise newBonyLoadError(schemaViolation, ".bnb deformTimeline vertex count does not match mesh: " & attachment)
+        raise newBonyLoadError(schemaViolation, ".bnb deformTimeline vertex count does not match mesh: " & resolvedAttachment)
       let keys = readDeformKeys(properties[deformKeysKey], "deformTimeline.deformKeys")
-      currentDeformTimelines.add deformTimeline(skin, slot, mesh, keys)
+      currentDeformTimelines.add deformTimeline(skin, slot, attachment, mesh, keys)
     of stateMachineTypeKey:
       flushAnimation()
     else:

@@ -651,18 +651,26 @@ proc validateDeformTimeline*(timeline: DeformTimeline) =
 
 
 proc deformTimeline*(
-  skin, slot: string;
+  skin, slot, attachment: string;
   mesh: MeshAttachment;
   keys: openArray[DeformKeyframe];
 ): DeformTimeline =
   result = DeformTimeline(
     skin: skin,
     slot: slot,
-    attachment: mesh.deformAttachment,
+    attachment: attachment,
     vertexCount: mesh.vertices.len,
     keys: @keys,
   )
   validateDeformTimeline(result)
+
+
+proc deformTimeline*(
+  skin, slot: string;
+  mesh: MeshAttachment;
+  keys: openArray[DeformKeyframe];
+): DeformTimeline =
+  deformTimeline(skin, slot, mesh.deformAttachment, mesh, keys)
 
 
 proc lastTime(timeline: DeformTimeline): float64 =
@@ -683,18 +691,25 @@ proc animationClip*(
 
   var boneNames = initHashSet[string]()
   var slotNames = initHashSet[string]()
-  var slotAttachments = initTable[string, string]()
   var regionNames = initHashSet[string]()
   var meshVertexCounts = initTable[string, int]()
+  var slotSetupAttachments = initTable[string, string]()
+  var visibleAttachmentBySlot = initTable[string, HashSet[string]]()
   for bone in data.bones:
     boneNames.incl(bone.name)
   for slot in data.slots:
     slotNames.incl(slot.name)
-    slotAttachments[slot.name] = slot.attachment
+    slotSetupAttachments[slot.name] = slot.attachment
+    if slot.attachment.len > 0:
+      visibleAttachmentBySlot.mgetOrPut(slot.name, initHashSet[string]()).incl(slot.attachment)
   for region in data.regions:
     regionNames.incl(region.name)
   for mesh in data.meshAttachments:
     meshVertexCounts[mesh.name] = mesh.vertices.len
+  if data.skins.len > 0:
+    for skin in data.skins:
+      for entry in skin.entries:
+        visibleAttachmentBySlot.mgetOrPut(entry.slot, initHashSet[string]()).incl(entry.attachment)
 
   var duration = 0.0
   for timeline in boneTimelines:
@@ -708,31 +723,36 @@ proc animationClip*(
       raise newBonyLoadError(unknownRequiredReference, "unknown animated slot: " & timeline.target)
     if timeline.kind == attachmentTimeline:
       for key in timeline.attachmentKeys:
-        if key.attachment.len > 0 and key.attachment notin regionNames:
-          raise newBonyLoadError(unknownRequiredReference, "unknown timeline attachment: " & key.attachment)
+        if key.attachment.len > 0:
+          if data.skins.len == 0:
+            if key.attachment notin regionNames:
+              raise newBonyLoadError(unknownRequiredReference, "unknown timeline attachment: " & key.attachment)
+          elif timeline.target notin visibleAttachmentBySlot or key.attachment notin visibleAttachmentBySlot[timeline.target]:
+            raise newBonyLoadError(unknownRequiredReference,
+              "unknown timeline attachment: " & timeline.target & "/" & key.attachment)
     duration = max(duration, timeline.lastTime)
   for timeline in eventTimelines:
     validateEventTimeline(timeline, "event timeline")
     duration = max(duration, timeline.lastTime)
   for timeline in deformTimelines:
     validateDeformTimeline(timeline)
-    # Reserved default-skin identity (docs/deform-timeline-contract.md edge case
-    # (a)); a future skin milestone widens the accepted set.
-    if timeline.skin != "default":
-      raise newBonyLoadError(schemaViolation, "deform timeline skin must be \"default\": " & timeline.skin)
+    if not data.hasSkin(timeline.skin):
+      raise newBonyLoadError(unknownRequiredReference, "unknown deform timeline skin: " & timeline.skin)
     if timeline.slot notin slotNames:
       raise newBonyLoadError(unknownRequiredReference, "unknown deform timeline slot: " & timeline.slot)
-    if timeline.attachment notin meshVertexCounts:
-      raise newBonyLoadError(unknownRequiredReference, "unknown deform timeline mesh attachment: " & timeline.attachment)
-    # Edge case (g): the (slot, attachment) pairing must resolve — the target
-    # slot must actually show the mesh the timeline animates (its setup-pose
-    # attachment). Otherwise the override would silently no-op at draw time.
-    if slotAttachments.getOrDefault(timeline.slot) != timeline.attachment:
+    let resolvedAttachment = data.resolveSkinAttachmentTarget(timeline.skin, timeline.slot, timeline.attachment)
+    if resolvedAttachment.len == 0:
       raise newBonyLoadError(unknownRequiredReference,
         "deform timeline slot/attachment pairing does not resolve to a mesh on that slot: " &
         timeline.slot & "/" & timeline.attachment)
-    if timeline.vertexCount != meshVertexCounts[timeline.attachment]:
-      raise newBonyLoadError(schemaViolation, "deform timeline vertex count does not match mesh: " & timeline.attachment)
+    if data.skins.len == 0 and slotSetupAttachments.getOrDefault(timeline.slot) != timeline.attachment:
+      raise newBonyLoadError(unknownRequiredReference,
+        "deform timeline slot/attachment pairing does not resolve to a mesh on that slot: " &
+        timeline.slot & "/" & timeline.attachment)
+    if resolvedAttachment notin meshVertexCounts:
+      raise newBonyLoadError(unknownRequiredReference, "deform timeline target is not a mesh attachment: " & resolvedAttachment)
+    if timeline.vertexCount != meshVertexCounts[resolvedAttachment]:
+      raise newBonyLoadError(schemaViolation, "deform timeline vertex count does not match mesh: " & resolvedAttachment)
     duration = max(duration, timeline.lastTime)
 
   AnimationClip(
