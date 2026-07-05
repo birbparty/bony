@@ -418,6 +418,18 @@ void _ensureStrictlyIncreasing(List<double> times, String ctx) {
   }
 }
 
+/// Event-timeline ordering: non-decreasing (equal times allowed), unlike the
+/// strict bone/slot/deform rule. Rejects only a strictly decreasing adjacent
+/// pair, mirroring Nim `ensureEventSorted` (timelines.nim:245-248) /
+/// docs/event-timeline-contract.md edge case (c).
+void _ensureNonDecreasing(List<double> times, String ctx) {
+  for (var i = 1; i < times.length; i++) {
+    if (times[i] < times[i - 1]) {
+      throw FormatException('$ctx.keyframes: times must be non-decreasing');
+    }
+  }
+}
+
 List<AnimationClip> _parseAnimations(
     List<dynamic> anims, List<MeshAttachment> meshes) {
   final result = <AnimationClip>[];
@@ -603,12 +615,54 @@ List<AnimationClip> _parseAnimations(
       ));
     }
 
+    // Event timelines (docs/event-timeline-contract.md). Clip-global, no target,
+    // no curve; non-decreasing (not strictly increasing) key times.
+    final eventTimelines = <EventTimeline>[];
+    final etList = anim['eventTimelines'] as List<dynamic>? ?? const [];
+    for (var ei = 0; ei < etList.length; ei++) {
+      final et = etList[ei] as Map<String, dynamic>;
+      final etCtx = '$ctx.eventTimelines[$ei]';
+      final kfList = _required<List<dynamic>>(et['keyframes'], '$etCtx.keyframes');
+      if (kfList.isEmpty) {
+        throw FormatException('$etCtx.keyframes must not be empty');
+      }
+      final keys = <EventKeyframe>[];
+      for (var ki = 0; ki < kfList.length; ki++) {
+        final kf = kfList[ki] as Map<String, dynamic>;
+        final kfCtx = '$etCtx.keyframes[$ki]';
+        final t = quantizeF32(_required<num>(kf['t'], '$kfCtx.t').toDouble());
+        if (t < 0.0) {
+          throw FormatException('$kfCtx.t must be non-negative');
+        }
+        final evName = _required<String>(kf['name'], '$kfCtx.name');
+        if (evName.isEmpty) {
+          throw FormatException('$kfCtx.name must not be empty');
+        }
+        keys.add(EventKeyframe(
+          time: t,
+          event: EventData(
+            name: evName,
+            intValue: (kf['intValue'] as num?)?.toInt() ?? 0,
+            floatValue: quantizeF32((kf['floatValue'] as num?)?.toDouble() ?? 0.0),
+            stringValue: (kf['stringValue'] as String?) ?? '',
+            audioPath: (kf['audioPath'] as String?) ?? '',
+            volume: quantizeF32((kf['volume'] as num?)?.toDouble() ?? 1.0),
+            balance: quantizeF32((kf['balance'] as num?)?.toDouble() ?? 0.0),
+          ),
+        ));
+      }
+      _ensureNonDecreasing(keys.map((k) => k.time).toList(), etCtx);
+      if (keys.last.time > duration) duration = keys.last.time;
+      eventTimelines.add(EventTimeline(keys: keys));
+    }
+
     result.add(AnimationClip(
         name: name,
         duration: duration,
         boneTimelines: boneTimelines,
         slotTimelines: slotTimelines,
-        deformTimelines: deformTimelines));
+        deformTimelines: deformTimelines,
+        eventTimelines: eventTimelines));
   }
   return result;
 }
@@ -1278,6 +1332,7 @@ const int _bnbPhysicsConstraint = 4004;
 const int _bnbAnimationClip = 2000;
 const int _bnbBoneTimeline = 2001;
 const int _bnbSlotTimeline = 2002;
+const int _bnbEventTimeline = 2003;
 const int _bnbStateMachine = 7000;
 const int _bnbStateMachineInput = 7001;
 const int _bnbStateMachineLayer = 7002;
@@ -1370,6 +1425,7 @@ const int _bkBoneTimelineKind = 2001;
 const int _bkSlotIndex = 2002;
 const int _bkSlotTimelineKind = 2003;
 const int _bkTimelineKeys = 2004;
+const int _bkEventKeys = 2005;
 const int _bkStateMachineInputKind = 7000;
 const int _bkInputDefaultBool = 7001;
 const int _bkInputDefaultNumber = 7002;
@@ -1432,6 +1488,7 @@ const _bnbKnownTypes = {
   _bnbAnimationClip,
   _bnbBoneTimeline,
   _bnbSlotTimeline,
+  _bnbEventTimeline,
   _bnbDeformTimeline,
   _bnbParameter,
   _bnbDeformer,
@@ -2043,6 +2100,53 @@ SlotTimeline _bSlotTimelineKeys(
 /// Nim `readDeformKeys` layout (binary/semantic.nim): varuint count, then per
 /// key f32 time, varuint offset, varuint deltaCount, deltaCount*(f32 x, f32 y),
 /// curve. Delta values arrive f32 already (readF32).
+/// Decodes a packed `eventKeys` payload (M3 propertyKey 2005) into event
+/// keyframes. Byte layout is frozen by docs/event-timeline-contract.md "Packed
+/// eventTimeline byte layout": per key — f32 time, varuint name-index, svarint
+/// intValue, f32 floatValue, varuint stringValue-index, varuint audioPath-index,
+/// f32 volume, f32 balance. Strings resolve through the global [strings] table
+/// (row-major intern order name/stringValue/audioPath). No curve tail.
+List<EventKeyframe> _bEventTimelineKeys(
+    Uint8List payload, List<String> strings, String ctx) {
+  final c = _BnbCur(payload);
+  final count = c.readVaruint();
+  if (count == 0) {
+    throw FormatException('.bnb $ctx must contain at least one key');
+  }
+  final keys = <EventKeyframe>[];
+  for (var i = 0; i < count; i++) {
+    final time = c.readF32();
+    if (time < 0.0) {
+      throw FormatException('.bnb $ctx.time must be non-negative');
+    }
+    final name = c.readStr(strings);
+    if (name.isEmpty) {
+      throw FormatException('.bnb $ctx.name must not be empty');
+    }
+    final intValue = c.readVarint();
+    final floatValue = c.readF32();
+    final stringValue = c.readStr(strings);
+    final audioPath = c.readStr(strings);
+    final volume = c.readF32();
+    final balance = c.readF32();
+    keys.add(EventKeyframe(
+      time: time,
+      event: EventData(
+        name: name,
+        intValue: intValue,
+        floatValue: floatValue,
+        stringValue: stringValue,
+        audioPath: audioPath,
+        volume: volume,
+        balance: balance,
+      ),
+    ));
+  }
+  _bCheckExhausted(c, ctx);
+  _ensureNonDecreasing(keys.map((k) => k.time).toList(), ctx);
+  return keys;
+}
+
 List<DeformKeyframe> _bDeformTimelineKeys(
     Uint8List payload, int vertexCount, String ctx) {
   final c = _BnbCur(payload);
@@ -2082,7 +2186,8 @@ List<DeformKeyframe> _bDeformTimelineKeys(
 
 double _animationDuration(
     List<BoneTimeline> boneTimelines, List<SlotTimeline> slotTimelines,
-    [List<DeformTimeline> deformTimelines = const []]) {
+    [List<DeformTimeline> deformTimelines = const [],
+    List<EventTimeline> eventTimelines = const []]) {
   var duration = 0.0;
   for (final timeline in boneTimelines) {
     if (timeline.vectorKeys.isNotEmpty &&
@@ -2121,6 +2226,11 @@ double _animationDuration(
       duration = timeline.keys.last.time;
     }
   }
+  for (final timeline in eventTimelines) {
+    if (timeline.keys.isNotEmpty && timeline.keys.last.time > duration) {
+      duration = timeline.keys.last.time;
+    }
+  }
   return duration;
 }
 
@@ -2151,6 +2261,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
   var currentBoneTimelines = <BoneTimeline>[];
   var currentSlotTimelines = <SlotTimeline>[];
   var currentDeformTimelines = <DeformTimeline>[];
+  var currentEventTimelines = <EventTimeline>[];
   var currentMachineName = '';
   var machineInputs = <StateMachineInput>[];
   var machineLayers = <StateMachineLayer>[];
@@ -2171,16 +2282,18 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
     }
     animations.add(AnimationClip(
       name: currentAnimationName,
-      duration: _animationDuration(
-          currentBoneTimelines, currentSlotTimelines, currentDeformTimelines),
+      duration: _animationDuration(currentBoneTimelines, currentSlotTimelines,
+          currentDeformTimelines, currentEventTimelines),
       boneTimelines: currentBoneTimelines,
       slotTimelines: currentSlotTimelines,
       deformTimelines: currentDeformTimelines,
+      eventTimelines: currentEventTimelines,
     ));
     currentAnimationName = '';
     currentBoneTimelines = [];
     currentSlotTimelines = [];
     currentDeformTimelines = [];
+    currentEventTimelines = [];
   }
 
   String stateNameAt(List<StateMachineState> states, int index, String ctx) {
@@ -2595,6 +2708,19 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
           payload,
           regions,
           'slotTimeline.timelineKeys',
+        ));
+      case _bnbEventTimeline:
+        flushPending();
+        if (currentAnimationName.isEmpty)
+          throw const FormatException(
+              '.bnb eventTimeline without animationClip');
+        final payload = obj.props[_bkEventKeys];
+        if (payload == null)
+          throw const FormatException(
+              '.bnb eventTimeline.eventKeys is required');
+        currentEventTimelines.add(EventTimeline(
+          keys: _bEventTimelineKeys(
+              payload, strings, 'eventTimeline.eventKeys'),
         ));
       case _bnbDeformTimeline:
         // Relies on meshAttachment objects being decoded before deform-timeline

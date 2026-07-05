@@ -525,11 +525,18 @@ class AnimationTrack {
   }
 }
 
+/// An event fired by the mixer while playback crossed its keyframe time. Mirrors
+/// Nim `DispatchedEvent` (runtime-nim/src/bony/anim/mixer.nim:54-57): a
+/// [trackIndex], the full [event] payload, and the [time] it fired at. Surfaced
+/// under the numeric golden's `animationEvents` channel
+/// (docs/event-timeline-contract.md "Dispatch output channel").
 class DispatchedEvent {
-  const DispatchedEvent({required this.trackIndex, required this.name, required this.time});
+  const DispatchedEvent(
+      {required this.trackIndex, required this.event, required this.time});
   final int trackIndex;
-  final String name;
+  final EventData event;
   final double time;
+  String get name => event.name;
 }
 
 class AnimationState {
@@ -538,7 +545,9 @@ class AnimationState {
   final SkeletonData data;
   final List<AnimationTrack> tracks = [];
 
-  /// Always empty until event timelines are ported (planned post-M3).
+  /// Events dispatched during the most recent [update]; reset at the start of
+  /// every [update] call. Populated by [_dispatchEventsForEntry] as playback
+  /// crosses event-timeline keyframes.
   final List<DispatchedEvent> events = [];
 
   AnimationTrack _ensureTrack(int index) {
@@ -638,7 +647,12 @@ class AnimationState {
     if (amount <= 0.0) return;
     final cur = track.current;
     if (cur == null) return;
-    final fromTime = cur.time;
+    // Snapshot pre-advance state so event dispatch can gate on the mix-in
+    // threshold, mirroring Nim `advancePlaying` (mixer.nim:235-257).
+    final startTime = cur.time;
+    final startMixTime = cur.mixTime;
+    final hadPrevious = track.previous != null;
+    final mixDuration = cur.mixDuration;
     cur.time += amount;
     final prev = track.previous;
     if (prev != null) {
@@ -648,13 +662,87 @@ class AnimationState {
         track.previous = null;
       }
     }
-    // Dispatch events for current entry.
-    _dispatchEventsForEntry(ti, cur, fromTime, cur.time);
+    // Dispatch events for the current entry over the crossed window. While a
+    // track is mixing in, withhold its events until mixTime crosses
+    // mixDuration * eventThreshold, then dispatch from the crossing point
+    // (mixer.nim:248-255). Not mixing: dispatch the whole window.
+    if (hadPrevious && mixDuration > 0.0) {
+      final thresholdTime = mixDuration * track.eventThreshold;
+      if (cur.mixTime >= thresholdTime) {
+        if (startMixTime >= thresholdTime) {
+          _dispatchEventsForEntry(ti, cur, startTime, cur.time);
+        } else {
+          final dispatchFrom =
+              quantizeF32(startTime + thresholdTime - startMixTime);
+          _dispatchEventsForEntry(ti, cur, dispatchFrom, cur.time,
+              includeFrom: true);
+        }
+      } else {
+        _dispatchEventsForEntry(ti, cur, startTime, cur.time);
+      }
+    } else {
+      _dispatchEventsForEntry(ti, cur, startTime, cur.time);
+    }
   }
 
-  void _dispatchEventsForEntry(int ti, TrackEntry entry, double fromTime, double toTime) {
-    if (toTime < fromTime) return;
-    // Bony M3 has no event timelines yet; placeholder for future milestones.
+  /// Collects the events fired in the crossed window `(fromTime, toTime]`
+  /// (`[fromTime, toTime]` when [includeFrom]) into [events], loop-aware and
+  /// stable-sorted by (time, insertion order). Ports Nim `dispatchEvents`
+  /// (mixer.nim:196-232).
+  void _dispatchEventsForEntry(
+      int ti, TrackEntry entry, double fromTime, double toTime,
+      {bool includeFrom = false}) {
+    if (toTime < fromTime || (toTime == fromTime && !includeFrom)) return;
+    final clip = entry.clip;
+    final fired = <({DispatchedEvent event, int order})>[];
+    var order = 0;
+    if (entry.loop && clip.duration > 0.0) {
+      final duration = clip.duration;
+      final firstCycle = (fromTime / duration).floor();
+      final lastCycle = (toTime / duration).floor();
+      for (var cycle = firstCycle; cycle <= lastCycle; cycle++) {
+        final baseTime = cycle * duration;
+        for (final timeline in clip.eventTimelines) {
+          for (final key in timeline.keys) {
+            final absoluteTime = baseTime + key.time;
+            if ((absoluteTime > fromTime ||
+                    (includeFrom && absoluteTime == fromTime)) &&
+                absoluteTime <= toTime) {
+              fired.add((
+                event: DispatchedEvent(
+                    trackIndex: ti, event: key.event, time: absoluteTime),
+                order: order,
+              ));
+            }
+            order++;
+          }
+        }
+      }
+    } else {
+      final endTime = math.min(toTime, clip.duration);
+      for (final timeline in clip.eventTimelines) {
+        for (final key in timeline.keys) {
+          if ((key.time > fromTime || (includeFrom && key.time == fromTime)) &&
+              key.time <= endTime) {
+            fired.add((
+              event: DispatchedEvent(
+                  trackIndex: ti, event: key.event, time: key.time),
+              order: order,
+            ));
+          }
+          order++;
+        }
+      }
+    }
+    // Stable order via explicit tiebreak (Dart's List.sort is not stable):
+    // ascending fired time, then insertion order (mixer.nim:226-230).
+    fired.sort((a, b) {
+      final c = a.event.time.compareTo(b.event.time);
+      return c != 0 ? c : a.order.compareTo(b.order);
+    });
+    for (final item in fired) {
+      events.add(item.event);
+    }
   }
 
   MixedPose sample() {

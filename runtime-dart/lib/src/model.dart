@@ -684,6 +684,48 @@ class SlotTimeline {
   final List<SequenceKeyframe> sequenceKeys;
 }
 
+/// A clip-owned, application-facing event payload. Mirrors Nim `EventData`
+/// (runtime-nim/src/bony/anim/timelines.nim:99-106). `audioPath`/`volume`/
+/// `balance` are audio metadata carried verbatim — the runtime never decodes or
+/// plays audio (docs/event-timeline-contract.md). `volume`/`balance`/`floatValue`
+/// are f32-quantized on load but never range-clamped.
+class EventData {
+  const EventData({
+    required this.name,
+    this.intValue = 0,
+    this.floatValue = 0.0,
+    this.stringValue = '',
+    this.audioPath = '',
+    this.volume = 1.0,
+    this.balance = 0.0,
+  });
+  final String name;
+  final int intValue;
+  final double floatValue;
+  final String stringValue;
+  final String audioPath;
+  final double volume;
+  final double balance;
+}
+
+/// A single event keyframe: a [time] and its [event] payload. Mirrors Nim
+/// `EventKeyframe` (timelines.nim:108-110). Events are not interpolated, so —
+/// unlike bone/slot/deform keyframes — there is no curve.
+class EventKeyframe {
+  const EventKeyframe({required this.time, required this.event});
+  final double time;
+  final EventData event;
+}
+
+/// A clip-owned, clip-global event timeline: an ordered list of keyframes with
+/// no bone/slot/attachment target. Mirrors Nim `EventTimeline`
+/// (timelines.nim:112-113). Keyframe times are non-decreasing (equal times
+/// allowed), unlike the strictly-increasing bone/slot/deform rule.
+class EventTimeline {
+  const EventTimeline({required this.keys});
+  final List<EventKeyframe> keys;
+}
+
 class AnimationClip {
   const AnimationClip({
     required this.name,
@@ -691,12 +733,14 @@ class AnimationClip {
     required this.boneTimelines,
     this.slotTimelines = const [],
     this.deformTimelines = const [],
+    this.eventTimelines = const [],
   });
   final String name;
   final double duration;
   final List<BoneTimeline> boneTimelines;
   final List<SlotTimeline> slotTimelines;
   final List<DeformTimeline> deformTimelines;
+  final List<EventTimeline> eventTimelines;
 }
 
 /// A deform timeline resolved to a dense per-vertex delta set at a sample time,

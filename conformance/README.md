@@ -517,12 +517,19 @@ Notes for readers comparing runtimes:
   across the three goldens — the event channel is the sole non-vacuity anchor.
 - The `event_story` machine is **single-layer**, so `trackIndex` is `0` on every
   dispatched event.
-- Cross-runtime status: **Nim-only pending prompt 30** (Dart parity). The Dart
-  port must reproduce these goldens by replaying **incrementally** (carrying track
-  state across samples and resetting the event list per sample), not via a
-  fresh-runtime absolute-time update. For byte parity it must also **omit** the
-  `animationEvents` key entirely on an empty window (the `rest` golden has no
-  `animationEvents` key — it does not emit an empty `[]`).
+- Cross-runtime status: the `m19_event_story_*` goldens are honored by **both**
+  the Nim reference and the Dart runtime. Dart ports the event-timeline model
+  (`EventData`/`EventKeyframe`/`EventTimeline` + `AnimationClip.eventTimelines` in
+  `runtime-dart/lib/src/model.dart`), the JSON and packed `.bnb` `eventKeys`
+  loaders (`runtime-dart/lib/src/loader.dart`), and the mixer dispatch
+  (`_dispatchEventsForEntry` in `runtime-dart/lib/src/anim.dart`, gating on the
+  half-open `(fromTime, toTime]` window with the `eventThreshold` mix-in
+  behavior). It reproduces every `animationEvents` array within `1e-4` (exact
+  strings/ints) from both the `.bony` and the `.bnb` by replaying
+  **incrementally** — carrying one `AnimationState` across samples and reading the
+  events fired per inter-sample window (`AnimationState.update` resets its event
+  list each call), never a fresh-runtime absolute-time update
+  (`runtime-dart/test/m19_event_story_test.dart`).
 
 ### Image goldens (Nim reference rasterizer only)
 
