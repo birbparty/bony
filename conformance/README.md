@@ -46,7 +46,7 @@ conformance/
 | M16 | `m16_mesh_multi_deform_rig` | Multiple ordered deformers on a mesh: rotation (order 0) then a warp parented to it (order 1), exercising composition + parent-frame chaining |
 | M17 | `m17_mesh_clip_rig` | Mesh × clipping: a triangle-soup mesh inside a clip range, clipped **per-triangle** (shared interior vertex preserved; some triangles cut, some pass through) |
 | M18 | `m18_mesh_deform_anim_rig` | Animated mesh deform: a clip-owned deform timeline moves mesh vertices over time; first nonzero-time mesh golden |
-| M19 | `m19_event_rig` | Animation events: a clip-owned event timeline fires distinct value-carrying events at keyframe times, surfaced in the golden's `animationEvents` channel via incremental per-sample-window dispatch (Nim-only pending prompt 30) |
+| M19 | `m19_event_rig` | Animation events: a clip-owned event timeline fires distinct value-carrying events at keyframe times, surfaced in the golden's `animationEvents` channel via incremental per-sample-window dispatch through the Nim and Dart clip-mirror story paths |
 
 The `M5 (IK)` row is a second M5 asset (structured like the standalone M9 row):
 the table is one-asset-per-row, so `m5_ik_rig` gets its own row rather than being
@@ -529,14 +529,14 @@ Notes for readers comparing runtimes:
   **incrementally** — carrying one `AnimationState` across samples and reading the
   events fired per inter-sample window (`AnimationState.update` resets its event
   list each call), never a fresh-runtime absolute-time update
-  (`runtime-dart/test/m19_event_story_test.dart`). As in Nim, event dispatch is a
-  **mixer-level primitive**: neither runtime surfaces `animationEvents` through the
-  state-machine `evaluate` pose path — the Nim CLI story runner mirrors each
-  layer's active clip onto its own single-track `AnimationState` and collects that
-  track's dispatched events (`cli/bony_cli.nim:1456-1525`), and the Dart test
-  drives the equivalent `AnimationState` primitive directly. Wiring that
-  clip-mirror bridge into the Dart CLI/SM story path is tracked as follow-up
-  (bony-7axu successor).
+  (`runtime-dart/test/m19_event_story_test.dart`). Event dispatch remains a
+  **mixer-level primitive**: the Nim CLI story runner mirrors each layer's active
+  clip onto its own single-track `AnimationState` and collects that track's
+  dispatched events (`cli/bony_cli.nim:1456-1525`). Dart now carries the same
+  clip-mirror bridge inside `StateMachineRuntime.evaluate`; after each evaluate
+  call, `StateMachineRuntime.animationEvents` contains the events fired for that
+  state-machine step, and the Dart `.bony`/`.bnb` parity tests assert the bridge
+  against the M19 goldens.
 
 ### Image goldens (Nim reference rasterizer only)
 

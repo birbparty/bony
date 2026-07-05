@@ -78,6 +78,39 @@ void main() {
     return out;
   }
 
+  Map<String, List<DispatchedEvent>> replayStateMachine(SkeletonData base) {
+    final story = base.stateMachines.firstWhere((s) => s.name == 'event_story');
+    final rt = initStateMachineRuntime(story);
+    final out = <String, List<DispatchedEvent>>{};
+    var prevTime = 0.0;
+    for (final (name, t) in samples) {
+      rt.update(t - prevTime);
+      rt.evaluate(base);
+      out[name] = List<DispatchedEvent>.from(rt.animationEvents);
+      prevTime = t;
+    }
+    return out;
+  }
+
+  SkeletonData copySkeleton(SkeletonData data) => SkeletonData(
+        header: data.header,
+        bones: data.bones,
+        slots: data.slots,
+        regions: data.regions,
+        paths: data.paths,
+        pathAttachments: data.pathAttachments,
+        clippingAttachments: data.clippingAttachments,
+        meshAttachments: data.meshAttachments,
+        ikConstraints: data.ikConstraints,
+        transformConstraints: data.transformConstraints,
+        physicsConstraints: data.physicsConstraints,
+        animations: data.animations,
+        parameters: data.parameters,
+        deformers: data.deformers,
+        stateMachines: data.stateMachines,
+        deformOverrides: data.deformOverrides,
+      );
+
   group('M19 event-story goldens', () {
     late SkeletonData fromJson;
 
@@ -99,6 +132,36 @@ void main() {
       expect(fired['rest'], isEmpty);
       expect(fired['mid']!.map((e) => e.name), ['hit', 'hit2']);
       expect(fired['end']!.map((e) => e.name), ['land']);
+    });
+
+    test('state-machine evaluate path surfaces animationEvents', () {
+      final fired = replayStateMachine(fromJson);
+      expectEventsMatchGolden(fired['rest']!, 'rest');
+      expectEventsMatchGolden(fired['mid']!, 'mid');
+      expectEventsMatchGolden(fired['end']!, 'end');
+    });
+
+    test('state-machine evaluate is idempotent for animationEvents', () {
+      final story = fromJson.stateMachines.firstWhere((s) => s.name == 'event_story');
+      final rt = initStateMachineRuntime(story)..update(0.5);
+      rt.evaluate(fromJson);
+      final first = List<DispatchedEvent>.from(rt.animationEvents);
+      rt.evaluate(fromJson);
+      expect(rt.animationEvents.map((e) => e.name), first.map((e) => e.name));
+      expectEventsMatchGolden(rt.animationEvents, 'mid');
+    });
+
+    test('state-machine bridge preserves event window across data swaps', () {
+      final story = fromJson.stateMachines.firstWhere((s) => s.name == 'event_story');
+      final rt = initStateMachineRuntime(story);
+      rt.update(0.5);
+      rt.evaluate(fromJson);
+      expect(rt.animationEvents.map((e) => e.name), ['hit', 'hit2']);
+
+      rt.update(0.5);
+      rt.evaluate(copySkeleton(fromJson));
+      expect(rt.animationEvents.map((e) => e.name), ['land']);
+      expectEventsMatchGolden(rt.animationEvents, 'end');
     });
   });
 
@@ -193,8 +256,8 @@ void main() {
           File('../conformance/assets/m19_event_rig.bony').readAsStringSync());
       final fromBnb = loadBonyBnb(
           File('../conformance/assets/bnb/m19_event_rig.bnb').readAsBytesSync());
-      final j = replay(fromJson);
-      final b = replay(fromBnb);
+      final j = replayStateMachine(fromJson);
+      final b = replayStateMachine(fromBnb);
       for (final (name, _) in samples) {
         final je = j[name]!;
         final be = b[name]!;
