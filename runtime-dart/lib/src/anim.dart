@@ -664,8 +664,10 @@ class AnimationState {
     }
     // Dispatch events for the current entry over the crossed window. While a
     // track is mixing in, withhold its events until mixTime crosses
-    // mixDuration * eventThreshold, then dispatch from the crossing point
-    // (mixer.nim:248-255). Not mixing: dispatch the whole window.
+    // mixDuration * eventThreshold, then dispatch from the crossing point;
+    // events fired entirely below the threshold are suppressed (Nim
+    // advancePlaying has NO else on the inner threshold check, mixer.nim:250-255).
+    // Not mixing: dispatch the whole window (mixer.nim:256-257).
     if (hadPrevious && mixDuration > 0.0) {
       final thresholdTime = mixDuration * track.eventThreshold;
       if (cur.mixTime >= thresholdTime) {
@@ -677,9 +679,8 @@ class AnimationState {
           _dispatchEventsForEntry(ti, cur, dispatchFrom, cur.time,
               includeFrom: true);
         }
-      } else {
-        _dispatchEventsForEntry(ti, cur, startTime, cur.time);
       }
+      // else: mixing in below the event threshold — suppress events entirely.
     } else {
       _dispatchEventsForEntry(ti, cur, startTime, cur.time);
     }

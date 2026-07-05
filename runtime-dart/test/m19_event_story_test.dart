@@ -102,6 +102,91 @@ void main() {
     });
   });
 
+  // Unit coverage for the dispatch primitive on branches the m19 rig (single
+  // non-looping, non-mixing clip) does not exercise: mix-in threshold gating,
+  // cross-timeline co-timed ordering, and the loop-aware cycle walk. Uses
+  // synthetic clips, not goldens.
+  group('mixer event dispatch primitive', () {
+    final data = SkeletonData(
+      header: const SkeletonHeader(name: 'synthetic', version: '1.0.0'),
+      bones: const [],
+      slots: const [],
+      regions: const [],
+      paths: const [],
+      pathAttachments: const [],
+    );
+
+    AnimationClip eventClip(String name, double duration, List<EventKeyframe> keys) =>
+        AnimationClip(
+          name: name,
+          duration: duration,
+          boneTimelines: const [],
+          eventTimelines: [EventTimeline(keys: keys)],
+        );
+
+    test('events fired entirely below the mix-in threshold are suppressed', () {
+      // eventThreshold defaults to 0.5, mixDuration 1.0 -> thresholdTime 0.5.
+      // Advancing mixTime only to 0.2 (< 0.5) must dispatch nothing, even though
+      // the event at t=0.1 falls in the (0, 0.2] window. (Regression: an earlier
+      // draft dispatched the whole window here, defeating eventThreshold.)
+      final a = eventClip('a', 1.0, const []);
+      final b = eventClip('b', 1.0,
+          [EventKeyframe(time: 0.1, event: const EventData(name: 'early'))]);
+      final anim = AnimationState(data)
+        ..setAnimation(0, a)
+        ..setAnimation(0, b, mixDuration: 1.0);
+      anim.update(0.2);
+      expect(anim.events, isEmpty);
+    });
+
+    test('mix-in dispatches only from the threshold-crossing point', () {
+      // Single advance 0 -> 1.0 crosses the threshold at mixTime 0.5; the
+      // dispatch window is [0.5, 1.0], so the below-threshold event (0.1) is
+      // suppressed and only the above-threshold event (0.6) fires.
+      final a = eventClip('a', 1.0, const []);
+      final b = eventClip('b', 1.0, [
+        EventKeyframe(time: 0.1, event: const EventData(name: 'early')),
+        EventKeyframe(time: 0.6, event: const EventData(name: 'late')),
+      ]);
+      final anim = AnimationState(data)
+        ..setAnimation(0, a)
+        ..setAnimation(0, b, mixDuration: 1.0);
+      anim.update(1.0);
+      expect(anim.events.map((e) => e.name), ['late']);
+    });
+
+    test('co-timed events across timelines sort by time then insertion order', () {
+      final clip = AnimationClip(
+        name: 'c',
+        duration: 1.0,
+        boneTimelines: const [],
+        eventTimelines: [
+          EventTimeline(keys: [
+            EventKeyframe(time: 0.5, event: const EventData(name: 't0a')),
+            EventKeyframe(time: 0.9, event: const EventData(name: 't0b')),
+          ]),
+          EventTimeline(keys: [
+            EventKeyframe(time: 0.5, event: const EventData(name: 't1a')),
+          ]),
+        ],
+      );
+      final anim = AnimationState(data)..setAnimation(0, clip);
+      anim.update(1.0);
+      // Row-major insertion order: t0a(0.5,#0), t0b(0.9,#1), t1a(0.5,#2).
+      // Sorted by (time, order): t0a, t1a, then t0b.
+      expect(anim.events.map((e) => e.name), ['t0a', 't1a', 't0b']);
+    });
+
+    test('looping clip fires events across every crossed cycle', () {
+      final clip = eventClip('loopy', 1.0,
+          [EventKeyframe(time: 0.5, event: const EventData(name: 'beat'))]);
+      final anim = AnimationState(data)..setAnimation(0, clip, loop: true);
+      anim.update(2.0); // (0, 2.0], duration 1.0 -> beats at 0.5 and 1.5
+      expect(anim.events.map((e) => e.name), ['beat', 'beat']);
+      expect(anim.events.map((e) => e.time), [0.5, 1.5]);
+    });
+  });
+
   group('M19 event rig .bony-vs-.bnb parity', () {
     test('dispatched events are identical from .bony and .bnb', () {
       final fromJson = loadBonyJson(
