@@ -336,6 +336,44 @@ Nim goldens). Cross-reference the physics story's incremental advance
 (`cli/bony_cli.nim:1456–1474`) as the parity precedent, not the deform/mesh setup-pose
 pattern.
 
+### Hard-cut event dispatch on a layer transition (normative)
+
+The state-machine story path never drives an `AnimationState` directly — it steps each
+layer's time and samples poses instantaneously — so the story runner **mirrors** each
+layer's active clip onto its own single-track `AnimationState` and advances that track by
+the same per-sample delta the state machine is advanced by (`cli/bony_cli.nim:1468–1512`).
+When a layer **transitions**, that mirrored track is reloaded (`setAnimation`,
+`cli/bony_cli.nim:1504–1505`), which resets its track time to `0`. This pins, normatively,
+how events straddle a transition:
+
+1. **A transition is a hard cut for events.** In the sample where a layer transitions, the
+   **outgoing** clip's events in that sample's *partial pre-transition window* are
+   **intentionally NOT dispatched**. This matches the state machine's instantaneous pose
+   evaluation and layer-time reset — the outgoing clip contributes no pose past the
+   transition instant, so it dispatches no events for the fractional window it was still
+   active (`cli/bony_cli.nim:1499–1505`). Only the **post-update active clip** dispatches,
+   advancing from its post-reset layer time (right after a reload the mirrored track sits at
+   `0` and advances to the post-reset layer time, `cli/bony_cli.nim:1510`).
+
+2. **Detected by layer-time decrease, not by state name.** A transition is recognized when a
+   layer's post-update time is **less than** its previous post-update time
+   (`layerRt.time < layerPrevTimes[layer]`, `cli/bony_cli.nim:1491`). Layer time is
+   monotonic non-decreasing along a story (`dt ≥ 0`, and looping never resets it), so a
+   decrease can only mean a transition reset it to `0`. This deliberately covers a
+   **self-transition** (`A → A`): the state name is unchanged but layer time still resets,
+   and the mirrored track MUST be reloaded (its co-timed pre-transition events dropped)
+   rather than continuing to advance the stale track. Detecting by name alone would silently
+   desync a self-transition forever.
+
+3. **A non-clip active state disarms the mirror.** A `1D`-blend (or any non-clip) active
+   state has no single owning clip, so event dispatch across it is out of scope for this
+   milestone; the runner clears the layer's loaded-state marker so a later clip re-entry
+   reloads cleanly (`cli/bony_cli.nim:1493–1497`).
+
+Prompts 29 (goldens) and 30 (Dart port) MUST reproduce this hard-cut behavior
+byte-for-byte: on a transitioning sample, emit only the incoming clip's post-reset-window
+events, never the outgoing clip's dropped partial-window events.
+
 ## Deterministic dispatch (implemented across the runtime)
 
 The dispatch path is **already implemented** and unchanged by this milestone; this
