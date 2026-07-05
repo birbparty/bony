@@ -1469,6 +1469,13 @@ proc executeStateMachineScript(
   for animState in layerAnimStates.mitems:
     animState = animationState()
   var layerLoadedStates = newSeq[string](runtime.layers.len)
+  # Previous post-update layer time, per layer. Layer time is monotonic
+  # non-decreasing (dt is non-negative and looping never resets it), so a
+  # decrease can only mean a state transition reset layer time to 0 — including
+  # a self-transition (A->A), which is legal and keeps the state name unchanged.
+  # We detect that reset by time, not by name, so a self-transition still reloads
+  # the mirrored track instead of silently desyncing it forever.
+  var layerPrevTimes = newSeq[float64](runtime.layers.len)
   var previousTime = 0.0
   var matched = false
   for index, sample in script.samples:
@@ -1481,17 +1488,25 @@ proc executeStateMachineScript(
     for layerIndex in 0 ..< runtime.layers.len:
       let layerRt = runtime.layers[layerIndex]
       let active = layerRt.currentState()
+      let layerTimeReset = layerRt.time < layerPrevTimes[layerIndex]
+      layerPrevTimes[layerIndex] = layerRt.time
       if active.kind != clipState:
         # A 1D blend has no single owning clip; event dispatch across a blend is
         # out of scope for this slice. Disarm so a later clip re-entry reloads.
         layerLoadedStates[layerIndex] = ""
         continue
-      if layerLoadedStates[layerIndex] != active.name:
+      # Reload the mirrored track on a state change OR a same-name layer-time
+      # reset (self-transition). Note: a transition observed here is a hard cut —
+      # the outgoing clip's events in this sample's partial pre-transition window
+      # are intentionally NOT dispatched, matching the SM's instantaneous pose
+      # evaluation and layer-time reset (the incremental parity contract prompts
+      # 29/30 reproduce). Only the post-update active clip dispatches.
+      if layerLoadedStates[layerIndex] != active.name or layerTimeReset:
         layerAnimStates[layerIndex].setAnimation(0, active.clip, active.loop)
         layerLoadedStates[layerIndex] = active.name
       # Advance this layer's track to the SM layer's post-update (raw) time. In
-      # steady state this is the inter-sample step; right after a transition the
-      # SM reset layer time to 0, so the freshly-reloaded track advances by 0.
+      # steady state this is the inter-sample step; right after a (re)load the
+      # track sits at 0 and advances to the post-reset layer time.
       let amount = max(0.0, layerRt.time - layerAnimStates[layerIndex].tracks[0].current.time)
       layerAnimStates[layerIndex].update(amount)
       for dispatched in layerAnimStates[layerIndex].events:
