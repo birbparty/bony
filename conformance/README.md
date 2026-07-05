@@ -520,7 +520,9 @@ Notes for readers comparing runtimes:
 - Cross-runtime status: **Nim-only pending prompt 30** (Dart parity). The Dart
   port must reproduce these goldens by replaying **incrementally** (carrying track
   state across samples and resetting the event list per sample), not via a
-  fresh-runtime absolute-time update.
+  fresh-runtime absolute-time update. For byte parity it must also **omit** the
+  `animationEvents` key entirely on an empty window (the `rest` golden has no
+  `animationEvents` key — it does not emit an empty `[]`).
 
 ### Image goldens (Nim reference rasterizer only)
 
