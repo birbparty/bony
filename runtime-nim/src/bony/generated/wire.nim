@@ -68,6 +68,8 @@ const bonyTypeKeys* = [
   BonyTypeKey(id: "stateMachineTransition", key: 7005.uint64),
   BonyTypeKey(id: "stateMachineCondition", key: 7006.uint64),
   BonyTypeKey(id: "stateMachineListener", key: 7007.uint64),
+  BonyTypeKey(id: "skin", key: 3003.uint64),
+  BonyTypeKey(id: "skinEntry", key: 3004.uint64),
 ]
 const bonyPropertyKeys* = [
   BonyPropertyKey(id: "name", key: 1.uint64, backingType: "string"),
@@ -176,6 +178,8 @@ const bonyPropertyKeys* = [
   BonyPropertyKey(id: "listenerLayerIndex", key: 7061.uint64, backingType: "varuint"),
   BonyPropertyKey(id: "listenerFromStateIndex", key: 7062.uint64, backingType: "varuint"),
   BonyPropertyKey(id: "listenerToStateIndex", key: 7063.uint64, backingType: "varuint"),
+  BonyPropertyKey(id: "skinAttachment", key: 3010.uint64, backingType: "string"),
+  BonyPropertyKey(id: "skinTarget", key: 3011.uint64, backingType: "string"),
 ]
 let bonyObjectSpecs*: seq[BonyObjectSpec] = @[
   BonyObjectSpec(typeId: "skeleton", properties: @["name", "version"]),
@@ -208,6 +212,8 @@ let bonyObjectSpecs*: seq[BonyObjectSpec] = @[
   BonyObjectSpec(typeId: "stateMachineTransition", properties: @["transitionFromStateIndex", "transitionToStateIndex"]),
   BonyObjectSpec(typeId: "stateMachineCondition", properties: @["conditionInputIndex", "stateMachineConditionKind", "conditionBoolValue", "conditionNumberValue"]),
   BonyObjectSpec(typeId: "stateMachineListener", properties: @["name", "stateMachineListenerKind", "listenerLayerIndex", "listenerFromStateIndex", "listenerToStateIndex"]),
+  BonyObjectSpec(typeId: "skin", properties: @["name"]),
+  BonyObjectSpec(typeId: "skinEntry", properties: @["slot", "skinAttachment", "skinTarget"]),
 ]
 const bonyPropertyDefaults* = [
   BonyPropertyDefault(objectId: "skeleton", propertyId: "version", equality: "exactString", value: "\"0.1.0\"", omitWhenDefault: true, applyOnLoad: true),
@@ -326,7 +332,7 @@ const bonyRequiredProperties* = [
   BonyRequiredProperty(objectId: "slotTimeline", propertyId: "slotIndex", reason: "Slot timelines must resolve to a loaded slot."),
   BonyRequiredProperty(objectId: "slotTimeline", propertyId: "slotTimelineKind", reason: "Slot timeline kind selects the packed key payload shape."),
   BonyRequiredProperty(objectId: "slotTimeline", propertyId: "timelineKeys", reason: "Slot timelines need packed keyframe data."),
-  BonyRequiredProperty(objectId: "deformTimeline", propertyId: "deformSkin", reason: "Deform timelines bind to a skin identity (the reserved \"default\" skin in v1)."),
+  BonyRequiredProperty(objectId: "deformTimeline", propertyId: "deformSkin", reason: "Deform timelines bind to a declared skin identity, with \"default\" as the required fallback skin."),
   BonyRequiredProperty(objectId: "deformTimeline", propertyId: "slot", reason: "Deform timelines must name the slot whose attachment is deformed."),
   BonyRequiredProperty(objectId: "deformTimeline", propertyId: "deformAttachment", reason: "Deform timelines must name the mesh attachment they animate."),
   BonyRequiredProperty(objectId: "deformTimeline", propertyId: "deformVertexCount", reason: "Deform delta runs index against the mesh vertex count."),
@@ -347,6 +353,10 @@ const bonyRequiredProperties* = [
   BonyRequiredProperty(objectId: "stateMachineListener", propertyId: "name", reason: "State-machine listeners are surfaced by stable names."),
   BonyRequiredProperty(objectId: "stateMachineListener", propertyId: "stateMachineListenerKind", reason: "Listener kind determines active state-reference fields."),
   BonyRequiredProperty(objectId: "stateMachineListener", propertyId: "listenerLayerIndex", reason: "Listeners must resolve to a state-machine layer."),
+  BonyRequiredProperty(objectId: "skin", propertyId: "name", reason: "Skins are referenced by stable unique names, including the required default skin."),
+  BonyRequiredProperty(objectId: "skinEntry", propertyId: "slot", reason: "A skin entry must identify the slot whose visible attachment name it binds."),
+  BonyRequiredProperty(objectId: "skinEntry", propertyId: "skinAttachment", reason: "A skin entry must identify the slot-visible attachment name it binds."),
+  BonyRequiredProperty(objectId: "skinEntry", propertyId: "skinTarget", reason: "A skin entry must identify the concrete attachment definition it resolves to."),
 ]
 
 proc bonyObjectSpec*(typeId: string): BonyObjectSpec =

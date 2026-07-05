@@ -121,3 +121,23 @@ Net-new serialized identifiers confirmed against the review checklist above.
 - **PROVENANCE updated**: yes — see "Deform Timeline Schema Names (2026-07-03)" in
   `docs/PROVENANCE.md`.
 - **Result**: checklist **satisfied**.
+
+### Skin Attachment-Set Serialized Names (2026-07-05, bead `bony-4set`)
+
+- **Net-new identifiers**: types `skin` and `skinEntry`; top-level canonical
+  JSON array `skins`; skin field `entries`; entry fields `slot`, `attachment`,
+  and `target`; property keys `skinAttachment` and `skinTarget` (the entry
+  `slot` reuses the existing `slot` property key).
+- **Explainable without prior-art source**: yes - the names come from `bony`'s
+  binding spec requirement for `skins[]`, the existing project-owned slot and
+  attachment model, and generic set/binding terminology. The lookup/fallback
+  rule and binary parent/child object shape are specified in
+  `docs/skin-attachment-set-contract.md`.
+- **Project-owned & documented**: keys (types `3003`/`3004`, properties
+  `3010`/`3011` in the M4 band) live in `registry/wire.yml`; defaults in
+  `spec/defaults.yml`; schema in `spec/`; the model and ordering rules are
+  project-owned.
+- **No build-step fetch of prior-art source**: confirmed.
+- **PROVENANCE updated**: yes - see "Skin Attachment-Set Schema Names
+  (2026-07-05)" in `docs/PROVENANCE.md`.
+- **Result**: checklist **satisfied**.

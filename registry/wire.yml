@@ -382,6 +382,18 @@ typeKeys:
     milestone: M8
     ownerBead: bony-cl8.9
     doc: State-machine listener child record owned by the most recent stateMachine.
+  - id: skin
+    key: 3003
+    status: active
+    milestone: M4
+    ownerBead: bony-4set
+    doc: Named attachment-set parent record; followed immediately by owned skinEntry bindings.
+  - id: skinEntry
+    key: 3004
+    status: active
+    milestone: M4
+    ownerBead: bony-4set
+    doc: Skin-owned binding from a slot-visible attachment name to a concrete attachment definition.
 
 propertyKeys:
   - id: name
@@ -565,7 +577,7 @@ propertyKeys:
     status: active
     milestone: M4
     ownerBead: bony-68lj
-    doc: Skin identity a deform timeline binds to; the reserved "default" skin in v1.
+    doc: Skin identity a deform timeline binds to; "default" names the required fallback skin.
   - id: deformAttachment
     key: 3007
     backingType: string
@@ -1126,6 +1138,20 @@ propertyKeys:
     milestone: M8
     ownerBead: bony-cl8.9
     doc: Layer-local listener target state index.
+  - id: skinAttachment
+    key: 3010
+    backingType: string
+    status: active
+    milestone: M4
+    ownerBead: bony-4set
+    doc: Slot-visible attachment name bound by a skin entry.
+  - id: skinTarget
+    key: 3011
+    backingType: string
+    status: active
+    milestone: M4
+    ownerBead: bony-4set
+    doc: Concrete region, clipping, or mesh attachment definition referenced by a skin entry.
 
 objects:
   - type: skeleton
@@ -1353,3 +1379,13 @@ objects:
       - listenerFromStateIndex
       - listenerToStateIndex
     doc: State-machine listener child record owned by the most recent stateMachine.
+  - type: skin
+    properties:
+      - name
+    doc: Named attachment-set parent record; followed immediately by owned skinEntry children.
+  - type: skinEntry
+    properties:
+      - slot
+      - skinAttachment
+      - skinTarget
+    doc: Skin-owned binding from a slot-visible attachment name to a concrete attachment definition.

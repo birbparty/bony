@@ -160,10 +160,14 @@ spec "bony package":
       bonyRegistryVersion == 1
       bonyBackingTypes.len == 8
       bonyBackingTypes[0].id == "varuint"
-      bonyTypeKeys.len == 30
-      bonyPropertyKeys.len == 106
+      bonyTypeKeys.len == 32
+      bonyTypeKeys.anyIt(it.id == "skin" and it.key == 3003'u64)
+      bonyTypeKeys.anyIt(it.id == "skinEntry" and it.key == 3004'u64)
+      bonyPropertyKeys.len == 108
+      bonyPropertyKeys.anyIt(it.id == "skinAttachment" and it.key == 3010'u64)
+      bonyPropertyKeys.anyIt(it.id == "skinTarget" and it.key == 3011'u64)
       bonyPropertyDefaults.len == 55
-      bonyRequiredProperties.len == 80
+      bonyRequiredProperties.len == 84
 
   it "encodes and rejects .bnb varints canonically":
     var bytes: seq[byte]

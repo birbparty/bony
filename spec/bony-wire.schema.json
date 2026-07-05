@@ -182,6 +182,18 @@
       "items": {
         "$ref": "#/$defs/stateMachineListener"
       }
+    },
+    "skins": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/skin"
+      }
+    },
+    "skinEntrys": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/skinEntry"
+      }
     }
   },
   "required": [
@@ -1395,6 +1407,39 @@
         "listenerLayerIndex",
         "name",
         "stateMachineListenerKind"
+      ]
+    },
+    "skin": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "name"
+      ]
+    },
+    "skinEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "slot": {
+          "type": "string"
+        },
+        "skinAttachment": {
+          "type": "string"
+        },
+        "skinTarget": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "skinAttachment",
+        "skinTarget",
+        "slot"
       ]
     }
   }

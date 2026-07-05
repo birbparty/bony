@@ -26,6 +26,12 @@ and clipping attachments:
 - A skeleton-level array `meshAttachments` holds the mesh records.
 - A slot references a mesh **by name** through the existing `slot.attachment`
   field — the same field that references region and clipping attachments.
+- First-class skins do **not** move mesh geometry under a skin. Mesh records
+  remain project-owned concrete attachment definitions in `meshAttachments`;
+  skin entries (`docs/skin-attachment-set-contract.md`) bind a slot-visible
+  attachment name to one of those concrete definitions. A skin may therefore map
+  the same `(slot, attachment)` key to different mesh targets without duplicating
+  the mesh record shape.
 - A mesh record's canonical-JSON form has exactly these fields:
   - `name` (string, required) — stable unique identifier referenced by
     `slot.attachment`.
@@ -43,11 +49,13 @@ and clipping attachments:
   - `triangles` (required) — a flat list of vertex indices; length is a positive
     multiple of `3`, each triple naming one triangle.
 
-No softness/feather, skins, `skinRequired` gate, linked-mesh parents, or deform
-timelines are settable in v1. (`hull`, `edges`, `parentMesh`, `inheritDeform`,
-and `deformAttachment` exist on the in-memory record as reserved fields defaulted
-to empty/inert; they are not part of the v1 serialized form and linked-mesh
-parents are rejected at load.)
+No softness/feather, `skinRequired` gate, linked-mesh parents, nested rigs, or
+deform timelines are settable in this mesh record. (`hull`, `edges`,
+`parentMesh`, `inheritDeform`, and `deformAttachment` exist on the in-memory
+record as reserved fields defaulted to empty/inert; they are not part of the v1
+serialized mesh form and linked-mesh parents are rejected at load.) Skins are a
+separate binding layer and do not add linked meshes, `inheritDeform`, or
+skin-owned mesh inheritance in this slice.
 
 ### DrawBatch metadata defaults
 

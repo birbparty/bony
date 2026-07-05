@@ -159,13 +159,22 @@ Within each group:
 
 - Bones are parent-first in loaded skeleton array order.
 - Slots are setup draw order.
-- Attachments are grouped by skin order, then slot order, then attachment name
-  sorted by canonical UTF-8 bytes. Attachment ordering is independent of the
+- Attachment definition objects (regions, path attachments, clipping
+  attachments, and mesh attachments) are emitted in the `attachments` group
+  before any skin records. They remain concrete definitions, independent of the
   runtime's in-memory map or array representation.
 - IK, transform, path, and physics arrays keep loaded array order. Runtime
   evaluation order is separately defined by `docs/constraint-total-order.md`.
 - Skins, events, parameters, deformers, animations, and state machines keep
   loaded array order unless a later contract assigns a more specific order.
+- Skin records use the object shape defined in
+  `docs/skin-attachment-set-contract.md`: each `skin` parent is emitted in
+  loaded skin order, with `"default"` first in canonical output, and its
+  `skinEntry` child records are emitted immediately after the owning `skin`.
+  Within one skin, entries are ordered by slot order, then by
+  `skinAttachment` canonical UTF-8 byte order. This is the concrete form of the
+  skin/slot/attachment ordering rule; it orders skin bindings, not the earlier
+  concrete attachment definition records.
 - Animation records are emitted before state-machine records. This is required
   because state-machine clip and blend-clip references index the loaded
   animation sequence.

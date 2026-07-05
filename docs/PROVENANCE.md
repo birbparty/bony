@@ -210,6 +210,36 @@ documentation prose.
 - **CI enforcement**: registry/defaults/codegen consistency is enforced by
   `codegen/generate.py --check`; clean-room posture is enforced by code review.
 
+### Skin Attachment-Set Schema Names (2026-07-05)
+
+- **Reason needed**: The M20 skin attachment-set milestone (bead `bony-4set`)
+  introduces first-class named skins so `(slot, attachment)` keys can resolve to
+  concrete region, clipping, or mesh attachment definitions through an active
+  skin and `"default"` fallback.
+- **Classification**: project-owned design - not an external source of
+  implementation truth.
+- **What is recorded**: the serialized identifiers `skin` (type `3003`),
+  `skinEntry` (type `3004`), `skins` (top-level canonical JSON array),
+  `entries` (skin-owned binding array), `skinAttachment` (`3010`),
+  `skinTarget` (`3011`), and canonical-JSON entry fields `slot`, `attachment`,
+  and `target`. The `slot` property reuses the existing `slot` key because the
+  binding targets a loaded slot by name. The model, active-skin then
+  `"default"` fallback lookup, validation rules, and `.bnb` parent/child order
+  are specified in `docs/skin-attachment-set-contract.md`.
+- **Source**: none. The names, field set, fallback rule, type/property keys, and
+  object ordering were **not** derived from any third-party runtime's skin,
+  attachment, or avatar field set, wire layout, keys, or documentation prose
+  (DragonBones, Spine, Rive, Live2D, Lottie). The only comparable input used for
+  this slice is the capability category recorded in
+  `docs/comparable-feature-set.md`.
+- **Cleanroom compliance**: confirmed against the `docs/CLEANROOM.md` review
+  checklist - the record can be explained from `bony`'s binding spec,
+  project-owned attachment contracts, and generic lookup-table terminology; the
+  new identifiers, keys, and binary ordering are project-owned and documented in
+  `registry/`, `spec/`, and `docs/`; no build step fetches prior-art source.
+- **CI enforcement**: registry/defaults/codegen consistency is enforced by
+  `codegen/generate.py --check`; clean-room posture is enforced by code review.
+
 ### Event Timeline Schema Names (2026-07-04)
 
 - **Reason needed**: The M3 event-timeline milestone (epic `bony-0ofc`, prompt 27)

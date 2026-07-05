@@ -70,6 +70,16 @@ M3_M8_PROPERTY_KEYS = {
     "listenerToStateIndex": 7063,
 }
 
+M4_SKIN_TYPE_KEYS = {
+    "skin": 3003,
+    "skinEntry": 3004,
+}
+
+M4_SKIN_PROPERTY_KEYS = {
+    "skinAttachment": 3010,
+    "skinTarget": 3011,
+}
+
 
 def sample_registry() -> dict:
     return {
@@ -313,6 +323,35 @@ class GeneratorValidationTests(unittest.TestCase):
         self.assertNotIn("animationClips", root_keys)
         self.assertNotIn("stateMachineInputs", root_keys)
         self.assertIn("animationClips", json.loads(generate.generate_wire_schema(registry, defaults))["properties"])
+
+    def test_project_schema_exposes_first_class_skins(self) -> None:
+        registry, defaults = self.project_sources()
+
+        schema = json.loads(generate.generate_schema(registry, defaults))
+        wire = json.loads(generate.generate_wire_schema(registry, defaults))
+
+        self.assertIn("skins", schema["properties"])
+        self.assertEqual(schema["properties"]["skins"]["minItems"], 1)
+        self.assertEqual(schema["properties"]["skins"]["contains"]["properties"]["name"]["const"], "default")
+        self.assertNotIn("skinEntrys", schema["properties"])
+        self.assertEqual(schema["$defs"]["skin"]["properties"]["entries"]["items"]["$ref"], "#/$defs/skinEntry")
+        self.assertIn("attachment", schema["$defs"]["skinEntry"]["properties"])
+        self.assertIn("target", schema["$defs"]["skinEntry"]["properties"])
+        self.assertNotIn("skinAttachment", schema["$defs"]["skinEntry"]["properties"])
+        self.assertIn("skinEntrys", wire["properties"])
+
+    def test_project_m4_skin_keys_are_in_reserved_band(self) -> None:
+        registry, defaults = self.project_sources()
+        generate.validate_sources(registry, defaults)
+
+        type_keys = {entry["id"]: entry["key"] for entry in registry["typeKeys"]}
+        property_keys = {entry["id"]: entry["key"] for entry in registry["propertyKeys"]}
+
+        self.assertEqual({key: type_keys[key] for key in M4_SKIN_TYPE_KEYS}, M4_SKIN_TYPE_KEYS)
+        self.assertEqual(
+            {key: property_keys[key] for key in M4_SKIN_PROPERTY_KEYS},
+            M4_SKIN_PROPERTY_KEYS,
+        )
 
     def test_project_conformance_assets_validate_against_generated_schema(self) -> None:
         try:

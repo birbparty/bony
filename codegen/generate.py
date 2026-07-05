@@ -502,6 +502,7 @@ def generate_schema(registry: dict[str, Any], defaults: dict[str, Any]) -> str:
         "stateMachineTransition",
         "stateMachineCondition",
         "stateMachineListener",
+        "skinEntry",
         "warpLattice",
         "rotationDeformer",
         "keyformBlend",
@@ -526,6 +527,14 @@ def generate_schema(registry: dict[str, Any], defaults: dict[str, Any]) -> str:
         }
         if object_id == "bone":
             required_root.append(collection_id)
+
+    if "skins" in root_properties:
+        root_properties["skins"]["minItems"] = 1
+        root_properties["skins"]["contains"] = {
+            "type": "object",
+            "properties": {"name": {"const": "default"}},
+            "required": ["name"],
+        }
 
     schema["properties"] = root_properties
     schema["required"] = required_root
@@ -895,6 +904,29 @@ def canonical_json_overrides() -> dict[str, Any]:
                 "keyframes": keyframes,
             },
             "required": ["attachment", "keyframes", "skin", "slot", "vertexCount"],
+        },
+        "skin": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "name": named_string,
+                "entries": {
+                    "type": "array",
+                    "items": {"$ref": "#/$defs/skinEntry"},
+                    "default": [],
+                },
+            },
+            "required": ["name"],
+        },
+        "skinEntry": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "slot": named_string,
+                "attachment": named_string,
+                "target": named_string,
+            },
+            "required": ["attachment", "slot", "target"],
         },
         "eventTimeline": {
             "type": "object",

@@ -104,6 +104,24 @@
       "items": {
         "$ref": "#/$defs/stateMachine"
       }
+    },
+    "skins": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/skin"
+      },
+      "minItems": 1,
+      "contains": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "const": "default"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      }
     }
   },
   "required": [
@@ -1565,6 +1583,49 @@
         "kind",
         "layer",
         "name"
+      ]
+    },
+    "skin": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "entries": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/skinEntry"
+          },
+          "default": []
+        }
+      },
+      "required": [
+        "name"
+      ]
+    },
+    "skinEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "slot": {
+          "type": "string",
+          "minLength": 1
+        },
+        "attachment": {
+          "type": "string",
+          "minLength": 1
+        },
+        "target": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "attachment",
+        "slot",
+        "target"
       ]
     },
     "deformerPoint": {

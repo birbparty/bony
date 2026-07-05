@@ -32,16 +32,17 @@ slot timelines:
   parent `animationClip`) is added by prompt 24. This contract pins the record
   shape that collection will hold.
 - A deform timeline binds to a mesh attachment **by (skin, slot, attachment)
-  identity** — the slot names the draw slot, the attachment names the mesh
-  attachment on that slot, and the skin selects the skin the mesh belongs to.
+  identity** — the slot names the draw slot, the attachment names the
+  slot-visible attachment key, and the skin selects the skin attachment set used
+  to resolve that key to a concrete mesh attachment.
 - A deform timeline record's canonical-JSON form has exactly these fields:
-  - `skin` (string, required) — the reserved skin identity `"default"` (see
-    "Reserved skin identity" below). Non-empty.
+  - `skin` (string, required) — the skin attachment-set name. `"default"` names
+    the required fallback skin; non-default values are valid only when declared
+    in `skins[]` (see "Skin resolution" below). Non-empty.
   - `slot` (string, required) — the name of the slot whose attachment is deformed.
     Non-empty.
-  - `attachment` (string, required) — the name of the mesh attachment (the mesh's
-    `deformAttachment` key, which equals the mesh `name`; see
-    `docs/mesh-attachment-contract.md`). Non-empty.
+  - `attachment` (string, required) — the slot-visible attachment name to resolve
+    through the named skin and `"default"` fallback. Non-empty.
   - `vertexCount` (integer, required) — the mesh vertex count the deltas index
     against; must be `> 0` and must equal the referenced mesh attachment's vertex
     count. Serialized as a `varuint`.
@@ -76,9 +77,10 @@ coverage partition therefore ranges over exactly the four scalar properties plus
 §2.5). `offset` defaulting to `0` and `curve` defaulting to `linear` are
 **in-blob** encoding defaults, not registry defaults.
 
-No multi-skin model, additive/blend deform modes, `inheritDeform` chaining, or
-attachment-swap-through-deform are settable in v1. A deform timeline animates only
-the per-vertex offsets of a single already-resolved mesh attachment.
+No additive/blend deform modes, `inheritDeform` chaining, or
+attachment-swap-through-deform are settable in v1. A deform timeline animates
+only the per-vertex offsets of the mesh attachment resolved by the first-class
+skin rules in `docs/skin-attachment-set-contract.md`.
 
 > **Not to be confused with the warp/rotation deformer subsystem.** This
 > `deformTimeline` (animated per-vertex mesh offsets) is distinct from the
@@ -87,17 +89,22 @@ the per-vertex offsets of a single already-resolved mesh attachment.
 > wired loader. A prompt-24 implementer must target `runtime-nim/src/bony/mesh/deform.nim`
 > (`DeformTimeline`/`sampleDeformDeltas`), **not** the `bony/deform/` deformer seam.
 
-### Reserved skin identity
+### Skin resolution
 
-v1 has no first-class skin system: every mesh belongs to the implicit **`"default"`**
-skin. A deform timeline's `skin` field is therefore the reserved identity
-`"default"`, and a conforming v1 asset MUST set it to exactly `"default"`. The
-standalone runtime validator `validateDeformTimeline` currently enforces only that
-`skin` is **non-empty** (it is deliberately **not** relaxed to allow empty); the
-prompt-24 loader tightens acceptance to the exact reserved value `"default"` and
-rejects any other skin as an unresolved reference. This contract pins `"default"`
-as the sole valid v1 value so downstream asset validation and the prompt-24 loader
-agree; the validator is not loosened to accept empty at any point.
+First-class skins are defined in `docs/skin-attachment-set-contract.md`. A deform
+timeline's `skin` field resolves against the loaded `skins[]` array:
+
+- `"default"` remains valid and names the required fallback skin.
+- A non-default `skin` is valid only when that skin is declared.
+- The `(skin, slot, attachment)` tuple resolves by checking the named skin first,
+  then the `"default"` skin fallback for the same `(slot, attachment)`.
+- The resolved skin entry's `target` must be a loaded mesh attachment; deform
+  timelines cannot target regions or clipping attachments.
+
+The standalone runtime validator `validateDeformTimeline` still enforces only
+that `skin` is **non-empty** (it is deliberately **not** relaxed to allow empty).
+The contextual JSON/BNB loader owns declared-skin lookup, fallback, mesh-target
+resolution, and vertex-count agreement.
 
 ## Load-validated invariants
 
@@ -119,10 +126,11 @@ be checked by the standalone validator, which sees only the timeline in isolatio
    every adjacent pair (equal or decreasing times are rejected).
 8. **In-range delta runs** — every keyframe has `deltas.len ≥ 1` and
    `offset + deltas.len ≤ vertexCount`.
-9. **Reserved skin** *(prompt-24 loader)* — `skin == "default"`.
-10. **Resolvable binding** *(prompt-24 loader)* — the `(slot, attachment)` pair
-    resolves to a **loaded mesh attachment**: `slot` names a loaded slot and
-    `attachment` names a mesh attachment reachable from that slot.
+9. **Declared skin** *(contextual loader)* — `skin == "default"` or `skin` names
+   a declared non-default skin.
+10. **Resolvable binding** *(contextual loader)* — `(skin, slot, attachment)`
+    resolves through active-skin then `"default"` fallback to a **loaded mesh
+    attachment** target.
 11. **Vertex-count agreement** *(prompt-24 loader)* — `vertexCount` equals the
     referenced mesh attachment's vertex count.
 
@@ -141,13 +149,13 @@ inline).
 
 | Case | Rule |
 |---|---|
-| (a) `skin != "default"` | **Reject** — v1 recognizes only the reserved `"default"` skin (`unknownRequiredReference`); *prompt-24 loader*. The standalone validator still rejects an **empty** skin (`schemaViolation`). |
+| (a) empty `skin`, or non-default `skin` not declared in `skins[]` | **Reject** — empty is `schemaViolation` (standalone validator); an undeclared non-default skin is `unknownRequiredReference` in the contextual loader. |
 | (b) empty `slot` or empty `attachment` | **Reject** — a deform timeline must name both a slot and an attachment (`schemaViolation`, standalone validator). |
 | (c) `vertexCount ≤ 0`, or `vertexCount` disagreeing with the referenced mesh's vertex count | **Reject** — non-positive is `schemaViolation` (standalone); a mismatch against the resolved mesh is `schemaViolation` (*prompt-24 loader*). |
 | (d) zero keyframes | **Reject** — a deform timeline must contain at least one keyframe (`schemaViolation`). |
 | (e) a keyframe with zero deltas, or `offset + deltas.len > vertexCount` | **Reject** — each key needs a non-empty delta run that fits the mesh (`schemaViolation`). |
 | (f) non-strictly-increasing keyframe times, or a negative key time after `f32` quantization | **Reject** — times must be non-negative and strictly increasing (`schemaViolation`). |
-| (g) `slot` names no loaded slot, `attachment` names no loaded mesh attachment, or the two do not resolve to one another (the named attachment is not the mesh bound to that slot) | **Reject** — the `(slot, attachment)` binding must resolve to a loaded mesh attachment (`unknownRequiredReference`); *prompt-24 loader* (the standalone validator cannot see the skeleton). |
+| (g) `slot` names no loaded slot, `(skin, slot, attachment)` cannot resolve through the named skin and `"default"` fallback, or the resolved target is not a mesh attachment | **Reject** — the tuple must resolve to a loaded mesh attachment (`unknownRequiredReference`); contextual loader (the standalone validator cannot see the skeleton). |
 
 ## Packed `deformTimeline` byte layout (`.bnb`)
 
