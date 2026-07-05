@@ -141,3 +141,27 @@ Net-new serialized identifiers confirmed against the review checklist above.
 - **PROVENANCE updated**: yes - see "Skin Attachment-Set Schema Names
   (2026-07-05)" in `docs/PROVENANCE.md`.
 - **Result**: checklist **satisfied**.
+
+### Helper Geometry Attachment Serialized Names (2026-07-05, bead `bony-wb1d`)
+
+- **Net-new identifiers**: types `pointAttachment` and
+  `boundingBoxAttachment`; top-level canonical JSON arrays `pointAttachments`
+  and `boundingBoxAttachments`.
+- **Compatible property reuse**: `pointAttachment` reuses the existing global
+  `name`, `x`, `y`, and `rotation` keys because their string/f32 backing types
+  and local-space semantics match. `boundingBoxAttachment` reuses the existing
+  `vertices` bytes key as the same packed f32-pair polygon payload already used
+  for clipping attachments; the compatible reuse is documented in
+  `registry/wire.yml` and `docs/helper-geometry-attachment-contract.md`.
+- **Explainable without prior-art source**: yes - the names and rules come from
+  the local binding spec's helper-geometry category, the existing project-owned
+  slot/attachment model, generic point/convex-polygon terminology, and public
+  affine/crossing-number geometry math.
+- **Project-owned & documented**: type keys `1002` and `1003` live in the M2
+  band in `registry/wire.yml`; defaults/required coverage lives in
+  `spec/defaults.yml`; JSON/BNB shape, validation, helper-query semantics, and
+  non-goals are specified in `docs/helper-geometry-attachment-contract.md`.
+- **No build-step fetch of prior-art source**: confirmed.
+- **PROVENANCE updated**: yes - see "Helper Geometry Attachment Schema Names
+  (2026-07-05)" in `docs/PROVENANCE.md`.
+- **Result**: checklist **satisfied**.

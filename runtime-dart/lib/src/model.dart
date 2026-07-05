@@ -66,6 +66,33 @@ class RegionAttachment {
   final double height;
 }
 
+class PointAttachment {
+  const PointAttachment({
+    required this.name,
+    required this.x,
+    required this.y,
+    required this.rotation,
+  });
+
+  final String name;
+  final double x;
+  final double y;
+  final double rotation;
+}
+
+class BoundingBoxAttachment {
+  const BoundingBoxAttachment({
+    required this.name,
+    required this.vertices,
+  });
+
+  final String name;
+
+  /// Convex polygon as a flat `[x0, y0, x1, y1, ...]` list in the owning slot's
+  /// bone-local space.
+  final List<double> vertices;
+}
+
 class PathConstraintData {
   const PathConstraintData({
     required this.name,
@@ -336,6 +363,8 @@ class SkeletonData {
     required this.regions,
     required this.paths,
     required this.pathAttachments,
+    this.pointAttachments = const [],
+    this.boundingBoxAttachments = const [],
     this.clippingAttachments = const [],
     this.meshAttachments = const [],
     this.ikConstraints = const [],
@@ -355,6 +384,8 @@ class SkeletonData {
   final List<RegionAttachment> regions;
   final List<PathConstraintData> paths;
   final List<PathAttachment> pathAttachments;
+  final List<PointAttachment> pointAttachments;
+  final List<BoundingBoxAttachment> boundingBoxAttachments;
   final List<ClippingAttachment> clippingAttachments;
   final List<MeshAttachment> meshAttachments;
   final List<IkConstraintData> ikConstraints;

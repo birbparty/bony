@@ -167,6 +167,12 @@ objectDefaults:
   - object: region
     ownerBead: bony-v1p
     properties: {}
+  - object: pointAttachment
+    ownerBead: bony-wb1d
+    properties: {}
+  - object: boundingBoxAttachment
+    ownerBead: bony-wb1d
+    properties: {}
   - object: clippingAttachment
     ownerBead: bony-jkt
     properties:
@@ -484,6 +490,30 @@ requiredProperties:
     property: height
     reason: Region attachments need dimensions for draw-batch quads.
     ownerBead: bony-v1p
+  - object: pointAttachment
+    property: name
+    reason: Point attachments are referenced by slot attachment names and helper queries.
+    ownerBead: bony-wb1d
+  - object: pointAttachment
+    property: x
+    reason: Point attachments need a local x coordinate for locator queries.
+    ownerBead: bony-wb1d
+  - object: pointAttachment
+    property: y
+    reason: Point attachments need a local y coordinate for locator queries.
+    ownerBead: bony-wb1d
+  - object: pointAttachment
+    property: rotation
+    reason: Point attachments need a local rotation in degrees for locator queries.
+    ownerBead: bony-wb1d
+  - object: boundingBoxAttachment
+    property: name
+    reason: Bounding-box attachments are referenced by slot attachment names and helper queries.
+    ownerBead: bony-wb1d
+  - object: boundingBoxAttachment
+    property: vertices
+    reason: A bounding-box attachment must carry a convex polygon for hit-test queries.
+    ownerBead: bony-wb1d
   - object: clippingAttachment
     property: name
     reason: Clipping attachments are referenced by slot attachment names.

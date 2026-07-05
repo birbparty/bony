@@ -192,6 +192,8 @@ Required checks:
 
 - Names used as references resolve to exactly one target.
 - Arrays whose elements are name-addressable reject duplicate names.
+- Slot-visible attachment names are unambiguous across region, clipping, mesh,
+  point, and bounding-box attachment definitions.
 - Binary indices are in range for the referenced typed array.
 - Slot bone references, skin slot references, attachment parent references,
   constraint bone references, path target references, timeline targets,

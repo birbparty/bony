@@ -226,6 +226,18 @@ typeKeys:
     milestone: M2
     ownerBead: bony-v1p
     doc: Rectangular region attachment record for backend-neutral drawing.
+  - id: pointAttachment
+    key: 1002
+    status: active
+    milestone: M2
+    ownerBead: bony-wb1d
+    doc: Non-rendered slot-local locator attachment; format/load only in this slice.
+  - id: boundingBoxAttachment
+    key: 1003
+    status: active
+    milestone: M2
+    ownerBead: bony-wb1d
+    doc: Non-rendered slot-local convex polygon helper attachment; format/load only in this slice.
   - id: clippingAttachment
     key: 3000
     status: active
@@ -535,7 +547,7 @@ propertyKeys:
     status: active
     milestone: M4
     ownerBead: bony-jkt
-    doc: Clipping attachment convex polygon in the owning slot's bone-local space; packed as varuint point count followed by count*(f32 x, f32 y) little-endian pairs.
+    doc: Compatible packed f32-pair polygon payload for clippingAttachment and boundingBoxAttachment vertices in the owning slot's bone-local space; packed as varuint point count followed by count*(f32 x, f32 y) little-endian pairs.
   - id: untilSlot
     key: 3001
     backingType: string
@@ -1187,6 +1199,18 @@ objects:
       - width
       - height
     doc: Rectangular region attachment used by the M2 draw-batch surface.
+  - type: pointAttachment
+    properties:
+      - name
+      - x
+      - y
+      - rotation
+    doc: Non-rendered point locator attachment loaded by name for host/runtime geometry queries.
+  - type: boundingBoxAttachment
+    properties:
+      - name
+      - vertices
+    doc: Non-rendered convex polygon attachment loaded by name for host/runtime geometry queries.
   - type: clippingAttachment
     properties:
       - name

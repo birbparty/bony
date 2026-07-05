@@ -19,6 +19,8 @@ const
   ikConstraintTypeId = "ikConstraint"
   transformConstraintTypeId = "transformConstraint"
   physicsConstraintTypeId = "physicsConstraint"
+  pointAttachmentTypeId = "pointAttachment"
+  boundingBoxAttachmentTypeId = "boundingBoxAttachment"
   clippingAttachmentTypeId = "clippingAttachment"
   meshAttachmentTypeId = "meshAttachment"
 
@@ -323,7 +325,7 @@ proc loadBonyJson*(text: string): SkeletonData =
       raise newBonyLoadError(schemaViolation, "invalid JSON: " & exc.msg)
 
   let root = requireObject(parsed, "root")
-  validateKnownKeys(root, ["skeleton", "bones", "slots", "regions", "clippingAttachments", "meshAttachments", "pathAttachments", "paths", "ikConstraints", "transformConstraints", "physicsConstraints", "skins", "parameters", "deformers", "animations", "stateMachines"], "root")
+  validateKnownKeys(root, ["skeleton", "bones", "slots", "regions", "pointAttachments", "boundingBoxAttachments", "clippingAttachments", "meshAttachments", "pathAttachments", "paths", "ikConstraints", "transformConstraints", "physicsConstraints", "skins", "parameters", "deformers", "animations", "stateMachines"], "root")
 
   if not root.hasKey("skeleton"):
     raise newBonyLoadError(schemaViolation, "root.skeleton is required")
@@ -421,6 +423,41 @@ proc loadBonyJson*(text: string): SkeletonData =
         requiredString(regionObject, "name", context),
         requiredFloat(regionObject, "width", context),
         requiredFloat(regionObject, "height", context),
+      )
+
+  var loadedPointAttachments: seq[PointAttachmentData] = @[]
+  if root.hasKey("pointAttachments"):
+    let pointAttachmentsNode = requireArray(root["pointAttachments"], "pointAttachments")
+    for index, pointNode in pointAttachmentsNode.elems:
+      let context = "pointAttachments[" & $index & "]"
+      let pointObject = requireObject(pointNode, context)
+      validateKnownKeys(pointObject, ["name", "x", "y", "rotation"], context)
+      loadedPointAttachments.add pointAttachmentData(
+        requiredString(pointObject, "name", context),
+        requiredFloat(pointObject, "x", context),
+        requiredFloat(pointObject, "y", context),
+        requiredFloat(pointObject, "rotation", context),
+      )
+
+  var loadedBoundingBoxAttachments: seq[BoundingBoxAttachmentData] = @[]
+  if root.hasKey("boundingBoxAttachments"):
+    let boxAttachmentsNode = requireArray(root["boundingBoxAttachments"], "boundingBoxAttachments")
+    for index, boxNode in boxAttachmentsNode.elems:
+      let context = "boundingBoxAttachments[" & $index & "]"
+      let boxObject = requireObject(boxNode, context)
+      validateKnownKeys(boxObject, ["name", "vertices"], context)
+      if not boxObject.hasKey("vertices"):
+        raise newBonyLoadError(schemaViolation, context & ".vertices is required")
+      let verticesNode = requireArray(boxObject["vertices"], context & ".vertices")
+      var boxVertices: seq[float64] = @[]
+      for vertexIndex, vertexNode in verticesNode.elems:
+        let vertexCtx = context & ".vertices[" & $vertexIndex & "]"
+        if vertexNode.kind notin {JInt, JFloat}:
+          raise newBonyLoadError(schemaViolation, vertexCtx & " must be numeric")
+        boxVertices.add requireFiniteF64(vertexNode.getFloat(), vertexCtx)
+      loadedBoundingBoxAttachments.add boundingBoxAttachmentData(
+        requiredString(boxObject, "name", context),
+        boxVertices,
       )
 
   var loadedPathAttachments: seq[PathAttachmentData] = @[]
@@ -812,6 +849,7 @@ proc loadBonyJson*(text: string): SkeletonData =
     loadedHeader, loadedBones, loadedSlots, loadedRegions, loadedPathAttachments, loadedPaths,
     loadedParameters, loadedDeformers, loadedIkConstraints, loadedTransformConstraints,
     loadedPhysicsConstraints, loadedClippingAttachments, loadedMeshAttachments, loadedSkins,
+    loadedPointAttachments, loadedBoundingBoxAttachments,
   )
   let loadedAnimClips = parseBonyAnimations(root, result)
   discard parseBonyStateMachines(root, result, loadedAnimClips)
@@ -1928,6 +1966,52 @@ proc toBonyJson*(data: SkeletonData): string =
     result.add "\n"
     result.addIndent(1)
   result.add "]"
+
+  if data.pointAttachments.len > 0:
+    result.add ",\n"
+    result.addIndent(1)
+    result.add "\"pointAttachments\": [\n"
+    for index, point in data.pointAttachments:
+      if index > 0:
+        result.add ",\n"
+      result.addIndent(2)
+      result.add "{\n"
+      first = true
+      result.addStringField("name", point.name, 3, first)
+      result.addNumberField("x", point.x, 3, first)
+      result.addNumberField("y", point.y, 3, first)
+      result.addNumberField("rotation", point.rotation, 3, first)
+      result.add "\n"
+      result.addIndent(2)
+      result.add "}"
+    result.add "\n"
+    result.addIndent(1)
+    result.add "]"
+
+  if data.boundingBoxAttachments.len > 0:
+    result.add ",\n"
+    result.addIndent(1)
+    result.add "\"boundingBoxAttachments\": [\n"
+    for index, box in data.boundingBoxAttachments:
+      if index > 0:
+        result.add ",\n"
+      result.addIndent(2)
+      result.add "{\n"
+      first = true
+      result.addStringField("name", box.name, 3, first)
+      result.addFieldPrefix("vertices", 3, first)
+      result.add "["
+      for vertexIndex, vertexValue in box.vertices:
+        if vertexIndex > 0:
+          result.add ", "
+        result.add canonicalNumber(vertexValue)
+      result.add "]"
+      result.add "\n"
+      result.addIndent(2)
+      result.add "}"
+    result.add "\n"
+    result.addIndent(1)
+    result.add "]"
 
   if data.paths.len > 0:
     result.add ",\n"

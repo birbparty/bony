@@ -70,6 +70,26 @@ RegionAttachment _parseRegion(Map<String, dynamic> j) {
   );
 }
 
+PointAttachment _parsePointAttachment(Map<String, dynamic> j) {
+  return PointAttachment(
+    name: _required<String>(j['name'], 'pointAttachment.name'),
+    x: quantizeF32(_required<num>(j['x'], 'pointAttachment.x').toDouble()),
+    y: quantizeF32(_required<num>(j['y'], 'pointAttachment.y').toDouble()),
+    rotation: quantizeF32(
+        _required<num>(j['rotation'], 'pointAttachment.rotation').toDouble()),
+  );
+}
+
+BoundingBoxAttachment _parseBoundingBoxAttachment(Map<String, dynamic> j) {
+  final verticesRaw =
+      _required<List<dynamic>>(j['vertices'], 'boundingBoxAttachment.vertices');
+  return BoundingBoxAttachment(
+    name: _required<String>(j['name'], 'boundingBoxAttachment.name'),
+    vertices:
+        verticesRaw.map((v) => quantizeF32((v as num).toDouble())).toList(),
+  );
+}
+
 ClippingAttachment _parseClippingAttachment(Map<String, dynamic> j) {
   final verticesRaw =
       _required<List<dynamic>>(j['vertices'], 'clippingAttachment.vertices');
@@ -842,6 +862,45 @@ PathAttachment _parsePathAttachment(Map<String, dynamic> j) {
   );
 }
 
+void _validateConvexPolygonVertices(List<double> vertices, String ctx) {
+  if (vertices.length < 6 || vertices.length.isOdd) {
+    throw FormatException(
+        '$ctx.vertices must contain at least three (x, y) pairs');
+  }
+  const polygonAreaEpsilon = 1e-9;
+  for (var vi = 0; vi < vertices.length; vi++) {
+    if (!vertices[vi].isFinite) {
+      throw FormatException('$ctx.vertices[$vi] must be finite');
+    }
+  }
+  final pointCount = vertices.length ~/ 2;
+  var area = 0.0;
+  for (var p = 0; p < pointCount; p++) {
+    final ax = vertices[2 * p];
+    final ay = vertices[2 * p + 1];
+    final nx = vertices[2 * ((p + 1) % pointCount)];
+    final ny = vertices[2 * ((p + 1) % pointCount) + 1];
+    area += ax * ny - nx * ay;
+  }
+  area *= 0.5;
+  if (area.abs() <= polygonAreaEpsilon) {
+    throw FormatException('$ctx.vertices polygon area must be non-zero');
+  }
+  final sign = area > 0.0 ? 1.0 : -1.0;
+  for (var p = 0; p < pointCount; p++) {
+    final ax = vertices[2 * p];
+    final ay = vertices[2 * p + 1];
+    final bx = vertices[2 * ((p + 1) % pointCount)];
+    final by = vertices[2 * ((p + 1) % pointCount) + 1];
+    final cx = vertices[2 * ((p + 2) % pointCount)];
+    final cy = vertices[2 * ((p + 2) % pointCount) + 1];
+    final turn = (bx - ax) * (cy - by) - (by - ay) * (cx - bx);
+    if (turn * sign < -polygonAreaEpsilon) {
+      throw FormatException('$ctx.vertices must be convex in v1');
+    }
+  }
+}
+
 void _validate(SkeletonData data) {
   if (data.header.name.isEmpty) {
     throw const FormatException('skeleton.name must not be empty');
@@ -894,10 +953,6 @@ void _validate(SkeletonData data) {
     final c = data.clippingAttachments[i];
     final ctx = 'clippingAttachments[$i]';
     if (c.name.isEmpty) throw FormatException('$ctx.name must not be empty');
-    if (c.vertices.length < 6 || c.vertices.length.isOdd) {
-      throw FormatException(
-          '$ctx.vertices must contain at least three (x, y) pairs');
-    }
     if (!clipNames.add(c.name)) {
       throw FormatException('duplicate clipping attachment name: ${c.name}');
     }
@@ -906,40 +961,7 @@ void _validate(SkeletonData data) {
           'clipping attachment name collides with a region attachment name: '
           '${c.name}');
     }
-    // Finite + convex, non-zero-area invariants (mirror the Nim loader
-    // runtime-nim/src/bony/model.nim / mesh/clipping.nim validateConvexClip).
-    const clipAreaEpsilon = 1e-9;
-    for (var vi = 0; vi < c.vertices.length; vi++) {
-      if (!c.vertices[vi].isFinite) {
-        throw FormatException('$ctx.vertices[$vi] must be finite');
-      }
-    }
-    final pointCount = c.vertices.length ~/ 2;
-    var area = 0.0;
-    for (var p = 0; p < pointCount; p++) {
-      final ax = c.vertices[2 * p];
-      final ay = c.vertices[2 * p + 1];
-      final nx = c.vertices[2 * ((p + 1) % pointCount)];
-      final ny = c.vertices[2 * ((p + 1) % pointCount) + 1];
-      area += ax * ny - nx * ay;
-    }
-    area *= 0.5;
-    if (area.abs() <= clipAreaEpsilon) {
-      throw FormatException('$ctx.vertices polygon area must be non-zero');
-    }
-    final sign = area > 0.0 ? 1.0 : -1.0;
-    for (var p = 0; p < pointCount; p++) {
-      final ax = c.vertices[2 * p];
-      final ay = c.vertices[2 * p + 1];
-      final bx = c.vertices[2 * ((p + 1) % pointCount)];
-      final by = c.vertices[2 * ((p + 1) % pointCount) + 1];
-      final cx = c.vertices[2 * ((p + 2) % pointCount)];
-      final cy = c.vertices[2 * ((p + 2) % pointCount) + 1];
-      final turn = (bx - ax) * (cy - by) - (by - ay) * (cx - bx);
-      if (turn * sign < -clipAreaEpsilon) {
-        throw FormatException('$ctx.vertices must be convex in v1');
-      }
-    }
+    _validateConvexPolygonVertices(c.vertices, ctx);
   }
 
   // Mesh attachment names also share the slot.attachment namespace with regions
@@ -1023,6 +1045,46 @@ void _validate(SkeletonData data) {
     }
   }
 
+  final pointNames = <String>{};
+  for (var i = 0; i < data.pointAttachments.length; i++) {
+    final p = data.pointAttachments[i];
+    final ctx = 'pointAttachments[$i]';
+    if (p.name.isEmpty) throw FormatException('$ctx.name must not be empty');
+    if (!pointNames.add(p.name)) {
+      throw FormatException('duplicate point attachment name: ${p.name}');
+    }
+    if (regionNames.contains(p.name) ||
+        clipNames.contains(p.name) ||
+        meshNames.contains(p.name)) {
+      throw FormatException(
+          'point attachment name collides with another slot attachment name: '
+          '${p.name}');
+    }
+    if (!p.x.isFinite || !p.y.isFinite || !p.rotation.isFinite) {
+      throw FormatException('$ctx transform fields must be finite');
+    }
+  }
+
+  final boundingBoxNames = <String>{};
+  for (var i = 0; i < data.boundingBoxAttachments.length; i++) {
+    final b = data.boundingBoxAttachments[i];
+    final ctx = 'boundingBoxAttachments[$i]';
+    if (b.name.isEmpty) throw FormatException('$ctx.name must not be empty');
+    if (!boundingBoxNames.add(b.name)) {
+      throw FormatException(
+          'duplicate bounding-box attachment name: ${b.name}');
+    }
+    if (regionNames.contains(b.name) ||
+        clipNames.contains(b.name) ||
+        meshNames.contains(b.name) ||
+        pointNames.contains(b.name)) {
+      throw FormatException(
+          'bounding-box attachment name collides with another slot attachment name: '
+          '${b.name}');
+    }
+    _validateConvexPolygonVertices(b.vertices, ctx);
+  }
+
   final slotNames = <String>{};
   final resolvedSlotAttachments = List<String>.filled(data.slots.length, '');
   for (var i = 0; i < data.slots.length; i++) {
@@ -1036,7 +1098,9 @@ void _validate(SkeletonData data) {
         s.attachment.isNotEmpty &&
         !regionNames.contains(s.attachment) &&
         !clipNames.contains(s.attachment) &&
-        !meshNames.contains(s.attachment)) {
+        !meshNames.contains(s.attachment) &&
+        !pointNames.contains(s.attachment) &&
+        !boundingBoxNames.contains(s.attachment)) {
       throw FormatException('unknown slot attachment: ${s.attachment}');
     }
     if (data.skins.isEmpty) {
@@ -1088,6 +1152,8 @@ void _validate(SkeletonData data) {
         if (regionNames.contains(entry.target)) targetMatches++;
         if (clipNames.contains(entry.target)) targetMatches++;
         if (meshNames.contains(entry.target)) targetMatches++;
+        if (pointNames.contains(entry.target)) targetMatches++;
+        if (boundingBoxNames.contains(entry.target)) targetMatches++;
         if (targetMatches == 0) {
           throw FormatException('unknown skin entry target: ${entry.target}');
         }
@@ -1450,6 +1516,8 @@ const int _bnbSkeleton = 1;
 const int _bnbBone = 2;
 const int _bnbSlot = 1000;
 const int _bnbRegion = 1001;
+const int _bnbPointAttachment = 1002;
+const int _bnbBoundingBoxAttachment = 1003;
 const int _bnbClippingAttachment = 3000;
 const int _bnbMeshAttachment = 3001;
 const int _bnbSkin = 3003;
@@ -1610,6 +1678,8 @@ const _bnbKnownTypes = {
   _bnbBone,
   _bnbSlot,
   _bnbRegion,
+  _bnbPointAttachment,
+  _bnbBoundingBoxAttachment,
   _bnbClippingAttachment,
   _bnbMeshAttachment,
   _bnbSkin,
@@ -1842,15 +1912,15 @@ List<String> _bIkBones(_BnbObj obj, List<String> strings) {
   return out;
 }
 
-/// Decode the required clipping-attachment `vertices` payload: a varuint point
+/// Decode a required polygon `vertices` payload: a varuint point
 /// count followed by count * (f32 x, f32 y) little-endian pairs, returned as a
 /// flat [x0, y0, x1, y1, ...] list. Matches runtime-nim's
-/// writeClipVerticesPayload / readClipVerticesPayload (semantic.nim), including
-/// the trailing-bytes check.
-List<double> _bClipVertices(_BnbObj obj) {
+/// writePolygonVerticesPayload / readPolygonVerticesPayload (semantic.nim),
+/// including the trailing-bytes check.
+List<double> _bPolygonVertices(_BnbObj obj, String ctx) {
   final payload = obj.props[_bkVertices];
   if (payload == null) {
-    throw const FormatException('.bnb clippingAttachment.vertices is required');
+    throw FormatException('.bnb $ctx.vertices is required');
   }
   final c = _BnbCur(payload);
   final count = c.readVaruint();
@@ -1859,7 +1929,7 @@ List<double> _bClipVertices(_BnbObj obj) {
     out.add(c.readF32());
     out.add(c.readF32());
   }
-  _bCheckExhausted(c, 'clippingAttachment.vertices');
+  _bCheckExhausted(c, '$ctx.vertices');
   return out;
 }
 
@@ -2385,6 +2455,8 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
   final bones = <BoneData>[];
   final slots = <SlotData>[];
   final regions = <RegionAttachment>[];
+  final pointAttachments = <PointAttachment>[];
+  final boundingBoxAttachments = <BoundingBoxAttachment>[];
   final paths = <PathConstraintData>[];
   final pathAttachments = <PathAttachment>[];
   final clips = <ClippingAttachment>[];
@@ -2435,6 +2507,8 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
       regions: regions,
       paths: paths,
       pathAttachments: pathAttachments,
+      pointAttachments: pointAttachments,
+      boundingBoxAttachments: boundingBoxAttachments,
       clippingAttachments: clips,
       meshAttachments: meshes,
       ikConstraints: ikConstraints,
@@ -2621,12 +2695,28 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
           width: _bF32(obj, _bkWidth, 'region.width'),
           height: _bF32(obj, _bkHeight, 'region.height'),
         ));
+      case _bnbPointAttachment:
+        flushSkin();
+        flushPending();
+        pointAttachments.add(PointAttachment(
+          name: _bStr(obj, _bkName, strings, 'pointAttachment.name'),
+          x: _bF32(obj, _bkX, 'pointAttachment.x'),
+          y: _bF32(obj, _bkY, 'pointAttachment.y'),
+          rotation: _bF32(obj, _bkRotation, 'pointAttachment.rotation'),
+        ));
+      case _bnbBoundingBoxAttachment:
+        flushSkin();
+        flushPending();
+        boundingBoxAttachments.add(BoundingBoxAttachment(
+          name: _bStr(obj, _bkName, strings, 'boundingBoxAttachment.name'),
+          vertices: _bPolygonVertices(obj, 'boundingBoxAttachment'),
+        ));
       case _bnbClippingAttachment:
         flushSkin();
         flushPending();
         clips.add(ClippingAttachment(
           name: _bStr(obj, _bkName, strings, 'clippingAttachment.name'),
-          vertices: _bClipVertices(obj),
+          vertices: _bPolygonVertices(obj, 'clippingAttachment'),
           untilSlot: _bStr(
               obj, _bkUntilSlot, strings, 'clippingAttachment.untilSlot',
               def: ''),
@@ -3313,6 +3403,8 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
     regions: regions,
     paths: paths,
     pathAttachments: pathAttachments,
+    pointAttachments: pointAttachments,
+    boundingBoxAttachments: boundingBoxAttachments,
     clippingAttachments: clips,
     meshAttachments: meshes,
     ikConstraints: ikConstraints,
@@ -3610,6 +3702,15 @@ SkeletonData loadBonyJson(String jsonText) {
       .map((r) => _parseRegion(r as Map<String, dynamic>))
       .toList();
 
+  final pointAttachments = ((root['pointAttachments'] as List<dynamic>?) ?? [])
+      .map((p) => _parsePointAttachment(p as Map<String, dynamic>))
+      .toList();
+
+  final boundingBoxAttachments =
+      ((root['boundingBoxAttachments'] as List<dynamic>?) ?? [])
+          .map((b) => _parseBoundingBoxAttachment(b as Map<String, dynamic>))
+          .toList();
+
   final paths = ((root['paths'] as List<dynamic>?) ?? [])
       .map((p) => _parsePath(p as Map<String, dynamic>))
       .toList();
@@ -3655,6 +3756,8 @@ SkeletonData loadBonyJson(String jsonText) {
     regions: regions,
     paths: paths,
     pathAttachments: pathAttachments,
+    pointAttachments: pointAttachments,
+    boundingBoxAttachments: boundingBoxAttachments,
     clippingAttachments: clippingAttachments,
     meshAttachments: meshAttachments,
     ikConstraints: ikConstraints,
@@ -3699,6 +3802,8 @@ SkeletonData loadBonyJson(String jsonText) {
     regions: regions,
     paths: paths,
     pathAttachments: pathAttachments,
+    pointAttachments: pointAttachments,
+    boundingBoxAttachments: boundingBoxAttachments,
     clippingAttachments: clippingAttachments,
     meshAttachments: meshAttachments,
     ikConstraints: ikConstraints,

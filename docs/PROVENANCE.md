@@ -140,6 +140,36 @@ documentation prose.
 - **CI enforcement**: registry/defaults/codegen consistency is enforced by
   `codegen/generate.py --check`; clean-room posture is enforced by code review.
 
+### Helper Geometry Attachment Schema Names (2026-07-05)
+
+- **Reason needed**: The helper-geometry milestone (bead `bony-wb1d`) introduces
+  non-rendered point and convex-polygon attachments for future host/runtime
+  locator and hit-test queries.
+- **Classification**: project-owned design - not an external source of
+  implementation truth.
+- **What is recorded**: the serialized identifiers `pointAttachment` (type),
+  `pointAttachments` (skeleton-level array), `boundingBoxAttachment` (type), and
+  `boundingBoxAttachments` (skeleton-level array) were chosen from the local
+  binding spec's helper-geometry category, the existing project-owned
+  slot/attachment model, and generic geometry terminology. `pointAttachment`
+  reuses `name`, `x`, `y`, and `rotation`; `boundingBoxAttachment` reuses the
+  compatible packed-polygon `vertices` payload used by clipping attachments.
+  The JSON/BNB shapes, validation rules, non-rendered behavior, and future
+  helper-query math are specified in
+  `docs/helper-geometry-attachment-contract.md`.
+- **Source**: none. The names, field set, polygon validation, crossing-number
+  rule, and binary payload reuse were **not** derived from any third-party
+  runtime's helper-attachment field set, wire layout, type/property keys, or
+  documentation prose (DragonBones, Spine, Rive, Live2D, Lottie).
+- **Cleanroom compliance**: confirmed against the `docs/CLEANROOM.md` review
+  checklist - the record can be explained from `bony` docs/specs and public
+  affine/polygon math; the new type keys (`1002`/`1003` in the M2 band), object
+  ordering, and compatible `vertices` property reuse are project-owned and
+  documented in `registry/`, `spec/`, and `docs/`; no build step fetches
+  prior-art source.
+- **CI enforcement**: registry/defaults/codegen consistency is enforced by
+  `codegen/generate.py --check`; clean-room posture is enforced by code review.
+
 ### Mesh Attachment Schema Names (2026-07-02)
 
 - **Reason needed**: The M4 mesh-attachment milestone (bead `bony-lzj.1`)

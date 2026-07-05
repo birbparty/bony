@@ -27,6 +27,18 @@
         "$ref": "#/$defs/region"
       }
     },
+    "pointAttachments": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/pointAttachment"
+      }
+    },
+    "boundingBoxAttachments": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/boundingBoxAttachment"
+      }
+    },
     "clippingAttachments": {
       "type": "array",
       "items": {
@@ -645,6 +657,55 @@
         "width"
       ]
     },
+    "pointAttachment": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "rotation": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "name",
+        "rotation",
+        "x",
+        "y"
+      ]
+    },
+    "boundingBoxAttachment": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "vertices": {
+          "type": "string",
+          "contentEncoding": "base64",
+          "x-bony-packedBytes": {
+            "payload": "polygonVertices",
+            "layout": "docs/helper-geometry-attachment-contract.md#packed-vertices-byte-layout-bnb",
+            "structuralSchema": "base64Only",
+            "validatedBy": "loader"
+          }
+        }
+      },
+      "required": [
+        "name",
+        "vertices"
+      ]
+    },
     "clippingAttachment": {
       "type": "object",
       "additionalProperties": false,
@@ -657,8 +718,8 @@
           "type": "string",
           "contentEncoding": "base64",
           "x-bony-packedBytes": {
-            "payload": "clippingAttachmentVertices",
-            "layout": "docs/clipping-attachment-contract.md#packed-vertices-byte-layout-bnb",
+            "payload": "polygonVertices",
+            "layout": "docs/helper-geometry-attachment-contract.md#packed-vertices-byte-layout-bnb",
             "structuralSchema": "base64Only",
             "validatedBy": "loader"
           }

@@ -29,8 +29,17 @@ void main() {
     // no defaults, 1 required eventKeys; the record's only property packs the
     // whole keyframe list per docs/event-timeline-contract.md), plus M20 skin
     // attachment sets (skin/skinEntry type keys, skinAttachment/skinTarget
-    // property keys, and required name/slot/attachment/target entries).
-    expect(bonyTypeKeys, hasLength(32));
+    // property keys, and required name/slot/attachment/target entries), plus
+    // helper geometry point/boundingBox attachments (type keys 1002/1003, no
+    // new property keys because they reuse name/x/y/rotation/vertices, and 6
+    // required properties).
+    expect(bonyTypeKeys, hasLength(34));
+    expect(bonyTypeKeys.any((t) => t.id == 'pointAttachment' && t.key == 1002),
+        isTrue);
+    expect(
+        bonyTypeKeys
+            .any((t) => t.id == 'boundingBoxAttachment' && t.key == 1003),
+        isTrue);
     expect(bonyTypeKeys.any((t) => t.id == 'skin' && t.key == 3003), isTrue);
     expect(
         bonyTypeKeys.any((t) => t.id == 'skinEntry' && t.key == 3004), isTrue);
@@ -41,6 +50,6 @@ void main() {
     expect(bonyPropertyKeys.any((p) => p.id == 'skinTarget' && p.key == 3011),
         isTrue);
     expect(bonyPropertyDefaults, hasLength(55));
-    expect(bonyRequiredProperties, hasLength(84));
+    expect(bonyRequiredProperties, hasLength(90));
   });
 }

@@ -37,8 +37,8 @@ PACKED_BYTES_METADATA: dict[str, dict[str, Any]] = {
         "validatedBy": "loader",
     },
     "vertices": {
-        "payload": "clippingAttachmentVertices",
-        "layout": "docs/clipping-attachment-contract.md#packed-vertices-byte-layout-bnb",
+        "payload": "polygonVertices",
+        "layout": "docs/helper-geometry-attachment-contract.md#packed-vertices-byte-layout-bnb",
         "structuralSchema": "base64Only",
         "validatedBy": "loader",
     },
@@ -664,6 +664,26 @@ def canonical_json_overrides() -> dict[str, Any]:
                 "name": named_string,
                 "vertices": {"type": "array", "minItems": 6, "items": number},
                 "untilSlot": {"type": "string", "default": ""},
+            },
+            "required": ["name", "vertices"],
+        },
+        "pointAttachment": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "name": named_string,
+                "x": number,
+                "y": number,
+                "rotation": number,
+            },
+            "required": ["name", "rotation", "x", "y"],
+        },
+        "boundingBoxAttachment": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "name": named_string,
+                "vertices": {"type": "array", "minItems": 6, "items": number},
             },
             "required": ["name", "vertices"],
         },

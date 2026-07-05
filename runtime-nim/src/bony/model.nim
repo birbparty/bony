@@ -74,6 +74,16 @@ type
     width: float64
     height: float64
 
+  PointAttachmentData* = object
+    name: string
+    x: float64
+    y: float64
+    rotation: float64
+
+  BoundingBoxAttachmentData* = object
+    name: string
+    vertices: seq[float64]
+
   PathAttachmentData* = object
     name: string
     p0x: float64
@@ -305,6 +315,8 @@ type
     bones: seq[BoneData]
     slots: seq[SlotData]
     regions: seq[RegionAttachment]
+    pointAttachments: seq[PointAttachmentData]
+    boundingBoxAttachments: seq[BoundingBoxAttachmentData]
     pathAttachments: seq[PathAttachmentData]
     clippingAttachments: seq[ClipAttachmentData]
     meshAttachments: seq[MeshAttachment]
@@ -428,6 +440,38 @@ proc validateMeshAttachment*(bones: openArray[BoneData]; mesh: MeshAttachment) =
       raise newBonyLoadError(schemaViolation, "unweighted mesh vertex must not contain influences")
 
 
+proc validateConvexPolygonVertices(vertices: openArray[float64]; context: string) =
+  const polygonAreaEpsilon = 1e-9
+  if vertices.len < 6 or vertices.len mod 2 != 0:
+    raise newBonyLoadError(schemaViolation, context & ".vertices must contain at least three (x, y) pairs")
+  for vIndex, value in vertices:
+    discard requireFiniteF64(value, context & ".vertices[" & $vIndex & "]")
+
+  let pointCount = vertices.len div 2
+  var area = 0.0
+  for p in 0 ..< pointCount:
+    let ax = vertices[2 * p]
+    let ay = vertices[2 * p + 1]
+    let nx = vertices[2 * ((p + 1) mod pointCount)]
+    let ny = vertices[2 * ((p + 1) mod pointCount) + 1]
+    area += ax * ny - nx * ay
+  area = area * 0.5
+  if abs(area) <= polygonAreaEpsilon:
+    raise newBonyLoadError(schemaViolation, context & ".vertices polygon area must be non-zero")
+
+  let signValue = if area > 0.0: 1.0 else: -1.0
+  for p in 0 ..< pointCount:
+    let ax = vertices[2 * p]
+    let ay = vertices[2 * p + 1]
+    let bx = vertices[2 * ((p + 1) mod pointCount)]
+    let by = vertices[2 * ((p + 1) mod pointCount) + 1]
+    let cx = vertices[2 * ((p + 2) mod pointCount)]
+    let cy = vertices[2 * ((p + 2) mod pointCount) + 1]
+    let turn = (bx - ax) * (cy - by) - (by - ay) * (cx - bx)
+    if turn * signValue < -polygonAreaEpsilon:
+      raise newBonyLoadError(schemaViolation, context & ".vertices must be convex in v1")
+
+
 proc localTransform*(
   x = 0.0,
   y = 0.0,
@@ -470,6 +514,22 @@ proc regionAttachment*(name: string; width, height: float64): RegionAttachment =
     width: quantizeF32(width, "region.width"),
     height: quantizeF32(height, "region.height"),
   )
+
+
+proc pointAttachmentData*(name: string; x, y, rotation: float64): PointAttachmentData =
+  PointAttachmentData(
+    name: name,
+    x: quantizeF32(x, "pointAttachment.x"),
+    y: quantizeF32(y, "pointAttachment.y"),
+    rotation: quantizeF32(rotation, "pointAttachment.rotation"),
+  )
+
+
+proc boundingBoxAttachmentData*(name: string; vertices: openArray[float64]): BoundingBoxAttachmentData =
+  var quantized = newSeq[float64](vertices.len)
+  for index, value in vertices:
+    quantized[index] = quantizeF32(value, "boundingBoxAttachment.vertices[" & $index & "]")
+  BoundingBoxAttachmentData(name: name, vertices: quantized)
 
 
 proc pathAttachmentData*(
@@ -737,6 +797,15 @@ proc width*(region: RegionAttachment): float64 = region.width
 proc height*(region: RegionAttachment): float64 = region.height
 
 
+proc name*(point: PointAttachmentData): string = point.name
+proc x*(point: PointAttachmentData): float64 = point.x
+proc y*(point: PointAttachmentData): float64 = point.y
+proc rotation*(point: PointAttachmentData): float64 = point.rotation
+
+proc name*(box: BoundingBoxAttachmentData): string = box.name
+proc vertices*(box: BoundingBoxAttachmentData): seq[float64] = box.vertices
+
+
 proc name*(pathAttachment: PathAttachmentData): string = pathAttachment.name
 proc p0x*(pathAttachment: PathAttachmentData): float64 = pathAttachment.p0x
 proc p0y*(pathAttachment: PathAttachmentData): float64 = pathAttachment.p0y
@@ -875,6 +944,12 @@ proc slots*(data: SkeletonData): seq[SlotData] = data.slots
 proc regions*(data: SkeletonData): seq[RegionAttachment] = data.regions
 
 
+proc pointAttachments*(data: SkeletonData): seq[PointAttachmentData] = data.pointAttachments
+
+
+proc boundingBoxAttachments*(data: SkeletonData): seq[BoundingBoxAttachmentData] = data.boundingBoxAttachments
+
+
 proc pathAttachments*(data: SkeletonData): seq[PathAttachmentData] = data.pathAttachments
 
 
@@ -996,6 +1071,8 @@ proc validateSkeletonData*(
   clippingAttachments: openArray[ClipAttachmentData] = [];
   meshAttachments: openArray[MeshAttachment] = [];
   skins: openArray[SkinData] = [];
+  pointAttachments: openArray[PointAttachmentData] = [];
+  boundingBoxAttachments: openArray[BoundingBoxAttachmentData] = [];
 ) =
   if header.name.len == 0:
     raise newBonyLoadError(schemaViolation, "skeleton.name must not be empty")
@@ -1037,7 +1114,6 @@ proc validateSkeletonData*(
       raise newBonyLoadError(duplicateKey, "duplicate region name: " & region.name)
     allRegionNames.incl(region.name)
 
-  const clipAreaEpsilon = 1e-9
   var allClipNames = initHashSet[string]()
   for index, clip in clippingAttachments:
     let context = "clippingAttachments[" & $index & "]"
@@ -1049,34 +1125,7 @@ proc validateSkeletonData*(
       raise newBonyLoadError(duplicateKey,
         "clipping attachment name collides with a region attachment name: " & clip.name)
     allClipNames.incl(clip.name)
-    if clip.vertices.len < 6 or clip.vertices.len mod 2 != 0:
-      raise newBonyLoadError(schemaViolation, context & ".vertices must contain at least three (x, y) pairs")
-    for vIndex, value in clip.vertices:
-      discard requireFiniteF64(value, context & ".vertices[" & $vIndex & "]")
-    # Convex, non-zero-area invariants restated from mesh/clipping.nim
-    # (validateConvexClip*): ≥3 vertices, non-zero signed area, uniform turn sign.
-    let pointCount = clip.vertices.len div 2
-    var area = 0.0
-    for p in 0 ..< pointCount:
-      let ax = clip.vertices[2 * p]
-      let ay = clip.vertices[2 * p + 1]
-      let nx = clip.vertices[2 * ((p + 1) mod pointCount)]
-      let ny = clip.vertices[2 * ((p + 1) mod pointCount) + 1]
-      area += ax * ny - nx * ay
-    area = area * 0.5
-    if abs(area) <= clipAreaEpsilon:
-      raise newBonyLoadError(schemaViolation, context & ".vertices polygon area must be non-zero")
-    let signValue = if area > 0.0: 1.0 else: -1.0
-    for p in 0 ..< pointCount:
-      let ax = clip.vertices[2 * p]
-      let ay = clip.vertices[2 * p + 1]
-      let bx = clip.vertices[2 * ((p + 1) mod pointCount)]
-      let by = clip.vertices[2 * ((p + 1) mod pointCount) + 1]
-      let cx = clip.vertices[2 * ((p + 2) mod pointCount)]
-      let cy = clip.vertices[2 * ((p + 2) mod pointCount) + 1]
-      let turn = (bx - ax) * (cy - by) - (by - ay) * (cx - bx)
-      if turn * signValue < -clipAreaEpsilon:
-        raise newBonyLoadError(schemaViolation, context & ".vertices must be convex in v1")
+    validateConvexPolygonVertices(clip.vertices, context)
 
   # Mesh attachments: cross-collection unique non-empty names (must not collide
   # with region or clipping attachment names), then the shared (a)-(g) geometry
@@ -1098,6 +1147,34 @@ proc validateSkeletonData*(
     allMeshNames.incl(mesh.name)
     validateMeshAttachment(bones, mesh)
 
+  var allPointNames = initHashSet[string]()
+  for index, point in pointAttachments:
+    let context = "pointAttachments[" & $index & "]"
+    if point.name.len == 0:
+      raise newBonyLoadError(schemaViolation, context & ".name must not be empty")
+    if point.name in allPointNames:
+      raise newBonyLoadError(duplicateKey, "duplicate point attachment name: " & point.name)
+    if point.name in allRegionNames or point.name in allClipNames or point.name in allMeshNames:
+      raise newBonyLoadError(duplicateKey,
+        "point attachment name collides with another slot attachment name: " & point.name)
+    discard requireFiniteF64(point.x, context & ".x")
+    discard requireFiniteF64(point.y, context & ".y")
+    discard requireFiniteF64(point.rotation, context & ".rotation")
+    allPointNames.incl(point.name)
+
+  var allBoundingBoxNames = initHashSet[string]()
+  for index, box in boundingBoxAttachments:
+    let context = "boundingBoxAttachments[" & $index & "]"
+    if box.name.len == 0:
+      raise newBonyLoadError(schemaViolation, context & ".name must not be empty")
+    if box.name in allBoundingBoxNames:
+      raise newBonyLoadError(duplicateKey, "duplicate bounding-box attachment name: " & box.name)
+    if box.name in allRegionNames or box.name in allClipNames or box.name in allMeshNames or box.name in allPointNames:
+      raise newBonyLoadError(duplicateKey,
+        "bounding-box attachment name collides with another slot attachment name: " & box.name)
+    validateConvexPolygonVertices(box.vertices, context)
+    allBoundingBoxNames.incl(box.name)
+
   var resolvedSlotAttachments = newSeq[string](slots.len)
   for index, slot in slots:
     let context = "slots[" & $index & "]"
@@ -1108,7 +1185,8 @@ proc validateSkeletonData*(
     if slot.bone notin allNames:
       raise newBonyLoadError(unknownRequiredReference, "unknown slot bone: " & slot.bone)
     if skins.len == 0 and slot.attachment.len > 0 and slot.attachment notin allRegionNames and
-        slot.attachment notin allClipNames and slot.attachment notin allMeshNames:
+        slot.attachment notin allClipNames and slot.attachment notin allMeshNames and
+        slot.attachment notin allPointNames and slot.attachment notin allBoundingBoxNames:
       raise newBonyLoadError(unknownRequiredReference, "unknown slot attachment: " & slot.attachment)
     if skins.len == 0:
       resolvedSlotAttachments[index] = slot.attachment
@@ -1149,6 +1227,10 @@ proc validateSkeletonData*(
         if entry.target in allClipNames:
           inc targetMatches
         if entry.target in allMeshNames:
+          inc targetMatches
+        if entry.target in allPointNames:
+          inc targetMatches
+        if entry.target in allBoundingBoxNames:
           inc targetMatches
         if targetMatches == 0:
           raise newBonyLoadError(unknownRequiredReference, "unknown skin entry target: " & entry.target)
@@ -1384,15 +1466,20 @@ proc skeletonData*(
   clippingAttachments: openArray[ClipAttachmentData] = [];
   meshAttachments: openArray[MeshAttachment] = [];
   skins: openArray[SkinData] = [];
+  pointAttachments: openArray[PointAttachmentData] = [];
+  boundingBoxAttachments: openArray[BoundingBoxAttachmentData] = [];
 ): SkeletonData =
   validateSkeletonData(
     header, bones, slots, regions, pathAttachments, paths, parameters, deformers, ikConstraints,
     transformConstraints, physicsConstraints, clippingAttachments, meshAttachments, skins,
+    pointAttachments, boundingBoxAttachments,
   )
   result.header = header
   result.bones = @bones
   result.slots = @slots
   result.regions = @regions
+  result.pointAttachments = @pointAttachments
+  result.boundingBoxAttachments = @boundingBoxAttachments
   result.pathAttachments = @pathAttachments
   result.clippingAttachments = @clippingAttachments
   result.meshAttachments = @meshAttachments
@@ -1410,6 +1497,7 @@ proc validateSkeletonData*(data: SkeletonData) =
     data.header, data.bones, data.slots, data.regions, data.pathAttachments, data.paths,
     data.parameters, data.deformers, data.ikConstraints, data.transformConstraints,
     data.physicsConstraints, data.clippingAttachments, data.meshAttachments, data.skins,
+    data.pointAttachments, data.boundingBoxAttachments,
   )
 
 

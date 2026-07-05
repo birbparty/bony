@@ -27,6 +27,18 @@
         "$ref": "#/$defs/region"
       }
     },
+    "pointAttachments": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/pointAttachment"
+      }
+    },
+    "boundingBoxAttachments": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/boundingBoxAttachment"
+      }
+    },
     "clippingAttachments": {
       "type": "array",
       "items": {
@@ -571,6 +583,52 @@
         "height",
         "name",
         "width"
+      ]
+    },
+    "pointAttachment": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "x": {
+          "type": "number"
+        },
+        "y": {
+          "type": "number"
+        },
+        "rotation": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "name",
+        "rotation",
+        "x",
+        "y"
+      ]
+    },
+    "boundingBoxAttachment": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "vertices": {
+          "type": "array",
+          "minItems": 6,
+          "items": {
+            "type": "number"
+          }
+        }
+      },
+      "required": [
+        "name",
+        "vertices"
       ]
     },
     "clippingAttachment": {

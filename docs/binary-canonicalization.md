@@ -159,10 +159,13 @@ Within each group:
 
 - Bones are parent-first in loaded skeleton array order.
 - Slots are setup draw order.
-- Attachment definition objects (regions, path attachments, clipping
-  attachments, and mesh attachments) are emitted in the `attachments` group
-  before any skin records. They remain concrete definitions, independent of the
-  runtime's in-memory map or array representation.
+- Attachment definition objects (regions, point attachments, bounding-box
+  attachments, path attachments, clipping attachments, and mesh attachments)
+  are emitted in the `attachments` group before any skin records. They remain
+  concrete definitions, independent of the runtime's in-memory map or array
+  representation. Within this slice the order is region, point, bounding box,
+  path attachment, clipping attachment, then mesh attachment, each preserving
+  loaded array order.
 - IK, transform, path, and physics arrays keep loaded array order. Runtime
   evaluation order is separately defined by `docs/constraint-total-order.md`.
 - Skins, events, parameters, deformers, animations, and state machines keep

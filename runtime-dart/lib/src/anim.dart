@@ -968,6 +968,8 @@ SkeletonData applyPose(SkeletonData data, MixedPose pose) {
       regions: data.regions,
       paths: data.paths,
       pathAttachments: data.pathAttachments,
+      pointAttachments: data.pointAttachments,
+      boundingBoxAttachments: data.boundingBoxAttachments,
       clippingAttachments: data.clippingAttachments,
       meshAttachments: data.meshAttachments,
       ikConstraints: data.ikConstraints,
@@ -1044,6 +1046,8 @@ SkeletonData applyPose(SkeletonData data, MixedPose pose) {
     regions: data.regions,
     paths: data.paths,
     pathAttachments: data.pathAttachments,
+    pointAttachments: data.pointAttachments,
+    boundingBoxAttachments: data.boundingBoxAttachments,
     // Preserve mesh and clipping attachments so an animated mesh (and any clip)
     // survives the pose rebuild through to buildDrawBatches — omitting them
     // silently dropped every mesh/clip from a bone-or-slot-animated pose, the
