@@ -1022,6 +1022,22 @@ spec "bony package":
       data.bones[0].local.x == expected
       toBonyJson(data).contains($expected)
 
+  it "normalizes negative zero to positive zero (bony-iw6b)":
+    then:
+      # quantizeF32 is the single funnel for every f32 on both load paths, so
+      # normalizing -0.0 -> +0.0 here makes the JSON emit (collapses to "0") and
+      # the raw .bnb f32 encode (would keep the 0x80000000 sign bit) agree.
+      cast[uint32](float32(quantizeF32(-0.0))) == 0'u32
+      cast[uint32](float32(quantizeF32(0.0))) == 0'u32
+      # A hand-authored -0.0 in a numeric field loads with +0.0 bits, not
+      # 0x80000000, so it can no longer byte-diverge json<->bnb.
+      cast[uint32](float32(
+        loadBonyJson("""{"skeleton":{"name":"demo"},"bones":[{"name":"root","x":-0.0}]}""").bones[0].local.x
+      )) == 0'u32
+      # A tiny negative magnitude that underflows to -0.0 under f32 rounding is
+      # normalized too, not just a literal -0.0 input.
+      cast[uint32](float32(quantizeF32(-1.0e-60))) == 0'u32
+
   it "rejects f32-backed numeric overflow":
     then:
       raisesBonyLoadError(

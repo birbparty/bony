@@ -333,4 +333,27 @@ void main() {
       );
     });
   });
+
+  group('quantizeF32 negative-zero normalization (bony-iw6b)', () {
+    int f32Bits(double x) {
+      final bd = ByteData(4);
+      bd.setFloat32(0, x, Endian.little);
+      return bd.getUint32(0, Endian.little);
+    }
+
+    test('collapses -0.0 to +0.0 so .bnb f32 encode matches the JSON emitter', () {
+      // The raw f32 encode of an un-normalized -0.0 is 0x80000000, while the
+      // canonical JSON emitter collapses it to "0"; normalizing in quantizeF32
+      // (the shared f32 funnel) keeps both paths byte-identical and matches the
+      // Nim reference (runtime-nim/src/bony/model.nim quantizeF32).
+      expect(f32Bits(quantizeF32(-0.0)), 0);
+      expect(f32Bits(quantizeF32(0.0)), 0);
+    });
+
+    test('an f32 value that quantizes to -0.0 also normalizes', () {
+      // A tiny negative magnitude that underflows to -0.0 under f32 rounding is
+      // normalized too, not just the literal -0.0 input.
+      expect(f32Bits(quantizeF32(-1.0e-60)), 0);
+    });
+  });
 }
