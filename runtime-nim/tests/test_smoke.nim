@@ -1034,6 +1034,9 @@ spec "bony package":
       cast[uint32](float32(
         loadBonyJson("""{"skeleton":{"name":"demo"},"bones":[{"name":"root","x":-0.0}]}""").bones[0].local.x
       )) == 0'u32
+      # A tiny negative magnitude that underflows to -0.0 under f32 rounding is
+      # normalized too, not just a literal -0.0 input.
+      cast[uint32](float32(quantizeF32(-1.0e-60))) == 0'u32
 
   it "rejects f32-backed numeric overflow":
     then:
