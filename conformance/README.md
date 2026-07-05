@@ -46,7 +46,7 @@ conformance/
 | M16 | `m16_mesh_multi_deform_rig` | Multiple ordered deformers on a mesh: rotation (order 0) then a warp parented to it (order 1), exercising composition + parent-frame chaining |
 | M17 | `m17_mesh_clip_rig` | Mesh × clipping: a triangle-soup mesh inside a clip range, clipped **per-triangle** (shared interior vertex preserved; some triangles cut, some pass through) |
 | M18 | `m18_mesh_deform_anim_rig` | Animated mesh deform: a clip-owned deform timeline moves mesh vertices over time; first nonzero-time mesh golden |
-| M19 | `m19_event_rig` | Animation events: a clip-owned event timeline fires distinct value-carrying events at keyframe times, surfaced in the golden's `animationEvents` channel via incremental per-sample-window dispatch (Nim-only pending prompt 30) |
+| M19 | `m19_event_rig` | Animation events: a clip-owned event timeline fires distinct value-carrying events at keyframe times, surfaced in the golden's `animationEvents` channel via incremental per-sample-window dispatch through the Nim and Dart clip-mirror story paths |
 
 The `M5 (IK)` row is a second M5 asset (structured like the standalone M9 row):
 the table is one-asset-per-row, so `m5_ik_rig` gets its own row rather than being

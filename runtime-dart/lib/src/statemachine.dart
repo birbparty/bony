@@ -77,6 +77,7 @@ class StateMachineRuntime {
   final List<String> _layerLoadedStates = [];
   final List<double> _layerPreviousTimes = [];
   SkeletonData? _layerAnimationData;
+  bool _animationEventsValid = false;
 
   // Expose read-only state for tests/evaluation.
   String currentState(String layerName) {
@@ -164,6 +165,7 @@ class StateMachineRuntime {
       lr.time = quantizeF32(lr.time + step);
     }
     _applyTransitions();
+    _animationEventsValid = false;
   }
 
   void _applyTransitions() {
@@ -296,41 +298,52 @@ class StateMachineRuntime {
         _layerAnimationStates.length == _layers.length) {
       return;
     }
+    final preserveLayerState = _layerPreviousTimes.length == _layers.length &&
+        _layerLoadedStates.length == _layers.length;
     _layerAnimationData = data;
     _layerAnimationStates
       ..clear()
       ..addAll(List<AnimationState?>.filled(_layers.length, null));
-    _layerLoadedStates
-      ..clear()
-      ..addAll(List<String>.filled(_layers.length, ''));
-    _layerPreviousTimes
-      ..clear()
-      ..addAll(List<double>.filled(_layers.length, 0.0));
+    if (!preserveLayerState) {
+      _layerLoadedStates
+        ..clear()
+        ..addAll(List<String>.filled(_layers.length, ''));
+      _layerPreviousTimes
+        ..clear()
+        ..addAll(List<double>.filled(_layers.length, 0.0));
+    }
   }
 
   void _updateAnimationEvents(SkeletonData data) {
+    if (_animationEventsValid) return;
     animationEvents.clear();
     _ensureAnimationEventBridge(data);
 
     for (var layerIndex = 0; layerIndex < _layers.length; layerIndex++) {
       final lr = _layers[layerIndex];
       final state = _stateByName(lr.layer, lr.currentState);
-      final layerTimeReset = lr.time < _layerPreviousTimes[layerIndex];
-      _layerPreviousTimes[layerIndex] = lr.time;
+      final previousTime = _layerPreviousTimes[layerIndex];
+      final layerTimeReset = lr.time < previousTime;
 
       if (state.kind != StateMachineStateKind.clip) {
         _layerAnimationStates[layerIndex] = null;
         _layerLoadedStates[layerIndex] = '';
+        _layerPreviousTimes[layerIndex] = lr.time;
         continue;
       }
 
+      final sameLoadedState = _layerLoadedStates[layerIndex] == state.name;
       final needsReload = _layerAnimationStates[layerIndex] == null ||
-          _layerLoadedStates[layerIndex] != state.name ||
+          !sameLoadedState ||
           layerTimeReset;
       if (needsReload) {
         final clip = _findClip(data, state.clipName);
         _layerAnimationStates[layerIndex] = AnimationState(data)
           ..setAnimation(0, clip, loop: state.loop);
+        if (!layerTimeReset && sameLoadedState && previousTime > 0.0) {
+          _layerAnimationStates[layerIndex]!.tracks[0].current!.time =
+              quantizeF32(previousTime);
+        }
         _layerLoadedStates[layerIndex] = state.name;
       }
 
@@ -340,7 +353,9 @@ class StateMachineRuntime {
       final amount = math.max(0.0, lr.time - currentTime);
       anim.update(amount);
       animationEvents.addAll(anim.events);
+      _layerPreviousTimes[layerIndex] = lr.time;
     }
+    _animationEventsValid = true;
   }
 
   // Compute the wrapped sample time for evaluate's reported time field.
