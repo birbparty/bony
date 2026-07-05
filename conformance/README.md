@@ -529,14 +529,14 @@ Notes for readers comparing runtimes:
   **incrementally** — carrying one `AnimationState` across samples and reading the
   events fired per inter-sample window (`AnimationState.update` resets its event
   list each call), never a fresh-runtime absolute-time update
-  (`runtime-dart/test/m19_event_story_test.dart`). As in Nim, event dispatch is a
-  **mixer-level primitive**: neither runtime surfaces `animationEvents` through the
-  state-machine `evaluate` pose path — the Nim CLI story runner mirrors each
-  layer's active clip onto its own single-track `AnimationState` and collects that
-  track's dispatched events (`cli/bony_cli.nim:1456-1525`), and the Dart test
-  drives the equivalent `AnimationState` primitive directly. Wiring that
-  clip-mirror bridge into the Dart CLI/SM story path is tracked as follow-up
-  (bony-7axu successor).
+  (`runtime-dart/test/m19_event_story_test.dart`). Event dispatch remains a
+  **mixer-level primitive**: the Nim CLI story runner mirrors each layer's active
+  clip onto its own single-track `AnimationState` and collects that track's
+  dispatched events (`cli/bony_cli.nim:1456-1525`). Dart now carries the same
+  clip-mirror bridge inside `StateMachineRuntime.evaluate`; after each evaluate
+  call, `StateMachineRuntime.animationEvents` contains the events fired for that
+  state-machine step, and the Dart `.bony`/`.bnb` parity tests assert the bridge
+  against the M19 goldens.
 
 ### Image goldens (Nim reference rasterizer only)
 

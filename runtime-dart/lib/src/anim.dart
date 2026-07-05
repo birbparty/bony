@@ -653,11 +653,11 @@ class AnimationState {
     final startMixTime = cur.mixTime;
     final hadPrevious = track.previous != null;
     final mixDuration = cur.mixDuration;
-    cur.time += amount;
+    cur.time = quantizeF32(cur.time + amount);
     final prev = track.previous;
     if (prev != null) {
-      prev.time += amount;
-      cur.mixTime += amount;
+      prev.time = quantizeF32(prev.time + amount);
+      cur.mixTime = quantizeF32(cur.mixTime + amount);
       if (cur.mixDuration <= 0.0 || cur.mixTime >= cur.mixDuration) {
         track.previous = null;
       }
