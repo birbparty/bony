@@ -47,6 +47,7 @@ conformance/
 | M17 | `m17_mesh_clip_rig` | Mesh × clipping: a triangle-soup mesh inside a clip range, clipped **per-triangle** (shared interior vertex preserved; some triangles cut, some pass through) |
 | M18 | `m18_mesh_deform_anim_rig` | Animated mesh deform: a clip-owned deform timeline moves mesh vertices over time; first nonzero-time mesh golden |
 | M19 | `m19_event_rig` | Animation events: a clip-owned event timeline fires distinct value-carrying events at keyframe times, surfaced in the golden's `animationEvents` channel via incremental per-sample-window dispatch through the Nim and Dart clip-mirror story paths |
+| M20 | `m20_skin_rig` | Skin attachment sets: active-skin attachment lookup, default-skin fallback for missing variant entries, JSON/BNB parity, and deform-timeline resolution through the selected skin |
 
 The `M5 (IK)` row is a second M5 asset (structured like the standalone M9 row):
 the table is one-asset-per-row, so `m5_ik_rig` gets its own row rather than being
@@ -538,6 +539,51 @@ Notes for readers comparing runtimes:
   state-machine step, and the Dart `.bony`/`.bnb` parity tests assert the bridge
   against the M19 goldens.
 
+### M20 skin rig (`m20_skin_rig`)
+
+`m20_skin_rig` freezes the first shared skin-attachment-set behavior in
+conformance. It has one identity `root` bone and three visible slot attachment
+names: `body`, `badge`, and `patch`. Those names are resolved through `skins`
+before draw batches are built; the slot setup attachment remains the visible
+name in `slots[]`, while `drawBatches[].attachment` records the concrete region
+or mesh target.
+
+The rig defines two skins:
+- `default` maps `body` to `body_default_region` (`20x20`), `badge` to
+  `badge_default_region` (`12x12`), and `patch` to `patch_default_mesh`.
+- `armor` maps `body` to `body_armor_region` (`46x28`) and `patch` to
+  `patch_variant_mesh`, but intentionally omits `badge`.
+
+Two scripts drive the same state machine with different `activeSkin` values:
+- `m20_skin_default.json` → `m20_skin_default_default.json`
+- `m20_skin_variant.json` → `m20_skin_variant_variant.json`
+
+**Non-vacuous active-skin and fallback proof.** The default golden's body batch
+is `body_default_region` with corners at `(-10,-10)` and `(10,10)`. The variant
+golden's body batch is `body_armor_region` with corners at `(-23,-14)` and
+`(23,14)`, a geometry delta far above `1e-4`. The `badge_slot` has no `armor`
+entry, so it falls back through the required `default` skin and remains
+`badge_default_region` with identical `12x12` vertices in both goldens. A runtime
+that ignores active skins fails the body batch; a runtime that omits fallback
+drops or changes the badge batch.
+
+The `patch` slot keeps the mesh/deform proof focused. A `skin_pose` clip owns a
+deform timeline for skin `armor`, visible attachment `patch`. The mixer resolves
+that binding through the skin to `patch_variant_mesh`, so the variant golden's
+third patch vertex moves from `y=8` to `y=20`; the default golden uses
+`patch_default_mesh` and remains undeformed. This proves deform timelines resolve
+through skin lookup without introducing linked meshes, `inheritDeform`,
+`skinRequired`, nested rigs, or importer behavior.
+
+Notes for readers comparing runtimes:
+- The goldens are reproduced identically from both `m20_skin_rig.bony` and
+  `conformance/assets/bnb/m20_skin_rig.bnb`; the Nim CLI regression test
+  (`runtime-nim/tests/test_m20_skin_conformance.nim`) exercises both files
+  through the same script/golden path used by CI.
+- Cross-runtime status: Nim reference is authoritative for M20. Dart parity is
+  intentionally out of scope for this slice and tracked by the follow-on skin
+  port.
+
 ### Image goldens (Nim reference rasterizer only)
 
 Image goldens (`*_play.png`) are Nim-only regression artifacts for the reference
@@ -563,6 +609,7 @@ and do not need to be reproduced by Dart or other runtimes.
 | m17_mesh_clip_rig | pending (no PNG golden produced) |
 | m18_mesh_deform_anim_rig | pending (no PNG golden produced) |
 | m19_event_rig | pending (no PNG golden produced) |
+| m20_skin_rig | pending (no PNG golden produced) |
 
 ---
 
@@ -644,6 +691,8 @@ Each `*_sample.json` file drives the numeric golden gate:
 - `asset`: filename resolved relative to `conformance/assets/`
 - `stateMachine`: optional target state machine. When present, the script is
   replayed through `golden-gen --state-machine ... --input-script ... --sample ...`.
+- `activeSkin`: optional runtime skin for draw-batch attachment lookup on
+  state-machine scripts. Omitted scripts use `"default"`.
 - `samples[].name`: stable sample identifier. Required by the conformance
   runner for state-machine scripts. Numeric-only names are reserved for CLI
   sample indexes.

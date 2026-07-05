@@ -80,10 +80,12 @@ type
   InputScript = object
     asset: string
     stateMachine: string
+    activeSkin: string
     samples: seq[InputScriptSample]
 
   StateMachineRunSample = object
     machine: string
+    activeSkin: string
     sample: InputScriptSample
     runtime: StateMachineRuntime
     evaluated: EvaluatedStateMachine
@@ -1258,11 +1260,14 @@ proc parseInputScript(path: string): InputScript =
       raise newBonyLoadError(schemaViolation, "invalid input script JSON: " & exc.msg)
 
   let root = requireScriptObject(parsed, "inputScript")
-  validateBonyKeys(root, ["format", "asset", "stateMachine", "samples"], "inputScript")
+  validateBonyKeys(root, ["format", "asset", "stateMachine", "activeSkin", "samples"], "inputScript")
   if scriptString(root, "format", "inputScript", required = true) != "bony.input-script.v1":
     raise newBonyLoadError(schemaViolation, "inputScript.format must be bony.input-script.v1")
   result.asset = scriptString(root, "asset", "inputScript", required = true)
   result.stateMachine = scriptString(root, "stateMachine", "inputScript")
+  result.activeSkin = scriptString(root, "activeSkin", "inputScript")
+  if result.activeSkin.len == 0:
+    result.activeSkin = "default"
 
   if not root.hasKey("samples"):
     raise newBonyLoadError(schemaViolation, "inputScript.samples is required")
@@ -1415,6 +1420,7 @@ proc applySequencePose(data: SkeletonData; pose: MixedPose): SkeletonData =
     data.physicsConstraints,
     data.clippingAttachments,
     data.meshAttachments,
+    data.skins,
   ).withDeformOverrides(data.deformOverrides)
 
 
@@ -1483,6 +1489,8 @@ proc executeStateMachineScript(
     runtime.update(sample.time - previousTime)
     let evaluated = runtime.evaluate(dataRef)
     let posed = data.applyRenderablePose(evaluated.pose)
+    if not posed.hasSkin(script.activeSkin):
+      raise newBonyLoadError(unknownRequiredReference, "unknown active skin: " & script.activeSkin)
     let worlds = advancePhysics(posed, physicsStates, sample.time - previousTime)
     var sampleEvents: seq[DispatchedEvent]
     for layerIndex in 0 ..< runtime.layers.len:
@@ -1515,6 +1523,7 @@ proc executeStateMachineScript(
       matched = true
       result.add StateMachineRunSample(
         machine: machineName,
+        activeSkin: script.activeSkin,
         sample: sample,
         runtime: runtime,
         evaluated: evaluated,
@@ -1776,11 +1785,14 @@ proc animationEventsJson(events: seq[DispatchedEvent]): JsonNode =
 proc numericGoldenJson(
     data: SkeletonData;
     time: float64;
+    activeSkin = "default";
     state: StateMachineGolden = StateMachineGolden();
     physicsWorlds: seq[Affine2] = @[];
     animationEvents: seq[DispatchedEvent] = @[];
 ): string =
   validateSkeletonData(data)
+  if not data.hasSkin(activeSkin):
+    raise newBonyLoadError(unknownRequiredReference, "unknown active skin: " & activeSkin)
   # The story runner advances the stateful physics stage and threads the
   # physics-adjusted bone worlds in via `physicsWorlds`; setup-pose callers pass
   # none and fall back to the pure world-transform pass. For a physics-free rig
@@ -1791,7 +1803,7 @@ proc numericGoldenJson(
   # Thread the (possibly physics-adjusted) worlds into the draw-batch build so
   # draw-batch vertices reflect the physics stage. For a physics-free rig these
   # worlds equal the pure pass, so setup-pose callers are unaffected.
-  let baseBatches = buildDrawBatches(data, worlds)
+  let baseBatches = buildDrawBatches(data, worlds, activeSkin)
   let samples = defaultParameterSamples(data)
   let efDefs = effectiveDeformers(data, samples)
   var batches = applyDeformersToDrawBatches(baseBatches, efDefs)
@@ -1926,6 +1938,7 @@ proc writeNumericGolden(args: seq[string]) =
     writeFile(args[1], numericGoldenJson(
       sample.posedData,
       sample.sample.time,
+      sample.activeSkin,
       StateMachineGolden(
         present: true,
         machine: sample.machine,

@@ -1,0 +1,87 @@
+{
+  "skeleton": {
+    "name": "m20-skin-rig",
+    "version": "1.0.0"
+  },
+  "bones": [
+    {"name": "root"}
+  ],
+  "slots": [
+    {"name": "body_slot", "bone": "root", "attachment": "body"},
+    {"name": "badge_slot", "bone": "root", "attachment": "badge"},
+    {"name": "patch_slot", "bone": "root", "attachment": "patch"}
+  ],
+  "regions": [
+    {"name": "body_default_region", "width": 20, "height": 20},
+    {"name": "body_armor_region", "width": 46, "height": 28},
+    {"name": "badge_default_region", "width": 12, "height": 12}
+  ],
+  "meshAttachments": [
+    {
+      "name": "patch_default_mesh",
+      "weighted": false,
+      "vertices": [
+        {"x": -10, "y": -8},
+        {"x": 10, "y": -8},
+        {"x": 0, "y": 8}
+      ],
+      "uvs": [0, 0, 1, 0, 0.5, 1],
+      "triangles": [0, 1, 2]
+    },
+    {
+      "name": "patch_variant_mesh",
+      "weighted": false,
+      "vertices": [
+        {"x": -10, "y": -8},
+        {"x": 10, "y": -8},
+        {"x": 0, "y": 8}
+      ],
+      "uvs": [0, 0, 1, 0, 0.5, 1],
+      "triangles": [0, 1, 2]
+    }
+  ],
+  "skins": [
+    {
+      "name": "default",
+      "entries": [
+        {"slot": "body_slot", "attachment": "body", "target": "body_default_region"},
+        {"slot": "badge_slot", "attachment": "badge", "target": "badge_default_region"},
+        {"slot": "patch_slot", "attachment": "patch", "target": "patch_default_mesh"}
+      ]
+    },
+    {
+      "name": "armor",
+      "entries": [
+        {"slot": "body_slot", "attachment": "body", "target": "body_armor_region"},
+        {"slot": "patch_slot", "attachment": "patch", "target": "patch_variant_mesh"}
+      ]
+    }
+  ],
+  "animations": [
+    {
+      "name": "skin_pose",
+      "deformTimelines": [
+        {
+          "skin": "armor",
+          "slot": "patch_slot",
+          "attachment": "patch",
+          "vertexCount": 3,
+          "keyframes": [
+            {"t": 0.0, "offset": 2, "deltas": [{"x": 0, "y": 12}]}
+          ]
+        }
+      ]
+    }
+  ],
+  "stateMachines": [
+    {
+      "name": "skin_story",
+      "layers": [
+        {
+          "name": "base",
+          "states": [{"name": "skin_pose", "kind": "clip", "clip": "skin_pose"}]
+        }
+      ]
+    }
+  ]
+}

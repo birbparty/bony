@@ -1,0 +1,9 @@
+{
+  "format": "bony.input-script.v1",
+  "asset": "m20_skin_rig.bony",
+  "stateMachine": "skin_story",
+  "activeSkin": "armor",
+  "samples": [
+    {"name": "variant", "t": 0.0, "inputs": {}}
+  ]
+}

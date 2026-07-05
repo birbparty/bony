@@ -20,6 +20,14 @@
           }
         }
       }
+    },
+    {
+      "if": {
+        "required": ["activeSkin"]
+      },
+      "then": {
+        "required": ["stateMachine"]
+      }
     }
   ],
   "properties": {
@@ -37,6 +45,12 @@
       "type": "string",
       "minLength": 1,
       "description": "Optional target state-machine name for scripts that replay typed inputs. Scripts without this field keep the legacy setup-pose path."
+    },
+    "activeSkin": {
+      "type": "string",
+      "minLength": 1,
+      "default": "default",
+      "description": "Optional runtime skin selected while building draw batches for this script. Omitted scripts use the required default skin."
     },
     "samples": {
       "type": "array",

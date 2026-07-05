@@ -26,6 +26,7 @@ test:
 	cd runtime-nim && nim c -r --hints:off tests/test_smoke.nim
 	cd runtime-nim && nim c -r --hints:off tests/test_physics_eval.nim
 	cd runtime-nim && nim c -r --hints:off -d:bonyExcludeMain --path:../cli tests/test_cli_pose.nim
+	cd runtime-nim && nim c -r --hints:off -d:bonyExcludeMain --path:../cli tests/test_m20_skin_conformance.nim
 	cd runtime-nim && nim c -r --hints:off tests/test_ik_current_pivot.nim
 	cd runtime-nim && nim c -r --hints:off tests/test_skin_resolution.nim
 	cd runtime-nim && nim c -r --hints:off tests/test_bnb_byte_stability.nim
