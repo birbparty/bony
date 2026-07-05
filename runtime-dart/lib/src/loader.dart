@@ -22,16 +22,21 @@ T _required<T>(dynamic value, String field) {
 }
 
 BoneData _parseBone(Map<String, dynamic> j) {
+  double field(String key, double defaultValue) {
+    final raw = (j[key] as num?)?.toDouble();
+    return quantizeF32(raw ?? defaultValue);
+  }
+
   return BoneData(
     name: _required<String>(j['name'], 'bone.name'),
     parent: (j['parent'] as String?) ?? '',
-    x: (j['x'] as num?)?.toDouble() ?? 0.0,
-    y: (j['y'] as num?)?.toDouble() ?? 0.0,
-    rotation: (j['rotation'] as num?)?.toDouble() ?? 0.0,
-    scaleX: (j['scaleX'] as num?)?.toDouble() ?? 1.0,
-    scaleY: (j['scaleY'] as num?)?.toDouble() ?? 1.0,
-    shearX: (j['shearX'] as num?)?.toDouble() ?? 0.0,
-    shearY: (j['shearY'] as num?)?.toDouble() ?? 0.0,
+    x: field('x', 0.0),
+    y: field('y', 0.0),
+    rotation: field('rotation', 0.0),
+    scaleX: field('scaleX', 1.0),
+    scaleY: field('scaleY', 1.0),
+    shearX: field('shearX', 0.0),
+    shearY: field('shearY', 0.0),
     inheritRotation: (j['inheritRotation'] as bool?) ?? true,
     inheritScale: (j['inheritScale'] as bool?) ?? true,
     inheritReflection: (j['inheritReflection'] as bool?) ?? true,

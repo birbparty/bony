@@ -8,8 +8,15 @@
 // Tests run from runtime-dart/ so ../conformance/ resolves to repo root.
 
 import 'dart:io';
+import 'dart:typed_data' show ByteData, Endian;
 import 'package:test/test.dart';
 import 'package:bony/bony.dart';
+
+int _f32Bits(double x) {
+  final bd = ByteData(4);
+  bd.setFloat32(0, x, Endian.little);
+  return bd.getUint32(0, Endian.little);
+}
 
 void main() {
   late SkeletonData data;
@@ -172,6 +179,52 @@ void main() {
       expect(bone.scaleX, closeTo(1.0, 1e-9));
       expect(bone.inheritRotation, isTrue);
       expect(bone.transformMode, 'normal');
+    });
+
+    test('f32-quantizes bone transform fields on load', () {
+      final d = loadBonyJson(
+        '{"skeleton":{"name":"x"},"bones":[{'
+        '"name":"b",'
+        '"x":0.1,'
+        '"y":0.2,'
+        '"rotation":0.3,'
+        '"scaleX":1.1,'
+        '"scaleY":1.2,'
+        '"shearX":0.4,'
+        '"shearY":0.5'
+        '}]}',
+      );
+      final bone = d.bones.single;
+      expect(bone.x, quantizeF32(0.1));
+      expect(bone.y, quantizeF32(0.2));
+      expect(bone.rotation, quantizeF32(0.3));
+      expect(bone.scaleX, quantizeF32(1.1));
+      expect(bone.scaleY, quantizeF32(1.2));
+      expect(bone.shearX, quantizeF32(0.4));
+      expect(bone.shearY, quantizeF32(0.5));
+    });
+
+    test('normalizes negative zero in bone transform fields on load', () {
+      final d = loadBonyJson(
+        '{"skeleton":{"name":"x"},"bones":[{'
+        '"name":"b",'
+        '"x":-0.0,'
+        '"y":-0.0,'
+        '"rotation":-0.0,'
+        '"scaleX":-0.0,'
+        '"scaleY":-0.0,'
+        '"shearX":-0.0,'
+        '"shearY":-0.0'
+        '}]}',
+      );
+      final bone = d.bones.single;
+      expect(_f32Bits(bone.x), 0);
+      expect(_f32Bits(bone.y), 0);
+      expect(_f32Bits(bone.rotation), 0);
+      expect(_f32Bits(bone.scaleX), 0);
+      expect(_f32Bits(bone.scaleY), 0);
+      expect(_f32Bits(bone.shearX), 0);
+      expect(_f32Bits(bone.shearY), 0);
     });
 
     test('rejects wrong type for name field', () {

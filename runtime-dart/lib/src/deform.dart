@@ -18,8 +18,7 @@ double quantizeF32(double x) {
   // quantizeF32 (docs/binary-canonicalization.md; bony-iw6b): a raw .bnb f32
   // encode preserves -0.0's sign bit (0x80000000) while the JSON emitter collapses
   // it to "0", so an un-normalized -0.0 byte-diverges json<->bnb. NOTE: this
-  // funnels the anim/deform math f32s; the JSON/.bnb bind-pose load path in
-  // loader.dart does not yet route through quantizeF32 (tracked by bony-24up).
+  // funnels the f32-backed runtime math and JSON/.bnb load paths.
   return v == 0.0 ? 0.0 : v;
 }
 
