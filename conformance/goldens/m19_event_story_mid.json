@@ -1,0 +1,143 @@
+{
+  "format": "bony.numeric-golden.v1",
+  "skeleton": "m19-event-rig",
+  "version": "1.0.0",
+  "time": 0.5,
+  "stateMachine": "event_story",
+  "sample": "mid",
+  "inputs": [],
+  "layers": [
+    {
+      "name": "base",
+      "state": "pulse",
+      "time": 0.5,
+      "pose": {
+        "scalars": [],
+        "vectors": [],
+        "attachments": [],
+        "inherits": [],
+        "colors": [],
+        "colors2": [],
+        "sequences": []
+      }
+    }
+  ],
+  "events": [],
+  "animationEvents": [
+    {
+      "name": "hit",
+      "trackIndex": 0,
+      "time": 0.5,
+      "intValue": 7,
+      "floatValue": 1.5,
+      "stringValue": "left",
+      "audioPath": "",
+      "volume": 1.0,
+      "balance": 0.0
+    },
+    {
+      "name": "hit2",
+      "trackIndex": 0,
+      "time": 0.5,
+      "intValue": 11,
+      "floatValue": -2.5,
+      "stringValue": "right",
+      "audioPath": "",
+      "volume": 1.0,
+      "balance": 0.0
+    }
+  ],
+  "bones": [
+    {
+      "name": "root",
+      "parent": "",
+      "world": {
+        "a": 1.0,
+        "b": 0.0,
+        "c": 6.123233995736766e-17,
+        "d": 1.0,
+        "tx": 0.0,
+        "ty": 0.0
+      }
+    }
+  ],
+  "slots": [
+    {
+      "name": "panel_slot",
+      "bone": "root",
+      "attachment": "panel",
+      "r": 1.0,
+      "g": 1.0,
+      "b": 1.0,
+      "a": 1.0
+    }
+  ],
+  "drawBatches": [
+    {
+      "slot": "panel_slot",
+      "bone": "root",
+      "attachment": "panel",
+      "texturePage": "",
+      "blendMode": "normal",
+      "clipId": "",
+      "world": {
+        "a": 1.0,
+        "b": 0.0,
+        "c": 6.123233995736766e-17,
+        "d": 1.0,
+        "tx": 0.0,
+        "ty": 0.0
+      },
+      "vertices": [
+        {
+          "x": -25.0,
+          "y": -25.0,
+          "u": 0.0,
+          "v": 0.0,
+          "r": 1.0,
+          "g": 1.0,
+          "b": 1.0,
+          "a": 1.0
+        },
+        {
+          "x": 25.0,
+          "y": -25.0,
+          "u": 1.0,
+          "v": 0.0,
+          "r": 1.0,
+          "g": 1.0,
+          "b": 1.0,
+          "a": 1.0
+        },
+        {
+          "x": 25.0,
+          "y": 25.0,
+          "u": 1.0,
+          "v": 1.0,
+          "r": 1.0,
+          "g": 1.0,
+          "b": 1.0,
+          "a": 1.0
+        },
+        {
+          "x": -25.0,
+          "y": 25.0,
+          "u": 0.0,
+          "v": 1.0,
+          "r": 1.0,
+          "g": 1.0,
+          "b": 1.0,
+          "a": 1.0
+        }
+      ],
+      "indices": [
+        0,
+        1,
+        2,
+        2,
+        3,
+        0
+      ]
+    }
+  ]
+}

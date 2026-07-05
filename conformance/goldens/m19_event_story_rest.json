@@ -1,0 +1,119 @@
+{
+  "format": "bony.numeric-golden.v1",
+  "skeleton": "m19-event-rig",
+  "version": "1.0.0",
+  "time": 0.0,
+  "stateMachine": "event_story",
+  "sample": "rest",
+  "inputs": [],
+  "layers": [
+    {
+      "name": "base",
+      "state": "pulse",
+      "time": 0.0,
+      "pose": {
+        "scalars": [],
+        "vectors": [],
+        "attachments": [],
+        "inherits": [],
+        "colors": [],
+        "colors2": [],
+        "sequences": []
+      }
+    }
+  ],
+  "events": [],
+  "bones": [
+    {
+      "name": "root",
+      "parent": "",
+      "world": {
+        "a": 1.0,
+        "b": 0.0,
+        "c": 6.123233995736766e-17,
+        "d": 1.0,
+        "tx": 0.0,
+        "ty": 0.0
+      }
+    }
+  ],
+  "slots": [
+    {
+      "name": "panel_slot",
+      "bone": "root",
+      "attachment": "panel",
+      "r": 1.0,
+      "g": 1.0,
+      "b": 1.0,
+      "a": 1.0
+    }
+  ],
+  "drawBatches": [
+    {
+      "slot": "panel_slot",
+      "bone": "root",
+      "attachment": "panel",
+      "texturePage": "",
+      "blendMode": "normal",
+      "clipId": "",
+      "world": {
+        "a": 1.0,
+        "b": 0.0,
+        "c": 6.123233995736766e-17,
+        "d": 1.0,
+        "tx": 0.0,
+        "ty": 0.0
+      },
+      "vertices": [
+        {
+          "x": -25.0,
+          "y": -25.0,
+          "u": 0.0,
+          "v": 0.0,
+          "r": 1.0,
+          "g": 1.0,
+          "b": 1.0,
+          "a": 1.0
+        },
+        {
+          "x": 25.0,
+          "y": -25.0,
+          "u": 1.0,
+          "v": 0.0,
+          "r": 1.0,
+          "g": 1.0,
+          "b": 1.0,
+          "a": 1.0
+        },
+        {
+          "x": 25.0,
+          "y": 25.0,
+          "u": 1.0,
+          "v": 1.0,
+          "r": 1.0,
+          "g": 1.0,
+          "b": 1.0,
+          "a": 1.0
+        },
+        {
+          "x": -25.0,
+          "y": 25.0,
+          "u": 0.0,
+          "v": 1.0,
+          "r": 1.0,
+          "g": 1.0,
+          "b": 1.0,
+          "a": 1.0
+        }
+      ],
+      "indices": [
+        0,
+        1,
+        2,
+        2,
+        3,
+        0
+      ]
+    }
+  ]
+}
