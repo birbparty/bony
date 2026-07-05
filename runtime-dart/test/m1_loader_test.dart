@@ -8,7 +8,7 @@
 // Tests run from runtime-dart/ so ../conformance/ resolves to repo root.
 
 import 'dart:io';
-import 'dart:typed_data' show ByteData, Endian;
+import 'dart:typed_data' show ByteData, Endian, Uint8List;
 import 'package:test/test.dart';
 import 'package:bony/bony.dart';
 
@@ -16,6 +16,51 @@ int _f32Bits(double x) {
   final bd = ByteData(4);
   bd.setFloat32(0, x, Endian.little);
   return bd.getUint32(0, Endian.little);
+}
+
+void _writeVaruint(List<int> out, int value) {
+  var v = value;
+  while (v >= 0x80) {
+    out.add((v & 0x7f) | 0x80);
+    v >>= 7;
+  }
+  out.add(v);
+}
+
+void _writeString(List<int> out, String value) {
+  final units = value.codeUnits;
+  _writeVaruint(out, units.length);
+  out.addAll(units);
+}
+
+void _writeProp(List<int> out, int key, List<int> payload) {
+  _writeVaruint(out, key);
+  _writeVaruint(out, payload.length);
+  out.addAll(payload);
+}
+
+Uint8List _minimalBnbWithBoneX(List<int> xPayload) {
+  final out = <int>[
+    0x42, 0x4f, 0x4e, 0x59, // BONY
+    0x00, // version
+    0x02, // string table present
+    0x00, // empty ToC
+  ];
+  _writeVaruint(out, 2);
+  _writeString(out, 's');
+  _writeString(out, 'b');
+
+  _writeVaruint(out, 1); // skeleton object
+  _writeProp(out, 1, [0]); // skeleton.name -> strings[0]
+  out.add(0); // end skeleton props
+
+  _writeVaruint(out, 2); // bone object
+  _writeProp(out, 1, [1]); // bone.name -> strings[1]
+  _writeProp(out, 1000, xPayload); // bone.x
+  out.add(0); // end bone props
+
+  out.add(0); // end object stream
+  return Uint8List.fromList(out);
 }
 
 void main() {
@@ -181,6 +226,46 @@ void main() {
       expect(bone.transformMode, 'normal');
     });
 
+    test('rejects wrong type for name field', () {
+      // _required<T> must throw FormatException, not TypeError, on type mismatch.
+      expect(
+        () => loadBonyJson('{"skeleton":{"name":42},"bones":[]}'),
+        throwsFormatException,
+      );
+    });
+
+    test('rejects wrong type for bone numeric field', () {
+      expect(
+        () => loadBonyJson(
+          '{"skeleton":{"name":"x"},"bones":[{"name":"b","x":"0"}]}',
+        ),
+        throwsFormatException,
+      );
+    });
+
+    test('rejects bone numeric fields that overflow f32', () {
+      expect(
+        () => loadBonyJson(
+          '{"skeleton":{"name":"x"},"bones":[{"name":"b","x":${double.maxFinite}}]}',
+        ),
+        throwsFormatException,
+      );
+    });
+
+    test('accepts order as double (e.g. 0.0)', () {
+      // JSON numbers without a decimal point are int; with one are double.
+      // toInt() must handle both.
+      final d = loadBonyJson('{'
+          '"skeleton":{"name":"x"},'
+          '"bones":[{"name":"b"},{"name":"c","parent":"b"}],'
+          '"pathAttachments":[{"name":"p","p0x":0,"p0y":0,"p1x":0,"p1y":0,"p2x":0,"p2y":0,"p3x":0,"p3y":0}],'
+          '"paths":[{"name":"pc","bone":"b","target":"c","path":"p","order":0.0}]'
+          '}');
+      expect(d.paths.first.order, 0);
+    });
+  });
+
+  group('loadBonyJson numeric canonicalization', () {
     test('f32-quantizes bone transform fields on load', () {
       final d = loadBonyJson(
         '{"skeleton":{"name":"x"},"bones":[{'
@@ -202,6 +287,8 @@ void main() {
       expect(bone.scaleY, quantizeF32(1.2));
       expect(bone.shearX, quantizeF32(0.4));
       expect(bone.shearY, quantizeF32(0.5));
+      expect(_f32Bits(bone.x), 0x3dcccccd);
+      expect(_f32Bits(bone.scaleX), 0x3f8ccccd);
     });
 
     test('normalizes negative zero in bone transform fields on load', () {
@@ -226,25 +313,19 @@ void main() {
       expect(_f32Bits(bone.shearX), 0);
       expect(_f32Bits(bone.shearY), 0);
     });
+  });
 
-    test('rejects wrong type for name field', () {
-      // _required<T> must throw FormatException, not TypeError, on type mismatch.
-      expect(
-        () => loadBonyJson('{"skeleton":{"name":42},"bones":[]}'),
-        throwsFormatException,
-      );
+  group('loadBonyBnb numeric canonicalization', () {
+    test('normalizes negative zero in bone f32 fields on load', () {
+      final d = loadBonyBnb(_minimalBnbWithBoneX([0x00, 0x00, 0x00, 0x80]));
+      expect(_f32Bits(d.bones.single.x), 0);
     });
 
-    test('accepts order as double (e.g. 0.0)', () {
-      // JSON numbers without a decimal point are int; with one are double.
-      // toInt() must handle both.
-      final d = loadBonyJson('{'
-          '"skeleton":{"name":"x"},'
-          '"bones":[{"name":"b"},{"name":"c","parent":"b"}],'
-          '"pathAttachments":[{"name":"p","p0x":0,"p0y":0,"p1x":0,"p1y":0,"p2x":0,"p2y":0,"p3x":0,"p3y":0}],'
-          '"paths":[{"name":"pc","bone":"b","target":"c","path":"p","order":0.0}]'
-          '}');
-      expect(d.paths.first.order, 0);
+    test('rejects non-finite bone f32 payloads', () {
+      expect(
+        () => loadBonyBnb(_minimalBnbWithBoneX([0x00, 0x00, 0x80, 0x7f])),
+        throwsFormatException,
+      );
     });
   });
 

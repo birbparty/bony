@@ -23,8 +23,18 @@ T _required<T>(dynamic value, String field) {
 
 BoneData _parseBone(Map<String, dynamic> j) {
   double field(String key, double defaultValue) {
-    final raw = (j[key] as num?)?.toDouble();
-    return quantizeF32(raw ?? defaultValue);
+    final raw = j[key];
+    if (raw == null) return quantizeF32(defaultValue);
+    if (raw is! num) {
+      throw FormatException(
+        'field bone.$key: expected num, got ${raw.runtimeType}',
+      );
+    }
+    final value = quantizeF32(raw.toDouble());
+    if (!value.isFinite) {
+      throw FormatException('bone.$key must be a finite f32 value');
+    }
+    return value;
   }
 
   return BoneData(
@@ -1561,7 +1571,11 @@ class _BnbCur {
     _need(4, '.bnb f32');
     final v = _bd.getFloat32(pos, Endian.little);
     pos += 4;
-    return v.toDouble();
+    final q = quantizeF32(v.toDouble());
+    if (!q.isFinite) {
+      throw const FormatException('.bnb f32 must be a finite f32 value');
+    }
+    return q;
   }
 
   double readF64() {
@@ -1662,7 +1676,7 @@ String _bStr(_BnbObj obj, int key, List<String> strings, String ctx,
 double _bF32(_BnbObj obj, int key, String ctx, {double? def}) {
   final payload = obj.props[key];
   if (payload == null) {
-    if (def != null) return def;
+    if (def != null) return quantizeF32(def);
     throw FormatException('.bnb required property missing: $ctx');
   }
   final c = _BnbCur(payload);
