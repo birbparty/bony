@@ -144,6 +144,25 @@ MeshAttachment _parseMeshAttachment(Map<String, dynamic> j) {
   );
 }
 
+SkinData _parseSkin(Map<String, dynamic> j, int index) {
+  final ctx = 'skins[$index]';
+  final entriesRaw = j['entries'] as List<dynamic>? ?? const [];
+  final entries = <SkinEntryData>[];
+  for (var ei = 0; ei < entriesRaw.length; ei++) {
+    final entry = entriesRaw[ei] as Map<String, dynamic>;
+    final ectx = '$ctx.entries[$ei]';
+    entries.add(SkinEntryData(
+      slot: _required<String>(entry['slot'], '$ectx.slot'),
+      attachment: _required<String>(entry['attachment'], '$ectx.attachment'),
+      target: _required<String>(entry['target'], '$ectx.target'),
+    ));
+  }
+  return SkinData(
+    name: _required<String>(j['name'], '$ctx.name'),
+    entries: entries,
+  );
+}
+
 PathConstraintData _parsePath(Map<String, dynamic> j) {
   return PathConstraintData(
     name: _required<String>(j['name'], 'path.name'),
@@ -215,7 +234,8 @@ PhysicsConstraintData _parsePhysics(Map<String, dynamic> j) {
 
   final rawChannels = j['channels'];
   if (rawChannels == null) {
-    throw const FormatException('missing required field: physicsConstraint.channels');
+    throw const FormatException(
+        'missing required field: physicsConstraint.channels');
   }
   final channels = physicsChannelsFromMask((rawChannels as num).toInt());
 
@@ -445,11 +465,10 @@ void _ensureNonDecreasing(List<double> times, String ctx) {
   }
 }
 
-List<AnimationClip> _parseAnimations(
-    List<dynamic> anims, List<MeshAttachment> meshes) {
+List<AnimationClip> _parseAnimations(List<dynamic> anims, SkeletonData data) {
   final result = <AnimationClip>[];
   final meshesByName = <String, MeshAttachment>{
-    for (final m in meshes) m.name: m,
+    for (final m in data.meshAttachments) m.name: m,
   };
   final seen = <String>{};
   for (var ai = 0; ai < anims.length; ai++) {
@@ -571,20 +590,31 @@ List<AnimationClip> _parseAnimations(
       final dt = dtList[di] as Map<String, dynamic>;
       final dtCtx = '$ctx.deformTimelines[$di]';
       final skin = _required<String>(dt['skin'], '$dtCtx.skin');
-      if (skin != 'default') {
-        throw FormatException('$dtCtx.skin must be "default" in v1: $skin');
+      if (!data.hasSkin(skin)) {
+        throw FormatException('$dtCtx.skin names unknown skin: $skin');
       }
       final slot = _required<String>(dt['slot'], '$dtCtx.slot');
-      final attachment = _required<String>(dt['attachment'], '$dtCtx.attachment');
-      final vertexCount = _required<num>(dt['vertexCount'], '$dtCtx.vertexCount').toInt();
-      final mesh = meshesByName[attachment];
+      final attachment =
+          _required<String>(dt['attachment'], '$dtCtx.attachment');
+      final vertexCount =
+          _required<num>(dt['vertexCount'], '$dtCtx.vertexCount').toInt();
+      final resolvedAttachment =
+          data.resolveSkinAttachmentTarget(skin, slot, attachment);
+      if (resolvedAttachment.isEmpty) {
+        throw FormatException(
+            '$dtCtx does not resolve through skin lookup: $skin/$slot/$attachment');
+      }
+      final mesh = meshesByName[resolvedAttachment];
       if (mesh == null) {
-        throw FormatException('$dtCtx.attachment names unknown mesh: $attachment');
+        throw FormatException(
+            '$dtCtx resolved attachment is not a mesh: $resolvedAttachment');
       }
       if (vertexCount != mesh.vertices.length) {
-        throw FormatException('$dtCtx.vertexCount does not match mesh: $attachment');
+        throw FormatException(
+            '$dtCtx.vertexCount does not match mesh: $resolvedAttachment');
       }
-      final kfList = _required<List<dynamic>>(dt['keyframes'], '$dtCtx.keyframes');
+      final kfList =
+          _required<List<dynamic>>(dt['keyframes'], '$dtCtx.keyframes');
       if (kfList.isEmpty) {
         throw FormatException('$dtCtx.keyframes must not be empty');
       }
@@ -597,7 +627,8 @@ List<AnimationClip> _parseAnimations(
         if (offset < 0) {
           throw FormatException('$kfCtx.offset must be non-negative');
         }
-        final deltasRaw = _required<List<dynamic>>(kf['deltas'], '$kfCtx.deltas');
+        final deltasRaw =
+            _required<List<dynamic>>(kf['deltas'], '$kfCtx.deltas');
         if (deltasRaw.isEmpty) {
           throw FormatException('$kfCtx must contain at least one delta');
         }
@@ -610,7 +641,8 @@ List<AnimationClip> _parseAnimations(
           ));
         }
         if (offset + deltas.length > vertexCount) {
-          throw FormatException('$kfCtx deform key range exceeds mesh vertex count');
+          throw FormatException(
+              '$kfCtx deform key range exceeds mesh vertex count');
         }
         keys.add(DeformKeyframe(
           time: t,
@@ -637,7 +669,8 @@ List<AnimationClip> _parseAnimations(
     for (var ei = 0; ei < etList.length; ei++) {
       final et = etList[ei] as Map<String, dynamic>;
       final etCtx = '$ctx.eventTimelines[$ei]';
-      final kfList = _required<List<dynamic>>(et['keyframes'], '$etCtx.keyframes');
+      final kfList =
+          _required<List<dynamic>>(et['keyframes'], '$etCtx.keyframes');
       if (kfList.isEmpty) {
         throw FormatException('$etCtx.keyframes must not be empty');
       }
@@ -658,7 +691,8 @@ List<AnimationClip> _parseAnimations(
           event: EventData(
             name: evName,
             intValue: (kf['intValue'] as num?)?.toInt() ?? 0,
-            floatValue: quantizeF32((kf['floatValue'] as num?)?.toDouble() ?? 0.0),
+            floatValue:
+                quantizeF32((kf['floatValue'] as num?)?.toDouble() ?? 0.0),
             stringValue: (kf['stringValue'] as String?) ?? '',
             audioPath: (kf['audioPath'] as String?) ?? '',
             volume: quantizeF32((kf['volume'] as num?)?.toDouble() ?? 1.0),
@@ -990,6 +1024,7 @@ void _validate(SkeletonData data) {
   }
 
   final slotNames = <String>{};
+  final resolvedSlotAttachments = List<String>.filled(data.slots.length, '');
   for (var i = 0; i < data.slots.length; i++) {
     final s = data.slots[i];
     final ctx = 'slots[$i]';
@@ -997,14 +1032,89 @@ void _validate(SkeletonData data) {
     if (!boneNames.contains(s.bone)) {
       throw FormatException('unknown slot bone: ${s.bone}');
     }
-    if (s.attachment.isNotEmpty &&
+    if (data.skins.isEmpty &&
+        s.attachment.isNotEmpty &&
         !regionNames.contains(s.attachment) &&
         !clipNames.contains(s.attachment) &&
         !meshNames.contains(s.attachment)) {
       throw FormatException('unknown slot attachment: ${s.attachment}');
     }
+    if (data.skins.isEmpty) {
+      resolvedSlotAttachments[i] = s.attachment;
+    }
     if (!slotNames.add(s.name)) {
       throw FormatException('duplicate slot name: ${s.name}');
+    }
+  }
+
+  if (data.skins.isNotEmpty) {
+    final skinNames = <String>{};
+    var defaultCount = 0;
+    final skinEntryTargets = <String, String>{};
+    for (var si = 0; si < data.skins.length; si++) {
+      final skin = data.skins[si];
+      final skinCtx = 'skins[$si]';
+      if (skin.name.isEmpty) {
+        throw FormatException('$skinCtx.name must not be empty');
+      }
+      if (!skinNames.add(skin.name)) {
+        throw FormatException('duplicate skin name: ${skin.name}');
+      }
+      if (skin.name == 'default') defaultCount++;
+
+      final seenEntries = <String>{};
+      for (var ei = 0; ei < skin.entries.length; ei++) {
+        final entry = skin.entries[ei];
+        final entryCtx = '$skinCtx.entries[$ei]';
+        if (entry.slot.isEmpty) {
+          throw FormatException('$entryCtx.slot must not be empty');
+        }
+        if (entry.attachment.isEmpty) {
+          throw FormatException('$entryCtx.attachment must not be empty');
+        }
+        if (entry.target.isEmpty) {
+          throw FormatException('$entryCtx.target must not be empty');
+        }
+        if (!slotNames.contains(entry.slot)) {
+          throw FormatException('unknown skin entry slot: ${entry.slot}');
+        }
+        final localKey = '${entry.slot}\x00${entry.attachment}';
+        if (!seenEntries.add(localKey)) {
+          throw FormatException(
+              'duplicate skin entry: ${skin.name}/${entry.slot}/${entry.attachment}');
+        }
+
+        var targetMatches = 0;
+        if (regionNames.contains(entry.target)) targetMatches++;
+        if (clipNames.contains(entry.target)) targetMatches++;
+        if (meshNames.contains(entry.target)) targetMatches++;
+        if (targetMatches == 0) {
+          throw FormatException('unknown skin entry target: ${entry.target}');
+        }
+        if (targetMatches > 1) {
+          throw FormatException('ambiguous skin entry target: ${entry.target}');
+        }
+        skinEntryTargets['${skin.name}\x00$localKey'] = entry.target;
+      }
+    }
+    if (defaultCount != 1) {
+      throw const FormatException(
+          'skins must contain exactly one default skin');
+    }
+    for (var i = 0; i < data.slots.length; i++) {
+      final slot = data.slots[i];
+      if (slot.attachment.isEmpty) {
+        resolvedSlotAttachments[i] = '';
+        continue;
+      }
+      final key = 'default\x00${slot.name}\x00${slot.attachment}';
+      final target = skinEntryTargets[key];
+      if (target == null) {
+        throw FormatException(
+            'slot attachment does not resolve through default skin: '
+            '${slot.name}/${slot.attachment}');
+      }
+      resolvedSlotAttachments[i] = target;
     }
   }
 
@@ -1031,26 +1141,27 @@ void _validate(SkeletonData data) {
     var activeName = '';
     for (var slotIdx = 0; slotIdx < data.slots.length; slotIdx++) {
       final s = data.slots[slotIdx];
-      if (s.attachment.isEmpty || !clipByName.containsKey(s.attachment)) {
+      final attachment = resolvedSlotAttachments[slotIdx];
+      if (attachment.isEmpty || !clipByName.containsKey(attachment)) {
         continue;
       }
-      final clip = clipByName[s.attachment]!;
+      final clip = clipByName[attachment]!;
       final ownIndex = slotIdx;
       final endIndex = clip.untilSlot.isNotEmpty
           ? slotIndexByName[clip.untilSlot]!
           : lastSlotIndex;
       if (endIndex <= ownIndex) {
         throw FormatException(
-            "clipping attachment '${s.attachment}' on slot '${s.name}' has an "
+            "clipping attachment '$attachment' on slot '${s.name}' has an "
             "empty range (untilSlot at or before the clip's own slot)");
       }
       if (ownIndex <= activeUntil) {
         throw FormatException(
-            "clipping ranges overlap: '${s.attachment}' begins while "
+            "clipping ranges overlap: '$attachment' begins while "
             "'$activeName' is still active");
       }
       activeUntil = endIndex;
-      activeName = s.attachment;
+      activeName = attachment;
     }
   }
 
@@ -1109,8 +1220,8 @@ void _validate(SkeletonData data) {
     for (var c = 1; c < ik.bones.length; c++) {
       if (boneParentByName[ik.bones[c]] != ik.bones[c - 1]) {
         throw FormatException(
-          '$ctx.bones must form a contiguous parent-to-child chain '
-          '(root to tip): ${ik.bones[c]} is not a child of ${ik.bones[c - 1]}');
+            '$ctx.bones must form a contiguous parent-to-child chain '
+            '(root to tip): ${ik.bones[c]} is not a child of ${ik.bones[c - 1]}');
       }
     }
     if (!boneNames.contains(ik.target)) {
@@ -1136,7 +1247,8 @@ void _validate(SkeletonData data) {
       throw FormatException('unknown transform constraint bone: ${tc.bone}');
     }
     if (!boneNames.contains(tc.target)) {
-      throw FormatException('unknown transform constraint target: ${tc.target}');
+      throw FormatException(
+          'unknown transform constraint target: ${tc.target}');
     }
     for (final entry in <String, double?>{
       'translateMix': tc.translateMix,
@@ -1184,7 +1296,8 @@ void _validate(SkeletonData data) {
       throw FormatException('$ctx.mass must be non-negative');
     }
     final mix = pc.physicsMix;
-    if (mix != null && (mix.isNaN || mix.isInfinite || mix < 0.0 || mix > 1.0)) {
+    if (mix != null &&
+        (mix.isNaN || mix.isInfinite || mix < 0.0 || mix > 1.0)) {
       throw FormatException('$ctx.physicsMix must be in [0, 1]');
     }
   }
@@ -1339,6 +1452,8 @@ const int _bnbSlot = 1000;
 const int _bnbRegion = 1001;
 const int _bnbClippingAttachment = 3000;
 const int _bnbMeshAttachment = 3001;
+const int _bnbSkin = 3003;
+const int _bnbSkinEntry = 3004;
 const int _bnbPath = 4000;
 const int _bnbPathAttachment = 4001;
 const int _bnbIkConstraint = 4002;
@@ -1404,6 +1519,8 @@ const int _bkDeformSlot = 1011;
 const int _bkDeformAttachment = 3007;
 const int _bkDeformVertexCount = 3008;
 const int _bkDeformKeys = 3009;
+const int _bkSkinAttachment = 3010;
+const int _bkSkinTarget = 3011;
 const int _bkTarget = 4000;
 const int _bkPath = 4001;
 const int _bkOrder = 4002;
@@ -1495,6 +1612,8 @@ const _bnbKnownTypes = {
   _bnbRegion,
   _bnbClippingAttachment,
   _bnbMeshAttachment,
+  _bnbSkin,
+  _bnbSkinEntry,
   _bnbPath,
   _bnbPathAttachment,
   _bnbIkConstraint,
@@ -2189,7 +2308,8 @@ List<DeformKeyframe> _bDeformTimelineKeys(
       deltas.add(MeshDelta(x: c.readF32(), y: c.readF32()));
     }
     if (offset + deltas.length > vertexCount) {
-      throw FormatException('.bnb $ctx deform key range exceeds mesh vertex count');
+      throw FormatException(
+          '.bnb $ctx deform key range exceeds mesh vertex count');
     }
     keys.add(DeformKeyframe(
       time: time,
@@ -2272,6 +2392,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
   final ikConstraints = <IkConstraintData>[];
   final transformConstraints = <TransformConstraintData>[];
   final physicsConstraints = <PhysicsConstraintData>[];
+  final skins = <SkinData>[];
   final parameters = <ParameterAxis>[];
   final deformers = <DeformerRecord>[];
   final animations = <AnimationClip>[];
@@ -2293,6 +2414,37 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
   var pendingTransitionTo = '';
   var pendingConditions = <StateMachineCondition>[];
   final seenAnimationNames = <String>{};
+  var currentSkinName = '';
+  var currentSkinEntries = <SkinEntryData>[];
+
+  void flushSkin() {
+    if (currentSkinName.isEmpty) return;
+    skins.add(SkinData(name: currentSkinName, entries: currentSkinEntries));
+    currentSkinName = '';
+    currentSkinEntries = [];
+  }
+
+  SkeletonData skinResolutionData() {
+    if (header == null) {
+      throw const FormatException('.bnb: missing skeleton object');
+    }
+    return SkeletonData(
+      header: header,
+      bones: bones,
+      slots: slots,
+      regions: regions,
+      paths: paths,
+      pathAttachments: pathAttachments,
+      clippingAttachments: clips,
+      meshAttachments: meshes,
+      ikConstraints: ikConstraints,
+      transformConstraints: transformConstraints,
+      physicsConstraints: physicsConstraints,
+      skins: skins,
+      parameters: parameters,
+      deformers: deformers,
+    );
+  }
 
   void flushAnimation() {
     if (currentAnimationName.isEmpty) return;
@@ -2423,6 +2575,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
   for (final obj in decodeObjects) {
     switch (obj.typeKey) {
       case _bnbSkeleton:
+        flushSkin();
         flushPending();
         if (header != null)
           throw const FormatException('.bnb: multiple skeleton objects');
@@ -2432,6 +2585,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
               _bStr(obj, _bkVersion, strings, 'skeleton.version', def: '0.1.0'),
         );
       case _bnbBone:
+        flushSkin();
         flushPending();
         bones.add(BoneData(
           name: _bStr(obj, _bkName, strings, 'bone.name'),
@@ -2451,6 +2605,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
               def: 'normal'),
         ));
       case _bnbSlot:
+        flushSkin();
         flushPending();
         slots.add(SlotData(
           name: _bStr(obj, _bkName, strings, 'slot.name'),
@@ -2459,6 +2614,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
               _bStr(obj, _bkAttachment, strings, 'slot.attachment', def: ''),
         ));
       case _bnbRegion:
+        flushSkin();
         flushPending();
         regions.add(RegionAttachment(
           name: _bStr(obj, _bkName, strings, 'region.name'),
@@ -2466,15 +2622,17 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
           height: _bF32(obj, _bkHeight, 'region.height'),
         ));
       case _bnbClippingAttachment:
+        flushSkin();
         flushPending();
         clips.add(ClippingAttachment(
           name: _bStr(obj, _bkName, strings, 'clippingAttachment.name'),
           vertices: _bClipVertices(obj),
-          untilSlot: _bStr(obj, _bkUntilSlot, strings,
-              'clippingAttachment.untilSlot',
+          untilSlot: _bStr(
+              obj, _bkUntilSlot, strings, 'clippingAttachment.untilSlot',
               def: ''),
         ));
       case _bnbMeshAttachment:
+        flushSkin();
         flushPending();
         final meshWeighted = _bBool(obj, _bkMeshWeighted, def: false);
         meshes.add(MeshAttachment(
@@ -2484,7 +2642,24 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
           uvs: _bMeshUvs(obj),
           triangles: _bMeshTriangles(obj),
         ));
+      case _bnbSkin:
+        flushPending();
+        flushSkin();
+        currentSkinName = _bStr(obj, _bkName, strings, 'skin.name');
+      case _bnbSkinEntry:
+        flushPending();
+        if (currentSkinName.isEmpty) {
+          throw const FormatException(
+              '.bnb skinEntry record without preceding skin');
+        }
+        currentSkinEntries.add(SkinEntryData(
+          slot: _bStr(obj, _bkDeformSlot, strings, 'skinEntry.slot'),
+          attachment:
+              _bStr(obj, _bkSkinAttachment, strings, 'skinEntry.attachment'),
+          target: _bStr(obj, _bkSkinTarget, strings, 'skinEntry.target'),
+        ));
       case _bnbPath:
+        flushSkin();
         flushPending();
         paths.add(PathConstraintData(
           name: _bStr(obj, _bkName, strings, 'path.name'),
@@ -2503,6 +2678,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
               : null,
         ));
       case _bnbIkConstraint:
+        flushSkin();
         flushPending();
         ikConstraints.add(IkConstraintData(
           name: _bStr(obj, _bkName, strings, 'ikConstraint.name'),
@@ -2518,6 +2694,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
               : null,
         ));
       case _bnbTransformConstraint:
+        flushSkin();
         flushPending();
         transformConstraints.add(TransformConstraintData(
           name: _bStr(obj, _bkName, strings, 'transformConstraint.name'),
@@ -2539,6 +2716,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
               : null,
         ));
       case _bnbPhysicsConstraint:
+        flushSkin();
         flushPending();
         if (!obj.props.containsKey(_bkChannels)) {
           throw const FormatException(
@@ -2576,6 +2754,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
               : null,
         ));
       case _bnbPathAttachment:
+        flushSkin();
         flushPending();
         pathAttachments.add(PathAttachment(
           name: _bStr(obj, _bkName, strings, 'pathAttachment.name'),
@@ -2590,6 +2769,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
         ));
       // --- M7 objects ---
       case _bnbParameter:
+        flushSkin();
         flushPending();
         final name = _bStr(obj, _bkName, strings, 'parameter.name');
         final min = _bF32(obj, _bkParamMin, 'parameter.min');
@@ -2606,6 +2786,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
         parameters.add(axis);
         paramsByName[name] = axis;
       case _bnbDeformer:
+        flushSkin();
         flushPending();
         pendingId = _bStr(obj, _bkDefId, strings, 'deformer.id');
         pendingParent =
@@ -2681,11 +2862,13 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
         ];
         pendingKeyforms.add(Keyform(coordinates: coordinates, values: values));
       case _bnbAnimationClip:
+        flushSkin();
         flushPending();
         flushAnimation();
         currentAnimationName =
             _bStr(obj, _bkName, strings, 'animationClip.name');
       case _bnbBoneTimeline:
+        flushSkin();
         flushPending();
         if (currentAnimationName.isEmpty)
           throw const FormatException(
@@ -2707,6 +2890,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
           'boneTimeline.timelineKeys',
         ));
       case _bnbSlotTimeline:
+        flushSkin();
         flushPending();
         if (currentAnimationName.isEmpty)
           throw const FormatException(
@@ -2729,6 +2913,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
           'slotTimeline.timelineKeys',
         ));
       case _bnbEventTimeline:
+        flushSkin();
         flushPending();
         if (currentAnimationName.isEmpty)
           throw const FormatException(
@@ -2738,10 +2923,11 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
           throw const FormatException(
               '.bnb eventTimeline.eventKeys is required');
         currentEventTimelines.add(EventTimeline(
-          keys: _bEventTimelineKeys(
-              payload, strings, 'eventTimeline.eventKeys'),
+          keys:
+              _bEventTimelineKeys(payload, strings, 'eventTimeline.eventKeys'),
         ));
       case _bnbDeformTimeline:
+        flushSkin();
         // Relies on meshAttachment objects being decoded before deform-timeline
         // objects: the encoder emits meshes (type 3001) before animation clips,
         // and the SM-only reordering above never moves a mesh after a clip, so
@@ -2751,29 +2937,39 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
           throw const FormatException(
               '.bnb deformTimeline without animationClip');
         final skin = _bStr(obj, _bkDeformSkin, strings, 'deformTimeline.skin');
-        if (skin != 'default') {
+        final resolutionData = skinResolutionData();
+        if (!resolutionData.hasSkin(skin)) {
           throw FormatException(
-              '.bnb deformTimeline.skin must be "default" in v1: $skin');
+              '.bnb deformTimeline references unknown skin: $skin');
         }
         final slot = _bStr(obj, _bkDeformSlot, strings, 'deformTimeline.slot');
-        final attachment =
-            _bStr(obj, _bkDeformAttachment, strings, 'deformTimeline.attachment');
+        final attachment = _bStr(
+            obj, _bkDeformAttachment, strings, 'deformTimeline.attachment');
+        final resolvedAttachment =
+            resolutionData.resolveSkinAttachmentTarget(skin, slot, attachment);
+        if (resolvedAttachment.isEmpty) {
+          throw FormatException(
+              '.bnb deformTimeline does not resolve through skin lookup: '
+              '$skin/$slot/$attachment');
+        }
         final vertexCount = _bRequiredVaruint(
             obj, _bkDeformVertexCount, 'deformTimeline.vertexCount');
         MeshAttachment? mesh;
         for (final m in meshes) {
-          if (m.name == attachment) {
+          if (m.name == resolvedAttachment) {
             mesh = m;
             break;
           }
         }
         if (mesh == null) {
           throw FormatException(
-              '.bnb deformTimeline.attachment names unknown mesh: $attachment');
+              '.bnb deformTimeline resolved attachment is not a mesh: '
+              '$resolvedAttachment');
         }
         if (vertexCount != mesh.vertices.length) {
           throw FormatException(
-              '.bnb deformTimeline.vertexCount does not match mesh: $attachment');
+              '.bnb deformTimeline.vertexCount does not match mesh: '
+              '$resolvedAttachment');
         }
         final payload = obj.props[_bkDeformKeys];
         if (payload == null)
@@ -2788,11 +2984,13 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
               payload, vertexCount, 'deformTimeline.deformKeys'),
         ));
       case _bnbStateMachine:
+        flushSkin();
         flushPending();
         flushAnimation();
         flushMachine();
         currentMachineName = _bStr(obj, _bkName, strings, 'stateMachine.name');
       case _bnbStateMachineInput:
+        flushSkin();
         flushPending();
         flushLayer();
         if (currentMachineName.isEmpty)
@@ -2837,6 +3035,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
                 '.bnb stateMachineInput.kind is invalid: $kindTag');
         }
       case _bnbStateMachineLayer:
+        flushSkin();
         flushPending();
         flushLayer();
         if (currentMachineName.isEmpty)
@@ -2846,6 +3045,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
             _bStr(obj, _bkName, strings, 'stateMachineLayer.name');
         currentLayerInitialIndex = _bVaruint(obj, _bkInitialStateIndex);
       case _bnbStateMachineState:
+        flushSkin();
         flushPending();
         flushTransition();
         if (currentLayerName.isEmpty)
@@ -2895,6 +3095,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
                 '.bnb stateMachineState.kind is invalid: $kindTag');
         }
       case _bnbStateMachineBlendClip:
+        flushSkin();
         flushPending();
         if (currentLayerStates.isEmpty ||
             currentLayerStates.last.kind != StateMachineStateKind.blend1d) {
@@ -2923,6 +3124,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
           ],
         ));
       case _bnbStateMachineTransition:
+        flushSkin();
         flushPending();
         flushTransition();
         if (currentLayerName.isEmpty)
@@ -2939,6 +3141,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
                 obj, _bkTransitionToStateIndex, 'stateMachineTransition.to'),
             'stateMachineTransition.to');
       case _bnbStateMachineCondition:
+        flushSkin();
         flushPending();
         if (pendingTransitionFrom.isEmpty)
           throw const FormatException(
@@ -3026,6 +3229,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
                 '.bnb stateMachineCondition.kind is invalid: $kindTag');
         }
       case _bnbStateMachineListener:
+        flushSkin();
         flushPending();
         flushLayer();
         if (currentMachineName.isEmpty)
@@ -3095,6 +3299,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
         }
     }
   }
+  flushSkin();
   flushPending();
   flushAnimation();
   flushMachine();
@@ -3113,6 +3318,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
     ikConstraints: ikConstraints,
     transformConstraints: transformConstraints,
     physicsConstraints: physicsConstraints,
+    skins: skins,
     parameters: parameters,
     deformers: deformers,
     animations: animations,
@@ -3417,10 +3623,9 @@ SkeletonData loadBonyJson(String jsonText) {
           .map((c) => _parseClippingAttachment(c as Map<String, dynamic>))
           .toList();
 
-  final meshAttachments =
-      ((root['meshAttachments'] as List<dynamic>?) ?? [])
-          .map((m) => _parseMeshAttachment(m as Map<String, dynamic>))
-          .toList();
+  final meshAttachments = ((root['meshAttachments'] as List<dynamic>?) ?? [])
+      .map((m) => _parseMeshAttachment(m as Map<String, dynamic>))
+      .toList();
 
   final ikConstraints = ((root['ikConstraints'] as List<dynamic>?) ?? [])
       .map((ik) => _parseIk(ik as Map<String, dynamic>))
@@ -3436,9 +3641,31 @@ SkeletonData loadBonyJson(String jsonText) {
           .map((pc) => _parsePhysics(pc as Map<String, dynamic>))
           .toList();
 
+  final skins = ((root['skins'] as List<dynamic>?) ?? [])
+      .asMap()
+      .entries
+      .map(
+          (entry) => _parseSkin(entry.value as Map<String, dynamic>, entry.key))
+      .toList();
+
+  final preAnimationData = SkeletonData(
+    header: header,
+    bones: bones,
+    slots: slots,
+    regions: regions,
+    paths: paths,
+    pathAttachments: pathAttachments,
+    clippingAttachments: clippingAttachments,
+    meshAttachments: meshAttachments,
+    ikConstraints: ikConstraints,
+    transformConstraints: transformConstraints,
+    physicsConstraints: physicsConstraints,
+    skins: skins,
+  );
+
   final animsRaw = root['animations'];
   final animations = animsRaw is List<dynamic>
-      ? _parseAnimations(animsRaw, meshAttachments)
+      ? _parseAnimations(animsRaw, preAnimationData)
       : const <AnimationClip>[];
 
   final paramsRaw = root['parameters'];
@@ -3477,6 +3704,7 @@ SkeletonData loadBonyJson(String jsonText) {
     ikConstraints: ikConstraints,
     transformConstraints: transformConstraints,
     physicsConstraints: physicsConstraints,
+    skins: skins,
     animations: animations,
     parameters: parameters,
     deformers: deformers,

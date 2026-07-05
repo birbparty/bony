@@ -27,10 +27,20 @@ void main() {
     // deformAttachment/deformVertexCount/deformKeys), plus the M3 event-timeline
     // milestone eventTimeline object (typeKey 2003, property key eventKeys 2005 —
     // no defaults, 1 required eventKeys; the record's only property packs the
-    // whole keyframe list per docs/event-timeline-contract.md).
-    expect(bonyTypeKeys, hasLength(30));
-    expect(bonyPropertyKeys, hasLength(106));
+    // whole keyframe list per docs/event-timeline-contract.md), plus M20 skin
+    // attachment sets (skin/skinEntry type keys, skinAttachment/skinTarget
+    // property keys, and required name/slot/attachment/target entries).
+    expect(bonyTypeKeys, hasLength(32));
+    expect(bonyTypeKeys.any((t) => t.id == 'skin' && t.key == 3003), isTrue);
+    expect(
+        bonyTypeKeys.any((t) => t.id == 'skinEntry' && t.key == 3004), isTrue);
+    expect(bonyPropertyKeys, hasLength(108));
+    expect(
+        bonyPropertyKeys.any((p) => p.id == 'skinAttachment' && p.key == 3010),
+        isTrue);
+    expect(bonyPropertyKeys.any((p) => p.id == 'skinTarget' && p.key == 3011),
+        isTrue);
     expect(bonyPropertyDefaults, hasLength(55));
-    expect(bonyRequiredProperties, hasLength(80));
+    expect(bonyRequiredProperties, hasLength(84));
   });
 }

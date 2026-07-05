@@ -580,9 +580,11 @@ Notes for readers comparing runtimes:
   `conformance/assets/bnb/m20_skin_rig.bnb`; the Nim CLI regression test
   (`runtime-nim/tests/test_m20_skin_conformance.nim`) exercises both files
   through the same script/golden path used by CI.
-- Cross-runtime status: Nim reference is authoritative for M20. Dart parity is
-  intentionally out of scope for this slice and tracked by the follow-on skin
-  port.
+- Cross-runtime status: the M20 goldens are honored by **both** the Nim
+  reference and the Dart runtime. Dart loads skin declarations from `.bony` and
+  `.bnb`, resolves active-skin draw batches with default fallback, resolves
+  deform timelines through skin lookup, and reproduces both committed goldens
+  within `1e-4` (`runtime-dart/test/m20_skin_test.dart`).
 
 ### Image goldens (Nim reference rasterizer only)
 

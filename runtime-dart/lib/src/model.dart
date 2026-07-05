@@ -306,6 +306,28 @@ class MeshAttachment {
   final List<int> triangles;
 }
 
+class SkinEntryData {
+  const SkinEntryData({
+    required this.slot,
+    required this.attachment,
+    required this.target,
+  });
+
+  final String slot;
+  final String attachment;
+  final String target;
+}
+
+class SkinData {
+  const SkinData({
+    required this.name,
+    this.entries = const [],
+  });
+
+  final String name;
+  final List<SkinEntryData> entries;
+}
+
 class SkeletonData {
   const SkeletonData({
     required this.header,
@@ -319,6 +341,7 @@ class SkeletonData {
     this.ikConstraints = const [],
     this.transformConstraints = const [],
     this.physicsConstraints = const [],
+    this.skins = const [],
     this.animations = const [],
     this.parameters = const [],
     this.deformers = const [],
@@ -337,6 +360,7 @@ class SkeletonData {
   final List<IkConstraintData> ikConstraints;
   final List<TransformConstraintData> transformConstraints;
   final List<PhysicsConstraintData> physicsConstraints;
+  final List<SkinData> skins;
   final List<AnimationClip> animations;
   final List<ParameterAxis> parameters;
   final List<DeformerRecord> deformers;
@@ -347,6 +371,48 @@ class SkeletonData {
   /// Non-serialized: excluded from any `.bony`/`.bnb` round-trip, mirroring the
   /// Nim reference seam (docs/deform-timeline-contract.md).
   final List<DeformOverride> deformOverrides;
+}
+
+extension SkinResolution on SkeletonData {
+  bool hasSkin(String skinName) {
+    if (skins.isEmpty) return skinName == 'default';
+    for (final skin in skins) {
+      if (skin.name == skinName) return true;
+    }
+    return false;
+  }
+
+  String resolveSkinAttachmentTarget(
+    String activeSkin,
+    String slotName,
+    String attachmentName,
+  ) {
+    if (attachmentName.isEmpty) return '';
+    if (skins.isEmpty) return attachmentName;
+    for (final skin in skins) {
+      if (skin.name == activeSkin) {
+        for (final entry in skin.entries) {
+          if (entry.slot == slotName && entry.attachment == attachmentName) {
+            return entry.target;
+          }
+        }
+        break;
+      }
+    }
+    if (activeSkin != 'default') {
+      for (final skin in skins) {
+        if (skin.name == 'default') {
+          for (final entry in skin.entries) {
+            if (entry.slot == slotName && entry.attachment == attachmentName) {
+              return entry.target;
+            }
+          }
+          break;
+        }
+      }
+    }
+    return '';
+  }
 }
 
 // --- M7 deformer types ---

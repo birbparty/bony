@@ -1040,9 +1040,10 @@ List<Affine2> advancePhysics(
   // worlds if a rig ever mixes physics with IK/transform/path; threading the
   // constraint-adjusted locals (as the Nim computeWorldsAndLocals does) is a
   // future slice.
-  final hasOtherRuntimeConstraints = data.paths.any((p) => p.runtimeEvaluable) ||
-      data.ikConstraints.any((c) => c.runtimeEvaluable) ||
-      data.transformConstraints.any((t) => t.runtimeEvaluable);
+  final hasOtherRuntimeConstraints =
+      data.paths.any((p) => p.runtimeEvaluable) ||
+          data.ikConstraints.any((c) => c.runtimeEvaluable) ||
+          data.transformConstraints.any((t) => t.runtimeEvaluable);
   if (hasOtherRuntimeConstraints) {
     throw UnsupportedError(
         'advancePhysics does not yet support physics constraints combined with '
@@ -1058,8 +1059,8 @@ List<Affine2> advancePhysics(
   // `order`, then source index. Mirrors buildPhysicsConstraintOrder.
   final order = List<int>.generate(data.physicsConstraints.length, (i) => i)
     ..sort((a, b) {
-      final byOrder =
-          data.physicsConstraints[a].order.compareTo(data.physicsConstraints[b].order);
+      final byOrder = data.physicsConstraints[a].order
+          .compareTo(data.physicsConstraints[b].order);
       return byOrder != 0 ? byOrder : a.compareTo(b);
     });
 
@@ -1083,7 +1084,8 @@ List<Affine2> advancePhysics(
       wind: pc.wind ?? 0.0,
       mix: pc.physicsMix ?? 1.0,
     );
-    final res = updatePhysicsConstraint(states[sourceIndex], params, inputs, dt);
+    final res =
+        updatePhysicsConstraint(states[sourceIndex], params, inputs, dt);
     for (final output in res.outputs) {
       locals[boneIndex] =
           _withPhysicsChannel(locals[boneIndex], output.channel, output.value);
@@ -1141,7 +1143,8 @@ List<DrawVertex> _skinMeshVertices(
         y += influence.weight * p.y;
       }
     } else {
-      final p = _transformPoint(worlds[boneIndex[slotBone]!], vertex.x, vertex.y);
+      final p =
+          _transformPoint(worlds[boneIndex[slotBone]!], vertex.x, vertex.y);
       x = p.x;
       y = p.y;
     }
@@ -1182,7 +1185,10 @@ List<DrawVertex> _applyDeformDeltas(
   return out;
 }
 
-List<DrawBatch> buildDrawBatches(SkeletonData data) {
+List<DrawBatch> buildDrawBatches(
+  SkeletonData data, {
+  String activeSkin = 'default',
+}) {
   final worlds = computeWorldTransforms(data);
   final boneIndex = <String, int>{};
   for (var i = 0; i < data.bones.length; i++) {
@@ -1198,20 +1204,26 @@ List<DrawBatch> buildDrawBatches(SkeletonData data) {
   // applyPose, keyed by slot name + mesh attachment (the mixer produces one
   // entry per slot/attachment).
   final deformMap = <String, List<MeshDelta>>{
-    for (final o in data.deformOverrides) '${o.slot}\x00${o.attachment}': o.deltas,
+    for (final o in data.deformOverrides)
+      '${o.slot}\x00${o.attachment}': o.deltas,
   };
 
   final baseBatches = <DrawBatch>[];
+  final resolvedSlotAttachment = <String, String>{};
   for (final slot in data.slots) {
     if (slot.attachment.isEmpty) continue;
-    final region = regionMap[slot.attachment];
+    final attachment = data.resolveSkinAttachmentTarget(
+        activeSkin, slot.name, slot.attachment);
+    resolvedSlotAttachment[slot.name] = attachment;
+    if (attachment.isEmpty) continue;
+    final region = regionMap[attachment];
     if (region == null) {
       // A slot may instead reference a mesh. Attachment names are cross-collection
       // unique (load-validated), so a non-region name resolves to at most one mesh.
       // Skin its vertices (FK for unweighted, linear-blend for weighted) and emit
       // one batch in this slot's draw-order position, with metadata mirroring the
       // region path and the Nim reference (docs/mesh-attachment-contract.md).
-      final mesh = meshMap[slot.attachment];
+      final mesh = meshMap[attachment];
       if (mesh != null) {
         final world = worlds[boneIndex[slot.bone]!];
         var meshVerts = _skinMeshVertices(worlds, boneIndex, slot.bone, mesh);
@@ -1238,7 +1250,7 @@ List<DrawBatch> buildDrawBatches(SkeletonData data) {
         baseBatches.add(DrawBatch(
           slot: slot.name,
           bone: slot.bone,
-          attachment: slot.attachment,
+          attachment: attachment,
           blendMode: 'normal',
           texturePage: '',
           clipId: '',
@@ -1256,7 +1268,7 @@ List<DrawBatch> buildDrawBatches(SkeletonData data) {
     baseBatches.add(DrawBatch(
       slot: slot.name,
       bone: slot.bone,
-      attachment: slot.attachment,
+      attachment: attachment,
       blendMode: 'normal',
       texturePage: '',
       clipId: '',
@@ -1272,7 +1284,8 @@ List<DrawBatch> buildDrawBatches(SkeletonData data) {
   }
 
   if (data.deformers.isEmpty) {
-    return _applyClipping(data, baseBatches, worlds, boneIndex);
+    return _applyClipping(
+        data, baseBatches, worlds, boneIndex, resolvedSlotAttachment);
   }
 
   // Sample each parameter at its default value.
@@ -1281,7 +1294,8 @@ List<DrawBatch> buildDrawBatches(SkeletonData data) {
       .toList();
   final efDefs = effectiveDeformers(data.deformers, samples);
   if (efDefs.isEmpty) {
-    return _applyClipping(data, baseBatches, worlds, boneIndex);
+    return _applyClipping(
+        data, baseBatches, worlds, boneIndex, resolvedSlotAttachment);
   }
 
   // Apply deformers per batch — each batch uses its own vertices as setup.
@@ -1313,7 +1327,8 @@ List<DrawBatch> buildDrawBatches(SkeletonData data) {
       indices: batch.indices,
     );
   }).toList();
-  return _applyClipping(data, remapped, worlds, boneIndex);
+  return _applyClipping(
+      data, remapped, worlds, boneIndex, resolvedSlotAttachment);
 }
 
 /// Populate `clipId` and geometrically clip covered draw batches, mirroring the
@@ -1327,6 +1342,7 @@ List<DrawBatch> _applyClipping(
   List<DrawBatch> batches,
   List<Affine2> worlds,
   Map<String, int> boneIndex,
+  Map<String, String> resolvedSlotAttachment,
 ) {
   if (data.clippingAttachments.isEmpty) return batches;
 
@@ -1347,8 +1363,9 @@ List<DrawBatch> _applyClipping(
   final result = List<DrawBatch>.from(batches);
   for (var slotIdx = 0; slotIdx < data.slots.length; slotIdx++) {
     final slot = data.slots[slotIdx];
-    if (slot.attachment.isEmpty) continue;
-    final clip = clipMap[slot.attachment];
+    final attachment = resolvedSlotAttachment[slot.name] ?? '';
+    if (attachment.isEmpty) continue;
+    final clip = clipMap[attachment];
     if (clip == null) continue;
     final ownIndex = slotIdx;
     final endIndex = clip.untilSlot.isNotEmpty
@@ -1359,7 +1376,8 @@ List<DrawBatch> _applyClipping(
     final clipWorld = worlds[boneIndex[slot.bone]!];
     final clipPolygon = <ClipPoint>[];
     for (var p = 0; p + 1 < clip.vertices.length; p += 2) {
-      final point = _transformPoint(clipWorld, clip.vertices[p], clip.vertices[p + 1]);
+      final point =
+          _transformPoint(clipWorld, clip.vertices[p], clip.vertices[p + 1]);
       clipPolygon.add(ClipPoint(quantizeF32(point.x), quantizeF32(point.y)));
     }
     for (var b = 0; b < result.length; b++) {

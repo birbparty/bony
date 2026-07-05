@@ -17,7 +17,9 @@ double _cubicBezier(double c1, double c2, double s) {
 
 double _cubicBezierDerivative(double c1, double c2, double s) {
   final inv = 1.0 - s;
-  return 3.0 * inv * inv * c1 + 6.0 * inv * s * (c2 - c1) + 3.0 * s * s * (1.0 - c2);
+  return 3.0 * inv * inv * c1 +
+      6.0 * inv * s * (c2 - c1) +
+      3.0 * s * s * (1.0 - c2);
 }
 
 double evaluateCurve(TimelineCurve curve, double t) {
@@ -50,7 +52,8 @@ double evaluateCurve(TimelineCurve curve, double t) {
       for (var iter = 0; iter < 2; iter++) {
         final deriv = _cubicBezierDerivative(curve.c1x, curve.c2x, s);
         if (deriv == 0.0 || deriv.isNaN || deriv.isInfinite) break;
-        s = _clamp01(s - (_cubicBezier(curve.c1x, curve.c2x, s) - input) / deriv);
+        s = _clamp01(
+            s - (_cubicBezier(curve.c1x, curve.c2x, s) - input) / deriv);
       }
       return _cubicBezier(curve.c1y, curve.c2y, s);
   }
@@ -85,7 +88,8 @@ double sampleBoneTimeline(BoneTimeline timeline, double time) {
 }
 
 /// Sample a vector (X+Y pair) bone timeline at [time].
-(double x, double y) sampleBoneVectorTimeline(BoneTimeline timeline, double time) {
+(double x, double y) sampleBoneVectorTimeline(
+    BoneTimeline timeline, double time) {
   final keys = timeline.vectorKeys;
   final idx = _findSpanBy(keys, (k) => k.time, time);
   final cur = keys[idx];
@@ -157,8 +161,8 @@ SequenceKeyframe sampleSlotSequence(SlotTimeline timeline, double time) {
 /// Expand a deform keyframe's sparse `offset`-anchored delta run into a dense
 /// per-vertex delta list of length [vertexCount] (unset vertices are zero).
 List<MeshDelta> _expandDeformKey(DeformKeyframe key, int vertexCount) {
-  final out = List<MeshDelta>.filled(
-      vertexCount, const MeshDelta(x: 0.0, y: 0.0));
+  final out =
+      List<MeshDelta>.filled(vertexCount, const MeshDelta(x: 0.0, y: 0.0));
   for (var i = 0; i < key.deltas.length; i++) {
     out[key.offset + i] = key.deltas[i];
   }
@@ -184,7 +188,8 @@ void validateDeformTimeline(DeformTimeline timeline) {
     throw const FormatException('deform timeline attachment must not be empty');
   }
   if (timeline.vertexCount <= 0) {
-    throw const FormatException('deform timeline vertex count must be positive');
+    throw const FormatException(
+        'deform timeline vertex count must be positive');
   }
   if (timeline.keys.isEmpty) {
     throw const FormatException(
@@ -282,7 +287,11 @@ class _MixedScalar {
 }
 
 class _MixedVector {
-  _MixedVector({required this.bone, required this.kind, required this.x, required this.y});
+  _MixedVector(
+      {required this.bone,
+      required this.kind,
+      required this.x,
+      required this.y});
   final String bone;
   final BoneTimelineKind kind;
   double x;
@@ -351,18 +360,23 @@ class MixedPose {
     this.deforms = const [],
   });
   final List<({String bone, BoneTimelineKind kind, double value})> scalars;
-  final List<({String bone, BoneTimelineKind kind, double x, double y})> vectors;
+  final List<({String bone, BoneTimelineKind kind, double x, double y})>
+      vectors;
   final List<({String slot, String attachment})> attachments;
   final List<({String bone, InheritKeyframe value})> inherits;
   final List<({String slot, SlotTimelineKind kind, ColorRgba color})> colors;
   final List<({String slot, ColorRgba2 color})> colors2;
   final List<({String slot, SequenceKeyframe value})> sequences;
-  final List<({String slot, String attachment, List<MeshDelta> deltas})> deforms;
+  final List<({String slot, String attachment, List<MeshDelta> deltas})>
+      deforms;
 }
 
-String _scalarKey(String bone, BoneTimelineKind kind) => '$bone\x00${kind.index}';
-String _vectorKey(String bone, BoneTimelineKind kind) => '$bone\x00v${kind.index}';
-String _colorKey(String slot, SlotTimelineKind kind) => '$slot\x00${kind.index}';
+String _scalarKey(String bone, BoneTimelineKind kind) =>
+    '$bone\x00${kind.index}';
+String _vectorKey(String bone, BoneTimelineKind kind) =>
+    '$bone\x00v${kind.index}';
+String _colorKey(String slot, SlotTimelineKind kind) =>
+    '$slot\x00${kind.index}';
 
 double _setupScalar(SkeletonData data, String boneName, BoneTimelineKind kind) {
   for (final bone in data.bones) {
@@ -394,7 +408,8 @@ double _setupScalar(SkeletonData data, String boneName, BoneTimelineKind kind) {
   return 0.0;
 }
 
-(double x, double y) _setupVector(SkeletonData data, String boneName, BoneTimelineKind kind) {
+(double x, double y) _setupVector(
+    SkeletonData data, String boneName, BoneTimelineKind kind) {
   for (final bone in data.bones) {
     if (bone.name == boneName) {
       return switch (kind) {
@@ -450,7 +465,8 @@ void _putVector(
   final key = _vectorKey(boneName, kind);
   if (!out.containsKey(key)) {
     final setup = _setupVector(data, boneName, kind);
-    out[key] = _MixedVector(bone: boneName, kind: kind, x: setup.$1, y: setup.$2);
+    out[key] =
+        _MixedVector(bone: boneName, kind: kind, x: setup.$1, y: setup.$2);
   }
   final entry = out[key]!;
   switch (blend) {
@@ -465,23 +481,28 @@ void _putVector(
   }
 }
 
-void _putAttachment(Map<String, _MixedAttachment> out, String slot, String attachment) {
+void _putAttachment(
+    Map<String, _MixedAttachment> out, String slot, String attachment) {
   out[slot] = _MixedAttachment(slot: slot, attachment: attachment);
 }
 
-void _putInherit(Map<String, _MixedInherit> out, String bone, InheritKeyframe value) {
+void _putInherit(
+    Map<String, _MixedInherit> out, String bone, InheritKeyframe value) {
   out[bone] = _MixedInherit(bone: bone, value: value);
 }
 
-void _putColor(Map<String, _MixedColor> out, String slot, SlotTimelineKind kind, ColorRgba color) {
-  out[_colorKey(slot, kind)] = _MixedColor(slot: slot, kind: kind, color: color);
+void _putColor(Map<String, _MixedColor> out, String slot, SlotTimelineKind kind,
+    ColorRgba color) {
+  out[_colorKey(slot, kind)] =
+      _MixedColor(slot: slot, kind: kind, color: color);
 }
 
 void _putColor2(Map<String, _MixedColor2> out, String slot, ColorRgba2 color) {
   out[slot] = _MixedColor2(slot: slot, color: color);
 }
 
-void _putSequence(Map<String, _MixedSequence> out, String slot, SequenceKeyframe value) {
+void _putSequence(
+    Map<String, _MixedSequence> out, String slot, SequenceKeyframe value) {
   out[slot] = _MixedSequence(slot: slot, value: value);
 }
 
@@ -564,9 +585,11 @@ class AnimationState {
     double mixDuration = 0.0,
     MixBlend blend = MixBlend.replace,
   }) {
-    if (mixDuration < 0.0) throw ArgumentError.value(mixDuration, 'mixDuration', 'must be >= 0');
+    if (mixDuration < 0.0)
+      throw ArgumentError.value(mixDuration, 'mixDuration', 'must be >= 0');
     final track = _ensureTrack(trackIndex);
-    final entry = TrackEntry(clip: clip, loop: loop, mixDuration: mixDuration, blend: blend);
+    final entry = TrackEntry(
+        clip: clip, loop: loop, mixDuration: mixDuration, blend: blend);
     if (track.current != null && mixDuration > 0.0) {
       track.previous = track.current;
     } else {
@@ -585,9 +608,11 @@ class AnimationState {
     MixBlend blend = MixBlend.replace,
   }) {
     if (delay < 0.0) throw ArgumentError.value(delay, 'delay', 'must be >= 0');
-    if (mixDuration < 0.0) throw ArgumentError.value(mixDuration, 'mixDuration', 'must be >= 0');
+    if (mixDuration < 0.0)
+      throw ArgumentError.value(mixDuration, 'mixDuration', 'must be >= 0');
     final track = _ensureTrack(trackIndex);
-    final entry = TrackEntry(clip: clip, loop: loop, mixDuration: mixDuration, blend: blend)
+    final entry = TrackEntry(
+        clip: clip, loop: loop, mixDuration: mixDuration, blend: blend)
       ..time = -delay;
     track.queue.add(entry);
   }
@@ -597,7 +622,8 @@ class AnimationState {
     events.clear();
     for (var ti = 0; ti < tracks.length; ti++) {
       final track = tracks[ti];
-      if (track.timeScale < 0.0) throw ArgumentError.value(track.timeScale, 'timeScale', 'must be >= 0');
+      if (track.timeScale < 0.0)
+        throw ArgumentError.value(track.timeScale, 'timeScale', 'must be >= 0');
       final cur = track.current;
       if (cur == null) continue;
 
@@ -764,39 +790,55 @@ class AnimationState {
       final mixWeight = track._currentMixWeight;
       final prev = track.previous;
       if (prev != null) {
-        _applyEntry(scalars, vectors, attachments, inherits, colors, colors2, sequences, deforms, track, prev, 1.0 - mixWeight);
+        _applyEntry(scalars, vectors, attachments, inherits, colors, colors2,
+            sequences, deforms, track, prev, 1.0 - mixWeight);
       }
-      _applyEntry(scalars, vectors, attachments, inherits, colors, colors2, sequences, deforms, track, cur, mixWeight);
+      _applyEntry(scalars, vectors, attachments, inherits, colors, colors2,
+          sequences, deforms, track, cur, mixWeight);
     }
 
-    final scalarList = scalars.values.map((e) => (bone: e.bone, kind: e.kind, value: e.value)).toList()
+    final scalarList = scalars.values
+        .map((e) => (bone: e.bone, kind: e.kind, value: e.value))
+        .toList()
       ..sort((a, b) {
         final c = a.bone.compareTo(b.bone);
         return c != 0 ? c : a.kind.index.compareTo(b.kind.index);
       });
 
-    final vectorList = vectors.values.map((e) => (bone: e.bone, kind: e.kind, x: e.x, y: e.y)).toList()
+    final vectorList = vectors.values
+        .map((e) => (bone: e.bone, kind: e.kind, x: e.x, y: e.y))
+        .toList()
       ..sort((a, b) {
         final c = a.bone.compareTo(b.bone);
         return c != 0 ? c : a.kind.index.compareTo(b.kind.index);
       });
 
-    final attachmentList = attachments.values.map((e) => (slot: e.slot, attachment: e.attachment)).toList()
+    final attachmentList = attachments.values
+        .map((e) => (slot: e.slot, attachment: e.attachment))
+        .toList()
       ..sort((a, b) => a.slot.compareTo(b.slot));
 
-    final inheritList = inherits.values.map((e) => (bone: e.bone, value: e.value)).toList()
+    final inheritList = inherits.values
+        .map((e) => (bone: e.bone, value: e.value))
+        .toList()
       ..sort((a, b) => a.bone.compareTo(b.bone));
 
-    final colorList = colors.values.map((e) => (slot: e.slot, kind: e.kind, color: e.color)).toList()
+    final colorList = colors.values
+        .map((e) => (slot: e.slot, kind: e.kind, color: e.color))
+        .toList()
       ..sort((a, b) {
         final c = a.slot.compareTo(b.slot);
         return c != 0 ? c : a.kind.index.compareTo(b.kind.index);
       });
 
-    final color2List = colors2.values.map((e) => (slot: e.slot, color: e.color)).toList()
+    final color2List = colors2.values
+        .map((e) => (slot: e.slot, color: e.color))
+        .toList()
       ..sort((a, b) => a.slot.compareTo(b.slot));
 
-    final sequenceList = sequences.values.map((e) => (slot: e.slot, value: e.value)).toList()
+    final sequenceList = sequences.values
+        .map((e) => (slot: e.slot, value: e.value))
+        .toList()
       ..sort((a, b) => a.slot.compareTo(b.slot));
 
     final deformList = deforms.values
@@ -841,13 +883,15 @@ class AnimationState {
         case BoneTimelineKind.scale:
         case BoneTimelineKind.shear:
           final (sx, sy) = sampleBoneVectorTimeline(tl, t);
-          _putVector(vectors, data, tl.bone, tl.kind, sx, sy, entry.blend, finalWeight);
+          _putVector(vectors, data, tl.bone, tl.kind, sx, sy, entry.blend,
+              finalWeight);
         case BoneTimelineKind.inherit:
           if (finalWeight >= track.mixAttachmentThreshold) {
             _putInherit(inherits, tl.bone, sampleBoneInheritTimeline(tl, t));
           }
         default:
-          _putScalar(scalars, data, tl.bone, tl.kind, sampleBoneTimeline(tl, t), entry.blend, finalWeight);
+          _putScalar(scalars, data, tl.bone, tl.kind, sampleBoneTimeline(tl, t),
+              entry.blend, finalWeight);
       }
     }
 
@@ -870,9 +914,12 @@ class AnimationState {
       // winner-take-by-track-weight, NOT weight-blended (see the "Cross-track
       // mixing" section of docs/deform-timeline-contract.md).
       for (final tl in entry.clip.deformTimelines) {
-        deforms['${tl.slot}\x00${tl.attachment}'] = _MixedDeform(
+        final resolvedAttachment =
+            data.resolveSkinAttachmentTarget(tl.skin, tl.slot, tl.attachment);
+        if (resolvedAttachment.isEmpty) continue;
+        deforms['${tl.slot}\x00$resolvedAttachment'] = _MixedDeform(
           slot: tl.slot,
-          attachment: tl.attachment,
+          attachment: resolvedAttachment,
           deltas: sampleDeformDeltas(tl, t),
         );
       }
@@ -926,6 +973,7 @@ SkeletonData applyPose(SkeletonData data, MixedPose pose) {
       ikConstraints: data.ikConstraints,
       transformConstraints: data.transformConstraints,
       physicsConstraints: data.physicsConstraints,
+      skins: data.skins,
       animations: data.animations,
       parameters: data.parameters,
       deformers: data.deformers,
@@ -957,7 +1005,8 @@ SkeletonData applyPose(SkeletonData data, MixedPose pose) {
 
   final animBones = data.bones.map((b) {
     // Vector channels override the paired scalar channels when present.
-    final translateVec = vectorLookup[_vectorKey(b.name, BoneTimelineKind.translate)];
+    final translateVec =
+        vectorLookup[_vectorKey(b.name, BoneTimelineKind.translate)];
     final scaleVec = vectorLookup[_vectorKey(b.name, BoneTimelineKind.scale)];
     final shearVec = vectorLookup[_vectorKey(b.name, BoneTimelineKind.shear)];
     final inh = inheritLookup[b.name];
@@ -1015,6 +1064,7 @@ SkeletonData applyPose(SkeletonData data, MixedPose pose) {
     // would silently lose all physics on any animated pose (bony-1c5/cz7 bug
     // class). physicsConstraints defaults to const [], so a miss compiles.
     physicsConstraints: data.physicsConstraints,
+    skins: data.skins,
     animations: data.animations,
     parameters: data.parameters,
     deformers: data.deformers,
