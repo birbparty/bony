@@ -46,6 +46,7 @@ conformance/
 | M16 | `m16_mesh_multi_deform_rig` | Multiple ordered deformers on a mesh: rotation (order 0) then a warp parented to it (order 1), exercising composition + parent-frame chaining |
 | M17 | `m17_mesh_clip_rig` | Mesh × clipping: a triangle-soup mesh inside a clip range, clipped **per-triangle** (shared interior vertex preserved; some triangles cut, some pass through) |
 | M18 | `m18_mesh_deform_anim_rig` | Animated mesh deform: a clip-owned deform timeline moves mesh vertices over time; first nonzero-time mesh golden |
+| M19 | `m19_event_rig` | Animation events: a clip-owned event timeline fires distinct value-carrying events at keyframe times, surfaced in the golden's `animationEvents` channel via incremental per-sample-window dispatch (Nim-only pending prompt 30) |
 
 The `M5 (IK)` row is a second M5 asset (structured like the standalone M9 row):
 the table is one-asset-per-row, so `m5_ik_rig` gets its own row rather than being
@@ -441,6 +442,88 @@ Notes for readers comparing runtimes:
   from both the `.bony` and the `.bnb`
   (`runtime-dart/test/m18_deform_story_test.dart`).
 
+### M19 event rig (`m19_event_rig`)
+
+`m19_event_rig` is the first conformance rig whose golden's non-vacuity rests on
+**dispatched animation events**. It proves the cross-runtime **event-timeline**
+contract (`docs/event-timeline-contract.md`): a clip-owned `eventTimeline` fires
+distinct, value-carrying events at keyframe times, dispatched through the mixer
+along the state-machine story path and surfaced in the numeric golden's
+**`animationEvents`** channel (distinct from the M8 state-machine listener
+`events` array). The milestone token `M19` only names the asset — the registry
+key band is still **M3** (events are M3; prompt 27).
+
+The rig is deliberately single-purpose: one identity `root` bone and one
+draw-order slot `panel_slot` referencing a static 50×50 region attachment
+`panel`. The geometry is incidental — a static region keeps the bones, slots, and
+draw batches trivially identical across all three samples, so the **only** signal
+that changes between goldens is the event channel. There is no mesh, deform,
+clipping, constraint, or multi-layer overlay.
+
+**The event timeline.** One animation clip `pulse` owns a single `eventTimeline`
+with three keyframes. `animationClip` derives the clip duration from the event
+timeline's last key time, so `pulse` has duration `1.0` and the `t=1.0` event
+fires:
+
+| key | `t` | `name` | `intValue` | `floatValue` | `stringValue` |
+|-----|----:|--------|-----------:|-------------:|---------------|
+| 0 | `0.5` | `hit`  | `7`  | `1.5`  | `"left"`  |
+| 1 | `0.5` | `hit2` | `11` | `-2.5` | `"right"` |
+| 2 | `1.0` | `land` | `-3` | `0.25` | `""`      |
+
+`hit` and `hit2` share `t=0.5`, exercising the **non-decreasing** (not strictly
+increasing) ordering rule events uniquely allow, and their stable dispatch order
+(`hit` before `hit2`, by authoring order). `land` carries an **empty**
+`stringValue` in a *fired* event, and a negative `intValue`. `audioPath`,
+`volume`, and `balance` stay at their reserved defaults (`""`/`1.0`/`0.0`) —
+audio fields are carried but not exercised, per the metadata-only non-goal. A
+state machine `event_story` has one layer `base` playing `pulse` (the simplest
+SM-plays-one-clip precedent, mirroring `m9_non_scalar` / `m18`).
+
+One story script drives it:
+- `m19_event_story.json` — state-machine story with samples `rest` (t=0),
+  `mid` (t=0.5), `end` (t=1.0) → goldens `m19_event_story_<sample>.json`.
+
+**Non-vacuous event dispatch (incremental per-sample windows).** Dispatch is
+delta-based and **exclusive on `fromTime`**: each sample fires only the events
+whose key time falls in its own inter-sample window `(fromTime, toTime]`, and the
+event list is **reset between samples** (not accumulated). A `t=0` sample advances
+by `0` and fires nothing. The three keyframe-aligned samples therefore read:
+
+| sample | window | `animationEvents` fired |
+|--------|--------|-------------------------|
+| `rest` (t=0)   | `[0, 0]`   | *(none — channel omitted)* |
+| `mid` (t=0.5)  | `(0, 0.5]` | `[hit, hit2]` |
+| `end` (t=1.0)  | `(0.5, 1.0]` | `[land]` |
+
+Each fired event carries its exact `name`/`intValue`/`floatValue`/`stringValue`.
+The channel is **omitted** at `rest` (empty window), fires **both** co-timed
+events at `mid` in authoring order, and fires **only** `land` at `end` — **not**
+the cumulative `[hit, hit2, land]`. A runtime that ignores event timelines emits
+no `animationEvents` and therefore **fails at `mid` and `end`**; a runtime that
+replays from absolute `t=0` each sample (rather than incrementally) would emit the
+cumulative list at `end` and also fail. The three goldens are **not**
+byte-identical to each other (distinct `animationEvents`, plus distinct
+`time`/`sample`/layer-time metadata).
+
+Notes for readers comparing runtimes:
+- The goldens are reproduced identically from both `m19_event_rig.bony` and
+  `conformance/assets/bnb/m19_event_rig.bnb` (the JSON and binary loaders agree;
+  the `.bnb` is non-empty at 271 bytes), keeping **binary event playback** in the
+  cross-runtime contract, and regenerate byte-identically on re-run.
+- `floatValue`, `volume`, and `balance` are f32-quantized on load; the values here
+  (`1.5`, `-2.5`, `0.25`) are exact in f32 so no rounding is visible.
+- The static region slot means `bones`, `slots`, and `drawBatches` are identical
+  across the three goldens — the event channel is the sole non-vacuity anchor.
+- The `event_story` machine is **single-layer**, so `trackIndex` is `0` on every
+  dispatched event.
+- Cross-runtime status: **Nim-only pending prompt 30** (Dart parity). The Dart
+  port must reproduce these goldens by replaying **incrementally** (carrying track
+  state across samples and resetting the event list per sample), not via a
+  fresh-runtime absolute-time update. For byte parity it must also **omit** the
+  `animationEvents` key entirely on an empty window (the `rest` golden has no
+  `animationEvents` key — it does not emit an empty `[]`).
+
 ### Image goldens (Nim reference rasterizer only)
 
 Image goldens (`*_play.png`) are Nim-only regression artifacts for the reference
@@ -465,6 +548,7 @@ and do not need to be reproduced by Dart or other runtimes.
 | m12_mesh_rig | pending (no PNG golden produced) |
 | m17_mesh_clip_rig | pending (no PNG golden produced) |
 | m18_mesh_deform_anim_rig | pending (no PNG golden produced) |
+| m19_event_rig | pending (no PNG golden produced) |
 
 ---
 
