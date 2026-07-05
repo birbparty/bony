@@ -13,7 +13,12 @@ import 'model.dart';
 double quantizeF32(double x) {
   final bd = ByteData(4);
   bd.setFloat32(0, x, Endian.little);
-  return bd.getFloat32(0, Endian.little).toDouble();
+  final v = bd.getFloat32(0, Endian.little).toDouble();
+  // Normalize negative zero to positive zero so every serialization path agrees
+  // with the Nim reference (docs/binary-canonicalization.md; bony-iw6b): a raw
+  // .bnb f32 encode preserves -0.0's sign bit (0x80000000) while the JSON emitter
+  // collapses it to "0", so an un-normalized -0.0 byte-diverges json<->bnb.
+  return v == 0.0 ? 0.0 : v;
 }
 
 // Binomial coefficient C(n,k).

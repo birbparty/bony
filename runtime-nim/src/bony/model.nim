@@ -329,6 +329,14 @@ proc quantizeF32*(value: float64; context = "value"): float64 =
   result = float64(float32(value))
   if classify(result) in {fcNan, fcInf, fcNegInf}:
     raise newBonyLoadError(numericOutOfRange, context & " must fit in f32")
+  # Normalize negative zero to positive zero so every serialization path agrees
+  # (docs/binary-canonicalization.md; bony-iw6b). The JSON emitter collapses -0.0
+  # to "0" (canonicalNumber) and omit-on-default treats -0.0 == 0.0, but a raw
+  # .bnb f32 encode preserves the sign bit (0x80000000), so an un-normalized
+  # -0.0 in a required numeric field byte-diverges json<->bnb. quantizeF32 is the
+  # single funnel for every f32 on both load paths, so normalizing here fixes all.
+  if result == 0.0:
+    result = 0.0
 
 
 proc meshDelta*(x, y: float64): MeshDelta =
