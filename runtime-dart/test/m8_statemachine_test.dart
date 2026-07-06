@@ -1267,6 +1267,16 @@ void main() {
           '"listeners":[REPLACE_LISTENER]}]}';
       expect(
         () => loadBonyJson(base.replaceFirst('REPLACE_LISTENER',
+            '{"name":"bad","kind":"pointerDown","layer":"base","slot":"tip_slot","targetKind":"point","target":"tip","hitRadius":1,"input":"pressed","value":true}')),
+        throwsFormatException,
+      );
+      expect(
+        () => loadBonyJson(base.replaceFirst('REPLACE_LISTENER',
+            '{"name":"bad","kind":"stateEnter","layer":"base","toState":"idle","slot":"tip_slot"}')),
+        throwsFormatException,
+      );
+      expect(
+        () => loadBonyJson(base.replaceFirst('REPLACE_LISTENER',
             '{"name":"bad","kind":"pointerDown","slot":"tip_slot","targetKind":"point","target":"tip","input":"pressed","value":true}')),
         throwsFormatException,
       );

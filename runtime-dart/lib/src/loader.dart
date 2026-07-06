@@ -3832,8 +3832,15 @@ StateMachineData _parseStateMachine(Map<String, dynamic> j) {
     final lm = l as Map<String, dynamic>;
     final lname = _required<String>(lm['name'], 'listener.name');
     final lkind = _required<String>(lm['kind'], 'listener.kind');
+    bool hasAny(Iterable<String> keys) => keys.any(lm.containsKey);
+
     switch (lkind) {
       case 'stateEnter':
+        if (hasAny(
+            ['slot', 'targetKind', 'target', 'hitRadius', 'input', 'value'])) {
+          throw const FormatException(
+              'lifecycle listener must not contain pointer fields');
+        }
         final llayer = _required<String>(lm['layer'], 'listener.layer');
         return StateMachineListener(
           name: lname,
@@ -3842,6 +3849,11 @@ StateMachineData _parseStateMachine(Map<String, dynamic> j) {
           toState: _required<String>(lm['toState'], 'listener.toState'),
         );
       case 'stateExit':
+        if (hasAny(
+            ['slot', 'targetKind', 'target', 'hitRadius', 'input', 'value'])) {
+          throw const FormatException(
+              'lifecycle listener must not contain pointer fields');
+        }
         final llayer = _required<String>(lm['layer'], 'listener.layer');
         return StateMachineListener(
           name: lname,
@@ -3850,6 +3862,11 @@ StateMachineData _parseStateMachine(Map<String, dynamic> j) {
           fromState: _required<String>(lm['fromState'], 'listener.fromState'),
         );
       case 'transition':
+        if (hasAny(
+            ['slot', 'targetKind', 'target', 'hitRadius', 'input', 'value'])) {
+          throw const FormatException(
+              'lifecycle listener must not contain pointer fields');
+        }
         final llayer = _required<String>(lm['layer'], 'listener.layer');
         return StateMachineListener(
           name: lname,
@@ -3863,6 +3880,10 @@ StateMachineData _parseStateMachine(Map<String, dynamic> j) {
       case 'pointerEnter':
       case 'pointerExit':
       case 'pointerMove':
+        if (hasAny(['layer', 'fromState', 'toState'])) {
+          throw const FormatException(
+              'pointer listener must not contain lifecycle fields');
+        }
         final targetKindRaw =
             _required<String>(lm['targetKind'], 'listener.targetKind');
         final targetKind = switch (targetKindRaw) {
