@@ -28,7 +28,7 @@ void _writeProp(List<int> out, int key, List<int> payload) {
   out.addAll(payload);
 }
 
-List<int> _str(int index) => [index];
+List<int> _str(int index) => _varuintBytes(index);
 
 List<int> _varuintBytes(int value) {
   final out = <int>[];
@@ -74,6 +74,7 @@ Uint8List _pointerListenerBnb({
     'ui',
     'input',
     helperTarget,
+    'button_hit',
   ];
   final out = <int>[
     0x42, 0x4f, 0x4e, 0x59, // BONY
@@ -112,7 +113,7 @@ Uint8List _pointerListenerBnb({
     (out) => prop(1002, _f32Bytes(0)),
   ]);
   object(1003, [
-    (out) => prop(1, _str(7)),
+    (out) => prop(1, _str(8)),
     (out) => prop(3000, _polygonBytes([-1, -1, 1, -1, 1, 1, -1, 1])),
   ]);
   object(2000, [(out) => prop(1, _str(4))]); // animation
@@ -1440,100 +1441,150 @@ void main() {
           '{"name":"bad","kind":"pointerUp","slot":"tip_slot","targetKind":"point","target":"tip","hitRadius":1,"input":"fire","value":true}');
     });
 
+    test('loads hand-built pointer helper listener BNB fixture', () {
+      final fixture = loadBonyBnb(_pointerListenerBnb(
+        inputKind: 0,
+        listenerKind: 3,
+        helperKind: 0,
+      ));
+
+      final listener = fixture.stateMachines.single.listeners.single;
+      expect(listener.kind, StateMachineListenerKind.pointerDown);
+      expect(listener.slot, 'tip_slot');
+      expect(listener.targetKind, PointerHelperTargetKind.point);
+      expect(listener.target, 'tip');
+      expect(listener.hitRadius, closeTo(1, 1e-9));
+      expect(listener.input, 'input');
+      expect(listener.boolValue, isTrue);
+      expect(listener.numberValue, isNull);
+    });
+
     test('rejects malformed pointer helper listeners from BNB', () {
-      void expectBad(Uint8List bytes) {
-        expect(() => loadBonyBnb(bytes), throwsFormatException);
+      void expectBad(Uint8List bytes, String messagePart) {
+        expect(
+          () => loadBonyBnb(bytes),
+          throwsA(isA<FormatException>()
+              .having((e) => e.message, 'message', contains(messagePart))),
+        );
       }
 
-      expectBad(_pointerListenerBnb(
-        inputKind: 0,
-        listenerKind: 3,
-        helperKind: 0,
-        listenerExtraProps: [
-          (out) => _writeProp(out, 7061, _varuintBytes(0)),
-        ],
-      ));
-      expectBad(_pointerListenerBnb(
-        inputKind: 0,
-        listenerKind: 0,
-        helperKind: 0,
-        listenerExtraProps: [
-          (out) => _writeProp(out, 7061, _varuintBytes(0)),
-          (out) => _writeProp(out, 7063, _varuintBytes(0)),
-        ],
-      ));
-      expectBad(_pointerListenerBnb(
-        inputKind: 0,
-        listenerKind: 3,
-        helperKind: 2,
-      ));
-      expectBad(_pointerListenerBnb(
-        inputKind: 0,
-        listenerKind: 3,
-        helperKind: 0,
-        slotIndex: 2,
-      ));
-      expectBad(_pointerListenerBnb(
-        inputKind: 0,
-        listenerKind: 3,
-        helperKind: 0,
-        helperTarget: 'missing',
-      ));
-      expectBad(_pointerListenerBnb(
-        inputKind: 0,
-        listenerKind: 3,
-        helperKind: 0,
-        inputIndex: 2,
-      ));
-      expectBad(_pointerListenerBnb(
-        inputKind: 0,
-        listenerKind: 3,
-        helperKind: 0,
-        includeHitRadius: false,
-      ));
-      expectBad(_pointerListenerBnb(
-        inputKind: 0,
-        listenerKind: 3,
-        helperKind: 0,
-        hitRadius: -1,
-      ));
-      expectBad(_pointerListenerBnb(
-        inputKind: 0,
-        listenerKind: 3,
-        helperKind: 1,
-        helperTarget: 'button_hit',
-      ));
-      expectBad(_pointerListenerBnb(
-        inputKind: 0,
-        listenerKind: 3,
-        helperKind: 0,
-        includeBoolValue: false,
-      ));
-      expectBad(_pointerListenerBnb(
-        inputKind: 1,
-        listenerKind: 3,
-        helperKind: 0,
-        includeBoolValue: false,
-        includeNumberValue: false,
-      ));
-      expectBad(_pointerListenerBnb(
-        inputKind: 0,
-        listenerKind: 3,
-        helperKind: 0,
-        includeNumberValue: true,
-      ));
-      expectBad(_pointerListenerBnb(
-        inputKind: 1,
-        listenerKind: 3,
-        helperKind: 0,
-        includeBoolValue: true,
-      ));
-      expectBad(_pointerListenerBnb(
-        inputKind: 2,
-        listenerKind: 3,
-        helperKind: 0,
-        includeBoolValue: true,
-      ));
+      expectBad(
+          _pointerListenerBnb(
+            inputKind: 0,
+            listenerKind: 3,
+            helperKind: 0,
+            listenerExtraProps: [
+              (out) => _writeProp(out, 7061, _varuintBytes(0)),
+            ],
+          ),
+          '.bnb pointer listener must not contain lifecycle fields');
+      expectBad(
+          _pointerListenerBnb(
+            inputKind: 0,
+            listenerKind: 0,
+            helperKind: 0,
+            listenerExtraProps: [
+              (out) => _writeProp(out, 7061, _varuintBytes(0)),
+              (out) => _writeProp(out, 7063, _varuintBytes(0)),
+            ],
+          ),
+          '.bnb lifecycle listener must not contain pointer fields');
+      expectBad(
+          _pointerListenerBnb(
+            inputKind: 0,
+            listenerKind: 3,
+            helperKind: 2,
+          ),
+          '.bnb stateMachineListener.helperKind is invalid: 2');
+      expectBad(
+          _pointerListenerBnb(
+            inputKind: 0,
+            listenerKind: 3,
+            helperKind: 0,
+            slotIndex: 2,
+          ),
+          '.bnb stateMachineListener.slot index is out of range');
+      expectBad(
+          _pointerListenerBnb(
+            inputKind: 0,
+            listenerKind: 3,
+            helperKind: 0,
+            helperTarget: 'missing',
+          ),
+          'target references unknown helper attachment: missing');
+      expectBad(
+          _pointerListenerBnb(
+            inputKind: 0,
+            listenerKind: 3,
+            helperKind: 0,
+            inputIndex: 2,
+          ),
+          '.bnb stateMachineListener.input index is out of range');
+      expectBad(
+          _pointerListenerBnb(
+            inputKind: 0,
+            listenerKind: 3,
+            helperKind: 0,
+            includeHitRadius: false,
+          ),
+          '.bnb required property missing: stateMachineListener.hitRadius');
+      expectBad(
+          _pointerListenerBnb(
+            inputKind: 0,
+            listenerKind: 3,
+            helperKind: 0,
+            hitRadius: -1,
+          ),
+          'hitRadius is required and non-negative');
+      expectBad(
+          _pointerListenerBnb(
+            inputKind: 0,
+            listenerKind: 3,
+            helperKind: 1,
+            helperTarget: 'button_hit',
+          ),
+          '.bnb pointer bounding-box listener must not contain hitRadius');
+      expectBad(
+          _pointerListenerBnb(
+            inputKind: 0,
+            listenerKind: 3,
+            helperKind: 0,
+            includeBoolValue: false,
+          ),
+          '.bnb pointer bool listener value is required');
+      expectBad(
+          _pointerListenerBnb(
+            inputKind: 1,
+            listenerKind: 3,
+            helperKind: 0,
+            includeBoolValue: false,
+            includeNumberValue: false,
+          ),
+          '.bnb required property missing: stateMachineListener.numberValue');
+      expectBad(
+          _pointerListenerBnb(
+            inputKind: 0,
+            listenerKind: 3,
+            helperKind: 0,
+            includeNumberValue: true,
+          ),
+          '.bnb pointer bool listener must not contain number value');
+      expectBad(
+          _pointerListenerBnb(
+            inputKind: 1,
+            listenerKind: 3,
+            helperKind: 0,
+            includeBoolValue: true,
+          ),
+          '.bnb pointer number listener must not contain bool value');
+      expectBad(
+          _pointerListenerBnb(
+            inputKind: 2,
+            listenerKind: 3,
+            helperKind: 0,
+            includeBoolValue: true,
+          ),
+          '.bnb pointer trigger listener must not contain values');
     });
   });
 }
