@@ -389,6 +389,260 @@ void _expectDrawBatches(
   }
 }
 
+void _expectInputSnapshotsMatch(
+  List<_InputSnapshot> actual,
+  List<_InputSnapshot> expected,
+  String label,
+) {
+  expect(actual, hasLength(expected.length), reason: '$label inputs');
+  for (var i = 0; i < expected.length; i++) {
+    final a = actual[i];
+    final e = expected[i];
+    expect(a.name, e.name, reason: '$label.inputs[$i].name');
+    expect(a.kind, e.kind, reason: '$label.inputs[$i].kind');
+    switch (a.kind) {
+      case StateMachineInputKind.bool_:
+      case StateMachineInputKind.trigger:
+        expect(a.value, e.value, reason: '$label.inputs[$i].value');
+      case StateMachineInputKind.number:
+        _expectClose(
+            a.value as double, e.value as double, '$label.inputs[$i].value');
+    }
+  }
+}
+
+void _expectPoseMatches(MixedPose actual, MixedPose expected, String label) {
+  expect(actual.scalars, hasLength(expected.scalars.length),
+      reason: '$label.scalars');
+  for (var i = 0; i < expected.scalars.length; i++) {
+    final a = actual.scalars[i];
+    final e = expected.scalars[i];
+    expect(a.bone, e.bone, reason: '$label.scalars[$i].bone');
+    expect(a.kind, e.kind, reason: '$label.scalars[$i].kind');
+    _expectClose(a.value, e.value, '$label.scalars[$i].value');
+  }
+  expect(actual.vectors, hasLength(expected.vectors.length),
+      reason: '$label.vectors');
+  for (var i = 0; i < expected.vectors.length; i++) {
+    final a = actual.vectors[i];
+    final e = expected.vectors[i];
+    expect(a.bone, e.bone, reason: '$label.vectors[$i].bone');
+    expect(a.kind, e.kind, reason: '$label.vectors[$i].kind');
+    _expectClose(a.x, e.x, '$label.vectors[$i].x');
+    _expectClose(a.y, e.y, '$label.vectors[$i].y');
+  }
+  expect(actual.attachments, hasLength(expected.attachments.length),
+      reason: '$label.attachments');
+  for (var i = 0; i < expected.attachments.length; i++) {
+    final a = actual.attachments[i];
+    final e = expected.attachments[i];
+    expect(a.slot, e.slot, reason: '$label.attachments[$i].slot');
+    expect(a.attachment, e.attachment,
+        reason: '$label.attachments[$i].attachment');
+  }
+  expect(actual.inherits, hasLength(expected.inherits.length),
+      reason: '$label.inherits');
+  for (var i = 0; i < expected.inherits.length; i++) {
+    final a = actual.inherits[i];
+    final e = expected.inherits[i];
+    expect(a.bone, e.bone, reason: '$label.inherits[$i].bone');
+    _expectClose(a.value.time, e.value.time, '$label.inherits[$i].time');
+    expect(a.value.inheritRotation, e.value.inheritRotation,
+        reason: '$label.inherits[$i].inheritRotation');
+    expect(a.value.inheritScale, e.value.inheritScale,
+        reason: '$label.inherits[$i].inheritScale');
+    expect(a.value.inheritReflection, e.value.inheritReflection,
+        reason: '$label.inherits[$i].inheritReflection');
+    expect(a.value.transformMode, e.value.transformMode,
+        reason: '$label.inherits[$i].transformMode');
+  }
+  expect(actual.colors, hasLength(expected.colors.length),
+      reason: '$label.colors');
+  for (var i = 0; i < expected.colors.length; i++) {
+    final a = actual.colors[i];
+    final e = expected.colors[i];
+    expect(a.slot, e.slot, reason: '$label.colors[$i].slot');
+    expect(a.kind, e.kind, reason: '$label.colors[$i].kind');
+    _expectClose(a.color.r, e.color.r, '$label.colors[$i].r');
+    _expectClose(a.color.g, e.color.g, '$label.colors[$i].g');
+    _expectClose(a.color.b, e.color.b, '$label.colors[$i].b');
+    _expectClose(a.color.a, e.color.a, '$label.colors[$i].a');
+  }
+  expect(actual.colors2, hasLength(expected.colors2.length),
+      reason: '$label.colors2');
+  for (var i = 0; i < expected.colors2.length; i++) {
+    final a = actual.colors2[i];
+    final e = expected.colors2[i];
+    expect(a.slot, e.slot, reason: '$label.colors2[$i].slot');
+    _expectClose(a.color.light.r, e.color.light.r, '$label.colors2[$i].r');
+    _expectClose(a.color.light.g, e.color.light.g, '$label.colors2[$i].g');
+    _expectClose(a.color.light.b, e.color.light.b, '$label.colors2[$i].b');
+    _expectClose(a.color.light.a, e.color.light.a, '$label.colors2[$i].a');
+    _expectClose(a.color.darkR, e.color.darkR, '$label.colors2[$i].darkR');
+    _expectClose(a.color.darkG, e.color.darkG, '$label.colors2[$i].darkG');
+    _expectClose(a.color.darkB, e.color.darkB, '$label.colors2[$i].darkB');
+  }
+  expect(actual.sequences, hasLength(expected.sequences.length),
+      reason: '$label.sequences');
+  for (var i = 0; i < expected.sequences.length; i++) {
+    final a = actual.sequences[i];
+    final e = expected.sequences[i];
+    expect(a.slot, e.slot, reason: '$label.sequences[$i].slot');
+    _expectClose(a.value.time, e.value.time, '$label.sequences[$i].time');
+    expect(a.value.index, e.value.index, reason: '$label.sequences[$i].index');
+    _expectClose(a.value.delay, e.value.delay, '$label.sequences[$i].delay');
+    expect(a.value.mode, e.value.mode, reason: '$label.sequences[$i].mode');
+  }
+  expect(actual.deforms, hasLength(expected.deforms.length),
+      reason: '$label.deforms');
+  for (var i = 0; i < expected.deforms.length; i++) {
+    final a = actual.deforms[i];
+    final e = expected.deforms[i];
+    expect(a.slot, e.slot, reason: '$label.deforms[$i].slot');
+    expect(a.attachment, e.attachment, reason: '$label.deforms[$i].attachment');
+    expect(a.deltas, hasLength(e.deltas.length),
+        reason: '$label.deforms[$i].deltas');
+    for (var d = 0; d < e.deltas.length; d++) {
+      _expectClose(
+          a.deltas[d].x, e.deltas[d].x, '$label.deforms[$i].deltas[$d].x');
+      _expectClose(
+          a.deltas[d].y, e.deltas[d].y, '$label.deforms[$i].deltas[$d].y');
+    }
+  }
+}
+
+void _expectLayersMatch(
+  EvaluatedStateMachine actual,
+  EvaluatedStateMachine expected,
+  String label,
+) {
+  expect(actual.layers, hasLength(expected.layers.length),
+      reason: '$label layers');
+  for (var i = 0; i < expected.layers.length; i++) {
+    final a = actual.layers[i];
+    final e = expected.layers[i];
+    expect(a.layer, e.layer, reason: '$label.layers[$i].layer');
+    expect(a.state, e.state, reason: '$label.layers[$i].state');
+    _expectClose(a.time, e.time, '$label.layers[$i].time');
+    _expectPoseMatches(a.pose, e.pose, '$label.layers[$i].pose');
+  }
+}
+
+void _expectEventsMatch(
+  List<StateMachineListenerEvent> actual,
+  List<StateMachineListenerEvent> expected,
+  String label,
+) {
+  expect(actual, hasLength(expected.length), reason: '$label events');
+  for (var i = 0; i < expected.length; i++) {
+    final a = actual[i];
+    final e = expected[i];
+    expect(a.listener, e.listener, reason: '$label.events[$i].listener');
+    expect(a.kind, e.kind, reason: '$label.events[$i].kind');
+    expect(a.layer, e.layer, reason: '$label.events[$i].layer');
+    expect(a.fromState, e.fromState, reason: '$label.events[$i].fromState');
+    expect(a.toState, e.toState, reason: '$label.events[$i].toState');
+    expect(a.slot, e.slot, reason: '$label.events[$i].slot');
+    expect(a.targetKind, e.targetKind, reason: '$label.events[$i].targetKind');
+    expect(a.target, e.target, reason: '$label.events[$i].target');
+    expect(a.input, e.input, reason: '$label.events[$i].input');
+    expect(a.inputKind, e.inputKind, reason: '$label.events[$i].inputKind');
+    expect(a.boolValue, e.boolValue, reason: '$label.events[$i].boolValue');
+    expect(a.hasBoolValue, e.hasBoolValue,
+        reason: '$label.events[$i].hasBoolValue');
+    _expectClose(a.numberValue, e.numberValue, '$label.events[$i].numberValue');
+    expect(a.hasNumberValue, e.hasNumberValue,
+        reason: '$label.events[$i].hasNumberValue');
+    expect(a.triggerValue, e.triggerValue,
+        reason: '$label.events[$i].triggerValue');
+    _expectClose(a.pointerX, e.pointerX, '$label.events[$i].pointerX');
+    _expectClose(a.pointerY, e.pointerY, '$label.events[$i].pointerY');
+    expect(a.hasPointer, e.hasPointer, reason: '$label.events[$i].hasPointer');
+  }
+}
+
+void _expectWorldsMatch(
+  List<Affine2> actual,
+  List<Affine2> expected,
+  String label,
+) {
+  expect(actual, hasLength(expected.length), reason: '$label worlds');
+  for (var i = 0; i < expected.length; i++) {
+    final e = expected[i];
+    _expectAffine(
+      actual[i],
+      {'a': e.a, 'b': e.b, 'c': e.c, 'd': e.d, 'tx': e.tx, 'ty': e.ty},
+      '$label.worlds[$i]',
+    );
+  }
+}
+
+void _expectSlotsMatch(
+    SkeletonData actual, SkeletonData expected, String label) {
+  expect(actual.slots, hasLength(expected.slots.length),
+      reason: '$label slots');
+  for (var i = 0; i < expected.slots.length; i++) {
+    final a = actual.slots[i];
+    final e = expected.slots[i];
+    expect(a.name, e.name, reason: '$label.slots[$i].name');
+    expect(a.bone, e.bone, reason: '$label.slots[$i].bone');
+    expect(a.attachment, e.attachment, reason: '$label.slots[$i].attachment');
+  }
+}
+
+void _expectBatchesMatch(
+  List<DrawBatch> actual,
+  List<DrawBatch> expected,
+  String label,
+) {
+  expect(actual, hasLength(expected.length), reason: '$label drawBatches');
+  for (var i = 0; i < expected.length; i++) {
+    final a = actual[i];
+    final e = expected[i];
+    expect(a.slot, e.slot, reason: '$label.drawBatches[$i].slot');
+    expect(a.bone, e.bone, reason: '$label.drawBatches[$i].bone');
+    expect(a.attachment, e.attachment,
+        reason: '$label.drawBatches[$i].attachment');
+    expect(a.blendMode, e.blendMode,
+        reason: '$label.drawBatches[$i].blendMode');
+    expect(a.texturePage, e.texturePage,
+        reason: '$label.drawBatches[$i].texturePage');
+    expect(a.clipId, e.clipId, reason: '$label.drawBatches[$i].clipId');
+    _expectWorldsMatch([a.world], [e.world], '$label.drawBatches[$i]');
+    expect(a.vertices, hasLength(e.vertices.length),
+        reason: '$label.drawBatches[$i].vertices');
+    for (var v = 0; v < e.vertices.length; v++) {
+      final av = a.vertices[v];
+      final ev = e.vertices[v];
+      final vLabel = '$label.drawBatches[$i].vertices[$v]';
+      _expectClose(av.x, ev.x, '$vLabel.x');
+      _expectClose(av.y, ev.y, '$vLabel.y');
+      _expectClose(av.u, ev.u, '$vLabel.u');
+      _expectClose(av.v, ev.v, '$vLabel.v');
+      _expectClose(av.r, ev.r, '$vLabel.r');
+      _expectClose(av.g, ev.g, '$vLabel.g');
+      _expectClose(av.b, ev.b, '$vLabel.b');
+      _expectClose(av.a, ev.a, '$vLabel.a');
+    }
+    expect(a.indices, e.indices, reason: '$label.drawBatches[$i].indices');
+  }
+}
+
+void _expectReplaySampleMatches(
+  _ReplaySample actual,
+  _ReplaySample expected,
+  String label,
+) {
+  expect(actual.name, expected.name, reason: '$label.name');
+  _expectClose(actual.time, expected.time, '$label.time');
+  _expectInputSnapshotsMatch(actual.inputs, expected.inputs, label);
+  _expectLayersMatch(actual.evaluated, expected.evaluated, label);
+  _expectEventsMatch(actual.events, expected.events, label);
+  _expectWorldsMatch(actual.worlds, expected.worlds, label);
+  _expectSlotsMatch(actual.posed, expected.posed, label);
+  _expectBatchesMatch(actual.batches, expected.batches, label);
+}
+
 void _expectGolden(
   SkeletonData base,
   _ReplaySample sample,
@@ -413,6 +667,15 @@ void _expectGolden(
 
 void main() {
   final samples = _loadScriptSamples();
+  SkeletonData loadM21(String loader) => loader == 'bony'
+      ? loadBonyJson(
+          File('../conformance/assets/m21_pointer_listener_rig.bony')
+              .readAsStringSync(),
+        )
+      : loadBonyBnb(
+          File('../conformance/assets/bnb/m21_pointer_listener_rig.bnb')
+              .readAsBytesSync(),
+        );
 
   for (final loader in const ['bony', 'bnb']) {
     group('M21 pointer-listener story via .$loader loader', () {
@@ -420,15 +683,7 @@ void main() {
       late Map<String, _ReplaySample> replayed;
 
       setUpAll(() {
-        base = loader == 'bony'
-            ? loadBonyJson(
-                File('../conformance/assets/m21_pointer_listener_rig.bony')
-                    .readAsStringSync(),
-              )
-            : loadBonyBnb(
-                File('../conformance/assets/bnb/m21_pointer_listener_rig.bnb')
-                    .readAsBytesSync(),
-              );
+        base = loadM21(loader);
         replayed = {
           for (final sample in _replay(base, samples)) sample.name: sample,
         };
@@ -443,16 +698,43 @@ void main() {
       test('pointer story is non-vacuous across event and input channels', () {
         expect(replayed['rest']!.events, isEmpty);
         expect(replayed['enter']!.events.map((e) => e.listener), ['box_enter']);
-        expect(replayed['down']!.events.map((e) => e.listener), [
+        final downEvents = replayed['down']!.events;
+        expect(downEvents.map((e) => e.listener), [
           'box_down',
           'idle_exit',
           'idle_to_pressed',
           'pressed_enter',
         ]);
+        expect(downEvents.first.kind, StateMachineListenerKind.pointerDown);
+        expect(downEvents.skip(1).map((e) => e.kind), [
+          StateMachineListenerKind.stateExit,
+          StateMachineListenerKind.transition_,
+          StateMachineListenerKind.stateEnter,
+        ]);
         expect(replayed['move']!.events.map((e) => e.listener), ['point_move']);
         expect(replayed['up']!.events.map((e) => e.listener), ['point_up']);
         expect(replayed['exit']!.events.map((e) => e.listener), ['box_exit']);
         expect(replayed['down']!.evaluated.layers.single.state, 'pressed');
+        final movePoint = worldPointAttachmentPose(
+          replayed['move']!.posed,
+          replayed['move']!.worlds,
+          'button_point_slot',
+          'spark_point',
+        );
+        final moveEvent = replayed['move']!.events.single;
+        expect(moveEvent.targetKind, PointerHelperTargetKind.point);
+        _expectClose(moveEvent.pointerX, movePoint.x, 'move pointerX');
+        _expectClose(moveEvent.pointerY, movePoint.y, 'move pointerY');
+        final upPoint = worldPointAttachmentPose(
+          replayed['up']!.posed,
+          replayed['up']!.worlds,
+          'button_point_slot',
+          'spark_point',
+        );
+        final upEvent = replayed['up']!.events.single;
+        expect(upEvent.targetKind, PointerHelperTargetKind.point);
+        _expectClose(upEvent.pointerX, upPoint.x, 'up pointerX');
+        _expectClose(upEvent.pointerY, upPoint.y, 'up pointerY');
         expect(
           replayed['move']!
               .inputs
@@ -467,6 +749,14 @@ void main() {
               .value,
           isTrue,
         );
+        final exitHover = replayed['exit']!
+            .inputs
+            .firstWhere((input) => input.name == 'hover');
+        expect(exitHover.value, isFalse);
+        final exitEvent = replayed['exit']!.events.single;
+        expect(exitEvent.input, 'hover');
+        expect(exitEvent.boolValue, isFalse);
+        expect(exitEvent.hasBoolValue, isTrue);
       });
 
       test('runtime trigger getter and event clear expose only runtime state',
@@ -496,4 +786,24 @@ void main() {
       });
     });
   }
+
+  test('M21 pointer-listener replay output matches between JSON and BNB', () {
+    final jsonReplay = {
+      for (final sample in _replay(loadM21('bony'), samples))
+        sample.name: sample,
+    };
+    final bnbReplay = {
+      for (final sample in _replay(loadM21('bnb'), samples))
+        sample.name: sample,
+    };
+
+    expect(bnbReplay.keys, jsonReplay.keys);
+    for (final sample in samples) {
+      _expectReplaySampleMatches(
+        bnbReplay[sample.name]!,
+        jsonReplay[sample.name]!,
+        'bnb parity ${sample.name}',
+      );
+    }
+  });
 }
