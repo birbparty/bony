@@ -9,7 +9,11 @@ import 'model.dart';
 // --- Runtime input value ---
 
 class _InputValue {
-  _InputValue({required this.name, required this.kind, this.boolValue = false, this.numberValue = 0.0});
+  _InputValue(
+      {required this.name,
+      required this.kind,
+      this.boolValue = false,
+      this.numberValue = 0.0});
   final String name;
   final StateMachineInputKind kind;
   bool boolValue;
@@ -55,12 +59,38 @@ class StateMachineListenerEvent {
     required this.layer,
     required this.fromState,
     required this.toState,
+    this.slot = '',
+    this.targetKind = PointerHelperTargetKind.point,
+    this.target = '',
+    this.input = '',
+    this.inputKind = StateMachineInputKind.bool_,
+    this.boolValue = false,
+    this.hasBoolValue = false,
+    this.numberValue = 0.0,
+    this.hasNumberValue = false,
+    this.triggerValue = false,
+    this.pointerX = 0.0,
+    this.pointerY = 0.0,
+    this.hasPointer = false,
   });
   final String listener;
   final StateMachineListenerKind kind;
   final String layer;
   final String fromState;
   final String toState;
+  final String slot;
+  final PointerHelperTargetKind targetKind;
+  final String target;
+  final String input;
+  final StateMachineInputKind inputKind;
+  final bool boolValue;
+  final bool hasBoolValue;
+  final double numberValue;
+  final bool hasNumberValue;
+  final bool triggerValue;
+  final double pointerX;
+  final double pointerY;
+  final bool hasPointer;
 }
 
 // --- Runtime ---
@@ -226,7 +256,8 @@ class StateMachineRuntime {
         break;
       }
     }
-    if (iv == null) throw FormatException('missing state machine runtime input: ${c.input}');
+    if (iv == null)
+      throw FormatException('missing state machine runtime input: ${c.input}');
     switch (c.kind) {
       case StateMachineConditionKind.boolEquals:
         return iv.boolValue == c.boolValue;
@@ -259,7 +290,8 @@ class StateMachineRuntime {
         case StateMachineListenerKind.stateExit:
           if (listener.fromState != fromState) continue;
         case StateMachineListenerKind.transition_:
-          if (listener.fromState != fromState || listener.toState != toState) continue;
+          if (listener.fromState != fromState || listener.toState != toState)
+            continue;
         case StateMachineListenerKind.pointerDown:
         case StateMachineListenerKind.pointerUp:
         case StateMachineListenerKind.pointerEnter:
@@ -281,7 +313,14 @@ class StateMachineRuntime {
     _updateAnimationEvents(data);
 
     final evalLayers = <EvaluatedStateMachineLayer>[];
-    var combined = const MixedPose(scalars: [], vectors: [], attachments: [], inherits: [], colors: [], colors2: [], sequences: []);
+    var combined = const MixedPose(
+        scalars: [],
+        vectors: [],
+        attachments: [],
+        inherits: [],
+        colors: [],
+        colors2: [],
+        sequences: []);
 
     for (final lr in _layers) {
       final state = _stateByName(lr.layer, lr.currentState);
@@ -366,14 +405,18 @@ class StateMachineRuntime {
 
   // Compute the wrapped sample time for evaluate's reported time field.
   // For blend1d: raw time. For clip: wrapped by loop/clamp then quantized.
-  double _computeSampleTime(SkeletonData data, StateMachineState state, double time) {
+  double _computeSampleTime(
+      SkeletonData data, StateMachineState state, double time) {
     if (state.kind == StateMachineStateKind.blend1d) return time;
     final clip = _findClip(data, state.clipName);
-    final wrapped = state.loop && clip.duration > 0 ? time % clip.duration : math.min(time, clip.duration);
+    final wrapped = state.loop && clip.duration > 0
+        ? time % clip.duration
+        : math.min(time, clip.duration);
     return quantizeF32(wrapped);
   }
 
-  MixedPose _sampleStatePose(SkeletonData data, StateMachineState state, double time) {
+  MixedPose _sampleStatePose(
+      SkeletonData data, StateMachineState state, double time) {
     if (state.kind == StateMachineStateKind.clip) {
       final clip = _findClip(data, state.clipName);
       return _sampleClipPose(data, clip, state.loop, time);
@@ -382,18 +425,30 @@ class StateMachineRuntime {
     }
   }
 
-  MixedPose _sampleBlendPose(SkeletonData data, StateMachineState state, double time) {
+  MixedPose _sampleBlendPose(
+      SkeletonData data, StateMachineState state, double time) {
     final input = getNumberInput(state.blendInput);
     final clips = state.blendClips;
-    if (clips.isEmpty) return const MixedPose(scalars: [], vectors: [], attachments: [], inherits: [], colors: [], colors2: [], sequences: []);
+    if (clips.isEmpty)
+      return const MixedPose(
+          scalars: [],
+          vectors: [],
+          attachments: [],
+          inherits: [],
+          colors: [],
+          colors2: [],
+          sequences: []);
     if (input <= clips.first.value) {
-      return _sampleClipPose(data, _findClip(data, clips.first.clipName), clips.first.loop, time);
+      return _sampleClipPose(
+          data, _findClip(data, clips.first.clipName), clips.first.loop, time);
     }
     for (var i = 0; i < clips.length - 1; i++) {
       final lo = clips[i];
       final hi = clips[i + 1];
       if (input <= hi.value) {
-        final t = hi.value == lo.value ? 0.0 : (input - lo.value) / (hi.value - lo.value);
+        final t = hi.value == lo.value
+            ? 0.0
+            : (input - lo.value) / (hi.value - lo.value);
         final loClip = _findClip(data, lo.clipName);
         final hiClip = _findClip(data, hi.clipName);
         final loPose = _sampleClipPose(data, loClip, lo.loop, time);
@@ -402,7 +457,8 @@ class StateMachineRuntime {
       }
     }
     final last = clips.last;
-    return _sampleClipPose(data, _findClip(data, last.clipName), last.loop, time);
+    return _sampleClipPose(
+        data, _findClip(data, last.clipName), last.loop, time);
   }
 }
 
@@ -419,22 +475,28 @@ StateMachineState _stateByName(StateMachineLayer layer, String name) {
   for (final s in layer.states) {
     if (s.name == name) return s;
   }
-  throw FormatException('state machine: unknown state: $name in layer ${layer.name}');
+  throw FormatException(
+      'state machine: unknown state: $name in layer ${layer.name}');
 }
 
-MixedPose _sampleClipPose(SkeletonData data, AnimationClip clip, bool loop, double time) {
+MixedPose _sampleClipPose(
+    SkeletonData data, AnimationClip clip, bool loop, double time) {
   final anim = AnimationState(data);
   anim.setAnimation(0, clip, loop: loop);
-  final wrapped = loop && clip.duration > 0 ? time % clip.duration : math.min(time, clip.duration);
+  final wrapped = loop && clip.duration > 0
+      ? time % clip.duration
+      : math.min(time, clip.duration);
   anim.tracks[0].current!.time = quantizeF32(wrapped);
   return anim.sample();
 }
 
-String _scalarKey(String bone, BoneTimelineKind kind) => '$bone\x00${kind.index}';
+String _scalarKey(String bone, BoneTimelineKind kind) =>
+    '$bone\x00${kind.index}';
 
 // Overlay: later layer's value wins per channel key.
 MixedPose _overlayPose(MixedPose base, MixedPose overlay) {
-  final scalarMap = <String, ({String bone, BoneTimelineKind kind, double value})>{};
+  final scalarMap =
+      <String, ({String bone, BoneTimelineKind kind, double value})>{};
   for (final s in base.scalars) scalarMap[_scalarKey(s.bone, s.kind)] = s;
   for (final s in overlay.scalars) scalarMap[_scalarKey(s.bone, s.kind)] = s;
   final scalars = scalarMap.values.toList()
@@ -443,7 +505,8 @@ MixedPose _overlayPose(MixedPose base, MixedPose overlay) {
       return c != 0 ? c : a.kind.index.compareTo(b.kind.index);
     });
 
-  final vecMap = <String, ({String bone, BoneTimelineKind kind, double x, double y})>{};
+  final vecMap =
+      <String, ({String bone, BoneTimelineKind kind, double x, double y})>{};
   for (final v in base.vectors) vecMap['${v.bone}\x00${v.kind.index}'] = v;
   for (final v in overlay.vectors) vecMap['${v.bone}\x00${v.kind.index}'] = v;
   final vectors = vecMap.values.toList()
@@ -455,14 +518,17 @@ MixedPose _overlayPose(MixedPose base, MixedPose overlay) {
   final attMap = <String, ({String slot, String attachment})>{};
   for (final a in base.attachments) attMap[a.slot] = a;
   for (final a in overlay.attachments) attMap[a.slot] = a;
-  final attachments = attMap.values.toList()..sort((a, b) => a.slot.compareTo(b.slot));
+  final attachments = attMap.values.toList()
+    ..sort((a, b) => a.slot.compareTo(b.slot));
 
   final inhMap = <String, ({String bone, InheritKeyframe value})>{};
   for (final ih in base.inherits) inhMap[ih.bone] = ih;
   for (final ih in overlay.inherits) inhMap[ih.bone] = ih;
-  final inherits = inhMap.values.toList()..sort((a, b) => a.bone.compareTo(b.bone));
+  final inherits = inhMap.values.toList()
+    ..sort((a, b) => a.bone.compareTo(b.bone));
 
-  final colMap = <String, ({String slot, SlotTimelineKind kind, ColorRgba color})>{};
+  final colMap =
+      <String, ({String slot, SlotTimelineKind kind, ColorRgba color})>{};
   for (final c in base.colors) colMap['${c.slot}\x00${c.kind.index}'] = c;
   for (final c in overlay.colors) colMap['${c.slot}\x00${c.kind.index}'] = c;
   final colors = colMap.values.toList()
@@ -474,12 +540,14 @@ MixedPose _overlayPose(MixedPose base, MixedPose overlay) {
   final col2Map = <String, ({String slot, ColorRgba2 color})>{};
   for (final c in base.colors2) col2Map[c.slot] = c;
   for (final c in overlay.colors2) col2Map[c.slot] = c;
-  final colors2 = col2Map.values.toList()..sort((a, b) => a.slot.compareTo(b.slot));
+  final colors2 = col2Map.values.toList()
+    ..sort((a, b) => a.slot.compareTo(b.slot));
 
   final seqMap = <String, ({String slot, SequenceKeyframe value})>{};
   for (final s in base.sequences) seqMap[s.slot] = s;
   for (final s in overlay.sequences) seqMap[s.slot] = s;
-  final sequences = seqMap.values.toList()..sort((a, b) => a.slot.compareTo(b.slot));
+  final sequences = seqMap.values.toList()
+    ..sort((a, b) => a.slot.compareTo(b.slot));
 
   // Carry the deform channel through the overlay (later layer wins per
   // slot+attachment key), mirroring the sibling discrete channels. Omitting it
@@ -487,7 +555,8 @@ MixedPose _overlayPose(MixedPose base, MixedPose overlay) {
   final deformMap =
       <String, ({String slot, String attachment, List<MeshDelta> deltas})>{};
   for (final d in base.deforms) deformMap['${d.slot}\x00${d.attachment}'] = d;
-  for (final d in overlay.deforms) deformMap['${d.slot}\x00${d.attachment}'] = d;
+  for (final d in overlay.deforms)
+    deformMap['${d.slot}\x00${d.attachment}'] = d;
   final deforms = deformMap.values.toList()
     ..sort((a, b) {
       final c = a.slot.compareTo(b.slot);
@@ -512,10 +581,16 @@ MixedPose _overlayPose(MixedPose base, MixedPose overlay) {
 MixedPose _blendPoses(SkeletonData data, MixedPose lo, MixedPose hi, double t) {
   // --- Scalars ---
   final scalarChannels = <String, ({String bone, BoneTimelineKind kind})>{};
-  for (final s in lo.scalars) scalarChannels[_scalarKey(s.bone, s.kind)] = (bone: s.bone, kind: s.kind);
-  for (final s in hi.scalars) scalarChannels[_scalarKey(s.bone, s.kind)] = (bone: s.bone, kind: s.kind);
-  final loScalar = {for (final s in lo.scalars) _scalarKey(s.bone, s.kind): s.value};
-  final hiScalar = {for (final s in hi.scalars) _scalarKey(s.bone, s.kind): s.value};
+  for (final s in lo.scalars)
+    scalarChannels[_scalarKey(s.bone, s.kind)] = (bone: s.bone, kind: s.kind);
+  for (final s in hi.scalars)
+    scalarChannels[_scalarKey(s.bone, s.kind)] = (bone: s.bone, kind: s.kind);
+  final loScalar = {
+    for (final s in lo.scalars) _scalarKey(s.bone, s.kind): s.value
+  };
+  final hiScalar = {
+    for (final s in hi.scalars) _scalarKey(s.bone, s.kind): s.value
+  };
 
   double setupScalar(String bone, BoneTimelineKind kind) {
     for (final b in data.bones) {
@@ -550,10 +625,16 @@ MixedPose _blendPoses(SkeletonData data, MixedPose lo, MixedPose hi, double t) {
 
   // --- Vectors ---
   final vecChannels = <String, ({String bone, BoneTimelineKind kind})>{};
-  for (final v in lo.vectors) vecChannels['${v.bone}\x00${v.kind.index}'] = (bone: v.bone, kind: v.kind);
-  for (final v in hi.vectors) vecChannels['${v.bone}\x00${v.kind.index}'] = (bone: v.bone, kind: v.kind);
-  final loVec = {for (final v in lo.vectors) '${v.bone}\x00${v.kind.index}': (x: v.x, y: v.y)};
-  final hiVec = {for (final v in hi.vectors) '${v.bone}\x00${v.kind.index}': (x: v.x, y: v.y)};
+  for (final v in lo.vectors)
+    vecChannels['${v.bone}\x00${v.kind.index}'] = (bone: v.bone, kind: v.kind);
+  for (final v in hi.vectors)
+    vecChannels['${v.bone}\x00${v.kind.index}'] = (bone: v.bone, kind: v.kind);
+  final loVec = {
+    for (final v in lo.vectors) '${v.bone}\x00${v.kind.index}': (x: v.x, y: v.y)
+  };
+  final hiVec = {
+    for (final v in hi.vectors) '${v.bone}\x00${v.kind.index}': (x: v.x, y: v.y)
+  };
 
   (double, double) setupVector(String bone, BoneTimelineKind kind) {
     for (final b in data.bones) {
@@ -568,14 +649,20 @@ MixedPose _blendPoses(SkeletonData data, MixedPose lo, MixedPose hi, double t) {
     return (0.0, 0.0);
   }
 
-  final vectors = <({String bone, BoneTimelineKind kind, double x, double y})>[];
+  final vectors =
+      <({String bone, BoneTimelineKind kind, double x, double y})>[];
   for (final entry in vecChannels.entries) {
     final key = entry.key;
     final ch = entry.value;
     final setup = setupVector(ch.bone, ch.kind);
     final loV = loVec[key] ?? (x: setup.$1, y: setup.$2);
     final hiV = hiVec[key] ?? (x: setup.$1, y: setup.$2);
-    vectors.add((bone: ch.bone, kind: ch.kind, x: loV.x + (hiV.x - loV.x) * t, y: loV.y + (hiV.y - loV.y) * t));
+    vectors.add((
+      bone: ch.bone,
+      kind: ch.kind,
+      x: loV.x + (hiV.x - loV.x) * t,
+      y: loV.y + (hiV.y - loV.y) * t
+    ));
   }
   vectors.sort((a, b) {
     final c = a.bone.compareTo(b.bone);
@@ -606,10 +693,16 @@ MixedPose _blendPoses(SkeletonData data, MixedPose lo, MixedPose hi, double t) {
 
   // --- Colors: per-channel lerp ---
   final colChannels = <String, ({String slot, SlotTimelineKind kind})>{};
-  for (final c in lo.colors) colChannels['${c.slot}\x00${c.kind.index}'] = (slot: c.slot, kind: c.kind);
-  for (final c in hi.colors) colChannels['${c.slot}\x00${c.kind.index}'] = (slot: c.slot, kind: c.kind);
-  final loCol = {for (final c in lo.colors) '${c.slot}\x00${c.kind.index}': c.color};
-  final hiCol = {for (final c in hi.colors) '${c.slot}\x00${c.kind.index}': c.color};
+  for (final c in lo.colors)
+    colChannels['${c.slot}\x00${c.kind.index}'] = (slot: c.slot, kind: c.kind);
+  for (final c in hi.colors)
+    colChannels['${c.slot}\x00${c.kind.index}'] = (slot: c.slot, kind: c.kind);
+  final loCol = {
+    for (final c in lo.colors) '${c.slot}\x00${c.kind.index}': c.color
+  };
+  final hiCol = {
+    for (final c in hi.colors) '${c.slot}\x00${c.kind.index}': c.color
+  };
 
   ColorRgba lerpColor(ColorRgba a, ColorRgba b, double f) => ColorRgba(
         r: a.r + (b.r - a.r) * f,
@@ -677,16 +770,19 @@ MixedPose _blendPoses(SkeletonData data, MixedPose lo, MixedPose hi, double t) {
 
 StateMachineRuntime initStateMachineRuntime(StateMachineData data) {
   final layers = data.layers.map((l) {
-    final initial = l.initialState.isNotEmpty ? l.initialState : l.states.first.name;
+    final initial =
+        l.initialState.isNotEmpty ? l.initialState : l.states.first.name;
     return _LayerRuntime(layer: l, currentState: initial);
   }).toList();
 
   final inputs = data.inputs.map((inp) {
     switch (inp.kind) {
       case StateMachineInputKind.bool_:
-        return _InputValue(name: inp.name, kind: inp.kind, boolValue: inp.defaultBool);
+        return _InputValue(
+            name: inp.name, kind: inp.kind, boolValue: inp.defaultBool);
       case StateMachineInputKind.number:
-        return _InputValue(name: inp.name, kind: inp.kind, numberValue: inp.defaultNumber);
+        return _InputValue(
+            name: inp.name, kind: inp.kind, numberValue: inp.defaultNumber);
       case StateMachineInputKind.trigger:
         return _InputValue(name: inp.name, kind: inp.kind);
     }

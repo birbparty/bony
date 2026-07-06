@@ -297,6 +297,115 @@ void main() {
       expect(enter.toState, 'move');
     });
 
+    test('lifecycle event constructor keeps pointer fields defaulted', () {
+      const event = StateMachineListenerEvent(
+        listener: 'move_enter',
+        kind: StateMachineListenerKind.stateEnter,
+        layer: 'body',
+        fromState: 'idle',
+        toState: 'move',
+      );
+
+      expect(event.listener, 'move_enter');
+      expect(event.kind, StateMachineListenerKind.stateEnter);
+      expect(event.layer, 'body');
+      expect(event.fromState, 'idle');
+      expect(event.toState, 'move');
+      expect(event.slot, '');
+      expect(event.targetKind, PointerHelperTargetKind.point);
+      expect(event.target, '');
+      expect(event.input, '');
+      expect(event.inputKind, StateMachineInputKind.bool_);
+      expect(event.boolValue, isFalse);
+      expect(event.hasBoolValue, isFalse);
+      expect(event.numberValue, 0.0);
+      expect(event.hasNumberValue, isFalse);
+      expect(event.triggerValue, isFalse);
+      expect(event.pointerX, 0.0);
+      expect(event.pointerY, 0.0);
+      expect(event.hasPointer, isFalse);
+    });
+
+    test(
+        'pointer listener events can represent bool, number, and trigger payloads',
+        () {
+      const boolEvent = StateMachineListenerEvent(
+        listener: 'box_down',
+        kind: StateMachineListenerKind.pointerDown,
+        layer: '',
+        fromState: '',
+        toState: '',
+        slot: 'button_box_slot',
+        targetKind: PointerHelperTargetKind.boundingBox,
+        target: 'button_hit',
+        input: 'pressed',
+        inputKind: StateMachineInputKind.bool_,
+        boolValue: true,
+        hasBoolValue: true,
+        pointerX: 12.5,
+        pointerY: -3.25,
+        hasPointer: true,
+      );
+      expect(boolEvent.layer, '');
+      expect(boolEvent.slot, 'button_box_slot');
+      expect(boolEvent.targetKind, PointerHelperTargetKind.boundingBox);
+      expect(boolEvent.target, 'button_hit');
+      expect(boolEvent.input, 'pressed');
+      expect(boolEvent.inputKind, StateMachineInputKind.bool_);
+      expect(boolEvent.boolValue, isTrue);
+      expect(boolEvent.hasBoolValue, isTrue);
+      expect(boolEvent.hasNumberValue, isFalse);
+      expect(boolEvent.triggerValue, isFalse);
+      expect(boolEvent.pointerX, 12.5);
+      expect(boolEvent.pointerY, -3.25);
+      expect(boolEvent.hasPointer, isTrue);
+
+      const numberEvent = StateMachineListenerEvent(
+        listener: 'point_move',
+        kind: StateMachineListenerKind.pointerMove,
+        layer: '',
+        fromState: '',
+        toState: '',
+        slot: 'button_point_slot',
+        targetKind: PointerHelperTargetKind.point,
+        target: 'spark_point',
+        input: 'intensity',
+        inputKind: StateMachineInputKind.number,
+        numberValue: 4.5,
+        hasNumberValue: true,
+        pointerX: 3,
+        pointerY: 4,
+        hasPointer: true,
+      );
+      expect(numberEvent.inputKind, StateMachineInputKind.number);
+      expect(numberEvent.hasBoolValue, isFalse);
+      expect(numberEvent.numberValue, 4.5);
+      expect(numberEvent.hasNumberValue, isTrue);
+      expect(numberEvent.hasPointer, isTrue);
+
+      const triggerEvent = StateMachineListenerEvent(
+        listener: 'point_up',
+        kind: StateMachineListenerKind.pointerUp,
+        layer: '',
+        fromState: '',
+        toState: '',
+        slot: 'button_point_slot',
+        targetKind: PointerHelperTargetKind.point,
+        target: 'spark_point',
+        input: 'pulse',
+        inputKind: StateMachineInputKind.trigger,
+        triggerValue: true,
+        pointerX: 3,
+        pointerY: 4,
+        hasPointer: true,
+      );
+      expect(triggerEvent.inputKind, StateMachineInputKind.trigger);
+      expect(triggerEvent.hasBoolValue, isFalse);
+      expect(triggerEvent.hasNumberValue, isFalse);
+      expect(triggerEvent.triggerValue, isTrue);
+      expect(triggerEvent.hasPointer, isTrue);
+    });
+
     test('events cleared on next update', () {
       final rt = initStateMachineRuntime(sm);
       rt.setBoolInput('wave', true);
