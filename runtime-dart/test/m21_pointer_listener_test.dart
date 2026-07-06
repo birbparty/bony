@@ -516,6 +516,7 @@ void _expectLayersMatch(
   EvaluatedStateMachine expected,
   String label,
 ) {
+  _expectPoseMatches(actual.pose, expected.pose, '$label.pose');
   expect(actual.layers, hasLength(expected.layers.length),
       reason: '$label layers');
   for (var i = 0; i < expected.layers.length; i++) {
