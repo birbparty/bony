@@ -4,8 +4,7 @@ Status: binding. Owner bead: `bony-g65e`.
 
 This contract defines project-owned state-machine pointer listener records that
 target non-rendered helper attachments. It covers serialized JSON and `.bnb`
-shape, loader validation, and the dispatch order the later runtime slice must
-honor. It does not implement pointer hit testing or runtime event dispatch.
+shape, loader validation, helper hit semantics, and runtime dispatch order.
 
 ## Listener Kinds
 
@@ -19,8 +18,8 @@ Lifecycle listener behavior is unchanged. Lifecycle listeners use `layer`,
 `fromState`, and/or `toState` exactly as defined by the M8 state-machine
 contracts.
 
-Pointer listeners mutate or fire one input in their owning state machine when a
-future runtime pointer dispatcher reports a hit on their target helper.
+Pointer listeners mutate or fire one input in their owning state machine when
+the runtime pointer dispatcher reports a hit on their target helper.
 
 ## JSON Shape
 
@@ -107,15 +106,23 @@ writers may omit zero-valued indices or values, but loaders validate raw
 presence from the record according to listener kind, input kind, and target
 kind.
 
-## Dispatch Order
+## Event Channel And Dispatch Order
 
-The later runtime slice must dispatch pointer listeners in the order they appear
-in the owning state machine's normalized `listeners` array, after resolving the
-active skin for the current slot attachment. This order is independent from
-lifecycle transition event emission.
+Runtime dispatch visits pointer listeners in the order they appear in the owning
+state machine's normalized `listeners` array, after resolving the active skin for
+the current slot attachment.
+
+Matching pointer listeners append state-machine listener events to the existing
+`events` channel. Pointer events carry the listener name/kind, slot, target kind
+and target name, mutated input/value payload, and pointer world coordinates.
+
+When a host dispatches pointer listeners before advancing the state machine for
+the same sample and preserves the event queue through that update, pointer events
+remain before any lifecycle events produced by transition evaluation. Lifecycle
+event order remains `stateExit`, `transition`, then `stateEnter`.
 
 ## Non-Goals
 
-This slice does not define pointer input scripts, runtime hit-test APIs, event
-queue shape, renderer-visible helper batches, conformance goldens, Rive or Spine
-importer behavior, or any pointer dispatch implementation.
+This contract does not define pointer input-script file shape, renderer-visible
+helper batches, conformance golden layout, Rive or Spine importer behavior, or
+host UI event plumbing.

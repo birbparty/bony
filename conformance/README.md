@@ -627,9 +627,14 @@ Notes for readers comparing runtimes:
   `events` channel. They are not `animationEvents`; pointer records include
   listener name/kind, slot, target kind/name, mutated input/value, and pointer
   world coordinates.
-- Cross-runtime status: this slice defines and tests the **Nim reference**
-  dispatch path only. Dart runtime parity is intentionally out of scope for M21
-  step 2 and is tracked as the next milestone slice.
+- Cross-runtime status: the `m21_pointer_listener_*` story goldens are honored
+  by **both** the Nim reference and the Dart runtime. Dart replays the story from
+  both `m21_pointer_listener_rig.bony` and
+  `conformance/assets/bnb/m21_pointer_listener_rig.bnb`, dispatching pointer
+  listeners against current helper geometry, preserving same-sample pointer
+  events before lifecycle transition events, and matching inputs, listener
+  payloads, world transforms, slot metadata, and draw batches within `1e-4`
+  (`runtime-dart/test/m21_pointer_listener_test.dart`).
 
 ### Image goldens (Nim reference rasterizer only)
 
