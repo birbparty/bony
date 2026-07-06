@@ -267,6 +267,31 @@ void main() {
       expect(names, containsAll(['idle_exit', 'idle_to_move', 'move_enter']));
     });
 
+    test('lifecycle event payload fields remain compatible', () {
+      final rt = initStateMachineRuntime(sm);
+      rt.setBoolInput('wave', true);
+      rt.update(0.0);
+      final byName = {for (final event in rt.events) event.listener: event};
+
+      final exit = byName['idle_exit']!;
+      expect(exit.kind, StateMachineListenerKind.stateExit);
+      expect(exit.layer, 'body');
+      expect(exit.fromState, 'idle');
+      expect(exit.toState, 'move');
+
+      final transition = byName['idle_to_move']!;
+      expect(transition.kind, StateMachineListenerKind.transition_);
+      expect(transition.layer, 'body');
+      expect(transition.fromState, 'idle');
+      expect(transition.toState, 'move');
+
+      final enter = byName['move_enter']!;
+      expect(enter.kind, StateMachineListenerKind.stateEnter);
+      expect(enter.layer, 'body');
+      expect(enter.fromState, 'idle');
+      expect(enter.toState, 'move');
+    });
+
     test('events cleared on next update', () {
       final rt = initStateMachineRuntime(sm);
       rt.setBoolInput('wave', true);
@@ -413,9 +438,11 @@ void main() {
       expect(eval.pose.scalars[0].bone, 'a');
       expect(eval.pose.scalars[1].bone, 'b');
       // a: low=40, high falls back to setup rotation 10 -> 40 + (10-40)*0.5 = 25.
-      expect((eval.pose.scalars[0].value - 25.0).abs(), lessThanOrEqualTo(1e-4));
+      expect(
+          (eval.pose.scalars[0].value - 25.0).abs(), lessThanOrEqualTo(1e-4));
       // b: low falls back to setup rotation 20, high=80 -> 20 + (80-20)*0.5 = 50.
-      expect((eval.pose.scalars[1].value - 50.0).abs(), lessThanOrEqualTo(1e-4));
+      expect(
+          (eval.pose.scalars[1].value - 50.0).abs(), lessThanOrEqualTo(1e-4));
       expect(eval.pose.vectors, hasLength(2));
       expect(eval.pose.vectors[0].bone, 'a');
       expect(eval.pose.vectors[1].bone, 'b');
@@ -661,11 +688,85 @@ void main() {
       expect(machine.listeners[0].kind, StateMachineListenerKind.pointerDown);
       expect(machine.listeners[0].targetKind, PointerHelperTargetKind.point);
       expect(machine.listeners[0].boolValue, isFalse);
-      expect(machine.listeners[1].targetKind,
-          PointerHelperTargetKind.boundingBox);
+      expect(
+          machine.listeners[1].targetKind, PointerHelperTargetKind.boundingBox);
       expect(machine.listeners[1].numberValue, closeTo(0.25, 1e-9));
       expect(machine.listeners[2].boolValue, isNull);
       expect(machine.listeners[2].numberValue, isNull);
+    });
+
+    test('loads committed M21 pointer helper listeners from JSON and BNB', () {
+      final fromJson = loadBonyJson(
+        File('../conformance/assets/m21_pointer_listener_rig.bony')
+            .readAsStringSync(),
+      );
+      final fromBnb = loadBonyBnb(
+        File('../conformance/assets/bnb/m21_pointer_listener_rig.bnb')
+            .readAsBytesSync(),
+      );
+      final jsonMachine = fromJson.stateMachines.single;
+      final bnbMachine = fromBnb.stateMachines.single;
+      expect(_listenerSurface(bnbMachine), _listenerSurface(jsonMachine));
+
+      final byName = {
+        for (final listener in jsonMachine.listeners) listener.name: listener,
+      };
+      expect(byName.keys, [
+        'box_enter',
+        'box_down',
+        'point_move',
+        'point_up',
+        'box_exit',
+        'idle_exit',
+        'idle_to_pressed',
+        'pressed_enter',
+      ]);
+
+      final boxEnter = byName['box_enter']!;
+      expect(boxEnter.kind, StateMachineListenerKind.pointerEnter);
+      expect(boxEnter.slot, 'button_box_slot');
+      expect(boxEnter.targetKind, PointerHelperTargetKind.boundingBox);
+      expect(boxEnter.target, 'button_hit');
+      expect(boxEnter.hitRadius, isNull);
+      expect(boxEnter.input, 'hover');
+      expect(boxEnter.boolValue, isTrue);
+      expect(boxEnter.numberValue, isNull);
+
+      final boxDown = byName['box_down']!;
+      expect(boxDown.kind, StateMachineListenerKind.pointerDown);
+      expect(boxDown.slot, 'button_box_slot');
+      expect(boxDown.targetKind, PointerHelperTargetKind.boundingBox);
+      expect(boxDown.target, 'button_hit');
+      expect(boxDown.input, 'pressed');
+      expect(boxDown.boolValue, isTrue);
+
+      final pointMove = byName['point_move']!;
+      expect(pointMove.kind, StateMachineListenerKind.pointerMove);
+      expect(pointMove.slot, 'button_point_slot');
+      expect(pointMove.targetKind, PointerHelperTargetKind.point);
+      expect(pointMove.target, 'spark_point');
+      expect(pointMove.hitRadius, closeTo(3, 1e-9));
+      expect(pointMove.input, 'intensity');
+      expect(pointMove.boolValue, isNull);
+      expect(pointMove.numberValue, closeTo(4.5, 1e-9));
+
+      final pointUp = byName['point_up']!;
+      expect(pointUp.kind, StateMachineListenerKind.pointerUp);
+      expect(pointUp.slot, 'button_point_slot');
+      expect(pointUp.targetKind, PointerHelperTargetKind.point);
+      expect(pointUp.target, 'spark_point');
+      expect(pointUp.hitRadius, closeTo(3, 1e-9));
+      expect(pointUp.input, 'pulse');
+      expect(pointUp.boolValue, isNull);
+      expect(pointUp.numberValue, isNull);
+
+      final boxExit = byName['box_exit']!;
+      expect(boxExit.kind, StateMachineListenerKind.pointerExit);
+      expect(boxExit.slot, 'button_box_slot');
+      expect(boxExit.targetKind, PointerHelperTargetKind.boundingBox);
+      expect(boxExit.target, 'button_hit');
+      expect(boxExit.input, 'hover');
+      expect(boxExit.boolValue, isFalse);
     });
 
     test('rejects malformed pointer helper listeners', () {

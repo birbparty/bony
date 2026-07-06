@@ -1516,7 +1516,8 @@ void _validate(SkeletonData data) {
               lst.hitRadius != null ||
               lst.boolValue != null ||
               lst.numberValue != null) {
-            throw FormatException('$lstCtx lifecycle listener has pointer fields');
+            throw FormatException(
+                '$lstCtx lifecycle listener has pointer fields');
           }
         case StateMachineListenerKind.pointerDown:
         case StateMachineListenerKind.pointerUp:
@@ -1526,7 +1527,8 @@ void _validate(SkeletonData data) {
           if (lst.layer.isNotEmpty ||
               lst.fromState.isNotEmpty ||
               lst.toState.isNotEmpty) {
-            throw FormatException('$lstCtx pointer listener has lifecycle fields');
+            throw FormatException(
+                '$lstCtx pointer listener has lifecycle fields');
           }
           final slotIndex = data.slots.indexWhere((s) => s.name == lst.slot);
           if (slotIndex < 0) {
@@ -1602,7 +1604,7 @@ void _validate(SkeletonData data) {
                     '$lstCtx.hitRadius is invalid for boundingBox pointer listeners');
               }
           }
-        }
+      }
     }
   }
 }
@@ -3434,17 +3436,21 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
               '.bnb stateMachineListener without stateMachine');
         final listenerName =
             _bStr(obj, _bkName, strings, 'stateMachineListener.name');
-        final layerIndex = _bRequiredVaruint(
-            obj, _bkListenerLayerIndex, 'stateMachineListener.layer');
-        if (layerIndex < 0 || layerIndex >= machineLayers.length) {
-          throw const FormatException(
-              '.bnb stateMachineListener.layer index is out of range');
-        }
-        final layer = machineLayers[layerIndex];
         final kindTag = _bRequiredVaruint(
             obj, _bkStateMachineListenerKind, 'stateMachineListener.kind');
+        StateMachineLayer listenerLayer() {
+          final layerIndex = _bRequiredVaruint(
+              obj, _bkListenerLayerIndex, 'stateMachineListener.layer');
+          if (layerIndex < 0 || layerIndex >= machineLayers.length) {
+            throw const FormatException(
+                '.bnb stateMachineListener.layer index is out of range');
+          }
+          return machineLayers[layerIndex];
+        }
+
         switch (kindTag) {
           case 0:
+            final layer = listenerLayer();
             if (obj.props.containsKey(_bkListenerFromStateIndex)) {
               throw const FormatException(
                   '.bnb enter listener must not contain from state');
@@ -3460,6 +3466,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
                   'stateMachineListener.to'),
             ));
           case 1:
+            final layer = listenerLayer();
             if (obj.props.containsKey(_bkListenerToStateIndex)) {
               throw const FormatException(
                   '.bnb exit listener must not contain to state');
@@ -3475,6 +3482,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
                   'stateMachineListener.from'),
             ));
           case 2:
+            final layer = listenerLayer();
             machineListeners.add(StateMachineListener(
               name: listenerName,
               kind: StateMachineListenerKind.transition_,
@@ -3860,7 +3868,8 @@ StateMachineData _parseStateMachine(Map<String, dynamic> j) {
         final targetKind = switch (targetKindRaw) {
           'point' => PointerHelperTargetKind.point,
           'boundingBox' => PointerHelperTargetKind.boundingBox,
-          _ => throw FormatException('unknown listener targetKind: $targetKindRaw'),
+          _ => throw FormatException(
+              'unknown listener targetKind: $targetKindRaw'),
         };
         bool? boolValue;
         double? numberValue;
