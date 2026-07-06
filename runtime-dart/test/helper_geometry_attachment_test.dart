@@ -134,6 +134,25 @@ const _helperJson = '''
 }
 ''';
 
+const _rotatedHelperJson = '''
+{
+  "skeleton": {"name": "rotated-helper"},
+  "bones": [{"name": "root", "x": 10, "y": 20, "rotation": 90}],
+  "slots": [
+    {"name": "pointSlot", "bone": "root", "attachment": "muzzle"},
+    {"name": "boxSlot", "bone": "root", "attachment": "button_hit"},
+    {"name": "regionSlot", "bone": "root", "attachment": "visible"}
+  ],
+  "regions": [{"name": "visible", "width": 10, "height": 6}],
+  "pointAttachments": [
+    {"name": "muzzle", "x": 3, "y": 4, "rotation": 45}
+  ],
+  "boundingBoxAttachments": [
+    {"name": "button_hit", "vertices": [0, 0, 2, 0, 2, 1, 0, 1]}
+  ]
+}
+''';
+
 void main() {
   group('helper geometry attachments', () {
     test('loads from JSON and remains invisible to draw batches', () {
@@ -163,6 +182,246 @@ void main() {
       expect(data.boundingBoxAttachments.single.vertices,
           [-5, -4, 5, -4, 5, 4, -5, 4]);
       expect(buildDrawBatches(data), hasLength(1));
+    });
+
+    test('queries point helper world pose through the owning slot bone', () {
+      final data = loadBonyJson(_rotatedHelperJson);
+      final worlds = computeWorldTransforms(data);
+
+      final pose = worldPointAttachmentPose(
+        data,
+        worlds,
+        'pointSlot',
+        'muzzle',
+      );
+
+      expect(pose.x, closeTo(6, 1e-9));
+      expect(pose.y, closeTo(23, 1e-9));
+      expect(pose.rotation, closeTo(135, 1e-9));
+      expect(pose, const HelperPointPose(x: 6, y: 23, rotation: 135));
+      expect(
+        pose.toString(),
+        'HelperPointPose(x: 6.0, y: 23.0, rotation: 135.0)',
+      );
+      expect(buildDrawBatches(data), hasLength(1));
+    });
+
+    test('queries bounding-box helper world polygon through the slot bone', () {
+      final data = loadBonyJson(_rotatedHelperJson);
+      final worlds = computeWorldTransforms(data);
+
+      final polygon = worldBoundingBoxAttachmentPolygon(
+        data,
+        worlds,
+        'boxSlot',
+        'button_hit',
+      );
+
+      expect(polygon, hasLength(4));
+      expect(polygon[0].x, closeTo(10, 1e-9));
+      expect(polygon[0].y, closeTo(20, 1e-9));
+      expect(polygon[1].x, closeTo(10, 1e-9));
+      expect(polygon[1].y, closeTo(22, 1e-9));
+      expect(polygon[2].x, closeTo(9, 1e-9));
+      expect(polygon[2].y, closeTo(22, 1e-9));
+      expect(polygon[3].x, closeTo(9, 1e-9));
+      expect(polygon[3].y, closeTo(20, 1e-9));
+      expect(polygon.first, helperPoint(10, 20));
+      expect(polygon.first.toString(), 'HelperPoint(x: 10.0, y: 20.0)');
+      expect(buildDrawBatches(data), hasLength(1));
+    });
+
+    test('helper world queries reject unknown references', () {
+      final data = loadBonyJson(_rotatedHelperJson);
+      final worlds = computeWorldTransforms(data);
+
+      expect(
+        () => worldPointAttachmentPose(data, worlds, 'missing', 'muzzle'),
+        throwsFormatException,
+      );
+      expect(
+        () => worldPointAttachmentPose(data, worlds, 'pointSlot', 'missing'),
+        throwsFormatException,
+      );
+      expect(
+        () => worldBoundingBoxAttachmentPolygon(
+          data,
+          worlds,
+          'boxSlot',
+          'missing',
+        ),
+        throwsFormatException,
+      );
+      expect(
+        () => worldBoundingBoxAttachmentPolygon(
+          data,
+          const [],
+          'boxSlot',
+          'button_hit',
+        ),
+        throwsFormatException,
+      );
+      expect(
+        () => worldPointAttachmentPose(
+          data,
+          [...worlds, worlds.first],
+          'pointSlot',
+          'muzzle',
+        ),
+        throwsFormatException,
+      );
+    });
+
+    test('helper world queries include affine scale and shear columns', () {
+      final data = loadBonyJson('''
+      {
+        "skeleton": {"name": "affine-helper"},
+        "bones": [{"name": "root", "scaleX": 2, "scaleY": 3, "shearY": 20}],
+        "slots": [{"name": "boxSlot", "bone": "root", "attachment": "button_hit"}],
+        "boundingBoxAttachments": [
+          {"name": "button_hit", "vertices": [1, 0, 0, 1, -1, 0]}
+        ]
+      }
+      ''');
+
+      final polygon = worldBoundingBoxAttachmentPolygon(
+        data,
+        computeWorldTransforms(data),
+        'boxSlot',
+        'button_hit',
+      );
+
+      expect(polygon, hasLength(3));
+      expect(polygon[0].x, closeTo(2, 1e-9));
+      expect(polygon[0].y, closeTo(0, 1e-9));
+      expect(polygon[1].x, closeTo(-1.0260604299770062, 1e-9));
+      expect(polygon[1].y, closeTo(2.8190778623577253, 1e-9));
+      expect(polygon[2].x, closeTo(-2, 1e-9));
+      expect(polygon[2].y, closeTo(0, 1e-9));
+    });
+
+    test('queries concrete helper target exposed through a skin slot', () {
+      final data = loadBonyJson('''
+      {
+        "skeleton": {"name": "skinned-helper"},
+        "bones": [{"name": "root", "x": 2, "y": 3}],
+        "slots": [{"name": "hitSlot", "bone": "root", "attachment": "button"}],
+        "skins": [
+          {"name": "default", "entries": [
+            {"slot": "hitSlot", "attachment": "button", "target": "button_hit"}
+          ]}
+        ],
+        "boundingBoxAttachments": [
+          {"name": "button_hit", "vertices": [0, 0, 2, 0, 2, 1, 0, 1]}
+        ]
+      }
+      ''');
+
+      final polygon = worldBoundingBoxAttachmentPolygon(
+        data,
+        computeWorldTransforms(data),
+        'hitSlot',
+        'button_hit',
+      );
+
+      expect(polygon.first.x, closeTo(2, 1e-9));
+      expect(polygon.first.y, closeTo(3, 1e-9));
+      expect(buildDrawBatches(data), isEmpty);
+    });
+
+    test('pointer hit helpers match point radius and polygon boundary rules',
+        () {
+      final data = loadBonyJson(_rotatedHelperJson);
+      final worlds = computeWorldTransforms(data);
+
+      expect(
+        pointerHitsPointTarget(data, worlds, 'pointSlot', 'muzzle', 9, 23, 3),
+        isTrue,
+      );
+      expect(
+        pointerHitsPointTarget(
+            data, worlds, 'pointSlot', 'muzzle', 9.01, 23, 3),
+        isFalse,
+      );
+      expect(
+        () => pointerHitsPointTarget(
+          data,
+          worlds,
+          'pointSlot',
+          'muzzle',
+          6,
+          23,
+          -1,
+        ),
+        throwsFormatException,
+      );
+
+      expect(
+        pointerHitsBoundingBoxTarget(
+          data,
+          worlds,
+          'boxSlot',
+          'button_hit',
+          9.5,
+          21,
+        ),
+        isTrue,
+      );
+      expect(
+        pointerHitsBoundingBoxTarget(
+          data,
+          worlds,
+          'boxSlot',
+          'button_hit',
+          8.5,
+          21,
+        ),
+        isFalse,
+      );
+      expect(
+        pointerHitsBoundingBoxTarget(
+          data,
+          worlds,
+          'boxSlot',
+          'button_hit',
+          8.99995,
+          21,
+        ),
+        isTrue,
+      );
+      expect(
+        () => pointInHelperPolygon(
+          helperPoint(0, 0),
+          [helperPoint(0, 0), helperPoint(1, 0)],
+        ),
+        throwsFormatException,
+      );
+    });
+
+    test('helper polygon queries reject malformed public model data', () {
+      final data = loadBonyJson(_rotatedHelperJson);
+      final malformed = SkeletonData(
+        header: data.header,
+        bones: data.bones,
+        slots: data.slots,
+        regions: data.regions,
+        paths: data.paths,
+        pathAttachments: data.pathAttachments,
+        pointAttachments: data.pointAttachments,
+        boundingBoxAttachments: const [
+          BoundingBoxAttachment(name: 'bad_box', vertices: [0, 0, 1]),
+        ],
+      );
+
+      expect(
+        () => worldBoundingBoxAttachmentPolygon(
+          malformed,
+          computeWorldTransforms(malformed),
+          'boxSlot',
+          'bad_box',
+        ),
+        throwsFormatException,
+      );
     });
 
     test('rejects malformed helper records', () {
