@@ -63,6 +63,27 @@ class _PathSample {
   final double distance;
 }
 
+/// World-space point used by helper geometry query APIs.
+class HelperPoint {
+  const HelperPoint({required this.x, required this.y});
+
+  final double x;
+  final double y;
+}
+
+/// World-space pose of a point helper attachment.
+class HelperPointPose {
+  const HelperPointPose({
+    required this.x,
+    required this.y,
+    required this.rotation,
+  });
+
+  final double x;
+  final double y;
+  final double rotation;
+}
+
 class _BoneGroupEntry {
   const _BoneGroupEntry(this.bones);
   final List<int> bones;
@@ -232,6 +253,74 @@ double worldRotationDegrees(Affine2 world) =>
 double ikDistance(IkPoint a, IkPoint b) => math.sqrt(
       (b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y),
     );
+
+Affine2 _slotBoneWorld(
+  SkeletonData data,
+  List<Affine2> worlds,
+  String slotName,
+) {
+  for (final slot in data.slots) {
+    if (slot.name == slotName) {
+      for (var boneIndex = 0; boneIndex < data.bones.length; boneIndex++) {
+        final bone = data.bones[boneIndex];
+        if (bone.name == slot.bone) {
+          if (boneIndex >= worlds.length) {
+            throw const FormatException(
+                'helper query world transform count does not match skeleton bones');
+          }
+          return worlds[boneIndex];
+        }
+      }
+      throw FormatException(
+          'helper query slot references unknown bone: ${slot.bone}');
+    }
+  }
+  throw FormatException('helper query references unknown slot: $slotName');
+}
+
+/// World-space pose for a point helper attachment through [slotName]'s bone.
+HelperPointPose worldPointAttachmentPose(
+  SkeletonData data,
+  List<Affine2> worlds,
+  String slotName,
+  String attachmentName,
+) {
+  final world = _slotBoneWorld(data, worlds, slotName);
+  for (final point in data.pointAttachments) {
+    if (point.name == attachmentName) {
+      final pos = _transformPoint(world, point.x, point.y);
+      return HelperPointPose(
+        x: pos.x,
+        y: pos.y,
+        rotation: worldRotationDegrees(world) + point.rotation,
+      );
+    }
+  }
+  throw FormatException('unknown point attachment: $attachmentName');
+}
+
+/// World-space polygon for a bounding-box helper attachment through [slotName].
+List<HelperPoint> worldBoundingBoxAttachmentPolygon(
+  SkeletonData data,
+  List<Affine2> worlds,
+  String slotName,
+  String attachmentName,
+) {
+  final world = _slotBoneWorld(data, worlds, slotName);
+  for (final box in data.boundingBoxAttachments) {
+    if (box.name == attachmentName) {
+      final polygon = <HelperPoint>[];
+      final vertices = box.vertices;
+      for (var index = 0; index < vertices.length - 1; index += 2) {
+        final pos =
+            _transformPoint(world, vertices[index], vertices[index + 1]);
+        polygon.add(HelperPoint(x: pos.x, y: pos.y));
+      }
+      return polygon;
+    }
+  }
+  throw FormatException('unknown bounding-box attachment: $attachmentName');
+}
 
 /// Rest-pose world transform of a bone, FK-composed over the UNMUTATED rest
 /// locals (`data.bones[*]`), independent of any animated/constrained pose

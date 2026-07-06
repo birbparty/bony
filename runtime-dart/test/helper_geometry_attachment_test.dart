@@ -134,6 +134,25 @@ const _helperJson = '''
 }
 ''';
 
+const _rotatedHelperJson = '''
+{
+  "skeleton": {"name": "rotated-helper"},
+  "bones": [{"name": "root", "x": 10, "y": 20, "rotation": 90}],
+  "slots": [
+    {"name": "pointSlot", "bone": "root", "attachment": "muzzle"},
+    {"name": "boxSlot", "bone": "root", "attachment": "button_hit"},
+    {"name": "regionSlot", "bone": "root", "attachment": "visible"}
+  ],
+  "regions": [{"name": "visible", "width": 10, "height": 6}],
+  "pointAttachments": [
+    {"name": "muzzle", "x": 3, "y": 4, "rotation": 45}
+  ],
+  "boundingBoxAttachments": [
+    {"name": "button_hit", "vertices": [0, 0, 2, 0, 2, 1, 0, 1]}
+  ]
+}
+''';
+
 void main() {
   group('helper geometry attachments', () {
     test('loads from JSON and remains invisible to draw batches', () {
@@ -163,6 +182,78 @@ void main() {
       expect(data.boundingBoxAttachments.single.vertices,
           [-5, -4, 5, -4, 5, 4, -5, 4]);
       expect(buildDrawBatches(data), hasLength(1));
+    });
+
+    test('queries point helper world pose through the owning slot bone', () {
+      final data = loadBonyJson(_rotatedHelperJson);
+      final worlds = computeWorldTransforms(data);
+
+      final pose = worldPointAttachmentPose(
+        data,
+        worlds,
+        'pointSlot',
+        'muzzle',
+      );
+
+      expect(pose.x, closeTo(6, 1e-9));
+      expect(pose.y, closeTo(23, 1e-9));
+      expect(pose.rotation, closeTo(135, 1e-9));
+      expect(buildDrawBatches(data), hasLength(1));
+    });
+
+    test('queries bounding-box helper world polygon through the slot bone', () {
+      final data = loadBonyJson(_rotatedHelperJson);
+      final worlds = computeWorldTransforms(data);
+
+      final polygon = worldBoundingBoxAttachmentPolygon(
+        data,
+        worlds,
+        'boxSlot',
+        'button_hit',
+      );
+
+      expect(polygon, hasLength(4));
+      expect(polygon[0].x, closeTo(10, 1e-9));
+      expect(polygon[0].y, closeTo(20, 1e-9));
+      expect(polygon[1].x, closeTo(10, 1e-9));
+      expect(polygon[1].y, closeTo(22, 1e-9));
+      expect(polygon[2].x, closeTo(9, 1e-9));
+      expect(polygon[2].y, closeTo(22, 1e-9));
+      expect(polygon[3].x, closeTo(9, 1e-9));
+      expect(polygon[3].y, closeTo(20, 1e-9));
+      expect(buildDrawBatches(data), hasLength(1));
+    });
+
+    test('helper world queries reject unknown references', () {
+      final data = loadBonyJson(_rotatedHelperJson);
+      final worlds = computeWorldTransforms(data);
+
+      expect(
+        () => worldPointAttachmentPose(data, worlds, 'missing', 'muzzle'),
+        throwsFormatException,
+      );
+      expect(
+        () => worldPointAttachmentPose(data, worlds, 'pointSlot', 'missing'),
+        throwsFormatException,
+      );
+      expect(
+        () => worldBoundingBoxAttachmentPolygon(
+          data,
+          worlds,
+          'boxSlot',
+          'missing',
+        ),
+        throwsFormatException,
+      );
+      expect(
+        () => worldBoundingBoxAttachmentPolygon(
+          data,
+          const [],
+          'boxSlot',
+          'button_hit',
+        ),
+        throwsFormatException,
+      );
     });
 
     test('rejects malformed helper records', () {
