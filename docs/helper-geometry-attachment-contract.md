@@ -107,8 +107,8 @@ same polygon invariants after decoding JSON or BNB.
 
 ## Helper Query Semantics
 
-These deterministic geometry rules are public project-owned math. This slice
-defines them for future runtime APIs; it does not require pointer dispatch.
+These deterministic geometry rules are public project-owned math used by
+runtime helper-geometry queries and pointer helper listener dispatch.
 
 A point attachment's world pose is the owning slot bone world transform composed
 with the point's local translation and rotation. Translation uses the affine
