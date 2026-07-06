@@ -128,9 +128,10 @@ int _constraintKindRank(_ConstraintKind kind) => switch (kind) {
     };
 
 class _ConstraintEntry {
-  const _ConstraintEntry(this.kind, this.sourceIndex);
+  const _ConstraintEntry(this.kind, this.sourceIndex, this.active);
   final _ConstraintKind kind;
   final int sourceIndex;
+  final bool active;
 }
 
 // Convert bone local transform to a 2x2 linear matrix.
@@ -216,6 +217,7 @@ BoneData _withLocal(BoneData base, {double? x, double? y, double? rotation}) {
     inheritScale: base.inheritScale,
     inheritReflection: base.inheritReflection,
     transformMode: base.transformMode,
+    skinRequired: base.skinRequired,
   );
 }
 
@@ -321,16 +323,21 @@ Affine2 _slotBoneWorld(
   SkeletonData data,
   List<Affine2> worlds,
   String slotName,
+  String activeSkin,
 ) {
   if (worlds.length != data.bones.length) {
     throw const FormatException(
         'helper query world transform count does not match skeleton bones');
   }
+  final activation = data.activeSkinMembership(activeSkin);
   for (final slot in data.slots) {
     if (slot.name == slotName) {
       for (var boneIndex = 0; boneIndex < data.bones.length; boneIndex++) {
         final bone = data.bones[boneIndex];
         if (bone.name == slot.bone) {
+          if (!activation.bones[boneIndex]) {
+            throw FormatException('helper query slot is inactive: $slotName');
+          }
           return worlds[boneIndex];
         }
       }
@@ -346,11 +353,17 @@ HelperPointPose worldPointAttachmentPose(
   SkeletonData data,
   List<Affine2> worlds,
   String slotName,
-  String attachmentName,
-) {
-  final world = _slotBoneWorld(data, worlds, slotName);
+  String attachmentName, {
+  String activeSkin = 'default',
+}) {
+  final world = _slotBoneWorld(data, worlds, slotName, activeSkin);
+  final resolvedAttachment = data.skins.isNotEmpty
+      ? data.resolveSkinAttachmentTarget(activeSkin, slotName, attachmentName)
+      : '';
+  final targetAttachment =
+      resolvedAttachment.isNotEmpty ? resolvedAttachment : attachmentName;
   for (final point in data.pointAttachments) {
-    if (point.name == attachmentName) {
+    if (point.name == targetAttachment) {
       final pos = _transformPoint(world, point.x, point.y);
       return HelperPointPose(
         x: pos.x,
@@ -367,11 +380,17 @@ List<HelperPoint> worldBoundingBoxAttachmentPolygon(
   SkeletonData data,
   List<Affine2> worlds,
   String slotName,
-  String attachmentName,
-) {
-  final world = _slotBoneWorld(data, worlds, slotName);
+  String attachmentName, {
+  String activeSkin = 'default',
+}) {
+  final world = _slotBoneWorld(data, worlds, slotName, activeSkin);
+  final resolvedAttachment = data.skins.isNotEmpty
+      ? data.resolveSkinAttachmentTarget(activeSkin, slotName, attachmentName)
+      : '';
+  final targetAttachment =
+      resolvedAttachment.isNotEmpty ? resolvedAttachment : attachmentName;
   for (final box in data.boundingBoxAttachments) {
-    if (box.name == attachmentName) {
+    if (box.name == targetAttachment) {
       final polygon = <HelperPoint>[];
       final vertices = box.vertices;
       if (vertices.length < 6 || vertices.length.isOdd) {
@@ -445,12 +464,14 @@ bool pointerHitsPointTarget(
   String attachmentName,
   double x,
   double y,
-  double hitRadius,
-) {
+  double hitRadius, {
+  String activeSkin = 'default',
+}) {
   if (hitRadius < 0.0) {
     throw const FormatException('point helper hit radius must be non-negative');
   }
-  final pose = worldPointAttachmentPose(data, worlds, slotName, attachmentName);
+  final pose = worldPointAttachmentPose(data, worlds, slotName, attachmentName,
+      activeSkin: activeSkin);
   return math.sqrt((x - pose.x) * (x - pose.x) + (y - pose.y) * (y - pose.y)) <=
       hitRadius;
 }
@@ -461,10 +482,12 @@ bool pointerHitsBoundingBoxTarget(
   String slotName,
   String attachmentName,
   double x,
-  double y,
-) {
-  final polygon =
-      worldBoundingBoxAttachmentPolygon(data, worlds, slotName, attachmentName);
+  double y, {
+  String activeSkin = 'default',
+}) {
+  final polygon = worldBoundingBoxAttachmentPolygon(
+      data, worlds, slotName, attachmentName,
+      activeSkin: activeSkin);
   return pointInHelperPolygon(HelperPoint(x: x, y: y), polygon);
 }
 
@@ -582,7 +605,10 @@ _Cubic _pathCubicInWorld(PathAttachment attachment, Affine2 targetWorld) {
 }
 
 List<Object> _buildRuntimeConstraintUpdateCache(
-    SkeletonData data, Map<String, int> byName) {
+  SkeletonData data,
+  Map<String, int> byName,
+  ActiveSkinMembership activation,
+) {
   final parents = List<int>.filled(data.bones.length, -1);
   final seen = <String, int>{};
   for (var index = 0; index < data.bones.length; index++) {
@@ -615,6 +641,7 @@ List<Object> _buildRuntimeConstraintUpdateCache(
     int sourceIndex,
     List<String> writes,
     List<String> reads,
+    bool active,
   })>[];
   for (var index = 0; index < data.paths.length; index++) {
     final path = data.paths[index];
@@ -624,6 +651,7 @@ List<Object> _buildRuntimeConstraintUpdateCache(
       sourceIndex: index,
       writes: <String>[path.bone],
       reads: path.runtimeEvaluable ? <String>[path.target] : const <String>[],
+      active: activation.pathConstraints[index],
     ));
   }
   for (var index = 0; index < data.ikConstraints.length; index++) {
@@ -635,6 +663,7 @@ List<Object> _buildRuntimeConstraintUpdateCache(
       // An IK constraint WRITES its whole bone chain, not a single bone.
       writes: ik.bones,
       reads: ik.runtimeEvaluable ? <String>[ik.target] : const <String>[],
+      active: activation.ikConstraints[index],
     ));
   }
   for (var index = 0; index < data.transformConstraints.length; index++) {
@@ -645,6 +674,7 @@ List<Object> _buildRuntimeConstraintUpdateCache(
       sourceIndex: index,
       writes: <String>[tc.bone],
       reads: tc.runtimeEvaluable ? <String>[tc.target] : const <String>[],
+      active: activation.transformConstraints[index],
     ));
   }
   descriptors.sort((a, b) {
@@ -723,7 +753,8 @@ List<Object> _buildRuntimeConstraintUpdateCache(
       }
     }
     emitBoneGroup(group);
-    result.add(_ConstraintEntry(descriptor.kind, descriptor.sourceIndex));
+    result.add(_ConstraintEntry(
+        descriptor.kind, descriptor.sourceIndex, descriptor.active));
   }
 
   final finalGroup = <int>[];
@@ -744,8 +775,10 @@ List<({String kind, int sourceIndex})> debugRuntimeConstraintDispatchOrder(
   final byName = <String, int>{
     for (var i = 0; i < data.bones.length; i++) data.bones[i].name: i,
   };
+  final activation = data.activeSkinMembership();
   return [
-    for (final entry in _buildRuntimeConstraintUpdateCache(data, byName))
+    for (final entry
+        in _buildRuntimeConstraintUpdateCache(data, byName, activation))
       if (entry is _ConstraintEntry)
         (
           kind: switch (entry.kind) {
@@ -1009,6 +1042,7 @@ BoneData _boneFromPose(BoneData base, TransformConstraintPose pose) => BoneData(
       inheritScale: base.inheritScale,
       inheritReflection: base.inheritReflection,
       transformMode: base.transformMode,
+      skinRequired: base.skinRequired,
     );
 
 // Port of runtime-nim/src/bony/transform.nim applyRuntimeTransformConstraint.
@@ -1090,11 +1124,12 @@ void _applyRuntimeTransformConstraint(
   computed[boneIndex] = true;
 }
 
-/// Compute the setup-pose world affine transform for every bone.
-///
-/// Returns one [Affine2] per bone, in the same order as [data.bones].
-List<Affine2> computeWorldTransforms(SkeletonData data) {
+({List<Affine2> worlds, List<BoneData> locals}) _computeWorldsAndLocals(
+  SkeletonData data,
+  ActiveSkinMembership activation,
+) {
   const rootParent = Affine2(a: 1.0, b: 0.0, c: 0.0, d: 1.0, tx: 0.0, ty: 0.0);
+  const zero = Affine2(a: 0.0, b: 0.0, c: 0.0, d: 0.0, tx: 0.0, ty: 0.0);
   final hasRuntimeConstraints = data.paths.any((p) => p.runtimeEvaluable) ||
       data.ikConstraints.any((c) => c.runtimeEvaluable) ||
       data.transformConstraints.any((t) => t.runtimeEvaluable);
@@ -1107,24 +1142,27 @@ List<Affine2> computeWorldTransforms(SkeletonData data) {
       for (final attachment in data.pathAttachments)
         attachment.name: attachment,
     };
-    final cache = _buildRuntimeConstraintUpdateCache(data, byName);
+    final cache = _buildRuntimeConstraintUpdateCache(data, byName, activation);
     final locals = data.bones.map((bone) => bone).toList();
-    final result = List<Affine2>.filled(data.bones.length, rootParent);
+    final result = List<Affine2>.filled(data.bones.length, zero);
     final computed = List<bool>.filled(data.bones.length, false);
 
     for (final entry in cache) {
       if (entry is _BoneGroupEntry) {
         for (final index in entry.bones) {
+          if (!activation.bones[index]) continue;
           final bone = locals[index];
           if (bone.parent.isEmpty) {
             result[index] = _worldForBone(rootParent, bone, false);
           } else {
             final parentIndex = byName[bone.parent]!;
+            if (!activation.bones[parentIndex]) continue;
             result[index] = _worldForBone(result[parentIndex], bone, true);
           }
           computed[index] = true;
         }
       } else if (entry is _ConstraintEntry) {
+        if (!entry.active) continue;
         switch (entry.kind) {
           case _ConstraintKind.path:
             _applyRuntimePathConstraint(
@@ -1163,22 +1201,36 @@ List<Affine2> computeWorldTransforms(SkeletonData data) {
         }
       }
     }
-    return result;
+    return (worlds: result, locals: locals);
   }
 
-  final result = List<Affine2>.filled(
-    data.bones.length,
-    rootParent,
-  );
+  final result = List<Affine2>.filled(data.bones.length, zero);
+  final locals = data.bones.map((bone) => bone).toList();
   final byName = <String, int>{};
   for (var i = 0; i < data.bones.length; i++) {
     final bone = data.bones[i];
-    final parent =
-        bone.parent.isEmpty ? rootParent : result[byName[bone.parent]!];
-    result[i] = _worldForBone(parent, bone, bone.parent.isNotEmpty);
     byName[bone.name] = i;
+    if (!activation.bones[i]) continue;
+    if (bone.parent.isEmpty) {
+      result[i] = _worldForBone(rootParent, bone, false);
+    } else {
+      final parentIndex = byName[bone.parent]!;
+      if (!activation.bones[parentIndex]) continue;
+      result[i] = _worldForBone(result[parentIndex], bone, true);
+    }
   }
-  return result;
+  return (worlds: result, locals: locals);
+}
+
+/// Compute the setup-pose world affine transform for every bone.
+///
+/// Returns one [Affine2] per bone, in the same order as [data.bones].
+List<Affine2> computeWorldTransforms(
+  SkeletonData data, {
+  String activeSkin = 'default',
+}) {
+  return _computeWorldsAndLocals(data, data.activeSkinMembership(activeSkin))
+      .worlds;
 }
 
 /// One default [PhysicsConstraintState] per physics constraint (index = source
@@ -1226,18 +1278,29 @@ BoneData _withPhysicsChannel(
     inheritScale: base.inheritScale,
     inheritReflection: base.inheritReflection,
     transformMode: base.transformMode,
+    skinRequired: base.skinRequired,
   );
 }
 
 List<Affine2> _recomputeWorldsFromLocals(
-    SkeletonData data, List<BoneData> locals, Map<String, int> byName) {
+  SkeletonData data,
+  List<BoneData> locals,
+  Map<String, int> byName,
+  ActiveSkinMembership activation,
+) {
   const rootParent = Affine2(a: 1.0, b: 0.0, c: 0.0, d: 1.0, tx: 0.0, ty: 0.0);
-  final result = List<Affine2>.filled(locals.length, rootParent);
+  const zero = Affine2(a: 0.0, b: 0.0, c: 0.0, d: 0.0, tx: 0.0, ty: 0.0);
+  final result = List<Affine2>.filled(locals.length, zero);
   for (var i = 0; i < locals.length; i++) {
     final bone = locals[i];
-    final parent =
-        bone.parent.isEmpty ? rootParent : result[byName[bone.parent]!];
-    result[i] = _worldForBone(parent, bone, bone.parent.isNotEmpty);
+    if (!activation.bones[i]) continue;
+    if (bone.parent.isEmpty) {
+      result[i] = _worldForBone(rootParent, bone, false);
+    } else {
+      final parentIndex = byName[bone.parent]!;
+      if (!activation.bones[parentIndex]) continue;
+      result[i] = _worldForBone(result[parentIndex], bone, true);
+    }
   }
   return result;
 }
@@ -1257,38 +1320,29 @@ List<Affine2> _recomputeWorldsFromLocals(
 /// threaded here (as the Nim `computeWorldsAndLocals` does); that is out of
 /// scope until such a rig exists.
 List<Affine2> advancePhysics(
-    SkeletonData data, List<PhysicsConstraintState> states, double dt) {
+  SkeletonData data,
+  List<PhysicsConstraintState> states,
+  double dt, {
+  String activeSkin = 'default',
+}) {
   if (dt < 0.0) {
     throw const FormatException('physics advance dt must be non-negative');
   }
+  final activation = data.activeSkinMembership(activeSkin);
   if (data.physicsConstraints.isEmpty) {
-    return computeWorldTransforms(data);
+    return computeWorldTransforms(data, activeSkin: activeSkin);
   }
   if (states.length != data.physicsConstraints.length) {
     throw FormatException(
         'physics state count (${states.length}) does not match physics '
         'constraint count (${data.physicsConstraints.length})');
   }
-  // The physics stage reads its targets from the RAW bone locals (data.bones),
-  // which equals the constraint-adjusted pose ONLY when no other runtime
-  // constraint reshapes the locals. Fail loudly rather than silently emit wrong
-  // worlds if a rig ever mixes physics with IK/transform/path; threading the
-  // constraint-adjusted locals (as the Nim computeWorldsAndLocals does) is a
-  // future slice.
-  final hasOtherRuntimeConstraints =
-      data.paths.any((p) => p.runtimeEvaluable) ||
-          data.ikConstraints.any((c) => c.runtimeEvaluable) ||
-          data.transformConstraints.any((t) => t.runtimeEvaluable);
-  if (hasOtherRuntimeConstraints) {
-    throw UnsupportedError(
-        'advancePhysics does not yet support physics constraints combined with '
-        'runtime IK/transform/path constraints');
-  }
 
   final byName = <String, int>{
     for (var i = 0; i < data.bones.length; i++) data.bones[i].name: i,
   };
-  final locals = List<BoneData>.of(data.bones);
+  final computed = _computeWorldsAndLocals(data, activation);
+  final locals = List<BoneData>.of(computed.locals);
 
   // Deterministic physics-stage order (docs/constraint-total-order.md): by
   // `order`, then source index. Mirrors buildPhysicsConstraintOrder.
@@ -1319,15 +1373,21 @@ List<Affine2> advancePhysics(
       wind: pc.wind ?? 0.0,
       mix: pc.physicsMix ?? 1.0,
     );
-    final res =
-        updatePhysicsConstraint(states[sourceIndex], params, inputs, dt);
+    final res = updatePhysicsConstraint(
+      states[sourceIndex],
+      params,
+      inputs,
+      dt,
+      active: activation.physicsConstraints[sourceIndex],
+    );
+    if (!activation.physicsConstraints[sourceIndex]) continue;
     for (final output in res.outputs) {
       locals[boneIndex] =
           _withPhysicsChannel(locals[boneIndex], output.channel, output.value);
     }
   }
 
-  return _recomputeWorldsFromLocals(data, locals, byName);
+  return _recomputeWorldsFromLocals(data, locals, byName, activation);
 }
 
 DrawVertex _vertex(Affine2 world, double lx, double ly, double u, double v) {
@@ -1448,6 +1508,7 @@ _DrawBatchBuild _buildDrawBatchBuild(
   for (var i = 0; i < data.bones.length; i++) {
     boneIndex[data.bones[i].name] = i;
   }
+  final activation = data.activeSkinMembership(activeSkin);
   final regionMap = <String, RegionAttachment>{
     for (final r in data.regions) r.name: r,
   };
@@ -1470,9 +1531,25 @@ _DrawBatchBuild _buildDrawBatchBuild(
   final batchSlotIndex = <int>[];
   final batchClipPerTriangle = <bool>[];
   final resolvedSlotAttachment = <String, String>{};
+  bool meshInfluencesAreActive(MeshAttachment mesh) {
+    for (final vertex in mesh.vertices) {
+      for (final influence in vertex.influences) {
+        final index = boneIndex[influence.bone];
+        if (index == null) {
+          throw FormatException(
+              'mesh influence references unknown bone: ${influence.bone}');
+        }
+        if (!activation.bones[index]) return false;
+      }
+    }
+    return true;
+  }
+
   for (var slotIdx = 0; slotIdx < data.slots.length; slotIdx++) {
     final slot = data.slots[slotIdx];
     if (slot.attachment.isEmpty) continue;
+    final slotBoneIndex = boneIndex[slot.bone]!;
+    if (!activation.bones[slotBoneIndex]) continue;
     final attachment = data.resolveSkinAttachmentTarget(
         activeSkin, slot.name, slot.attachment);
     resolvedSlotAttachment[slot.name] = attachment;
@@ -1486,7 +1563,8 @@ _DrawBatchBuild _buildDrawBatchBuild(
       // region path and the Nim reference (docs/mesh-attachment-contract.md).
       final mesh = meshMap[attachment];
       if (mesh != null) {
-        final world = worlds[boneIndex[slot.bone]!];
+        if (!meshInfluencesAreActive(mesh)) continue;
+        final world = worlds[slotBoneIndex];
         var meshVerts = _skinMeshVertices(worlds, boneIndex, slot.bone, mesh);
         // Deform-timeline stage: offset skinned vertices by the posed override
         // for this slot/attachment, immediately after skinning and before the
@@ -1541,13 +1619,13 @@ _DrawBatchBuild _buildDrawBatchBuild(
         }
         final childBuild = _buildDrawBatchBuild(
           child,
-          computeWorldTransforms(child),
+          computeWorldTransforms(child, activeSkin: childSkin),
           activeSkin: childSkin,
           children: children,
           composeNested: true,
           activeIds: [...activeIds, nested.skeleton],
         );
-        final hostWorld = worlds[boneIndex[slot.bone]!];
+        final hostWorld = worlds[slotBoneIndex];
         for (var childIndex = 0;
             childIndex < childBuild.batches.length;
             childIndex++) {
@@ -1560,7 +1638,7 @@ _DrawBatchBuild _buildDrawBatchBuild(
       continue;
     }
 
-    final world = worlds[boneIndex[slot.bone]!];
+    final world = worlds[slotBoneIndex];
     final hw = region.width * 0.5;
     final hh = region.height * 0.5;
     baseBatches.add(DrawBatch(
@@ -1646,7 +1724,7 @@ List<DrawBatch> buildDrawBatches(
   SkeletonData data, {
   String activeSkin = 'default',
 }) {
-  final worlds = computeWorldTransforms(data);
+  final worlds = computeWorldTransforms(data, activeSkin: activeSkin);
   return _buildDrawBatchBuild(
     data,
     worlds,
@@ -1665,7 +1743,7 @@ List<DrawBatch> buildNestedDrawBatches(
 }) {
   return _buildDrawBatchBuild(
     data,
-    worlds ?? computeWorldTransforms(data),
+    worlds ?? computeWorldTransforms(data, activeSkin: activeSkin),
     activeSkin: activeSkin,
     children: children,
     composeNested: true,

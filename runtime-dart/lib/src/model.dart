@@ -440,6 +440,24 @@ class SkeletonData {
   final List<DeformOverride> deformOverrides;
 }
 
+class ActiveSkinMembership {
+  const ActiveSkinMembership({
+    required this.activeSkin,
+    required this.bones,
+    required this.ikConstraints,
+    required this.transformConstraints,
+    required this.pathConstraints,
+    required this.physicsConstraints,
+  });
+
+  final String activeSkin;
+  final List<bool> bones;
+  final List<bool> ikConstraints;
+  final List<bool> transformConstraints;
+  final List<bool> pathConstraints;
+  final List<bool> physicsConstraints;
+}
+
 extension SkinResolution on SkeletonData {
   bool hasSkin(String skinName) {
     if (skins.isEmpty) return skinName == 'default';
@@ -479,6 +497,145 @@ extension SkinResolution on SkeletonData {
       }
     }
     return '';
+  }
+
+  ({
+    Set<String> bones,
+    Set<String> ikConstraints,
+    Set<String> transformConstraints,
+    Set<String> pathConstraints,
+    Set<String> physicsConstraints,
+  }) _runtimeSkinMembership(String activeSkin) {
+    final bones = <String>{};
+    final ikConstraints = <String>{};
+    final transformConstraints = <String>{};
+    final pathConstraints = <String>{};
+    final physicsConstraints = <String>{};
+
+    if (skins.isEmpty) {
+      if (activeSkin != 'default') {
+        throw FormatException('unknown active skin: $activeSkin');
+      }
+      return (
+        bones: bones,
+        ikConstraints: ikConstraints,
+        transformConstraints: transformConstraints,
+        pathConstraints: pathConstraints,
+        physicsConstraints: physicsConstraints,
+      );
+    }
+
+    var foundDefault = false;
+    var foundActive = activeSkin == 'default';
+    for (final skin in skins) {
+      if (skin.name == 'default') {
+        bones.addAll(skin.bones);
+        ikConstraints.addAll(skin.ikConstraints);
+        transformConstraints.addAll(skin.transformConstraints);
+        pathConstraints.addAll(skin.pathConstraints);
+        physicsConstraints.addAll(skin.physicsConstraints);
+        foundDefault = true;
+        break;
+      }
+    }
+    if (!foundDefault) {
+      throw const FormatException('skins must contain default skin');
+    }
+
+    if (activeSkin != 'default') {
+      for (final skin in skins) {
+        if (skin.name == activeSkin) {
+          bones.addAll(skin.bones);
+          ikConstraints.addAll(skin.ikConstraints);
+          transformConstraints.addAll(skin.transformConstraints);
+          pathConstraints.addAll(skin.pathConstraints);
+          physicsConstraints.addAll(skin.physicsConstraints);
+          foundActive = true;
+          break;
+        }
+      }
+    }
+    if (!foundActive) {
+      throw FormatException('unknown active skin: $activeSkin');
+    }
+
+    return (
+      bones: bones,
+      ikConstraints: ikConstraints,
+      transformConstraints: transformConstraints,
+      pathConstraints: pathConstraints,
+      physicsConstraints: physicsConstraints,
+    );
+  }
+
+  ActiveSkinMembership activeSkinMembership([String activeSkin = 'default']) {
+    final membership = _runtimeSkinMembership(activeSkin);
+    final boneByName = <String, int>{};
+    final activeBones = List<bool>.filled(bones.length, false);
+
+    for (var index = 0; index < bones.length; index++) {
+      final bone = bones[index];
+      boneByName[bone.name] = index;
+      final directlyActive =
+          !bone.skinRequired || membership.bones.contains(bone.name);
+      final parentActive = bone.parent.isEmpty ||
+          (boneByName.containsKey(bone.parent) &&
+              activeBones[boneByName[bone.parent]!]);
+      activeBones[index] = directlyActive && parentActive;
+    }
+
+    bool isBoneActive(String name) {
+      final index = boneByName[name];
+      return index != null && activeBones[index];
+    }
+
+    final activeIk = List<bool>.filled(ikConstraints.length, false);
+    for (var index = 0; index < ikConstraints.length; index++) {
+      final ik = ikConstraints[index];
+      var depsActive = isBoneActive(ik.target);
+      for (final boneName in ik.bones) {
+        depsActive = depsActive && isBoneActive(boneName);
+      }
+      activeIk[index] =
+          (!ik.skinRequired || membership.ikConstraints.contains(ik.name)) &&
+              depsActive;
+    }
+
+    final activeTransform =
+        List<bool>.filled(transformConstraints.length, false);
+    for (var index = 0; index < transformConstraints.length; index++) {
+      final tc = transformConstraints[index];
+      activeTransform[index] = (!tc.skinRequired ||
+              membership.transformConstraints.contains(tc.name)) &&
+          isBoneActive(tc.bone) &&
+          isBoneActive(tc.target);
+    }
+
+    final activePath = List<bool>.filled(paths.length, false);
+    for (var index = 0; index < paths.length; index++) {
+      final path = paths[index];
+      activePath[index] = (!path.skinRequired ||
+              membership.pathConstraints.contains(path.name)) &&
+          isBoneActive(path.bone) &&
+          isBoneActive(path.target);
+    }
+
+    final activePhysics = List<bool>.filled(physicsConstraints.length, false);
+    for (var index = 0; index < physicsConstraints.length; index++) {
+      final pc = physicsConstraints[index];
+      activePhysics[index] = (!pc.skinRequired ||
+              membership.physicsConstraints.contains(pc.name)) &&
+          isBoneActive(pc.bone);
+    }
+
+    return ActiveSkinMembership(
+      activeSkin: activeSkin,
+      bones: activeBones,
+      ikConstraints: activeIk,
+      transformConstraints: activeTransform,
+      pathConstraints: activePath,
+      physicsConstraints: activePhysics,
+    );
   }
 }
 

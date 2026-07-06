@@ -1028,6 +1028,7 @@ SkeletonData applyPose(SkeletonData data, MixedPose pose) {
       inheritScale: inh?.inheritScale ?? b.inheritScale,
       inheritReflection: inh?.inheritReflection ?? b.inheritReflection,
       transformMode: inh?.transformMode ?? b.transformMode,
+      skinRequired: b.skinRequired,
     );
   }).toList();
 

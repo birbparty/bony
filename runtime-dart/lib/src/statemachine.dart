@@ -229,7 +229,10 @@ class StateMachineRuntime {
           listener.target) {
         continue;
       }
-      if (!_listenerHit(data, worlds, listener, pointerX, pointerY)) continue;
+      if (!_listenerHit(
+          data, worlds, activeSkin, listener, pointerX, pointerY)) {
+        continue;
+      }
 
       final input = _inputByName(listener.input);
       switch (input.kind) {
@@ -585,6 +588,7 @@ String _visibleSlotTarget(
 bool _listenerHit(
   SkeletonData data,
   List<Affine2> worlds,
+  String activeSkin,
   StateMachineListener listener,
   double pointerX,
   double pointerY,
@@ -599,6 +603,7 @@ bool _listenerHit(
         pointerX,
         pointerY,
         listener.hitRadius ?? 0.0,
+        activeSkin: activeSkin,
       );
     case PointerHelperTargetKind.boundingBox:
       return pointerHitsBoundingBoxTarget(
@@ -608,6 +613,7 @@ bool _listenerHit(
         listener.target,
         pointerX,
         pointerY,
+        activeSkin: activeSkin,
       );
   }
 }
