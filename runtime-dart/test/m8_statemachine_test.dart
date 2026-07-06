@@ -3,8 +3,145 @@
 // Tests run from runtime-dart/ so ../conformance/ resolves to repo root.
 
 import 'dart:io';
+import 'dart:typed_data' show ByteData, Endian, Uint8List;
 import 'package:test/test.dart';
 import 'package:bony/bony.dart';
+
+void _writeVaruint(List<int> out, int value) {
+  var v = value;
+  while (v >= 0x80) {
+    out.add((v & 0x7f) | 0x80);
+    v >>= 7;
+  }
+  out.add(v);
+}
+
+void _writeString(List<int> out, String value) {
+  final units = value.codeUnits;
+  _writeVaruint(out, units.length);
+  out.addAll(units);
+}
+
+void _writeProp(List<int> out, int key, List<int> payload) {
+  _writeVaruint(out, key);
+  _writeVaruint(out, payload.length);
+  out.addAll(payload);
+}
+
+List<int> _str(int index) => [index];
+
+List<int> _varuintBytes(int value) {
+  final out = <int>[];
+  _writeVaruint(out, value);
+  return out;
+}
+
+List<int> _boolBytes(bool value) => [value ? 1 : 0];
+
+List<int> _f32Bytes(double value) {
+  final bd = ByteData(4)..setFloat32(0, value, Endian.little);
+  return [bd.getUint8(0), bd.getUint8(1), bd.getUint8(2), bd.getUint8(3)];
+}
+
+List<int> _polygonBytes(List<double> vertices) {
+  final out = <int>[];
+  _writeVaruint(out, vertices.length ~/ 2);
+  for (final value in vertices) {
+    out.addAll(_f32Bytes(value));
+  }
+  return out;
+}
+
+Uint8List _pointerListenerBnb({
+  required int inputKind,
+  required int listenerKind,
+  required int helperKind,
+  String helperTarget = 'tip',
+  List<void Function(List<int>)> listenerExtraProps = const [],
+  bool includeHitRadius = true,
+  double hitRadius = 1,
+  bool includeBoolValue = true,
+  bool includeNumberValue = false,
+  int slotIndex = 0,
+  int inputIndex = 0,
+}) {
+  final strings = [
+    'pointer',
+    'root',
+    'tip_slot',
+    'tip',
+    'idle',
+    'ui',
+    'input',
+    helperTarget,
+  ];
+  final out = <int>[
+    0x42, 0x4f, 0x4e, 0x59, // BONY
+    0x00, // version
+    0x02, // string table present
+    0x00, // empty ToC
+  ];
+  _writeVaruint(out, strings.length);
+  for (final value in strings) {
+    _writeString(out, value);
+  }
+
+  void object(int typeKey, List<void Function(List<int>)> props) {
+    _writeVaruint(out, typeKey);
+    for (final prop in props) {
+      prop(out);
+    }
+    out.add(0);
+  }
+
+  void prop(int key, List<int> payload) {
+    _writeProp(out, key, payload);
+  }
+
+  object(1, [(out) => prop(1, _str(0))]); // skeleton
+  object(2, [(out) => prop(1, _str(1))]); // bone
+  object(1000, [
+    (out) => prop(1, _str(2)),
+    (out) => prop(1012, _str(1)),
+    (out) => prop(1013, _str(3)),
+  ]);
+  object(1002, [
+    (out) => prop(1, _str(3)),
+    (out) => prop(1000, _f32Bytes(0)),
+    (out) => prop(1001, _f32Bytes(0)),
+    (out) => prop(1002, _f32Bytes(0)),
+  ]);
+  object(1003, [
+    (out) => prop(1, _str(7)),
+    (out) => prop(3000, _polygonBytes([-1, -1, 1, -1, 1, 1, -1, 1])),
+  ]);
+  object(2000, [(out) => prop(1, _str(4))]); // animation
+  object(7000, [(out) => prop(1, _str(5))]); // state machine
+  object(7001, [
+    (out) => prop(1, _str(6)),
+    (out) => prop(7000, _varuintBytes(inputKind)),
+  ]);
+  object(7002, [(out) => prop(1, _str(4))]); // layer
+  object(7003, [
+    (out) => prop(1, _str(4)),
+    (out) => prop(7020, _varuintBytes(0)),
+    (out) => prop(7021, _varuintBytes(0)),
+  ]);
+  object(7007, [
+    (out) => prop(1, _str(6)),
+    (out) => prop(7060, _varuintBytes(listenerKind)),
+    (out) => prop(7064, _varuintBytes(slotIndex)),
+    (out) => prop(7065, _varuintBytes(helperKind)),
+    (out) => prop(7066, _str(7)),
+    (out) => prop(7067, _varuintBytes(inputIndex)),
+    if (includeBoolValue) (out) => prop(7068, _boolBytes(true)),
+    if (includeNumberValue) (out) => prop(7069, _f32Bytes(1.25)),
+    if (includeHitRadius) (out) => prop(7070, _f32Bytes(hitRadius)),
+    ...listenerExtraProps,
+  ]);
+  out.add(0);
+  return Uint8List.fromList(out);
+}
 
 void main() {
   late SkeletonData data;
@@ -1258,43 +1395,145 @@ void main() {
 
     test('rejects malformed pointer helper listeners', () {
       const base = '{"skeleton":{"name":"pointer"},"bones":[{"name":"root"}],'
-          '"slots":[{"name":"tip_slot","bone":"root","attachment":"tip"}],'
+          '"slots":[{"name":"tip_slot","bone":"root","attachment":"tip"},{"name":"box_slot","bone":"root","attachment":"button_hit"}],'
           '"pointAttachments":[{"name":"tip","x":0,"y":0,"rotation":0}],'
+          '"boundingBoxAttachments":[{"name":"button_hit","vertices":[-1,-1,1,-1,1,1,-1,1]}],'
           '"animations":[{"name":"idle","boneTimelines":[]}],'
           '"stateMachines":[{"name":"ui",'
-          '"inputs":[{"name":"pressed","kind":"bool"},{"name":"fire","kind":"trigger"}],'
+          '"inputs":[{"name":"pressed","kind":"bool"},{"name":"level","kind":"number"},{"name":"fire","kind":"trigger"}],'
           '"layers":[{"name":"base","states":[{"name":"idle","kind":"clip","clip":"idle"}]}],'
           '"listeners":[REPLACE_LISTENER]}]}';
-      expect(
-        () => loadBonyJson(base.replaceFirst('REPLACE_LISTENER',
-            '{"name":"bad","kind":"pointerDown","layer":"base","slot":"tip_slot","targetKind":"point","target":"tip","hitRadius":1,"input":"pressed","value":true}')),
-        throwsFormatException,
-      );
-      expect(
-        () => loadBonyJson(base.replaceFirst('REPLACE_LISTENER',
-            '{"name":"bad","kind":"stateEnter","layer":"base","toState":"idle","slot":"tip_slot"}')),
-        throwsFormatException,
-      );
-      expect(
-        () => loadBonyJson(base.replaceFirst('REPLACE_LISTENER',
-            '{"name":"bad","kind":"pointerDown","slot":"tip_slot","targetKind":"point","target":"tip","input":"pressed","value":true}')),
-        throwsFormatException,
-      );
-      expect(
-        () => loadBonyJson(base.replaceFirst('REPLACE_LISTENER',
-            '{"name":"bad","kind":"pointerDown","slot":"tip_slot","targetKind":"point","target":"tip","hitRadius":1,"input":"pressed"}')),
-        throwsFormatException,
-      );
-      expect(
-        () => loadBonyJson(base.replaceFirst('REPLACE_LISTENER',
-            '{"name":"bad","kind":"pointerUp","slot":"tip_slot","targetKind":"point","target":"tip","hitRadius":1,"input":"fire","value":true}')),
-        throwsFormatException,
-      );
-      expect(
-        () => loadBonyJson(base.replaceFirst('REPLACE_LISTENER',
-            '{"name":"bad","kind":"pointerDown","slot":"tip_slot","targetKind":"point","target":"other","hitRadius":1,"input":"pressed","value":true}')),
-        throwsFormatException,
-      );
+      void expectBad(String listener) {
+        expect(
+          () => loadBonyJson(base.replaceFirst('REPLACE_LISTENER', listener)),
+          throwsFormatException,
+        );
+      }
+
+      expectBad(
+          '{"name":"bad","kind":"pointerDown","layer":"base","slot":"tip_slot","targetKind":"point","target":"tip","hitRadius":1,"input":"pressed","value":true}');
+      expectBad(
+          '{"name":"bad","kind":"stateEnter","layer":"base","toState":"idle","slot":"tip_slot"}');
+      expectBad(
+          '{"name":"bad","kind":"pointerDown","slot":"missing","targetKind":"point","target":"tip","hitRadius":1,"input":"pressed","value":true}');
+      expectBad(
+          '{"name":"bad","kind":"pointerDown","slot":"tip_slot","targetKind":"point","target":"other","hitRadius":1,"input":"pressed","value":true}');
+      expectBad(
+          '{"name":"bad","kind":"pointerDown","slot":"tip_slot","targetKind":"point","target":"tip","hitRadius":1,"input":"missing","value":true}');
+      expectBad(
+          '{"name":"bad","kind":"pointerDown","slot":"tip_slot","targetKind":"triangle","target":"tip","hitRadius":1,"input":"pressed","value":true}');
+      expectBad(
+          '{"name":"bad","kind":"pointerDown","slot":"tip_slot","targetKind":"point","target":"tip","input":"pressed","value":true}');
+      expectBad(
+          '{"name":"bad","kind":"pointerDown","slot":"tip_slot","targetKind":"point","target":"tip","hitRadius":-1,"input":"pressed","value":true}');
+      expectBad(
+          '{"name":"bad","kind":"pointerDown","slot":"box_slot","targetKind":"boundingBox","target":"button_hit","hitRadius":1,"input":"pressed","value":true}');
+      expectBad(
+          '{"name":"bad","kind":"pointerDown","slot":"tip_slot","targetKind":"point","target":"tip","hitRadius":1,"input":"pressed"}');
+      expectBad(
+          '{"name":"bad","kind":"pointerDown","slot":"tip_slot","targetKind":"point","target":"tip","hitRadius":1,"input":"level"}');
+      expectBad(
+          '{"name":"bad","kind":"pointerDown","slot":"tip_slot","targetKind":"point","target":"tip","hitRadius":1,"input":"pressed","value":0.5}');
+      expectBad(
+          '{"name":"bad","kind":"pointerDown","slot":"tip_slot","targetKind":"point","target":"tip","hitRadius":1,"input":"level","value":true}');
+      expectBad(
+          '{"name":"bad","kind":"pointerUp","slot":"tip_slot","targetKind":"point","target":"tip","hitRadius":1,"input":"fire","value":true}');
+    });
+
+    test('rejects malformed pointer helper listeners from BNB', () {
+      void expectBad(Uint8List bytes) {
+        expect(() => loadBonyBnb(bytes), throwsFormatException);
+      }
+
+      expectBad(_pointerListenerBnb(
+        inputKind: 0,
+        listenerKind: 3,
+        helperKind: 0,
+        listenerExtraProps: [
+          (out) => _writeProp(out, 7061, _varuintBytes(0)),
+        ],
+      ));
+      expectBad(_pointerListenerBnb(
+        inputKind: 0,
+        listenerKind: 0,
+        helperKind: 0,
+        listenerExtraProps: [
+          (out) => _writeProp(out, 7061, _varuintBytes(0)),
+          (out) => _writeProp(out, 7063, _varuintBytes(0)),
+        ],
+      ));
+      expectBad(_pointerListenerBnb(
+        inputKind: 0,
+        listenerKind: 3,
+        helperKind: 2,
+      ));
+      expectBad(_pointerListenerBnb(
+        inputKind: 0,
+        listenerKind: 3,
+        helperKind: 0,
+        slotIndex: 2,
+      ));
+      expectBad(_pointerListenerBnb(
+        inputKind: 0,
+        listenerKind: 3,
+        helperKind: 0,
+        helperTarget: 'missing',
+      ));
+      expectBad(_pointerListenerBnb(
+        inputKind: 0,
+        listenerKind: 3,
+        helperKind: 0,
+        inputIndex: 2,
+      ));
+      expectBad(_pointerListenerBnb(
+        inputKind: 0,
+        listenerKind: 3,
+        helperKind: 0,
+        includeHitRadius: false,
+      ));
+      expectBad(_pointerListenerBnb(
+        inputKind: 0,
+        listenerKind: 3,
+        helperKind: 0,
+        hitRadius: -1,
+      ));
+      expectBad(_pointerListenerBnb(
+        inputKind: 0,
+        listenerKind: 3,
+        helperKind: 1,
+        helperTarget: 'button_hit',
+      ));
+      expectBad(_pointerListenerBnb(
+        inputKind: 0,
+        listenerKind: 3,
+        helperKind: 0,
+        includeBoolValue: false,
+      ));
+      expectBad(_pointerListenerBnb(
+        inputKind: 1,
+        listenerKind: 3,
+        helperKind: 0,
+        includeBoolValue: false,
+        includeNumberValue: false,
+      ));
+      expectBad(_pointerListenerBnb(
+        inputKind: 0,
+        listenerKind: 3,
+        helperKind: 0,
+        includeNumberValue: true,
+      ));
+      expectBad(_pointerListenerBnb(
+        inputKind: 1,
+        listenerKind: 3,
+        helperKind: 0,
+        includeBoolValue: true,
+      ));
+      expectBad(_pointerListenerBnb(
+        inputKind: 2,
+        listenerKind: 3,
+        helperKind: 0,
+        includeBoolValue: true,
+      ));
     });
   });
 }
