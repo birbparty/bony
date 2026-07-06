@@ -553,6 +553,167 @@ void main() {
       expect(rt.events.map((event) => event.listener), ['point_up']);
     });
 
+    test('keeps multiple matching pointer listeners in declaration order', () {
+      final orderedData = loadBonyJson('''
+      {
+        "skeleton": {"name": "ordered-pointer"},
+        "bones": [{"name": "root"}],
+        "slots": [{"name": "hitSlot", "bone": "root", "attachment": "button_hit"}],
+        "skins": [
+          {"name": "default", "entries": [
+            {"slot": "hitSlot", "attachment": "button_hit", "target": "button_hit"}
+          ]},
+          {"name": "noPress", "entries": [
+            {"slot": "hitSlot", "attachment": "button_hit", "target": "no_press_hit"}
+          ]},
+          {"name": "noPulse", "entries": [
+            {"slot": "hitSlot", "attachment": "button_hit", "target": "no_pulse_hit"}
+          ]}
+        ],
+        "boundingBoxAttachments": [
+          {"name": "button_hit", "vertices": [-1, -1, 1, -1, 1, 1, -1, 1]},
+          {"name": "no_press_hit", "vertices": [-1, -1, 1, -1, 1, 1, -1, 1]},
+          {"name": "no_pulse_hit", "vertices": [-1, -1, 1, -1, 1, 1, -1, 1]}
+        ],
+        "animations": [
+          {"name": "idle", "boneTimelines": []},
+          {"name": "active", "boneTimelines": []}
+        ],
+        "stateMachines": [{"name": "ui",
+          "inputs": [
+            {"name": "pressed", "kind": "bool"},
+            {"name": "level", "kind": "number"},
+            {"name": "pulse", "kind": "trigger"}
+          ],
+          "layers": [{"name": "base",
+            "states": [
+              {"name": "idle", "kind": "clip", "clip": "idle"},
+              {"name": "active", "kind": "clip", "clip": "active"}
+            ],
+            "transitions": [{
+              "fromState": "idle",
+              "toState": "active",
+              "conditions": [
+                {"input": "pressed", "kind": "boolEquals", "value": true},
+                {"input": "pulse", "kind": "triggerSet"}
+              ]
+            }, {
+              "fromState": "active",
+              "toState": "idle",
+              "conditions": [
+                {"input": "pulse", "kind": "triggerSet"}
+              ]
+            }]
+          }],
+          "listeners": [
+            {"name": "level_down", "kind": "pointerDown", "slot": "hitSlot",
+             "targetKind": "boundingBox", "target": "button_hit",
+             "input": "level", "value": 2.5},
+            {"name": "pulse_down", "kind": "pointerDown", "slot": "hitSlot",
+             "targetKind": "boundingBox", "target": "button_hit",
+             "input": "pulse"},
+            {"name": "press_down", "kind": "pointerDown", "slot": "hitSlot",
+             "targetKind": "boundingBox", "target": "button_hit",
+             "input": "pressed", "value": true},
+            {"name": "level_no_press", "kind": "pointerDown", "slot": "hitSlot",
+             "targetKind": "boundingBox", "target": "no_press_hit",
+             "input": "level", "value": 2.5},
+            {"name": "pulse_no_press", "kind": "pointerDown", "slot": "hitSlot",
+             "targetKind": "boundingBox", "target": "no_press_hit",
+             "input": "pulse"},
+            {"name": "level_no_pulse", "kind": "pointerDown", "slot": "hitSlot",
+             "targetKind": "boundingBox", "target": "no_pulse_hit",
+             "input": "level", "value": 2.5},
+            {"name": "press_no_pulse", "kind": "pointerDown", "slot": "hitSlot",
+             "targetKind": "boundingBox", "target": "no_pulse_hit",
+             "input": "pressed", "value": true},
+            {"name": "idle_exit", "kind": "stateExit", "layer": "base",
+             "fromState": "idle"},
+            {"name": "idle_to_active", "kind": "transition", "layer": "base",
+             "fromState": "idle", "toState": "active"},
+            {"name": "active_enter", "kind": "stateEnter", "layer": "base",
+             "toState": "active"}
+          ]
+        }]
+      }
+      ''');
+      final rt = initStateMachineRuntime(orderedData.stateMachines.single);
+      final worlds = computeWorldTransforms(orderedData);
+      final pulseOnlyRt =
+          initStateMachineRuntime(orderedData.stateMachines.single);
+      pulseOnlyRt.dispatchPointerListeners(
+        orderedData,
+        worlds,
+        'noPress',
+        StateMachineListenerKind.pointerDown,
+        0,
+        0,
+      );
+      expect(pulseOnlyRt.getBoolInput('pressed'), isFalse);
+      expect(pulseOnlyRt.events.map((event) => event.listener), [
+        'level_no_press',
+        'pulse_no_press',
+      ]);
+      pulseOnlyRt.update(0.0, preserveEvents: true);
+      expect(pulseOnlyRt.currentState('base'), 'idle');
+
+      final pressedOnlyRt =
+          initStateMachineRuntime(orderedData.stateMachines.single);
+      pressedOnlyRt.dispatchPointerListeners(
+        orderedData,
+        worlds,
+        'noPulse',
+        StateMachineListenerKind.pointerDown,
+        0,
+        0,
+      );
+      expect(pressedOnlyRt.getBoolInput('pressed'), isTrue);
+      expect(pressedOnlyRt.events.map((event) => event.listener), [
+        'level_no_pulse',
+        'press_no_pulse',
+      ]);
+      pressedOnlyRt.update(0.0, preserveEvents: true);
+      expect(pressedOnlyRt.currentState('base'), 'idle');
+
+      rt.dispatchPointerListeners(
+        orderedData,
+        worlds,
+        'default',
+        StateMachineListenerKind.pointerDown,
+        0,
+        0,
+      );
+
+      expect(rt.getNumberInput('level'), closeTo(2.5, 1e-9));
+      expect(rt.getBoolInput('pressed'), isTrue);
+      expect(rt.animationEvents, isEmpty);
+      expect(rt.events.map((event) => event.listener), [
+        'level_down',
+        'pulse_down',
+        'press_down',
+      ]);
+      expect(rt.events.map((event) => event.inputKind), [
+        StateMachineInputKind.number,
+        StateMachineInputKind.trigger,
+        StateMachineInputKind.bool_,
+      ]);
+
+      rt.update(0.0, preserveEvents: true);
+      expect(rt.currentState('base'), 'active');
+      expect(rt.events.map((event) => event.listener), [
+        'level_down',
+        'pulse_down',
+        'press_down',
+        'idle_exit',
+        'idle_to_active',
+        'active_enter',
+      ]);
+
+      rt.update(0.0);
+      expect(rt.currentState('base'), 'active');
+      expect(rt.events, isEmpty);
+    });
+
     test('skips misses and inactive active-skin targets', () {
       final rt = initStateMachineRuntime(pointerMachine);
       final worlds = computeWorldTransforms(pointerData);
