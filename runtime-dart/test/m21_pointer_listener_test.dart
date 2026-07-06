@@ -133,7 +133,7 @@ List<_ReplaySample> _replay(SkeletonData base, List<_StorySample> samples) {
   for (final sample in samples) {
     final pointerKind = sample.pointerKind;
     if (pointerKind != null) {
-      runtime.update(0.0);
+      runtime.clearEvents();
       runtime.dispatchPointerListeners(
         posed,
         worlds,
@@ -257,6 +257,11 @@ void _expectEvents(
       expect(a.fromState, e['fromState'],
           reason: '$label.events[$i].fromState');
       expect(a.toState, e['toState'], reason: '$label.events[$i].toState');
+    } else {
+      expect(a.layer, isEmpty, reason: '$label.events[$i].layer absent');
+      expect(a.fromState, isEmpty,
+          reason: '$label.events[$i].fromState absent');
+      expect(a.toState, isEmpty, reason: '$label.events[$i].toState absent');
     }
     if (e.containsKey('slot')) {
       expect(a.slot, e['slot'], reason: '$label.events[$i].slot');
@@ -271,21 +276,36 @@ void _expectEvents(
       _expectClose(a.pointerY, (e['pointerY'] as num).toDouble(),
           '$label.events[$i].pointerY');
       expect(a.hasPointer, isTrue, reason: '$label.events[$i].hasPointer');
+    } else {
+      expect(a.hasPointer, isFalse,
+          reason: '$label.events[$i].hasPointer absent');
+      expect(a.slot, isEmpty, reason: '$label.events[$i].slot absent');
+      expect(a.target, isEmpty, reason: '$label.events[$i].target absent');
+      expect(a.input, isEmpty, reason: '$label.events[$i].input absent');
     }
     if (e.containsKey('boolValue')) {
       expect(a.hasBoolValue, isTrue, reason: '$label.events[$i].hasBoolValue');
       expect(a.boolValue, e['boolValue'],
           reason: '$label.events[$i].boolValue');
+    } else {
+      expect(a.hasBoolValue, isFalse,
+          reason: '$label.events[$i].hasBoolValue absent');
     }
     if (e.containsKey('numberValue')) {
       expect(a.hasNumberValue, isTrue,
           reason: '$label.events[$i].hasNumberValue');
       _expectClose(a.numberValue, (e['numberValue'] as num).toDouble(),
           '$label.events[$i].numberValue');
+    } else {
+      expect(a.hasNumberValue, isFalse,
+          reason: '$label.events[$i].hasNumberValue absent');
     }
     if (e.containsKey('triggerValue')) {
       expect(a.triggerValue, e['triggerValue'],
           reason: '$label.events[$i].triggerValue');
+    } else {
+      expect(a.triggerValue, isFalse,
+          reason: '$label.events[$i].triggerValue absent');
     }
   }
 }
@@ -340,6 +360,9 @@ void _expectDrawBatches(
         reason: '$label.drawBatches[$i].attachment');
     expect(a.blendMode, e['blendMode'],
         reason: '$label.drawBatches[$i].blendMode');
+    expect(a.texturePage, e['texturePage'],
+        reason: '$label.drawBatches[$i].texturePage');
+    expect(a.clipId, e['clipId'], reason: '$label.drawBatches[$i].clipId');
     _expectAffine(
       a.world,
       e['world'] as Map<String, dynamic>,
@@ -348,6 +371,19 @@ void _expectDrawBatches(
     final vertices = e['vertices'] as List<dynamic>;
     expect(a.vertices, hasLength(vertices.length),
         reason: '$label.drawBatches[$i].vertices');
+    for (var v = 0; v < vertices.length; v++) {
+      final ev = vertices[v] as Map<String, dynamic>;
+      final av = a.vertices[v];
+      final vLabel = '$label.drawBatches[$i].vertices[$v]';
+      _expectClose(av.x, (ev['x'] as num).toDouble(), '$vLabel.x');
+      _expectClose(av.y, (ev['y'] as num).toDouble(), '$vLabel.y');
+      _expectClose(av.u, (ev['u'] as num).toDouble(), '$vLabel.u');
+      _expectClose(av.v, (ev['v'] as num).toDouble(), '$vLabel.v');
+      _expectClose(av.r, (ev['r'] as num).toDouble(), '$vLabel.r');
+      _expectClose(av.g, (ev['g'] as num).toDouble(), '$vLabel.g');
+      _expectClose(av.b, (ev['b'] as num).toDouble(), '$vLabel.b');
+      _expectClose(av.a, (ev['a'] as num).toDouble(), '$vLabel.a');
+    }
     expect(a.indices, (e['indices'] as List<dynamic>).cast<int>(),
         reason: '$label.drawBatches[$i].indices');
   }
@@ -431,6 +467,32 @@ void main() {
               .value,
           isTrue,
         );
+      });
+
+      test('runtime trigger getter and event clear expose only runtime state',
+          () {
+        final story =
+            base.stateMachines.firstWhere((s) => s.name == 'pointer_story');
+        final runtime = initStateMachineRuntime(story);
+        final worlds = computeWorldTransforms(base);
+
+        expect(runtime.getTriggerInput('pulse'), isFalse);
+        expect(() => runtime.getTriggerInput('pressed'), throwsFormatException);
+        expect(() => runtime.getTriggerInput('missing'), throwsFormatException);
+
+        runtime.dispatchPointerListeners(
+          base,
+          worlds,
+          'default',
+          StateMachineListenerKind.pointerEnter,
+          40,
+          0,
+        );
+        expect(runtime.events.map((e) => e.listener), ['box_enter']);
+        runtime.clearEvents();
+        expect(runtime.events, isEmpty);
+        expect(runtime.currentState('main'), 'idle');
+        expect(runtime.getBoolInput('hover'), isTrue);
       });
     });
   }

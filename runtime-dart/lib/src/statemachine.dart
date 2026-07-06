@@ -162,6 +162,10 @@ class StateMachineRuntime {
     throw FormatException('unknown state machine input: $name');
   }
 
+  void clearEvents() {
+    events.clear();
+  }
+
   void setBoolInput(String name, bool value) {
     for (final iv in _inputs) {
       if (iv.name == name) {
