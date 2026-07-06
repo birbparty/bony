@@ -327,7 +327,9 @@ diagnostics only. Duplicate names do not change ordering.
 ## Inactive Constraints
 
 Constraints disabled by `skinRequired`, missing required skin membership, or
-other documented activation rules are skipped when evaluated. They retain their
+other documented activation rules are skipped when evaluated. The active-skin
+membership rules for `skinRequired` constraints are defined in
+`docs/skin-required-activation-contract.md`. Inactive constraints retain their
 canonical position in the update cache.
 
 Skipping an inactive constraint must not collapse, renumber, or reorder any

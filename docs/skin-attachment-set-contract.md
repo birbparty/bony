@@ -11,7 +11,9 @@ names that slots and attachment timelines can select.
 
 This slice is **format and contract only**. It does not add active-skin runtime
 lookup, importer behavior, conformance rigs, Dart parity, linked meshes,
-`inheritDeform`, `skinRequired`, or nested rig playback.
+`inheritDeform`, or nested rig playback. `skinRequired` activation for
+skin-owned bones and constraints is defined separately in
+`docs/skin-required-activation-contract.md`.
 
 ## Model
 
@@ -165,7 +167,8 @@ This slice does not define or implement:
 
 - Runtime active-skin selection or draw-batch lookup.
 - Linked meshes, parent meshes, `inheritDeform`, or mesh inheritance.
-- `skinRequired` constraints or inactive constraint filtering.
+- `skinRequired` bones, constraints, or inactive constraint filtering; see
+  `docs/skin-required-activation-contract.md`.
 - Nested rig runtime playback, nested asset loading, nested armatures, or
   skin-owned bones.
 - Importer mapping behavior for any third-party format.

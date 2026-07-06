@@ -211,7 +211,8 @@ same `fixedDt`, `maxFrameDt`, and `maxSubsteps`.
 - Do not vary `fixedDt` by runtime, frame rate, display refresh rate, or host
   platform.
 - Do not use wall-clock time inside the integrator; only the supplied `dt`.
-- Do not integrate inactive `skinRequired` constraints.
+- Do not integrate inactive `skinRequired` constraints; active-skin membership
+  is defined in `docs/skin-required-activation-contract.md`.
 - When a constraint becomes inactive, preserve its state but do not advance its
   accumulator. When it becomes active again, reset it. A future explicit
   preserve-state API mode may be added, but it is outside the default
