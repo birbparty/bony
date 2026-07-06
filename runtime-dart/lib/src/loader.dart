@@ -3447,10 +3447,22 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
           }
           return machineLayers[layerIndex];
         }
+        bool hasPointerFields() =>
+            obj.props.containsKey(_bkListenerSlotIndex) ||
+            obj.props.containsKey(_bkListenerHelperKind) ||
+            obj.props.containsKey(_bkListenerHelperTarget) ||
+            obj.props.containsKey(_bkListenerInputIndex) ||
+            obj.props.containsKey(_bkListenerBoolValue) ||
+            obj.props.containsKey(_bkListenerNumberValue) ||
+            obj.props.containsKey(_bkListenerHitRadius);
 
         switch (kindTag) {
           case 0:
             final layer = listenerLayer();
+            if (hasPointerFields()) {
+              throw const FormatException(
+                  '.bnb lifecycle listener must not contain pointer fields');
+            }
             if (obj.props.containsKey(_bkListenerFromStateIndex)) {
               throw const FormatException(
                   '.bnb enter listener must not contain from state');
@@ -3467,6 +3479,10 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
             ));
           case 1:
             final layer = listenerLayer();
+            if (hasPointerFields()) {
+              throw const FormatException(
+                  '.bnb lifecycle listener must not contain pointer fields');
+            }
             if (obj.props.containsKey(_bkListenerToStateIndex)) {
               throw const FormatException(
                   '.bnb exit listener must not contain to state');
@@ -3483,6 +3499,10 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
             ));
           case 2:
             final layer = listenerLayer();
+            if (hasPointerFields()) {
+              throw const FormatException(
+                  '.bnb lifecycle listener must not contain pointer fields');
+            }
             machineListeners.add(StateMachineListener(
               name: listenerName,
               kind: StateMachineListenerKind.transition_,
