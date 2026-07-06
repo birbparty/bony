@@ -57,6 +57,27 @@ proc springSkeleton(
     ],
   )
 
+proc skinRequiredPhysicsSkeleton(): SkeletonData =
+  skeletonData(
+    skeletonHeader("phys-required", "1.0.0"),
+    @[
+      boneData("root", ""),
+      boneData("hair", "root", localTransform(x = 3.0)),
+    ],
+    physicsConstraints = @[
+      physicsConstraintData(
+        "sway", "hair", {pcX},
+        skinRequired = true,
+        hasStrength = true, strength = 5.0,
+        hasGravity = true, gravity = 60.0,
+      ),
+    ],
+    skins = @[
+      skinData("default"),
+      skinData("wind", physicsConstraints = @["sway"]),
+    ],
+  )
+
 spec "bony physics evaluation":
   it "is a pose no-op at dt=0 (setup pose)":
     let data = springSkeleton(strength = 10.0, gravity = 60.0)
@@ -348,3 +369,32 @@ spec "bony physics evaluation":
       raisesBonyLoadError(proc() =
         var s: seq[PhysicsConstraintState] = @[]
         discard advancePhysics(data, s, physicsFixedDt))
+
+  it "preserves inactive required physics state and resets on reactivation":
+    let data = skinRequiredPhysicsSkeleton()
+    var states = newPhysicsStates(data)
+
+    discard advancePhysics(data, states, physicsFixedDt, "wind")
+    let offsetBefore = states[0].channels[pcX].offset
+    let velocityBefore = states[0].channels[pcX].velocity
+    let previousTargetBefore = states[0].channels[pcX].previousTarget
+    let accumulatorBefore = states[0].accumulator
+    let inactiveWorlds = advancePhysics(data, states, physicsMaxFrameDt, "default")
+
+    then:
+      offsetBefore > 1e-4
+      closeTo(states[0].channels[pcX].offset, offsetBefore)
+      closeTo(states[0].channels[pcX].velocity, velocityBefore)
+      closeTo(states[0].channels[pcX].previousTarget, previousTargetBefore)
+      closeTo(states[0].accumulator, accumulatorBefore)
+      not states[0].active
+      closeWithin(inactiveWorlds[1].tx, 3.0, 1e-9)
+
+    let resetWorlds = advancePhysics(data, states, 0.0, "wind")
+    then:
+      states[0].active
+      closeTo(states[0].channels[pcX].offset, 0.0)
+      closeTo(states[0].channels[pcX].velocity, 0.0)
+      closeTo(states[0].channels[pcX].previousTarget, 3.0)
+      closeTo(states[0].accumulator, 0.0)
+      closeWithin(resetWorlds[1].tx, 3.0, 1e-9)

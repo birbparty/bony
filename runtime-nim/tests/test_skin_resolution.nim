@@ -1,4 +1,4 @@
-import std/[strutils]
+import std/[strutils, tables]
 
 import bddy
 import bony
@@ -15,6 +15,9 @@ proc raisesBonyLoadError(action: proc(); kind: BonyLoadErrorKind): bool =
 proc closeTo(actual, expected: float64): bool =
   abs(actual - expected) <= 1e-9
 
+proc near(actual, expected: float64): bool =
+  abs(actual - expected) <= 1e-6
+
 
 proc skinRegionFixture(): SkeletonData =
   skeletonData(
@@ -28,6 +31,96 @@ proc skinRegionFixture(): SkeletonData =
     skins = @[
       skinData("default", @[skinEntryData("body", "body", "body_default_region")]),
       skinData("armor", @[skinEntryData("body", "body", "body_armor_region")]),
+    ],
+  )
+
+
+proc requiredRuntimeFixture(): SkeletonData =
+  let mesh = meshAttachmentData(
+    "weighted_banner",
+    @[meshUv(0.0, 0.0), meshUv(1.0, 0.0), meshUv(0.0, 1.0)],
+    @[0'u16, 1'u16, 2'u16],
+    @[
+      weightedMeshVertex(@[meshInfluence("gear", 0.0, 0.0, 1.0)]),
+      weightedMeshVertex(@[meshInfluence("gear", 2.0, 0.0, 1.0)]),
+      weightedMeshVertex(@[meshInfluence("gear", 0.0, 2.0, 1.0)]),
+    ],
+    true,
+  )
+  skeletonData(
+    skeletonHeader("skin-required-runtime", "1.0.0"),
+    @[
+      boneData("root", ""),
+      boneData("gear", "root", localTransform(x = 5.0), skinRequired = true),
+    ],
+    @[
+      slotData("badge", "gear", "badge"),
+      slotData("hit", "gear", "hit"),
+      slotData("childHost", "gear", "child"),
+      slotData("banner", "root", "banner"),
+    ],
+    @[regionAttachment("badge_region", 2.0, 2.0)],
+    skins = @[
+      skinData("default", @[
+        skinEntryData("badge", "badge", "badge_region"),
+        skinEntryData("hit", "hit", "hit_point"),
+        skinEntryData("childHost", "child", "child_rig"),
+        skinEntryData("banner", "banner", "weighted_banner"),
+      ]),
+      skinData("gearSkin", bones = @["gear"]),
+    ],
+    pointAttachments = @[pointAttachmentData("hit_point", 1.0, 0.0, 0.0)],
+    nestedRigAttachments = @[nestedRigAttachmentData("child_rig", "child")],
+    meshAttachments = @[mesh],
+  )
+
+
+proc childRuntimeFixture(): SkeletonData =
+  skeletonData(
+    skeletonHeader("child", "1.0.0"),
+    @[boneData("root", "")],
+    @[slotData("childSlot", "root", "child")],
+    @[regionAttachment("child", 1.0, 1.0)],
+  )
+
+
+proc inactiveConstraintFixture(): SkeletonData =
+  skeletonData(
+    skeletonHeader("inactive-constraints", "1.0.0"),
+    @[
+      boneData("root", ""),
+      boneData("ikBone", "root", localTransform(x = 1.0)),
+      boneData("ikTarget", "root", localTransform(x = 1.0, y = 5.0)),
+      boneData("copyBone", "root", localTransform(x = 2.0)),
+      boneData("copyTarget", "root", localTransform(x = 8.0)),
+      boneData("pathBone", "root", localTransform(x = 3.0)),
+      boneData("pathTarget", "root"),
+      boneData("laterBone", "root", localTransform(x = 4.0)),
+      boneData("laterTarget", "root", localTransform(x = 11.0)),
+    ],
+    pathAttachments = @[
+      pathAttachmentData("rail", 0.0, 0.0, 10.0, 0.0, 20.0, 0.0, 30.0, 0.0),
+    ],
+    ikConstraints = @[
+      ikConstraintData("inactiveIk", "ikTarget", @["ikBone"], skinRequired = true),
+    ],
+    transformConstraints = @[
+      transformConstraintData("inactiveTransform", "copyBone", "copyTarget",
+        skinRequired = true, hasTranslateMix = true, translateMix = 1.0),
+      transformConstraintData("laterActive", "laterBone", "laterTarget",
+        order = 1, hasTranslateMix = true, translateMix = 1.0),
+    ],
+    paths = @[
+      pathConstraintData("inactivePath", "pathBone", "pathTarget", "rail",
+        skinRequired = true, hasPosition = true, position = 1.0,
+        hasTranslateMix = true, translateMix = 1.0),
+    ],
+    skins = @[
+      skinData("default"),
+      skinData("constraintSkin",
+        ikConstraints = @["inactiveIk"],
+        transformConstraints = @["inactiveTransform"],
+        pathConstraints = @["inactivePath"]),
     ],
   )
 
@@ -129,7 +222,6 @@ spec "Nim skin attachment resolution":
     let data = skinRegionFixture()
     let defaultBatch = buildDrawBatches(data)[0]
     let armorBatch = buildDrawBatches(data, "armor")[0]
-    let missingSkinBatch = buildDrawBatches(data, "missing")[0]
 
     then:
       defaultBatch.slot == "body"
@@ -138,7 +230,7 @@ spec "Nim skin attachment resolution":
       armorBatch.slot == "body"
       armorBatch.attachment == "body_armor_region"
       closeTo(armorBatch.vertices[0].x, -2.0)
-      missingSkinBatch.attachment == "body_default_region"
+      raisesBonyLoadError(proc() = discard buildDrawBatches(data, "missing"), unknownRequiredReference)
 
   it "accepts non-default deform timelines that resolve through skin fallback":
     let asset = loadBonyJsonAsset(skinnedMeshJson)
@@ -229,3 +321,54 @@ spec "Nim skin attachment resolution":
       raisesBonyLoadError(proc() = discard loadBonyJson(missingRequiredParent), schemaViolation)
       raisesBonyLoadError(proc() = discard loadBonyJson(requiredConstraintMissingDependency), schemaViolation)
       raisesBonyLoadError(proc() = discard loadBonyJson(nonRequiredConstraintWithInactiveDependency), schemaViolation)
+
+  it "computes active membership from default plus active skin":
+    let data = requiredRuntimeFixture()
+    let inactive = activeSkinMembership(data)
+    let active = activeSkinMembership(data, "gearSkin")
+
+    then:
+      inactive.activeSkin == "default"
+      inactive.bones == @[true, false]
+      active.bones == @[true, true]
+
+  it "suppresses inactive required slot content, helpers, nested hosts, and mesh influences":
+    let data = requiredRuntimeFixture()
+    let child = childRuntimeFixture()
+    var children = initTable[string, SkeletonData]()
+    children["child"] = child
+
+    let inactiveWorlds = computeWorldTransforms(data)
+    let activeWorlds = computeWorldTransforms(data, "gearSkin")
+    let inactiveBatches = buildDrawBatches(data)
+    let activeBatches = buildDrawBatches(data, "gearSkin")
+    let inactiveNested = buildNestedDrawBatches(data, children)
+    let activeNested = buildNestedDrawBatches(data, children, "gearSkin")
+    let activePoint = worldPointAttachmentPose(data, activeWorlds, "hit", "hit", "gearSkin")
+
+    then:
+      inactiveBatches.len == 0
+      activeBatches.len == 2
+      activeBatches[0].slot == "badge"
+      activeBatches[1].slot == "banner"
+      inactiveNested.len == 0
+      activeNested.len == 3
+      near(activePoint.x, 6.0)
+      raisesBonyLoadError(
+        proc() = discard worldPointAttachmentPose(data, inactiveWorlds, "hit", "hit"),
+        unknownRequiredReference)
+
+  it "keeps inactive IK, transform, and path constraints as no-op cache entries":
+    let data = inactiveConstraintFixture()
+    let inactiveWorlds = computeWorldTransforms(data)
+    let activeWorlds = computeWorldTransforms(data, "constraintSkin")
+
+    then:
+      near(inactiveWorlds[1].tx, 1.0)
+      near(inactiveWorlds[1].ty, 0.0)
+      near(inactiveWorlds[3].tx, 2.0)
+      near(inactiveWorlds[5].tx, 3.0)
+      near(inactiveWorlds[7].tx, 11.0)
+      near(activeWorlds[3].tx, 8.0)
+      near(activeWorlds[5].tx, 30.0)
+      near(activeWorlds[7].tx, 11.0)

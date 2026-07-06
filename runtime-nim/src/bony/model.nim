@@ -326,6 +326,17 @@ type
     vertices*: seq[DrawVertex]
     indices*: seq[uint16]
 
+  ActiveSkinMembership* = object
+    ## Runtime active-skin membership after unioning "default" with the selected
+    ## active skin and applying dependency closure. Each sequence is indexed by
+    ## the matching SkeletonData source sequence.
+    activeSkin*: string
+    bones*: seq[bool]
+    ikConstraints*: seq[bool]
+    transformConstraints*: seq[bool]
+    pathConstraints*: seq[bool]
+    physicsConstraints*: seq[bool]
+
   SkeletonData* = object
     header: SkeletonHeader
     bones: seq[BoneData]
@@ -1088,6 +1099,103 @@ proc resolveSkinAttachmentTarget*(data: SkeletonData; activeSkin, slotName, atta
             return entry.target
         break
   ""
+
+
+proc addMembership(dest: var HashSet[string]; refs: openArray[string]) =
+  for refName in refs:
+    dest.incl(refName)
+
+
+proc runtimeSkinMembership(
+  data: SkeletonData;
+  activeSkin: string;
+): tuple[
+  bones: HashSet[string],
+  ikConstraints: HashSet[string],
+  transformConstraints: HashSet[string],
+  pathConstraints: HashSet[string],
+  physicsConstraints: HashSet[string],
+] =
+  if data.skins.len == 0:
+    if activeSkin != "default":
+      raise newBonyLoadError(unknownRequiredReference, "unknown active skin: " & activeSkin)
+    return
+
+  var foundDefault = false
+  var foundActive = activeSkin == "default"
+  for skin in data.skins:
+    if skin.name == "default":
+      result.bones.addMembership(skin.bones)
+      result.ikConstraints.addMembership(skin.ikConstraints)
+      result.transformConstraints.addMembership(skin.transformConstraints)
+      result.pathConstraints.addMembership(skin.pathConstraints)
+      result.physicsConstraints.addMembership(skin.physicsConstraints)
+      foundDefault = true
+      break
+  if not foundDefault:
+    raise newBonyLoadError(schemaViolation, "skins must contain default skin")
+
+  if activeSkin != "default":
+    for skin in data.skins:
+      if skin.name == activeSkin:
+        result.bones.addMembership(skin.bones)
+        result.ikConstraints.addMembership(skin.ikConstraints)
+        result.transformConstraints.addMembership(skin.transformConstraints)
+        result.pathConstraints.addMembership(skin.pathConstraints)
+        result.physicsConstraints.addMembership(skin.physicsConstraints)
+        foundActive = true
+        break
+  if not foundActive:
+    raise newBonyLoadError(unknownRequiredReference, "unknown active skin: " & activeSkin)
+
+
+proc activeSkinMembership*(data: SkeletonData; activeSkin = "default"): ActiveSkinMembership =
+  ## Compute effectively active bones and constraints for the selected runtime
+  ## skin. Required membership is the union of "default" plus activeSkin; a
+  ## required item outside that union is inactive. Non-required items are active
+  ## unless one of their runtime dependencies is inactive.
+  let membership = data.runtimeSkinMembership(activeSkin)
+  var boneByName = initTable[string, int]()
+  result.activeSkin = activeSkin
+  result.bones = newSeq[bool](data.bones.len)
+  result.ikConstraints = newSeq[bool](data.ikConstraints.len)
+  result.transformConstraints = newSeq[bool](data.transformConstraints.len)
+  result.pathConstraints = newSeq[bool](data.paths.len)
+  result.physicsConstraints = newSeq[bool](data.physicsConstraints.len)
+
+  for index, bone in data.bones:
+    boneByName[bone.name] = index
+    let directlyActive = (not bone.skinRequired) or bone.name in membership.bones
+    let parentActive =
+      bone.parent.len == 0 or (bone.parent in boneByName and result.bones[boneByName[bone.parent]])
+    result.bones[index] = directlyActive and parentActive
+
+  let activeBones = result.bones
+  proc isBoneActive(name: string): bool =
+    if name notin boneByName:
+      return false
+    activeBones[boneByName[name]]
+
+  for index, ik in data.ikConstraints:
+    var depsActive = ik.target.isBoneActive()
+    for boneName in ik.bones:
+      depsActive = depsActive and boneName.isBoneActive()
+    result.ikConstraints[index] =
+      ((not ik.skinRequired) or ik.name in membership.ikConstraints) and depsActive
+
+  for index, tc in data.transformConstraints:
+    result.transformConstraints[index] =
+      ((not tc.skinRequired) or tc.name in membership.transformConstraints) and
+      tc.bone.isBoneActive() and tc.target.isBoneActive()
+
+  for index, path in data.paths:
+    result.pathConstraints[index] =
+      ((not path.skinRequired) or path.name in membership.pathConstraints) and
+      path.bone.isBoneActive() and path.target.isBoneActive()
+
+  for index, pc in data.physicsConstraints:
+    result.physicsConstraints[index] =
+      ((not pc.skinRequired) or pc.name in membership.physicsConstraints) and pc.bone.isBoneActive()
 
 
 proc modeForFlags*(inheritRotation, inheritScale, inheritReflection: bool): TransformMode =

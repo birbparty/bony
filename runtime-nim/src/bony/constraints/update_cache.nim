@@ -166,7 +166,10 @@ proc buildPhysicsConstraintOrder*(descriptors: openArray[ConstraintCacheDescript
   result.sort(compareConstraintEntries)
 
 
-proc buildRuntimeConstraintUpdateCache*(data: SkeletonData): seq[ConstraintUpdateCacheEntry] =
+proc buildRuntimeConstraintUpdateCache*(
+  data: SkeletonData;
+  activation: ActiveSkinMembership;
+): seq[ConstraintUpdateCacheEntry] =
   ## Single combined builder for every runtime-evaluable constraint kind, so the
   ## generic buildConstraintUpdateCache orders them together (ckIk before ckPath
   ## per docs/constraint-total-order.md). Do NOT build a second independent IK
@@ -176,11 +179,21 @@ proc buildRuntimeConstraintUpdateCache*(data: SkeletonData): seq[ConstraintUpdat
   var descriptors: seq[ConstraintCacheDescriptor]
   for index, path in data.paths:
     let reads = if path.runtimeEvaluable: @[path.target] else: @[]
-    descriptors.add constraintCacheDescriptor(ckPath, path.order, index, [path.bone], reads = reads)
+    descriptors.add constraintCacheDescriptor(
+      ckPath, path.order, index, [path.bone], reads = reads,
+      active = activation.pathConstraints[index])
   for index, ik in data.ikConstraints:
     let reads = if ik.runtimeEvaluable: @[ik.target] else: @[]
-    descriptors.add constraintCacheDescriptor(ckIk, ik.order, index, ik.bones, reads = reads)
+    descriptors.add constraintCacheDescriptor(
+      ckIk, ik.order, index, ik.bones, reads = reads,
+      active = activation.ikConstraints[index])
   for index, tc in data.transformConstraints:
     let reads = if tc.runtimeEvaluable: @[tc.target] else: @[]
-    descriptors.add constraintCacheDescriptor(ckTransform, tc.order, index, [tc.bone], reads = reads)
+    descriptors.add constraintCacheDescriptor(
+      ckTransform, tc.order, index, [tc.bone], reads = reads,
+      active = activation.transformConstraints[index])
   buildConstraintUpdateCache(data.bones, descriptors)
+
+
+proc buildRuntimeConstraintUpdateCache*(data: SkeletonData): seq[ConstraintUpdateCacheEntry] =
+  buildRuntimeConstraintUpdateCache(data, activeSkinMembership(data))

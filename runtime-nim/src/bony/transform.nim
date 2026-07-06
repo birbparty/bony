@@ -171,7 +171,10 @@ proc applyRuntimeTransformConstraint(
 )
 
 
-proc computeWorldsAndLocals(data: SkeletonData): tuple[worlds: seq[Affine2]; locals: seq[LocalTransform]] =
+proc computeWorldsAndLocals(
+  data: SkeletonData;
+  activation: ActiveSkinMembership;
+): tuple[worlds: seq[Affine2]; locals: seq[LocalTransform]] =
   ## Core world-transform pass. Returns BOTH the world affines and the final
   ## per-bone local transforms (which the ik/path/transform constraints may have
   ## rewritten). The physics stage needs the constraint-adjusted locals as its
@@ -196,7 +199,7 @@ proc computeWorldsAndLocals(data: SkeletonData): tuple[worlds: seq[Affine2]; loc
   if hasRuntimeConstraints:
     let indexes = data.boneIndexes()
     let attachments = data.pathByName()
-    let cache = buildRuntimeConstraintUpdateCache(data)
+    let cache = buildRuntimeConstraintUpdateCache(data, activation)
     var locals: seq[LocalTransform]
     for bone in data.bones:
       locals.add bone.local
@@ -206,14 +209,20 @@ proc computeWorldsAndLocals(data: SkeletonData): tuple[worlds: seq[Affine2]; loc
       case entry.kind
       of ccekBoneGroup:
         for index in entry.bones:
+          if not activation.bones[index]:
+            continue
           let bone = data.bones[index]
           if bone.parent.len == 0:
             worlds[index] = worldForBone(Affine2(a: 1.0, d: 1.0), boneData(bone.name, "", locals[index]), false)
           else:
             let parentIndex = indexes[bone.parent]
+            if not activation.bones[parentIndex]:
+              continue
             worlds[index] = worldForBone(worlds[parentIndex], boneData(bone.name, bone.parent, locals[index]), true)
           computed[index] = true
       of ccekConstraint:
+        if not entry.active:
+          continue
         case entry.constraint.kind
         of ckPath:
           let path = data.paths[entry.constraint.sourceIndex]
@@ -236,19 +245,33 @@ proc computeWorldsAndLocals(data: SkeletonData): tuple[worlds: seq[Affine2]; loc
   var locals = newSeq[LocalTransform](bones.len)
   for index, bone in bones:
     locals[index] = bone.local
+    if not activation.bones[index]:
+      byName[bone.name] = index
+      continue
     if bone.parent.len == 0:
       worlds[index] = worldForBone(Affine2(a: 1.0, d: 1.0), bone, false)
     else:
       let parentIndex = byName[bone.parent]
+      if not activation.bones[parentIndex]:
+        byName[bone.name] = index
+        continue
       worlds[index] = worldForBone(worlds[parentIndex], bone, true)
     byName[bone.name] = index
   (worlds: worlds, locals: locals)
 
 
+proc computeWorldsAndLocals(data: SkeletonData): tuple[worlds: seq[Affine2]; locals: seq[LocalTransform]] =
+  computeWorldsAndLocals(data, activeSkinMembership(data))
+
+
+proc computeWorldTransforms*(data: SkeletonData; activeSkin: string): seq[Affine2] =
+  computeWorldsAndLocals(data, activeSkinMembership(data, activeSkin)).worlds
+
+
 proc computeWorldTransforms*(data: SkeletonData): seq[Affine2] =
   ## Pure world-transform pass (no time, no mutable state). Used by setup-pose /
   ## t=0 callers and every existing M1-M9 golden. Unchanged by physics work.
-  computeWorldsAndLocals(data).worlds
+  computeWorldTransforms(data, "default")
 
 
 proc transformPoint(world: Affine2; x, y: float64): tuple[x: float64, y: float64] =
@@ -308,12 +331,35 @@ proc helperPoint*(x, y: float64): HelperPoint =
 
 
 proc slotBoneWorld(data: SkeletonData; worlds: openArray[Affine2]; slotName: string): Affine2 =
+  let activation = activeSkinMembership(data)
   for slot in data.slots:
     if slot.name == slotName:
       for boneIndex, bone in data.bones:
         if bone.name == slot.bone:
           if boneIndex >= worlds.len:
             raise newBonyLoadError(schemaViolation, "helper query world transform count does not match skeleton bones")
+          if not activation.bones[boneIndex]:
+            raise newBonyLoadError(unknownRequiredReference, "helper query slot is inactive: " & slotName)
+          return worlds[boneIndex]
+      raise newBonyLoadError(unknownRequiredReference, "helper query slot references unknown bone: " & slot.bone)
+  raise newBonyLoadError(unknownRequiredReference, "helper query references unknown slot: " & slotName)
+
+
+proc slotBoneWorld(
+  data: SkeletonData;
+  worlds: openArray[Affine2];
+  slotName: string;
+  activeSkin: string;
+): Affine2 =
+  let activation = activeSkinMembership(data, activeSkin)
+  for slot in data.slots:
+    if slot.name == slotName:
+      for boneIndex, bone in data.bones:
+        if bone.name == slot.bone:
+          if boneIndex >= worlds.len:
+            raise newBonyLoadError(schemaViolation, "helper query world transform count does not match skeleton bones")
+          if not activation.bones[boneIndex]:
+            raise newBonyLoadError(unknownRequiredReference, "helper query slot is inactive: " & slotName)
           return worlds[boneIndex]
       raise newBonyLoadError(unknownRequiredReference, "helper query slot references unknown bone: " & slot.bone)
   raise newBonyLoadError(unknownRequiredReference, "helper query references unknown slot: " & slotName)
@@ -324,10 +370,15 @@ proc worldPointAttachmentPose*(
   worlds: openArray[Affine2];
   slotName: string;
   attachmentName: string;
+  activeSkin = "default";
 ): HelperPointPose =
-  let world = data.slotBoneWorld(worlds, slotName)
+  let world = data.slotBoneWorld(worlds, slotName, activeSkin)
+  let resolvedAttachment = data.resolveSkinAttachmentTarget(activeSkin, slotName, attachmentName)
+  let targetAttachment =
+    if data.skins.len > 0: resolvedAttachment
+    else: attachmentName
   for point in data.pointAttachments:
-    if point.name == attachmentName:
+    if point.name == targetAttachment:
       let pos = transformPoint(world, point.x, point.y)
       return HelperPointPose(
         x: pos.x,
@@ -342,10 +393,15 @@ proc worldBoundingBoxAttachmentPolygon*(
   worlds: openArray[Affine2];
   slotName: string;
   attachmentName: string;
+  activeSkin = "default";
 ): seq[HelperPoint] =
-  let world = data.slotBoneWorld(worlds, slotName)
+  let world = data.slotBoneWorld(worlds, slotName, activeSkin)
+  let resolvedAttachment = data.resolveSkinAttachmentTarget(activeSkin, slotName, attachmentName)
+  let targetAttachment =
+    if data.skins.len > 0: resolvedAttachment
+    else: attachmentName
   for box in data.boundingBoxAttachments:
-    if box.name == attachmentName:
+    if box.name == targetAttachment:
       let vertices = box.vertices
       for index in countup(0, vertices.len - 2, 2):
         let pos = transformPoint(world, vertices[index], vertices[index + 1])
@@ -398,10 +454,11 @@ proc pointerHitsPointTarget*(
   slotName: string;
   attachmentName: string;
   x, y, hitRadius: float64;
+  activeSkin = "default";
 ): bool =
   if hitRadius < 0.0:
     raise newBonyLoadError(schemaViolation, "point helper hit radius must be non-negative")
-  let pose = data.worldPointAttachmentPose(worlds, slotName, attachmentName)
+  let pose = data.worldPointAttachmentPose(worlds, slotName, attachmentName, activeSkin)
   hypot(x - pose.x, y - pose.y) <= hitRadius
 
 
@@ -411,8 +468,9 @@ proc pointerHitsBoundingBoxTarget*(
   slotName: string;
   attachmentName: string;
   x, y: float64;
+  activeSkin = "default";
 ): bool =
-  let polygon = data.worldBoundingBoxAttachmentPolygon(worlds, slotName, attachmentName)
+  let polygon = data.worldBoundingBoxAttachmentPolygon(worlds, slotName, attachmentName, activeSkin)
   pointInHelperPolygon(HelperPoint(x: x, y: y), polygon)
 
 
@@ -881,6 +939,7 @@ proc recomputeWorldsFromLocals(
   data: SkeletonData;
   locals: seq[LocalTransform];
   indexes: Table[string, int];
+  activation: ActiveSkinMembership;
 ): seq[Affine2] =
   ## Plain FK from the physics-adjusted locals. Bones are validated parent-before
   ## -child, so a single array pass recomputes every world (and every physics-
@@ -888,10 +947,15 @@ proc recomputeWorldsFromLocals(
   ## left behind.
   result = newSeq[Affine2](data.bones.len)
   for index, bone in data.bones:
+    if not activation.bones[index]:
+      continue
     if bone.parent.len == 0:
       result[index] = worldForBone(Affine2(a: 1.0, d: 1.0), boneData(bone.name, "", locals[index]), false)
     else:
-      result[index] = worldForBone(result[indexes[bone.parent]], boneData(bone.name, bone.parent, locals[index]), true)
+      let parentIndex = indexes[bone.parent]
+      if not activation.bones[parentIndex]:
+        continue
+      result[index] = worldForBone(result[parentIndex], boneData(bone.name, bone.parent, locals[index]), true)
 
 
 proc newPhysicsStates*(data: SkeletonData): seq[PhysicsConstraintState] =
@@ -906,6 +970,7 @@ proc advancePhysics*(
   data: SkeletonData;
   states: var seq[PhysicsConstraintState];
   dt: float64;
+  activeSkin = "default";
 ): seq[Affine2] =
   ## Stateful advance seam: bony's only time- and state-dependent pose entry
   ## point. Runs the pure world-transform/constraint pass to produce the animated
@@ -918,14 +983,15 @@ proc advancePhysics*(
   # any physics constraint is present, so callers get the same contract either way.
   if dt < 0.0:
     raise newBonyLoadError(schemaViolation, "physics advance dt must be non-negative")
+  let activation = activeSkinMembership(data, activeSkin)
   if data.physicsConstraints.len == 0:
-    return computeWorldTransforms(data)
+    return computeWorldTransforms(data, activeSkin)
   if states.len != data.physicsConstraints.len:
     raise newBonyLoadError(schemaViolation,
       "physics state count (" & $states.len & ") does not match physics constraint count (" &
       $data.physicsConstraints.len & ")")
 
-  var (worlds, locals) = computeWorldsAndLocals(data)
+  var (worlds, locals) = computeWorldsAndLocals(data, activation)
   let indexes = data.boneIndexes()
 
   # Deterministic physics-stage order (docs/constraint-total-order.md). Reads the
@@ -940,6 +1006,9 @@ proc advancePhysics*(
 
   for entry in order:
     let pc = data.physicsConstraints[entry.sourceIndex]
+    if not activation.physicsConstraints[entry.sourceIndex]:
+      states[entry.sourceIndex].active = false
+      continue
     let boneIndex = indexes[pc.bone]
     var inputs: seq[PhysicsChannelInput]
     for channel in pc.channels:
@@ -957,7 +1026,7 @@ proc advancePhysics*(
     for output in res.outputs:
       locals[boneIndex] = withPhysicsChannel(locals[boneIndex], output.channel, output.value)
 
-  worlds = recomputeWorldsFromLocals(data, locals, indexes)
+  worlds = recomputeWorldsFromLocals(data, locals, indexes, activation)
   worlds
 
 
@@ -1029,6 +1098,7 @@ proc buildDrawBatchBuild(
     raise newBonyLoadError(schemaViolation,
       "buildDrawBatches: worlds length " & $worlds.len &
       " must match bone count " & $data.bones.len)
+  let activation = activeSkinMembership(data, activeSkin)
   var batches: seq[DrawBatch] = @[]
   var boneIndex = initTable[string, int]()
   var regions = initTable[string, RegionAttachment]()
@@ -1054,6 +1124,15 @@ proc buildDrawBatchBuild(
   for override in data.deformOverrides:
     deformBySlotAttachment[override.slot & "\0" & override.attachment] = override
 
+  proc meshInfluencesAreActive(mesh: MeshAttachment): bool =
+    for vertex in mesh.vertices:
+      for influence in vertex.influences:
+        if influence.bone notin boneIndex:
+          raise newBonyLoadError(unknownRequiredReference, "mesh influence references unknown bone: " & influence.bone)
+        if not activation.bones[boneIndex[influence.bone]]:
+          return false
+    true
+
   var slotIndexByName = initTable[string, int]()
   var resolvedSlotAttachment = newSeq[string](data.slots.len)
   for index, slot in data.slots:
@@ -1066,6 +1145,9 @@ proc buildDrawBatchBuild(
   var batchClipPerTriangle: seq[bool] = @[]
   for slotIdx, slot in data.slots:
     if slot.attachment.len == 0:
+      continue
+    let slotBoneIndex = boneIndex[slot.bone]
+    if not activation.bones[slotBoneIndex]:
       continue
     let attachment = data.resolveSkinAttachmentTarget(activeSkin, slot.name, slot.attachment)
     resolvedSlotAttachment[slotIdx] = attachment
@@ -1084,6 +1166,8 @@ proc buildDrawBatchBuild(
       # fields (texturePage/blendMode/clipId/world) mirror the region path so a
       # region and a mesh on the same slot are indistinguishable there.
       let mesh = meshes[attachment]
+      if not meshInfluencesAreActive(mesh):
+        continue
       # `world` is the slot-bone world used only as batch metadata (mirroring the
       # region path); it does NOT transform the mesh vertices. Skinning consumes
       # the full `worlds` array directly — a weighted vertex blends across its
@@ -1134,7 +1218,7 @@ proc buildDrawBatchBuild(
       let hostWorld = worlds[boneIndex[slot.bone]]
       let childBuild = buildDrawBatchBuild(
         child,
-        computeWorldTransforms(child),
+        computeWorldTransforms(child, childSkin),
         childSkin,
         children,
         true,
@@ -1182,6 +1266,9 @@ proc buildDrawBatchBuild(
   if data.clippingAttachments.len > 0:
     let lastSlotIndex = data.slots.len - 1
     for slotIdx, slot in data.slots:
+      let slotBoneIndex = boneIndex[slot.bone]
+      if not activation.bones[slotBoneIndex]:
+        continue
       let attachment = resolvedSlotAttachment[slotIdx]
       if attachment.len == 0 or not clips.hasKey(attachment):
         continue
@@ -1192,7 +1279,7 @@ proc buildDrawBatchBuild(
         else: lastSlotIndex
       # Clip polygon in world space via the clip's own slot's bone world — the
       # same transform the covered region quads are built with.
-      let clipWorld = worlds[boneIndex[slot.bone]]
+      let clipWorld = worlds[slotBoneIndex]
       var clipPolygon: seq[ClipPoint] = @[]
       var p = 0
       while p + 1 < clip.vertices.len:
@@ -1263,7 +1350,7 @@ proc buildDrawBatches*(data: SkeletonData): seq[DrawBatch] =
 
 proc buildDrawBatches*(data: SkeletonData; activeSkin: string): seq[DrawBatch] =
   ## Convenience overload for runtime skin selection with pure world transforms.
-  buildDrawBatches(data, computeWorldTransforms(data), activeSkin)
+  buildDrawBatches(data, computeWorldTransforms(data, activeSkin), activeSkin)
 
 
 proc buildNestedDrawBatches*(
@@ -1273,4 +1360,4 @@ proc buildNestedDrawBatches*(
 ): seq[DrawBatch] =
   ## Convenience overload for setup-pose nested composition with pure world
   ## transforms.
-  buildNestedDrawBatches(data, computeWorldTransforms(data), children, activeSkin)
+  buildNestedDrawBatches(data, computeWorldTransforms(data, activeSkin), children, activeSkin)
