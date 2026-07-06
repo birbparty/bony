@@ -150,6 +150,18 @@ class StateMachineRuntime {
     throw FormatException('unknown state machine input: $name');
   }
 
+  bool getTriggerInput(String name) {
+    for (final iv in _inputs) {
+      if (iv.name == name) {
+        if (iv.kind != StateMachineInputKind.trigger) {
+          throw FormatException('state machine input is not trigger: $name');
+        }
+        return iv.boolValue;
+      }
+    }
+    throw FormatException('unknown state machine input: $name');
+  }
+
   void setBoolInput(String name, bool value) {
     for (final iv in _inputs) {
       if (iv.name == name) {
