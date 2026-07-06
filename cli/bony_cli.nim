@@ -1527,7 +1527,7 @@ proc executeStateMachineScript(
       let pointerPosed = data.applyRenderablePose(pointerEvaluated.pose)
       if not pointerPosed.hasSkin(script.activeSkin):
         raise newBonyLoadError(unknownRequiredReference, "unknown active skin: " & script.activeSkin)
-      let pointerWorlds = computeWorldTransforms(pointerPosed)
+      let pointerWorlds = computeWorldTransforms(pointerPosed, script.activeSkin)
       runtime.dispatchPointerListeners(
         pointerPosed,
         pointerWorlds,
@@ -1541,7 +1541,7 @@ proc executeStateMachineScript(
     let posed = data.applyRenderablePose(evaluated.pose)
     if not posed.hasSkin(script.activeSkin):
       raise newBonyLoadError(unknownRequiredReference, "unknown active skin: " & script.activeSkin)
-    let worlds = advancePhysics(posed, physicsStates, sample.time - previousTime)
+    let worlds = advancePhysics(posed, physicsStates, sample.time - previousTime, script.activeSkin)
     var sampleEvents: seq[DispatchedEvent]
     for layerIndex in 0 ..< runtime.layers.len:
       let layerRt = runtime.layers[layerIndex]

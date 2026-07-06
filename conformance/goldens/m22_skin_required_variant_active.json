@@ -1,0 +1,326 @@
+{
+  "format": "bony.numeric-golden.v1",
+  "skeleton": "m22-skin-required-rig",
+  "version": "1.0.0",
+  "time": 0.10000000149011612,
+  "stateMachine": "skin_required_story",
+  "sample": "active",
+  "inputs": [],
+  "layers": [
+    {
+      "name": "base",
+      "state": "hold",
+      "time": 0.0,
+      "pose": {
+        "scalars": [],
+        "vectors": [],
+        "attachments": [],
+        "inherits": [],
+        "colors": [],
+        "colors2": [],
+        "sequences": []
+      }
+    }
+  ],
+  "events": [],
+  "bones": [
+    {
+      "name": "root",
+      "parent": "",
+      "world": {
+        "a": 1.0,
+        "b": 0.0,
+        "c": 6.123233995736766e-17,
+        "d": 1.0,
+        "tx": 0.0,
+        "ty": 0.0
+      }
+    },
+    {
+      "name": "shared_helper",
+      "parent": "root",
+      "world": {
+        "a": 1.0,
+        "b": 0.0,
+        "c": 1.2246467991473532e-16,
+        "d": 1.0,
+        "tx": 10.0,
+        "ty": 0.0
+      }
+    },
+    {
+      "name": "variant_extra",
+      "parent": "shared_helper",
+      "world": {
+        "a": 1.0,
+        "b": 0.0,
+        "c": 1.8369701987210297e-16,
+        "d": 1.0,
+        "tx": 10.000000000000002,
+        "ty": 20.0
+      }
+    },
+    {
+      "name": "ik_bone",
+      "parent": "root",
+      "world": {
+        "a": 1.2246467991473532e-16,
+        "b": 1.0,
+        "c": -1.0,
+        "d": 1.2246467991473532e-16,
+        "tx": 30.0,
+        "ty": 0.0
+      }
+    },
+    {
+      "name": "ik_target",
+      "parent": "root",
+      "world": {
+        "a": 1.0,
+        "b": 0.0,
+        "c": 1.2246467991473532e-16,
+        "d": 1.0,
+        "tx": 30.000000000000004,
+        "ty": 60.0
+      }
+    },
+    {
+      "name": "copy_bone",
+      "parent": "root",
+      "world": {
+        "a": 1.0,
+        "b": 0.0,
+        "c": 1.2246467991473532e-16,
+        "d": 1.0,
+        "tx": 90.0,
+        "ty": 30.0
+      }
+    },
+    {
+      "name": "copy_target",
+      "parent": "root",
+      "world": {
+        "a": 1.0,
+        "b": 0.0,
+        "c": 1.2246467991473532e-16,
+        "d": 1.0,
+        "tx": 90.0,
+        "ty": 30.0
+      }
+    },
+    {
+      "name": "path_bone",
+      "parent": "root",
+      "world": {
+        "a": 1.0,
+        "b": 0.0,
+        "c": 1.2246467991473532e-16,
+        "d": 1.0,
+        "tx": 100.0,
+        "ty": 0.0
+      }
+    },
+    {
+      "name": "path_target",
+      "parent": "root",
+      "world": {
+        "a": 1.0,
+        "b": 0.0,
+        "c": 1.2246467991473532e-16,
+        "d": 1.0,
+        "tx": 0.0,
+        "ty": 0.0
+      }
+    },
+    {
+      "name": "later_bone",
+      "parent": "root",
+      "world": {
+        "a": 1.0,
+        "b": 0.0,
+        "c": 1.2246467991473532e-16,
+        "d": 1.0,
+        "tx": 11.0,
+        "ty": 0.0
+      }
+    },
+    {
+      "name": "later_target",
+      "parent": "root",
+      "world": {
+        "a": 1.0,
+        "b": 0.0,
+        "c": 1.2246467991473532e-16,
+        "d": 1.0,
+        "tx": 11.0,
+        "ty": 0.0
+      }
+    },
+    {
+      "name": "phys_bone",
+      "parent": "root",
+      "world": {
+        "a": 1.0,
+        "b": 0.0,
+        "c": 1.2246467991473532e-16,
+        "d": 1.0,
+        "tx": 120.34838104248047,
+        "ty": 0.0
+      }
+    }
+  ],
+  "slots": [
+    {
+      "name": "shared_slot",
+      "bone": "shared_helper",
+      "attachment": "shared_badge",
+      "r": 1.0,
+      "g": 1.0,
+      "b": 1.0,
+      "a": 1.0
+    },
+    {
+      "name": "variant_slot",
+      "bone": "variant_extra",
+      "attachment": "variant_badge",
+      "r": 1.0,
+      "g": 1.0,
+      "b": 1.0,
+      "a": 1.0
+    }
+  ],
+  "drawBatches": [
+    {
+      "slot": "shared_slot",
+      "bone": "shared_helper",
+      "attachment": "shared_region",
+      "texturePage": "",
+      "blendMode": "normal",
+      "clipId": "",
+      "world": {
+        "a": 1.0,
+        "b": 0.0,
+        "c": 1.2246467991473532e-16,
+        "d": 1.0,
+        "tx": 10.0,
+        "ty": 0.0
+      },
+      "vertices": [
+        {
+          "x": 3.999999999999999,
+          "y": -6.0,
+          "u": 0.0,
+          "v": 0.0,
+          "r": 1.0,
+          "g": 1.0,
+          "b": 1.0,
+          "a": 1.0
+        },
+        {
+          "x": 16.0,
+          "y": -6.0,
+          "u": 1.0,
+          "v": 0.0,
+          "r": 1.0,
+          "g": 1.0,
+          "b": 1.0,
+          "a": 1.0
+        },
+        {
+          "x": 16.0,
+          "y": 6.0,
+          "u": 1.0,
+          "v": 1.0,
+          "r": 1.0,
+          "g": 1.0,
+          "b": 1.0,
+          "a": 1.0
+        },
+        {
+          "x": 4.000000000000001,
+          "y": 6.0,
+          "u": 0.0,
+          "v": 1.0,
+          "r": 1.0,
+          "g": 1.0,
+          "b": 1.0,
+          "a": 1.0
+        }
+      ],
+      "indices": [
+        0,
+        1,
+        2,
+        2,
+        3,
+        0
+      ]
+    },
+    {
+      "slot": "variant_slot",
+      "bone": "variant_extra",
+      "attachment": "variant_active_region",
+      "texturePage": "",
+      "blendMode": "normal",
+      "clipId": "",
+      "world": {
+        "a": 1.0,
+        "b": 0.0,
+        "c": 1.8369701987210297e-16,
+        "d": 1.0,
+        "tx": 10.000000000000002,
+        "ty": 20.0
+      },
+      "vertices": [
+        {
+          "x": -3.0,
+          "y": 13.0,
+          "u": 0.0,
+          "v": 0.0,
+          "r": 1.0,
+          "g": 1.0,
+          "b": 1.0,
+          "a": 1.0
+        },
+        {
+          "x": 23.0,
+          "y": 13.0,
+          "u": 1.0,
+          "v": 0.0,
+          "r": 1.0,
+          "g": 1.0,
+          "b": 1.0,
+          "a": 1.0
+        },
+        {
+          "x": 23.000000000000004,
+          "y": 27.0,
+          "u": 1.0,
+          "v": 1.0,
+          "r": 1.0,
+          "g": 1.0,
+          "b": 1.0,
+          "a": 1.0
+        },
+        {
+          "x": -2.9999999999999964,
+          "y": 27.0,
+          "u": 0.0,
+          "v": 1.0,
+          "r": 1.0,
+          "g": 1.0,
+          "b": 1.0,
+          "a": 1.0
+        }
+      ],
+      "indices": [
+        0,
+        1,
+        2,
+        2,
+        3,
+        0
+      ]
+    }
+  ]
+}

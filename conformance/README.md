@@ -49,6 +49,7 @@ conformance/
 | M19 | `m19_event_rig` | Animation events: a clip-owned event timeline fires distinct value-carrying events at keyframe times, surfaced in the golden's `animationEvents` channel via incremental per-sample-window dispatch through the Nim and Dart clip-mirror story paths |
 | M20 | `m20_skin_rig` | Skin attachment sets: active-skin attachment lookup, default-skin fallback for missing variant entries, JSON/BNB parity, and deform-timeline resolution through the selected skin |
 | M21 | `m21_pointer_listener_rig` | Pointer helper listeners: bounding-box and point helper hit testing, pointer-driven bool/number/trigger input mutation, same-sample state transition, and pointer events in the state-machine `events` channel |
+| M22 | `m22_skin_required_rig` | `skinRequired` activation: default-plus-active-skin membership, inactive required bone draw suppression, required IK/transform/path no-op vs active solve, later active constraint order stability, and inactive/active physics behavior |
 
 The `M5 (IK)` row is a second M5 asset (structured like the standalone M9 row):
 the table is one-asset-per-row, so `m5_ik_rig` gets its own row rather than being
@@ -636,6 +637,60 @@ Notes for readers comparing runtimes:
   payloads, world transforms, slot metadata, and draw batches within `1e-4`
   (`runtime-dart/test/m21_pointer_listener_test.dart`).
 
+### M22 skinRequired rig (`m22_skin_required_rig`)
+
+`m22_skin_required_rig` freezes the shared activation contract from
+`docs/skin-required-activation-contract.md`. Its `default` skin activates the
+required `shared_helper` bone, while the `variant` skin repeats that membership
+and adds the required `variant_extra` bone plus required IK, transform, path, and
+physics constraints. Repeating `shared_helper` across `default` and `variant`
+proves duplicate references across the union are idempotent; duplicates within
+one skin/family remain invalid and are covered by the Nim loader test.
+
+Two scripts drive the same `skin_required_story` state machine with different
+`activeSkin` values:
+- `m22_skin_required_default.json` -> `m22_skin_required_default_rest.json` and
+  `m22_skin_required_default_late.json`.
+- `m22_skin_required_variant.json` -> `m22_skin_required_variant_rest.json`,
+  `m22_skin_required_variant_active.json`, and
+  `m22_skin_required_variant_settled.json`.
+
+**Non-vacuous activation proof.** In the default late sample, `variant_extra` is
+inactive: its world matrix is all zeros and the draw batches contain only
+`shared_slot`. In the variant active sample, `variant_extra` is active at
+`tx=10, ty=20` and the draw batches contain both `shared_slot` and
+`variant_slot`; the variant slot resolves to the larger `variant_active_region`
+through active-skin lookup.
+
+**Non-vacuous constraint proof.** With the default skin, required constraints are
+no-ops: `copy_bone` stays at `(50,0)`, `path_bone` stays at `tx=70`, and the
+required IK bone keeps its setup basis. With the variant skin, those constraints
+activate: `ik_bone` rotates to a 90 degree basis, `copy_bone` moves to
+`(90,30)`, and `path_bone` moves to `tx=100`. The non-required `later_active`
+transform constraint remains active in both skins and keeps `later_bone.tx=11`,
+proving inactive required cache entries do not reorder later active work.
+
+**Non-vacuous physics proof.** The required `skin_spring` physics constraint is
+inactive under the default skin: after the late sample at `t=0.2`,
+`phys_bone.tx` is still `120`. Under the variant skin, the same stateful story
+advances the spring: `phys_bone.tx` moves to `120.348381` at `active` and
+`121.276993` at `settled`, well above the `1e-4` tolerance. The dedicated Nim
+runtime physics test covers the skin-swap case where an inactive required
+physics constraint is reactivated and must reset.
+
+Notes for readers comparing runtimes:
+- The goldens are reproduced identically from both
+  `m22_skin_required_rig.bony` and
+  `conformance/assets/bnb/m22_skin_required_rig.bnb`; the `.bnb` fixture is
+  non-empty at 1122 bytes.
+- The Nim CLI regression test
+  (`runtime-nim/tests/test_m22_skin_required_conformance.nim`) exercises JSON
+  and `.bnb` parity for all five samples and checks focused malformed membership
+  failures for `unknownRequiredReference`, `duplicateKey`, and
+  `schemaViolation`.
+- Cross-runtime status: this row is a Nim reference conformance gate. Dart
+  parity is intentionally deferred to the next skinRequired activation slice.
+
 ### Image goldens (Nim reference rasterizer only)
 
 Image goldens (`*_play.png`) are Nim-only regression artifacts for the reference
@@ -662,6 +717,8 @@ and do not need to be reproduced by Dart or other runtimes.
 | m18_mesh_deform_anim_rig | pending (no PNG golden produced) |
 | m19_event_rig | pending (no PNG golden produced) |
 | m20_skin_rig | pending (no PNG golden produced) |
+| m21_pointer_listener_rig | pending (no PNG golden produced) |
+| m22_skin_required_rig | pending (no PNG golden produced) |
 
 ---
 

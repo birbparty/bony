@@ -1,0 +1,10 @@
+{
+  "format": "bony.input-script.v1",
+  "asset": "m22_skin_required_rig.bony",
+  "stateMachine": "skin_required_story",
+  "activeSkin": "default",
+  "samples": [
+    {"name": "rest", "t": 0.0, "inputs": {}},
+    {"name": "late", "t": 0.2, "inputs": {}}
+  ]
+}
