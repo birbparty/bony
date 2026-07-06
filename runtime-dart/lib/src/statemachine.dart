@@ -5,6 +5,8 @@ import 'dart:math' as math;
 import 'package:bony/src/anim.dart';
 import 'deform.dart' show quantizeF32;
 import 'model.dart';
+import 'transform.dart'
+    show Affine2, pointerHitsBoundingBoxTarget, pointerHitsPointTarget;
 
 // --- Runtime input value ---
 
@@ -187,9 +189,69 @@ class StateMachineRuntime {
     throw FormatException('unknown state machine input: $name');
   }
 
-  void update(double dt) {
+  void dispatchPointerListeners(
+    SkeletonData data,
+    List<Affine2> worlds,
+    String activeSkin,
+    StateMachineListenerKind kind,
+    double pointerX,
+    double pointerY,
+  ) {
+    if (!_isPointerListenerKind(kind)) {
+      throw const FormatException(
+          'state-machine pointer dispatch kind is not a pointer listener kind');
+    }
+    if (!pointerX.isFinite) {
+      throw const FormatException('stateMachine.pointer.x must be finite');
+    }
+    if (!pointerY.isFinite) {
+      throw const FormatException('stateMachine.pointer.y must be finite');
+    }
+    for (final listener in _data.listeners) {
+      if (listener.kind != kind) continue;
+      if (_visibleSlotTarget(data, activeSkin, listener.slot) !=
+          listener.target) {
+        continue;
+      }
+      if (!_listenerHit(data, worlds, listener, pointerX, pointerY)) continue;
+
+      final input = _inputByName(listener.input);
+      switch (input.kind) {
+        case StateMachineInputKind.bool_:
+          setBoolInput(listener.input, listener.boolValue ?? false);
+        case StateMachineInputKind.number:
+          setNumberInput(listener.input, listener.numberValue ?? 0.0);
+        case StateMachineInputKind.trigger:
+          fireTrigger(listener.input);
+      }
+      events.add(StateMachineListenerEvent(
+        listener: listener.name,
+        kind: listener.kind,
+        layer: '',
+        fromState: '',
+        toState: '',
+        slot: listener.slot,
+        targetKind: listener.targetKind,
+        target: listener.target,
+        input: listener.input,
+        inputKind: input.kind,
+        boolValue: listener.boolValue ?? false,
+        hasBoolValue: listener.boolValue != null,
+        numberValue: listener.numberValue ?? 0.0,
+        hasNumberValue: listener.numberValue != null,
+        triggerValue: input.kind == StateMachineInputKind.trigger,
+        pointerX: pointerX,
+        pointerY: pointerY,
+        hasPointer: true,
+      ));
+    }
+  }
+
+  void update(double dt, {bool preserveEvents = false}) {
     if (dt < 0.0) throw ArgumentError.value(dt, 'dt', 'must be >= 0');
-    events.clear();
+    if (!preserveEvents) {
+      events.clear();
+    }
     final step = quantizeF32(dt);
     for (final lr in _layers) {
       lr.time = quantizeF32(lr.time + step);
@@ -246,6 +308,13 @@ class StateMachineRuntime {
       if (!_conditionMatches(c)) return false;
     }
     return true;
+  }
+
+  StateMachineInput _inputByName(String name) {
+    for (final input in _data.inputs) {
+      if (input.name == name) return input;
+    }
+    throw FormatException('unknown state-machine input: $name');
   }
 
   bool _conditionMatches(StateMachineCondition c) {
@@ -463,6 +532,69 @@ class StateMachineRuntime {
 }
 
 // --- Free helpers ---
+
+bool _isPointerListenerKind(StateMachineListenerKind kind) {
+  switch (kind) {
+    case StateMachineListenerKind.pointerDown:
+    case StateMachineListenerKind.pointerUp:
+    case StateMachineListenerKind.pointerEnter:
+    case StateMachineListenerKind.pointerExit:
+    case StateMachineListenerKind.pointerMove:
+      return true;
+    case StateMachineListenerKind.stateEnter:
+    case StateMachineListenerKind.stateExit:
+    case StateMachineListenerKind.transition_:
+      return false;
+  }
+}
+
+String _visibleSlotTarget(
+  SkeletonData data,
+  String activeSkin,
+  String slotName,
+) {
+  for (final slot in data.slots) {
+    if (slot.name == slotName) {
+      return data.resolveSkinAttachmentTarget(
+        activeSkin,
+        slot.name,
+        slot.attachment,
+      );
+    }
+  }
+  throw FormatException(
+      'state-machine pointer listener slot references unknown slot: $slotName');
+}
+
+bool _listenerHit(
+  SkeletonData data,
+  List<Affine2> worlds,
+  StateMachineListener listener,
+  double pointerX,
+  double pointerY,
+) {
+  switch (listener.targetKind) {
+    case PointerHelperTargetKind.point:
+      return pointerHitsPointTarget(
+        data,
+        worlds,
+        listener.slot,
+        listener.target,
+        pointerX,
+        pointerY,
+        listener.hitRadius ?? 0.0,
+      );
+    case PointerHelperTargetKind.boundingBox:
+      return pointerHitsBoundingBoxTarget(
+        data,
+        worlds,
+        listener.slot,
+        listener.target,
+        pointerX,
+        pointerY,
+      );
+  }
+}
 
 AnimationClip _findClip(SkeletonData data, String name) {
   for (final a in data.animations) {

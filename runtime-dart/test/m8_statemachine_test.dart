@@ -416,6 +416,216 @@ void main() {
     });
   });
 
+  group('M21 pointer listener dispatch', () {
+    late SkeletonData pointerData;
+    late StateMachineData pointerMachine;
+
+    setUpAll(() {
+      pointerData = loadBonyJson(
+        File('../conformance/assets/m21_pointer_listener_rig.bony')
+            .readAsStringSync(),
+      );
+      pointerMachine = pointerData.stateMachines.single;
+    });
+
+    test('rejects non-pointer kinds and non-finite coordinates', () {
+      final rt = initStateMachineRuntime(pointerMachine);
+      final worlds = computeWorldTransforms(pointerData);
+
+      expect(
+        () => rt.dispatchPointerListeners(
+          pointerData,
+          worlds,
+          'default',
+          StateMachineListenerKind.stateEnter,
+          40,
+          0,
+        ),
+        throwsFormatException,
+      );
+      expect(
+        () => rt.dispatchPointerListeners(
+          pointerData,
+          worlds,
+          'default',
+          StateMachineListenerKind.pointerDown,
+          double.nan,
+          0,
+        ),
+        throwsFormatException,
+      );
+      expect(
+        () => rt.dispatchPointerListeners(
+          pointerData,
+          worlds,
+          'default',
+          StateMachineListenerKind.pointerDown,
+          40,
+          double.infinity,
+        ),
+        throwsFormatException,
+      );
+    });
+
+    test(
+        'mutates bool input and preserves pointer event before lifecycle events',
+        () {
+      final rt = initStateMachineRuntime(pointerMachine);
+      final worlds = computeWorldTransforms(pointerData);
+
+      rt.dispatchPointerListeners(
+        pointerData,
+        worlds,
+        'default',
+        StateMachineListenerKind.pointerDown,
+        40,
+        0,
+      );
+
+      expect(rt.getBoolInput('pressed'), isTrue);
+      expect(rt.animationEvents, isEmpty);
+      expect(rt.events.map((event) => event.listener), ['box_down']);
+      final pointerEvent = rt.events.single;
+      expect(pointerEvent.kind, StateMachineListenerKind.pointerDown);
+      expect(pointerEvent.slot, 'button_box_slot');
+      expect(pointerEvent.targetKind, PointerHelperTargetKind.boundingBox);
+      expect(pointerEvent.target, 'button_hit');
+      expect(pointerEvent.input, 'pressed');
+      expect(pointerEvent.inputKind, StateMachineInputKind.bool_);
+      expect(pointerEvent.boolValue, isTrue);
+      expect(pointerEvent.hasBoolValue, isTrue);
+      expect(pointerEvent.hasNumberValue, isFalse);
+      expect(pointerEvent.triggerValue, isFalse);
+      expect(pointerEvent.pointerX, 40);
+      expect(pointerEvent.pointerY, 0);
+      expect(pointerEvent.hasPointer, isTrue);
+
+      rt.update(0.0, preserveEvents: true);
+      expect(rt.currentState('main'), 'pressed');
+      expect(rt.events.map((event) => event.listener), [
+        'box_down',
+        'idle_exit',
+        'idle_to_pressed',
+        'pressed_enter',
+      ]);
+
+      rt.update(0.0);
+      expect(rt.events, isEmpty);
+    });
+
+    test('mutates number and trigger inputs with pointer payloads', () {
+      final rt = initStateMachineRuntime(pointerMachine);
+      final worlds = computeWorldTransforms(pointerData);
+
+      rt.dispatchPointerListeners(
+        pointerData,
+        worlds,
+        'default',
+        StateMachineListenerKind.pointerMove,
+        60,
+        0,
+      );
+      expect(rt.getNumberInput('intensity'), closeTo(4.5, 1e-9));
+      final numberEvent = rt.events.single;
+      expect(numberEvent.listener, 'point_move');
+      expect(numberEvent.inputKind, StateMachineInputKind.number);
+      expect(numberEvent.numberValue, closeTo(4.5, 1e-9));
+      expect(numberEvent.hasNumberValue, isTrue);
+      expect(numberEvent.hasBoolValue, isFalse);
+      expect(numberEvent.hasPointer, isTrue);
+
+      rt.update(0.0);
+      rt.dispatchPointerListeners(
+        pointerData,
+        worlds,
+        'default',
+        StateMachineListenerKind.pointerUp,
+        60,
+        0,
+      );
+      final triggerEvent = rt.events.single;
+      expect(triggerEvent.listener, 'point_up');
+      expect(triggerEvent.inputKind, StateMachineInputKind.trigger);
+      expect(triggerEvent.triggerValue, isTrue);
+      expect(triggerEvent.hasBoolValue, isFalse);
+      expect(triggerEvent.hasNumberValue, isFalse);
+      rt.update(0.0, preserveEvents: true);
+      expect(rt.events.map((event) => event.listener), ['point_up']);
+    });
+
+    test('skips misses and inactive active-skin targets', () {
+      final rt = initStateMachineRuntime(pointerMachine);
+      final worlds = computeWorldTransforms(pointerData);
+
+      rt.dispatchPointerListeners(
+        pointerData,
+        worlds,
+        'default',
+        StateMachineListenerKind.pointerDown,
+        400,
+        400,
+      );
+      expect(rt.getBoolInput('pressed'), isFalse);
+      expect(rt.events, isEmpty);
+      expect(rt.animationEvents, isEmpty);
+
+      final skinnedData = loadBonyJson('''
+      {
+        "skeleton": {"name": "skinned-pointer"},
+        "bones": [{"name": "root"}],
+        "slots": [{"name": "hitSlot", "bone": "root", "attachment": "button"}],
+        "skins": [
+          {"name": "default", "entries": [
+            {"slot": "hitSlot", "attachment": "button", "target": "button_hit"}
+          ]},
+          {"name": "alt", "entries": [
+            {"slot": "hitSlot", "attachment": "button", "target": "other_hit"}
+          ]}
+        ],
+        "boundingBoxAttachments": [
+          {"name": "button_hit", "vertices": [-1, -1, 1, -1, 1, 1, -1, 1]},
+          {"name": "other_hit", "vertices": [-1, -1, 1, -1, 1, 1, -1, 1]}
+        ],
+        "animations": [{"name": "idle", "boneTimelines": []}],
+        "stateMachines": [{"name": "ui",
+          "inputs": [{"name": "pressed", "kind": "bool"}],
+          "layers": [{"name": "base", "states": [{"name": "idle", "kind": "clip", "clip": "idle"}]}],
+          "listeners": [
+            {"name": "down", "kind": "pointerDown", "slot": "hitSlot",
+             "targetKind": "boundingBox", "target": "button_hit",
+             "input": "pressed", "value": true}
+          ]
+        }]
+      }
+      ''');
+      final skinnedRt =
+          initStateMachineRuntime(skinnedData.stateMachines.single);
+      final skinnedWorlds = computeWorldTransforms(skinnedData);
+
+      skinnedRt.dispatchPointerListeners(
+        skinnedData,
+        skinnedWorlds,
+        'alt',
+        StateMachineListenerKind.pointerDown,
+        0,
+        0,
+      );
+      expect(skinnedRt.getBoolInput('pressed'), isFalse);
+      expect(skinnedRt.events, isEmpty);
+
+      skinnedRt.dispatchPointerListeners(
+        skinnedData,
+        skinnedWorlds,
+        'default',
+        StateMachineListenerKind.pointerDown,
+        0,
+        0,
+      );
+      expect(skinnedRt.getBoolInput('pressed'), isTrue);
+      expect(skinnedRt.events.map((event) => event.listener), ['down']);
+    });
+  });
+
   // --- Evaluate ---
 
   group('M8 evaluate', () {
