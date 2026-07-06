@@ -1,0 +1,13 @@
+{
+  "format": "bony.input-script.v1",
+  "asset": "m23_nested_rig.bony",
+  "children": {
+    "childRig": {
+      "asset": "m23_nested_child_rig.bony",
+      "binaryAsset": "bnb/m23_nested_child_rig.bnb"
+    }
+  },
+  "samples": [
+    {"name": "setup", "t": 0.0}
+  ]
+}

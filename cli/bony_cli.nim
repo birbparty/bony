@@ -10,11 +10,12 @@ import auto_weights
 
 
 proc usage(): string =
-  "usage: bony json-to-bnb <input.bony> <output.bnb>\n" &
+    "usage: bony json-to-bnb <input.bony> <output.bnb>\n" &
     "       bony bnb-to-json <input.bnb> <output.bony>\n" &
     "       bony import-lottie <input.json> <output.bony> --assets-dir images [--setup-only] [--origin center|top-left]\n" &
     "       bony import-dragonbones <input_ske.json> <output.bony> [--assets-dir images] [--setup-only] [--allow-multiple-armatures]\n" &
     "       bony golden-gen <input.bony|input.bnb> <output.json> [--t seconds]\n" &
+    "       bony golden-gen <input.bony|input.bnb> <output.json> --input-script <script.json> --sample <name-or-index>\n" &
     "       bony golden-gen <input.bony|input.bnb> <output.json> --state-machine <name> --input-script <script.json> --sample <name-or-index>\n" &
     "       bony play <input.bony|input.bnb> --out frame.png [--t seconds] [--width px] [--height px] [--origin center|top-left]\n" &
     "       bony play <input.bony|input.bnb> --state-machine <name> --input-script <script.json> --out frame.png [--width px] [--height px] [--origin center|top-left]\n" &
@@ -84,10 +85,16 @@ type
     pointer: ScriptPointer
     hasPointer: bool
 
+  InputScriptChild = object
+    skeleton: string
+    asset: string
+    binaryAsset: string
+
   InputScript = object
     asset: string
     stateMachine: string
     activeSkin: string
+    children: seq[InputScriptChild]
     samples: seq[InputScriptSample]
 
   StateMachineRunSample = object
@@ -1251,6 +1258,13 @@ proc scriptFloat(node: JsonNode; key, context: string): float64 =
   quantizeF32(node[key].getFloat(), context & "." & key)
 
 
+proc scriptSafeRelativeAsset(value, context: string) =
+  if value.len == 0:
+    raise newBonyLoadError(schemaViolation, context & " must not be empty")
+  if value.isAbsolute or value.contains(".."):
+    raise newBonyLoadError(schemaViolation, context & " must be a safe relative asset path")
+
+
 proc parsePointerKind(value, context: string): StateMachineListenerKind =
   case value
   of "pointerDown": pointerDownListener
@@ -1286,14 +1300,34 @@ proc parseInputScript(path: string): InputScript =
       raise newBonyLoadError(schemaViolation, "invalid input script JSON: " & exc.msg)
 
   let root = requireScriptObject(parsed, "inputScript")
-  validateBonyKeys(root, ["format", "asset", "stateMachine", "activeSkin", "samples"], "inputScript")
+  validateBonyKeys(root, ["format", "asset", "stateMachine", "activeSkin", "children", "samples"], "inputScript")
   if scriptString(root, "format", "inputScript", required = true) != "bony.input-script.v1":
     raise newBonyLoadError(schemaViolation, "inputScript.format must be bony.input-script.v1")
   result.asset = scriptString(root, "asset", "inputScript", required = true)
+  scriptSafeRelativeAsset(result.asset, "inputScript.asset")
   result.stateMachine = scriptString(root, "stateMachine", "inputScript")
   result.activeSkin = scriptString(root, "activeSkin", "inputScript")
   if result.activeSkin.len == 0:
     result.activeSkin = "default"
+
+  if root.hasKey("children"):
+    let childrenObj = requireScriptObject(root["children"], "inputScript.children")
+    for skeletonId, childNode in childrenObj.pairs:
+      if skeletonId.len == 0:
+        raise newBonyLoadError(schemaViolation, "inputScript.children key must not be empty")
+      let childContext = "inputScript.children." & skeletonId
+      let childObj = requireScriptObject(childNode, childContext)
+      validateBonyKeys(childObj, ["asset", "binaryAsset"], childContext)
+      let childAsset = scriptString(childObj, "asset", childContext, required = true)
+      scriptSafeRelativeAsset(childAsset, childContext & ".asset")
+      let childBinaryAsset = scriptString(childObj, "binaryAsset", childContext)
+      if childBinaryAsset.len > 0:
+        scriptSafeRelativeAsset(childBinaryAsset, childContext & ".binaryAsset")
+      result.children.add InputScriptChild(
+        skeleton: skeletonId,
+        asset: childAsset,
+        binaryAsset: childBinaryAsset,
+      )
 
   if not root.hasKey("samples"):
     raise newBonyLoadError(schemaViolation, "inputScript.samples is required")
@@ -1346,6 +1380,8 @@ proc parseInputScript(path: string): InputScript =
 proc validateStateMachineScript(script: InputScript; machineName: string) =
   if machineName.len == 0:
     raise newBonyLoadError(schemaViolation, "state-machine execution requires --state-machine or inputScript.stateMachine")
+  if script.children.len > 0:
+    raise newBonyLoadError(schemaViolation, "inputScript.children is only valid for setup-pose scripts")
   var names = initHashSet[string]()
   var previousTime = 0.0
   for index, sample in script.samples:
@@ -1584,6 +1620,87 @@ proc executeStateMachineScript(
     previousTime = sample.time
   if not matched:
     raise newBonyLoadError(unknownRequiredReference, "unknown input-script sample: " & selector)
+
+
+proc resolveInputScriptAssetPath(scriptPath, assetName: string): string =
+  let scriptDir = parentDir(scriptPath)
+  normalizedPath(scriptDir / ".." / "assets" / assetName)
+
+
+proc validateSetupPoseScript(script: InputScript) =
+  if script.stateMachine.len > 0:
+    raise newBonyLoadError(schemaViolation, "setup-pose input scripts must not declare stateMachine")
+  var names = initHashSet[string]()
+  for index, sample in script.samples:
+    if sample.time != 0.0:
+      raise newBonyLoadError(schemaViolation, "setup-pose input-script samples require t=0")
+    if sample.inputs.len > 0:
+      raise newBonyLoadError(schemaViolation, "setup-pose input-script samples must not declare inputs")
+    if sample.hasPointer:
+      raise newBonyLoadError(schemaViolation, "setup-pose input-script samples must not declare pointer")
+    if sample.name.len > 0:
+      if sample.name in names:
+        raise newBonyLoadError(duplicateKey, "duplicate input-script sample name: " & sample.name)
+      names.incl(sample.name)
+
+
+proc loadInputScriptChildren(
+  scriptPath: string;
+  script: InputScript;
+  preferBinary: bool;
+): NestedSkeletonMap =
+  result = initTable[string, SkeletonData]()
+  for child in script.children:
+    let childAsset =
+      if preferBinary:
+        if child.binaryAsset.len == 0:
+          raise newBonyLoadError(
+            unknownRequiredReference,
+            "missing binary child asset for nested skeleton: " & child.skeleton,
+          )
+        child.binaryAsset
+      else:
+        child.asset
+    let path = resolveInputScriptAssetPath(scriptPath, childAsset)
+    if not fileExists(path):
+      raise newBonyLoadError(
+        unknownRequiredReference,
+        "nested child asset not found for " & child.skeleton & ": " & childAsset,
+      )
+    if path.toLowerAscii.endsWith(".bnb"):
+      result[child.skeleton] = loadBonyBnb(readBytes(path))
+    else:
+      result[child.skeleton] = loadBonyJson(readFile(path))
+
+
+proc executeSetupPoseScript(
+  assetPath, scriptPath, selector: string;
+): tuple[data: SkeletonData; time: float64; activeSkin: string; children: NestedSkeletonMap] =
+  let script = parseInputScript(scriptPath)
+  let assetName = extractFilename(assetPath)
+  let scriptComparableAsset =
+    if assetName.toLowerAscii.endsWith(".bnb"):
+      assetName.changeFileExt(".bony")
+    else:
+      assetName
+  if scriptComparableAsset != script.asset:
+    raise newBonyLoadError(schemaViolation, "inputScript.asset does not match input asset")
+  validateSetupPoseScript(script)
+
+  var matched = false
+  var selected = InputScriptSample()
+  for index, sample in script.samples:
+    if sample.sampleMatches(index, selector):
+      if matched:
+        raise newBonyLoadError(schemaViolation, "--sample must select exactly one input-script sample")
+      matched = true
+      selected = sample
+  if not matched:
+    raise newBonyLoadError(unknownRequiredReference, "unknown input-script sample: " & selector)
+
+  let data = loadInputSkeleton(assetPath)
+  let children = loadInputScriptChildren(scriptPath, script, assetPath.toLowerAscii.endsWith(".bnb"))
+  (data: data, time: selected.time, activeSkin: script.activeSkin, children: children)
 
 
 proc boneTimelineKindJson(kind: BoneTimelineKind): string =
@@ -1866,6 +1983,7 @@ proc numericGoldenJson(
     state: StateMachineGolden = StateMachineGolden();
     physicsWorlds: seq[Affine2] = @[];
     animationEvents: seq[DispatchedEvent] = @[];
+    children: NestedSkeletonMap = initTable[string, SkeletonData]();
 ): string =
   validateSkeletonData(data)
   if not data.hasSkin(activeSkin):
@@ -1880,7 +1998,11 @@ proc numericGoldenJson(
   # Thread the (possibly physics-adjusted) worlds into the draw-batch build so
   # draw-batch vertices reflect the physics stage. For a physics-free rig these
   # worlds equal the pure pass, so setup-pose callers are unaffected.
-  let baseBatches = buildDrawBatches(data, worlds, activeSkin)
+  let baseBatches =
+    if children.len > 0:
+      buildNestedDrawBatches(data, worlds, children, activeSkin)
+    else:
+      buildDrawBatches(data, worlds, activeSkin)
   let samples = defaultParameterSamples(data)
   let efDefs = effectiveDeformers(data, samples)
   var batches = applyDeformersToDrawBatches(baseBatches, efDefs)
@@ -2003,29 +2125,39 @@ proc writeNumericGolden(args: seq[string]) =
       quit(usage(), QuitFailure)
   if stateMachine.len != 0 or inputScript.len != 0 or sampleSelector.len != 0:
     if inputScript.len == 0:
-      raise newBonyLoadError(schemaViolation, "golden-gen state-machine execution requires --input-script")
+      raise newBonyLoadError(schemaViolation, "golden-gen script execution requires --input-script")
     if sampleSelector.len == 0:
-      raise newBonyLoadError(schemaViolation, "golden-gen state-machine execution requires --sample")
+      raise newBonyLoadError(schemaViolation, "golden-gen script execution requires --sample")
     if timeSet:
       raise newBonyLoadError(schemaViolation, "--t cannot be combined with --input-script; use sample t values in the script")
-    let samples = executeStateMachineScript(args[0], stateMachine, inputScript, sampleSelector)
-    if samples.len != 1:
-      raise newBonyLoadError(schemaViolation, "--sample must select exactly one input-script sample")
-    let sample = samples[0]
-    writeFile(args[1], numericGoldenJson(
-      sample.posedData,
-      sample.sample.time,
-      sample.activeSkin,
-      StateMachineGolden(
-        present: true,
-        machine: sample.machine,
-        sample: sample.sample.name,
-        runtime: sample.runtime,
-        evaluated: sample.evaluated,
-      ),
-      sample.worlds,
-      sample.animationEvents,
-    ))
+    let parsedScript = parseInputScript(inputScript)
+    if stateMachine.len != 0 or parsedScript.stateMachine.len != 0:
+      let samples = executeStateMachineScript(args[0], stateMachine, inputScript, sampleSelector)
+      if samples.len != 1:
+        raise newBonyLoadError(schemaViolation, "--sample must select exactly one input-script sample")
+      let sample = samples[0]
+      writeFile(args[1], numericGoldenJson(
+        sample.posedData,
+        sample.sample.time,
+        sample.activeSkin,
+        StateMachineGolden(
+          present: true,
+          machine: sample.machine,
+          sample: sample.sample.name,
+          runtime: sample.runtime,
+          evaluated: sample.evaluated,
+        ),
+        sample.worlds,
+        sample.animationEvents,
+      ))
+    else:
+      let setup = executeSetupPoseScript(args[0], inputScript, sampleSelector)
+      writeFile(args[1], numericGoldenJson(
+        setup.data,
+        setup.time,
+        setup.activeSkin,
+        children = setup.children,
+      ))
     return
 
   requireSetupPoseTime(time)

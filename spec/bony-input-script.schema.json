@@ -28,6 +28,16 @@
       "then": {
         "required": ["stateMachine"]
       }
+    },
+    {
+      "if": {
+        "required": ["children"]
+      },
+      "then": {
+        "not": {
+          "required": ["stateMachine"]
+        }
+      }
     }
   ],
   "properties": {
@@ -51,6 +61,30 @@
       "minLength": 1,
       "default": "default",
       "description": "Optional runtime skin selected while building draw batches for this script. Omitted scripts use the required default skin."
+    },
+    "children": {
+      "type": "object",
+      "description": "Optional explicit child-skeleton asset map for setup-pose nested composition scripts. Keys are nestedRigAttachment.skeleton ids; values are project-owned asset entries resolved relative to the sibling conformance/assets/ directory. No automatic child lookup is performed.",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["asset"],
+        "properties": {
+          "asset": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(?!/)(?!.*\\.\\.).+\\.bony$",
+            "description": "Explicit child source asset path, normally a basename such as 'm23_nested_child_rig.bony', resolved relative to conformance/assets/."
+          },
+          "binaryAsset": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(?!/)(?!.*\\.\\.).+\\.bnb$",
+            "description": "Explicit child binary asset path, normally under 'bnb/', used when the host input asset is replayed from .bnb."
+          }
+        }
+      }
     },
     "samples": {
       "type": "array",

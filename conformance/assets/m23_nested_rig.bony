@@ -1,0 +1,25 @@
+{
+  "skeleton": {"name": "m23-nested-rig", "version": "1.0.0"},
+  "bones": [
+    {"name": "root"},
+    {"name": "nested_anchor", "parent": "root", "x": 50, "y": 20, "rotation": 15, "scaleX": 1.25, "scaleY": 0.75}
+  ],
+  "slots": [
+    {"name": "under_slot", "bone": "root", "attachment": "under_panel"},
+    {"name": "host_clip_slot", "bone": "root", "attachment": "host_clip"},
+    {"name": "nested_wide_slot", "bone": "nested_anchor", "attachment": "nested_wide"},
+    {"name": "after_slot", "bone": "root", "attachment": "after_panel"},
+    {"name": "nested_default_slot", "bone": "nested_anchor", "attachment": "nested_default"}
+  ],
+  "regions": [
+    {"name": "under_panel", "width": 8, "height": 8},
+    {"name": "after_panel", "width": 6, "height": 6}
+  ],
+  "clippingAttachments": [
+    {"name": "host_clip", "vertices": [45, 0, 75, 0, 75, 45, 45, 45], "untilSlot": "nested_wide_slot"}
+  ],
+  "nestedRigAttachments": [
+    {"name": "nested_wide", "skeleton": "childRig", "skin": "wide"},
+    {"name": "nested_default", "skeleton": "childRig"}
+  ]
+}

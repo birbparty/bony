@@ -26,7 +26,49 @@ import tempfile
 from _golden_compare import TOLERANCE, compare_goldens
 
 
-def run_golden_check(bony_bin, asset_path, golden_path, actual_path, label):
+def _object_without_duplicate_keys(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON object key: {key}")
+        result[key] = value
+    return result
+
+
+def _load_json_without_duplicate_keys(path):
+    with open(path) as f:
+        return json.load(f, object_pairs_hook=_object_without_duplicate_keys)
+
+
+def setup_child_scripts(scripts_dir):
+    """Return asset basename -> (script_path, sample_selector) for nested setup scripts."""
+    result = {}
+    for script_path in sorted(glob.glob(os.path.join(scripts_dir, "*.json"))):
+        try:
+            script = _load_json_without_duplicate_keys(script_path)
+        except Exception:
+            continue
+        if script.get("stateMachine") or not script.get("children"):
+            continue
+        samples = script.get("samples") or []
+        if len(samples) != 1:
+            continue
+        sample = samples[0]
+        selector = sample.get("name") or "0"
+        result[script["asset"]] = (script_path, selector)
+    return result
+
+
+def run_golden_check(
+    bony_bin,
+    asset_path,
+    golden_path,
+    actual_path,
+    label,
+    *,
+    input_script=None,
+    sample_selector=None,
+):
     """Run golden-gen on asset_path and compare against golden_path.
 
     Returns "pass", "fail", or "skip" (if no committed golden).
@@ -37,11 +79,12 @@ def run_golden_check(bony_bin, asset_path, golden_path, actual_path, label):
         return "skip"
 
     try:
-        result = subprocess.run(
-            [bony_bin, "golden-gen", asset_path, actual_path, "--t", "0.0"],
-            capture_output=True,
-            text=True,
-        )
+        cmd = [bony_bin, "golden-gen", asset_path, actual_path]
+        if input_script:
+            cmd.extend(["--input-script", input_script, "--sample", sample_selector])
+        else:
+            cmd.extend(["--t", "0.0"])
+        result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:
             print(f"FAIL {label}: golden-gen exited {result.returncode}")
             if result.stderr:
@@ -73,6 +116,7 @@ def main():
     parser.add_argument("--bony-bin", required=True, help="Path to bony CLI binary")
     parser.add_argument("--assets-dir", default="conformance/assets")
     parser.add_argument("--goldens-dir", default="conformance/goldens")
+    parser.add_argument("--scripts-dir", default="conformance/scripts")
     args = parser.parse_args()
 
     bony_bin = os.path.abspath(args.bony_bin)
@@ -88,6 +132,7 @@ def main():
     passed = 0
     failed = 0
     skipped = 0
+    child_scripts = setup_child_scripts(args.scripts_dir)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         # --- .bony gate ---
@@ -96,7 +141,16 @@ def main():
             stem = os.path.splitext(os.path.basename(asset_path))[0]
             golden_path = os.path.join(args.goldens_dir, f"{stem}_t0.json")
             actual_path = os.path.join(tmpdir, f"{stem}_actual.json")
-            outcome = run_golden_check(bony_bin, asset_path, golden_path, actual_path, stem)
+            script_entry = child_scripts.get(os.path.basename(asset_path))
+            script_args = {}
+            if script_entry:
+                script_args = {
+                    "input_script": script_entry[0],
+                    "sample_selector": script_entry[1],
+                }
+            outcome = run_golden_check(
+                bony_bin, asset_path, golden_path, actual_path, stem, **script_args
+            )
             if outcome == "pass":
                 passed += 1
             elif outcome == "fail":
@@ -115,7 +169,16 @@ def main():
                 # _bnb_ infix avoids tmpdir collision with same-stem .bony output
                 actual_path = os.path.join(tmpdir, f"{stem}_bnb_actual.json")
                 label = f"{stem}.bnb"
-                outcome = run_golden_check(bony_bin, asset_path, golden_path, actual_path, label)
+                script_entry = child_scripts.get(f"{stem}.bony")
+                script_args = {}
+                if script_entry:
+                    script_args = {
+                        "input_script": script_entry[0],
+                        "sample_selector": script_entry[1],
+                    }
+                outcome = run_golden_check(
+                    bony_bin, asset_path, golden_path, actual_path, label, **script_args
+                )
                 if outcome == "pass":
                     passed += 1
                 elif outcome == "fail":

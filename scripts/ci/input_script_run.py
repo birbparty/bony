@@ -108,6 +108,8 @@ def run_sample(
                     sample_selector,
                 ]
             )
+        elif input_script:
+            cmd.extend(["--input-script", input_script, "--sample", sample_selector])
         else:
             cmd.extend(["--t", str(t)])
         result = subprocess.run(
@@ -274,6 +276,38 @@ def main():
                         continue
                     t_suffix = _format_t(t)
                     golden_path = os.path.join(args.goldens, f"{asset_stem}_t{t_suffix}.json")
+                    if script.get("children"):
+                        sample_selector = sample.get("name") or str(i)
+                        replay_assets = [(asset_ext or ".bony", asset_path)]
+                        bnb_path = os.path.join(args.assets, "bnb", f"{asset_stem}.bnb")
+                        if not os.path.isfile(bnb_path):
+                            print(f"FAIL {script_name}[.bnb][{sample_selector}]: asset not found: {bnb_path}")
+                            failed += 1
+                        else:
+                            replay_assets.append((".bnb", bnb_path))
+                        for replay_ext, replay_asset_path in replay_assets:
+                            actual_path = os.path.join(
+                                tmpdir,
+                                f"{asset_stem}_sample{i}_{replay_ext.lstrip('.')}_actual.json",
+                            )
+                            label = f"{script_name}[{replay_ext}][{sample_selector}] t={t}"
+                            outcome = run_sample(
+                                bony_bin,
+                                replay_asset_path,
+                                t,
+                                golden_path,
+                                actual_path,
+                                label,
+                                input_script=script_path,
+                                sample_selector=sample_selector,
+                            )
+                            if outcome == "pass":
+                                passed += 1
+                            elif outcome == "fail":
+                                failed += 1
+                            else:
+                                skipped += 1
+                        continue
                     actual_path = os.path.join(tmpdir, f"{asset_stem}_sample{i}_actual.json")
                     label = f"{script_name}[{i}] t={t}"
                     outcome = run_sample(bony_bin, asset_path, t, golden_path, actual_path, label)

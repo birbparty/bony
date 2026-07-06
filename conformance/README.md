@@ -50,6 +50,7 @@ conformance/
 | M20 | `m20_skin_rig` | Skin attachment sets: active-skin attachment lookup, default-skin fallback for missing variant entries, JSON/BNB parity, and deform-timeline resolution through the selected skin |
 | M21 | `m21_pointer_listener_rig` | Pointer helper listeners: bounding-box and point helper hit testing, pointer-driven bool/number/trigger input mutation, same-sample state transition, and pointer events in the state-machine `events` channel |
 | M22 | `m22_skin_required_rig` | `skinRequired` activation: default-plus-active-skin membership, inactive required bone draw suppression, required IK/transform/path no-op vs active solve, later active constraint order stability, and inactive/active physics behavior |
+| M23 | `m23_nested_rig` | Host-resolved nested rig setup-pose composition: child draw-order insertion, host affine composition, explicit child skin selection, and host clipping of composed child geometry |
 
 The `M5 (IK)` row is a second M5 asset (structured like the standalone M9 row):
 the table is one-asset-per-row, so `m5_ik_rig` gets its own row rather than being
@@ -691,6 +692,51 @@ Notes for readers comparing runtimes:
 - Cross-runtime status: this row is a Nim reference conformance gate. Dart
   parity is intentionally deferred to the next skinRequired activation slice.
 
+### M23 nested rig (`m23_nested_rig`)
+
+`m23_nested_rig` is the nested-rig composition conformance asset. The host rig
+has an `under_slot`, a host clipping slot, a `nested_wide_slot`, an `after_slot`,
+and a later `nested_default_slot`. The child rig is loaded explicitly through
+`m23_nested_rig_sample.json`'s `children.childRig` entry; the script names both
+`m23_nested_child_rig.bony` and `bnb/m23_nested_child_rig.bnb`, so the CLI never
+searches for child assets implicitly.
+
+One setup script drives it:
+- `m23_nested_rig_sample.json` - setup pose at `t=0` with `childRig` resolved
+  from the explicit child asset map -> golden `m23_nested_rig_t0.json`.
+
+**Why this uses the nested API.** Legacy `buildDrawBatches` intentionally remains
+non-composing: slots whose resolved attachment is a `nestedRigAttachment` emit no
+direct host geometry. The M23 gate opts into `buildNestedDrawBatches` through the
+setup-pose input-script `children` map. That keeps old setup goldens
+byte-stable while making host-resolved nested composition a conformance surface.
+
+**Non-vacuous composition proof.** The golden contains four draw batches in host
+draw order: `under_slot`, the child `wide_face` batch inserted at
+`nested_wide_slot`, `after_slot`, and the child `default_face` batch inserted at
+`nested_default_slot`. The child batches carry the child slot name (`face_slot`)
+but are positioned by the host `nested_anchor` affine
+(`tx=50, ty=20, rotation=15, scaleX=1.25, scaleY=0.75`), so their world vertices
+move by far more than `1e-4` from child-local setup. The two nested attachments
+target the same child skeleton with different child skins: `nested_wide` selects
+`wide_face`, while `nested_default` falls back to `default_face`.
+
+**Non-vacuous host clipping proof.** The host clip range covers only
+`nested_wide_slot`, so the inserted `wide_face` batch has `clipId: "host_clip"`
+and its left/right vertices are clipped onto `x=45` and `x=75` with interpolated
+u/v values. The later `default_face` child batch is outside the clip range and
+keeps `clipId: ""`, making the host range boundary observable.
+
+Notes for readers comparing runtimes:
+- The golden is reproduced identically from both `m23_nested_rig.bony` and
+  `conformance/assets/bnb/m23_nested_rig.bnb`; the `.bnb` fixtures are non-empty
+  at 479 bytes for the host and 236 bytes for the child.
+- The Nim CLI regression test
+  (`runtime-nim/tests/test_m23_nested_rig_conformance.nim`) exercises JSON and
+  `.bnb` parity and verifies focused child-script misuse failures.
+- Cross-runtime status: the setup-pose golden is honored by both the Nim
+  reference and the Dart runtime (`runtime-dart/test/m23_nested_rig_conformance_test.dart`).
+
 ### Image goldens (Nim reference rasterizer only)
 
 Image goldens (`*_play.png`) are Nim-only regression artifacts for the reference
@@ -719,6 +765,7 @@ and do not need to be reproduced by Dart or other runtimes.
 | m20_skin_rig | pending (no PNG golden produced) |
 | m21_pointer_listener_rig | pending (no PNG golden produced) |
 | m22_skin_required_rig | pending (no PNG golden produced) |
+| m23_nested_rig | pending (no PNG golden produced) |
 
 ---
 
@@ -802,6 +849,10 @@ Each `*_sample.json` file drives the numeric golden gate:
   replayed through `golden-gen --state-machine ... --input-script ... --sample ...`.
 - `activeSkin`: optional runtime skin for draw-batch attachment lookup on
   state-machine scripts. Omitted scripts use `"default"`.
+- `children`: optional setup-pose-only map from nested skeleton id to explicit
+  child asset entries. Each entry has `asset` for source `.bony` replay and may
+  include `binaryAsset` for `.bnb` replay. The CLI resolves these paths relative
+  to `conformance/assets/` and does not search for child assets automatically.
 - `samples[].name`: stable sample identifier. Required by the conformance
   runner for state-machine scripts. Numeric-only names are reserved for CLI
   sample indexes.
@@ -821,11 +872,12 @@ Setup-pose scripts without `stateMachine` keep the legacy golden naming scheme:
 `m8_gesture_story_wave_on.json`, so multiple samples can share a time without
 colliding.
 
-For state-machine scripts, `input_script_run.py` replays the source `.bony`
-asset and, when a matching `conformance/assets/bnb/<asset-stem>.bnb` fixture
-exists, replays that `.bnb` fixture against the same committed golden. This
-keeps binary animation/state-machine playback in the cross-runtime contract
-without duplicating golden files by asset extension.
+For state-machine scripts, and setup-pose scripts that declare `children`,
+`input_script_run.py` replays the source `.bony` asset and, when a matching
+`conformance/assets/bnb/<asset-stem>.bnb` fixture exists, replays that `.bnb`
+fixture against the same committed golden. This keeps binary script-driven
+runtime behavior in the cross-runtime contract without duplicating golden files
+by asset extension.
 
 ---
 
@@ -837,7 +889,7 @@ All gates run in `.github/workflows/ci.yml` after building the bony CLI binary.
 |------|--------|---------------|
 | numeric-golden | `scripts/ci/conformance_run.py` | `.bony` to golden JSON within tolerance; `.bnb` to same golden (M6 gate) |
 | image-golden | `scripts/ci/image_diff_check.py` | `.bony` to rendered PNG within pixel delta (Nim-only; requires Pillow) |
-| input-script | `scripts/ci/input_script_run.py` | Input-script schema + `.bony`/matching `.bnb` state-machine golden vectors (cross-runtime contract) |
+| input-script | `scripts/ci/input_script_run.py` | Input-script schema + `.bony`/matching `.bnb` state-machine and nested setup golden vectors (cross-runtime contract) |
 | round-trip | `scripts/ci/round_trip_run.py` | json to bnb bytes match committed golden; bnb to json to bnb is byte-lossless |
 
 ### Running the full suite locally

@@ -29,6 +29,7 @@ test:
 	cd runtime-nim && nim c -r --hints:off -d:bonyExcludeMain --path:../cli tests/test_m20_skin_conformance.nim
 	cd runtime-nim && nim c -r --hints:off -d:bonyExcludeMain --path:../cli tests/test_m22_skin_required_conformance.nim
 	cd runtime-nim && nim c -r --hints:off -d:bonyExcludeMain --path:../cli tests/test_m21_pointer_listener_conformance.nim
+	cd runtime-nim && nim c -r --hints:off -d:bonyExcludeMain --path:../cli tests/test_m23_nested_rig_conformance.nim
 	cd runtime-nim && nim c -r --hints:off tests/test_ik_current_pivot.nim
 	cd runtime-nim && nim c -r --hints:off tests/test_skin_resolution.nim
 	cd runtime-nim && nim c -r --hints:off tests/test_bnb_byte_stability.nim

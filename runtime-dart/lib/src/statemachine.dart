@@ -5,8 +5,7 @@ import 'dart:math' as math;
 import 'package:bony/src/anim.dart';
 import 'deform.dart' show quantizeF32;
 import 'model.dart';
-import 'transform.dart'
-    show Affine2, pointerHitsBoundingBoxTarget, pointerHitsPointTarget;
+import 'transform.dart' show pointerHitsBoundingBoxTarget, pointerHitsPointTarget;
 
 // --- Runtime input value ---
 
