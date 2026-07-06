@@ -21,9 +21,15 @@ alongside region, clipping, mesh, point, and bounding-box attachments:
   them as strings and do not resolve them against the current host
   `SkeletonData`.
 
-At runtime, a later slice will define how the host slot's world transform
-becomes the nested root parent transform. Until then, nested rig attachments
-emit no `DrawBatch` and have no playback behavior.
+This format/load slice does not define runtime composition. Through the legacy
+draw-batch APIs, nested rig attachments emit no `DrawBatch` and have no playback
+behavior.
+
+`docs/nested-rig-runtime-composition-contract.md` defines the next runtime
+slice: host-resolved setup-pose draw-batch composition for already-loaded child
+`SkeletonData`. That contract layers on top of this format/load-only record and
+does not change the serialized fields, registry keys, or loader requirements
+defined here.
 
 ## Canonical JSON
 
@@ -97,10 +103,15 @@ A conforming loader rejects a nested rig attachment asset unless all rules hold:
 This slice does not define or implement:
 
 - Nested skeleton asset loading.
-- Cross-asset recursion or cycle detection.
-- Nested draw-batch composition.
+- Cross-asset recursion or cycle detection during load.
+- Nested draw-batch composition through the legacy `buildDrawBatches` APIs.
 - Nested state-machine playback or animation driving.
 - Runtime active nested skin/animation validation.
 - Importer mapping for DragonBones, Spine, Rive, Live2D, or Lottie.
 - Conformance goldens for nested playback.
 - Vector paths, text, layout, data binding, or renderer features.
+
+## Related Contracts
+
+- `docs/nested-rig-runtime-composition-contract.md` - host-resolved setup-pose
+  draw-batch composition for nested rig attachments.
