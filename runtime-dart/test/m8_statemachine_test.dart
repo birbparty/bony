@@ -271,6 +271,11 @@ void main() {
       final rt = initStateMachineRuntime(sm);
       rt.setBoolInput('wave', true);
       rt.update(0.0);
+      expect(rt.events.map((event) => event.listener), [
+        'idle_exit',
+        'idle_to_move',
+        'move_enter',
+      ]);
       final byName = {for (final event in rt.events) event.listener: event};
 
       final exit = byName['idle_exit']!;
@@ -708,65 +713,67 @@ void main() {
       final bnbMachine = fromBnb.stateMachines.single;
       expect(_listenerSurface(bnbMachine), _listenerSurface(jsonMachine));
 
-      final byName = {
-        for (final listener in jsonMachine.listeners) listener.name: listener,
-      };
-      expect(byName.keys, [
-        'box_enter',
-        'box_down',
-        'point_move',
-        'point_up',
-        'box_exit',
-        'idle_exit',
-        'idle_to_pressed',
-        'pressed_enter',
-      ]);
+      for (final machine in [jsonMachine, bnbMachine]) {
+        final byName = {
+          for (final listener in machine.listeners) listener.name: listener,
+        };
+        expect(byName.keys, [
+          'box_enter',
+          'box_down',
+          'point_move',
+          'point_up',
+          'box_exit',
+          'idle_exit',
+          'idle_to_pressed',
+          'pressed_enter',
+        ]);
 
-      final boxEnter = byName['box_enter']!;
-      expect(boxEnter.kind, StateMachineListenerKind.pointerEnter);
-      expect(boxEnter.slot, 'button_box_slot');
-      expect(boxEnter.targetKind, PointerHelperTargetKind.boundingBox);
-      expect(boxEnter.target, 'button_hit');
-      expect(boxEnter.hitRadius, isNull);
-      expect(boxEnter.input, 'hover');
-      expect(boxEnter.boolValue, isTrue);
-      expect(boxEnter.numberValue, isNull);
+        final boxEnter = byName['box_enter']!;
+        expect(boxEnter.kind, StateMachineListenerKind.pointerEnter);
+        expect(boxEnter.slot, 'button_box_slot');
+        expect(boxEnter.targetKind, PointerHelperTargetKind.boundingBox);
+        expect(boxEnter.target, 'button_hit');
+        expect(boxEnter.hitRadius, isNull);
+        expect(boxEnter.input, 'hover');
+        expect(boxEnter.boolValue, isTrue);
+        expect(boxEnter.numberValue, isNull);
 
-      final boxDown = byName['box_down']!;
-      expect(boxDown.kind, StateMachineListenerKind.pointerDown);
-      expect(boxDown.slot, 'button_box_slot');
-      expect(boxDown.targetKind, PointerHelperTargetKind.boundingBox);
-      expect(boxDown.target, 'button_hit');
-      expect(boxDown.input, 'pressed');
-      expect(boxDown.boolValue, isTrue);
+        final boxDown = byName['box_down']!;
+        expect(boxDown.kind, StateMachineListenerKind.pointerDown);
+        expect(boxDown.slot, 'button_box_slot');
+        expect(boxDown.targetKind, PointerHelperTargetKind.boundingBox);
+        expect(boxDown.target, 'button_hit');
+        expect(boxDown.input, 'pressed');
+        expect(boxDown.boolValue, isTrue);
 
-      final pointMove = byName['point_move']!;
-      expect(pointMove.kind, StateMachineListenerKind.pointerMove);
-      expect(pointMove.slot, 'button_point_slot');
-      expect(pointMove.targetKind, PointerHelperTargetKind.point);
-      expect(pointMove.target, 'spark_point');
-      expect(pointMove.hitRadius, closeTo(3, 1e-9));
-      expect(pointMove.input, 'intensity');
-      expect(pointMove.boolValue, isNull);
-      expect(pointMove.numberValue, closeTo(4.5, 1e-9));
+        final pointMove = byName['point_move']!;
+        expect(pointMove.kind, StateMachineListenerKind.pointerMove);
+        expect(pointMove.slot, 'button_point_slot');
+        expect(pointMove.targetKind, PointerHelperTargetKind.point);
+        expect(pointMove.target, 'spark_point');
+        expect(pointMove.hitRadius, closeTo(3, 1e-9));
+        expect(pointMove.input, 'intensity');
+        expect(pointMove.boolValue, isNull);
+        expect(pointMove.numberValue, closeTo(4.5, 1e-9));
 
-      final pointUp = byName['point_up']!;
-      expect(pointUp.kind, StateMachineListenerKind.pointerUp);
-      expect(pointUp.slot, 'button_point_slot');
-      expect(pointUp.targetKind, PointerHelperTargetKind.point);
-      expect(pointUp.target, 'spark_point');
-      expect(pointUp.hitRadius, closeTo(3, 1e-9));
-      expect(pointUp.input, 'pulse');
-      expect(pointUp.boolValue, isNull);
-      expect(pointUp.numberValue, isNull);
+        final pointUp = byName['point_up']!;
+        expect(pointUp.kind, StateMachineListenerKind.pointerUp);
+        expect(pointUp.slot, 'button_point_slot');
+        expect(pointUp.targetKind, PointerHelperTargetKind.point);
+        expect(pointUp.target, 'spark_point');
+        expect(pointUp.hitRadius, closeTo(3, 1e-9));
+        expect(pointUp.input, 'pulse');
+        expect(pointUp.boolValue, isNull);
+        expect(pointUp.numberValue, isNull);
 
-      final boxExit = byName['box_exit']!;
-      expect(boxExit.kind, StateMachineListenerKind.pointerExit);
-      expect(boxExit.slot, 'button_box_slot');
-      expect(boxExit.targetKind, PointerHelperTargetKind.boundingBox);
-      expect(boxExit.target, 'button_hit');
-      expect(boxExit.input, 'hover');
-      expect(boxExit.boolValue, isFalse);
+        final boxExit = byName['box_exit']!;
+        expect(boxExit.kind, StateMachineListenerKind.pointerExit);
+        expect(boxExit.slot, 'button_box_slot');
+        expect(boxExit.targetKind, PointerHelperTargetKind.boundingBox);
+        expect(boxExit.target, 'button_hit');
+        expect(boxExit.input, 'hover');
+        expect(boxExit.boolValue, isFalse);
+      }
     });
 
     test('rejects malformed pointer helper listeners', () {
