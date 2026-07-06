@@ -43,12 +43,14 @@ Bounding-box attachments emit no `DrawBatch`.
 ## Slot Attachment References
 
 The existing `slot.attachment` field may name a region, clipping, mesh, point,
-or bounding-box attachment. Attachment names must be unambiguous across all
-slot-visible concrete attachment classes so resolution is deterministic.
+bounding-box, or nested rig attachment. Attachment names must be unambiguous
+across all slot-visible concrete attachment classes so resolution is
+deterministic.
 
 When first-class skins are present, skin entry `target` values may also resolve
 to point or bounding-box attachments. A helper attachment selected by a slot or
-skin remains invisible to `buildDrawBatches`.
+skin remains invisible to `buildDrawBatches`. Nested rig attachment records are
+defined separately in `docs/nested-rig-attachment-contract.md`.
 
 ## Canonical JSON
 
@@ -130,4 +132,4 @@ Pointer listener records over these helpers are defined separately in
 
 This contract does not define pointer input scripts, runtime state-machine
 dispatch, importer conversion, visible debug rendering, vector paths, nested
-rigs, skin-owned helper attachments, linked meshes, or `skinRequired`.
+rig playback, skin-owned helper attachments, linked meshes, or `skinRequired`.

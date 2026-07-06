@@ -49,13 +49,15 @@ and clipping attachments:
   - `triangles` (required) — a flat list of vertex indices; length is a positive
     multiple of `3`, each triple naming one triangle.
 
-No softness/feather, `skinRequired` gate, linked-mesh parents, nested rigs, or
-deform timelines are settable in this mesh record. (`hull`, `edges`,
+No softness/feather, `skinRequired` gate, linked-mesh parents, nested rig
+payload, or deform timelines are settable in this mesh record. (`hull`, `edges`,
 `parentMesh`, `inheritDeform`, and `deformAttachment` exist on the in-memory
 record as reserved fields defaulted to empty/inert; they are not part of the v1
 serialized mesh form and linked-mesh parents are rejected at load.) Skins are a
 separate binding layer and do not add linked meshes, `inheritDeform`, or
-skin-owned mesh inheritance in this slice.
+skin-owned mesh inheritance in this slice. Nested rig attachment records are a
+separate concrete attachment class defined in
+`docs/nested-rig-attachment-contract.md`; nested playback remains deferred.
 
 ### DrawBatch metadata defaults
 

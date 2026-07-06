@@ -134,6 +134,12 @@
           "name"
         ]
       }
+    },
+    "nestedRigAttachments": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/nestedRigAttachment"
+      }
     }
   },
   "required": [
@@ -755,6 +761,32 @@
         "triangles",
         "uvs",
         "vertices"
+      ]
+    },
+    "nestedRigAttachment": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "skeleton": {
+          "type": "string",
+          "minLength": 1
+        },
+        "skin": {
+          "type": "string",
+          "default": ""
+        },
+        "animation": {
+          "type": "string",
+          "default": ""
+        }
+      },
+      "required": [
+        "name",
+        "skeleton"
       ]
     },
     "path": {

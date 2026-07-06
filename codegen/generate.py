@@ -751,6 +751,17 @@ def canonical_json_overrides() -> dict[str, Any]:
             },
             "required": ["name", "triangles", "uvs", "vertices"],
         },
+        "nestedRigAttachment": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "name": named_string,
+                "skeleton": named_string,
+                "skin": {"type": "string", "default": ""},
+                "animation": {"type": "string", "default": ""},
+            },
+            "required": ["name", "skeleton"],
+        },
         "parameter": {
             "type": "object",
             "additionalProperties": False,

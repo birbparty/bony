@@ -72,6 +72,7 @@ const bonyTypeKeys* = [
   BonyTypeKey(id: "stateMachineListener", key: 7007.uint64),
   BonyTypeKey(id: "skin", key: 3003.uint64),
   BonyTypeKey(id: "skinEntry", key: 3004.uint64),
+  BonyTypeKey(id: "nestedRigAttachment", key: 3005.uint64),
 ]
 const bonyPropertyKeys* = [
   BonyPropertyKey(id: "name", key: 1.uint64, backingType: "string"),
@@ -189,6 +190,9 @@ const bonyPropertyKeys* = [
   BonyPropertyKey(id: "listenerHitRadius", key: 7070.uint64, backingType: "f32"),
   BonyPropertyKey(id: "skinAttachment", key: 3010.uint64, backingType: "string"),
   BonyPropertyKey(id: "skinTarget", key: 3011.uint64, backingType: "string"),
+  BonyPropertyKey(id: "nestedSkeleton", key: 3012.uint64, backingType: "string"),
+  BonyPropertyKey(id: "nestedSkin", key: 3013.uint64, backingType: "string"),
+  BonyPropertyKey(id: "nestedAnimation", key: 3014.uint64, backingType: "string"),
 ]
 let bonyObjectSpecs*: seq[BonyObjectSpec] = @[
   BonyObjectSpec(typeId: "skeleton", properties: @["name", "version"]),
@@ -199,6 +203,7 @@ let bonyObjectSpecs*: seq[BonyObjectSpec] = @[
   BonyObjectSpec(typeId: "boundingBoxAttachment", properties: @["name", "vertices"]),
   BonyObjectSpec(typeId: "clippingAttachment", properties: @["name", "vertices", "untilSlot"]),
   BonyObjectSpec(typeId: "meshAttachment", properties: @["name", "meshWeighted", "meshVertices", "meshUvs", "meshTriangles"]),
+  BonyObjectSpec(typeId: "nestedRigAttachment", properties: @["name", "nestedSkeleton", "nestedSkin", "nestedAnimation"]),
   BonyObjectSpec(typeId: "path", properties: @["name", "bone", "target", "path", "order", "position", "translateMix", "rotateMix"]),
   BonyObjectSpec(typeId: "ikConstraint", properties: @["name", "bones", "target", "order", "mix", "bendPositive"]),
   BonyObjectSpec(typeId: "transformConstraint", properties: @["name", "bone", "target", "order", "translateMix", "rotateMix", "scaleMix", "shearMix"]),
@@ -243,6 +248,8 @@ const bonyPropertyDefaults* = [
   BonyPropertyDefault(objectId: "slot", propertyId: "attachment", equality: "exactString", value: "\"\"", omitWhenDefault: true, applyOnLoad: true),
   BonyPropertyDefault(objectId: "clippingAttachment", propertyId: "untilSlot", equality: "exactString", value: "\"\"", omitWhenDefault: true, applyOnLoad: true),
   BonyPropertyDefault(objectId: "meshAttachment", propertyId: "meshWeighted", equality: "exactBool", value: "false", omitWhenDefault: true, applyOnLoad: true),
+  BonyPropertyDefault(objectId: "nestedRigAttachment", propertyId: "nestedSkin", equality: "exactString", value: "\"\"", omitWhenDefault: true, applyOnLoad: true),
+  BonyPropertyDefault(objectId: "nestedRigAttachment", propertyId: "nestedAnimation", equality: "exactString", value: "\"\"", omitWhenDefault: true, applyOnLoad: true),
   BonyPropertyDefault(objectId: "path", propertyId: "order", equality: "exactInteger", value: "0", omitWhenDefault: true, applyOnLoad: true),
   BonyPropertyDefault(objectId: "path", propertyId: "position", equality: "storedF32", value: "0.0", omitWhenDefault: true, applyOnLoad: false),
   BonyPropertyDefault(objectId: "path", propertyId: "translateMix", equality: "storedF32", value: "1.0", omitWhenDefault: true, applyOnLoad: false),
@@ -311,6 +318,8 @@ const bonyRequiredProperties* = [
   BonyRequiredProperty(objectId: "meshAttachment", propertyId: "meshVertices", reason: "A mesh attachment must carry its packed vertex geometry to draw or skin."),
   BonyRequiredProperty(objectId: "meshAttachment", propertyId: "meshUvs", reason: "A mesh attachment must carry per-vertex texture coordinates to sample its page."),
   BonyRequiredProperty(objectId: "meshAttachment", propertyId: "meshTriangles", reason: "A mesh attachment must carry its triangle index list to assemble geometry."),
+  BonyRequiredProperty(objectId: "nestedRigAttachment", propertyId: "name", reason: "Nested rig attachments are referenced by slot attachment names."),
+  BonyRequiredProperty(objectId: "nestedRigAttachment", propertyId: "nestedSkeleton", reason: "A nested rig attachment must identify the nested skeleton asset or host-resolved skeleton id."),
   BonyRequiredProperty(objectId: "path", propertyId: "name", reason: "Path constraints are referenced by stable unique names."),
   BonyRequiredProperty(objectId: "path", propertyId: "bone", reason: "A path constraint must identify the constrained bone."),
   BonyRequiredProperty(objectId: "path", propertyId: "target", reason: "A path constraint must identify its target bone."),

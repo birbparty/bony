@@ -93,6 +93,20 @@ class BoundingBoxAttachment {
   final List<double> vertices;
 }
 
+class NestedRigAttachment {
+  const NestedRigAttachment({
+    required this.name,
+    required this.skeleton,
+    this.skin = '',
+    this.animation = '',
+  });
+
+  final String name;
+  final String skeleton;
+  final String skin;
+  final String animation;
+}
+
 class PathConstraintData {
   const PathConstraintData({
     required this.name,
@@ -365,6 +379,7 @@ class SkeletonData {
     required this.pathAttachments,
     this.pointAttachments = const [],
     this.boundingBoxAttachments = const [],
+    this.nestedRigAttachments = const [],
     this.clippingAttachments = const [],
     this.meshAttachments = const [],
     this.ikConstraints = const [],
@@ -386,6 +401,7 @@ class SkeletonData {
   final List<PathAttachment> pathAttachments;
   final List<PointAttachment> pointAttachments;
   final List<BoundingBoxAttachment> boundingBoxAttachments;
+  final List<NestedRigAttachment> nestedRigAttachments;
   final List<ClippingAttachment> clippingAttachments;
   final List<MeshAttachment> meshAttachments;
   final List<IkConstraintData> ikConstraints;

@@ -160,18 +160,22 @@ spec "bony package":
       bonyRegistryVersion == 1
       bonyBackingTypes.len == 8
       bonyBackingTypes[0].id == "varuint"
-      bonyTypeKeys.len == 34
+      bonyTypeKeys.len == 35
       bonyTypeKeys.anyIt(it.id == "pointAttachment" and it.key == 1002'u64)
       bonyTypeKeys.anyIt(it.id == "boundingBoxAttachment" and it.key == 1003'u64)
       bonyTypeKeys.anyIt(it.id == "skin" and it.key == 3003'u64)
       bonyTypeKeys.anyIt(it.id == "skinEntry" and it.key == 3004'u64)
-      bonyPropertyKeys.len == 115
+      bonyTypeKeys.anyIt(it.id == "nestedRigAttachment" and it.key == 3005'u64)
+      bonyPropertyKeys.len == 118
       bonyPropertyKeys.anyIt(it.id == "skinAttachment" and it.key == 3010'u64)
       bonyPropertyKeys.anyIt(it.id == "skinTarget" and it.key == 3011'u64)
+      bonyPropertyKeys.anyIt(it.id == "nestedSkeleton" and it.key == 3012'u64)
+      bonyPropertyKeys.anyIt(it.id == "nestedSkin" and it.key == 3013'u64)
+      bonyPropertyKeys.anyIt(it.id == "nestedAnimation" and it.key == 3014'u64)
       bonyPropertyKeys.anyIt(it.id == "listenerSlotIndex" and it.key == 7064'u64)
       bonyPropertyKeys.anyIt(it.id == "listenerHitRadius" and it.key == 7070'u64)
-      bonyPropertyDefaults.len == 63
-      bonyRequiredProperties.len == 89
+      bonyPropertyDefaults.len == 65
+      bonyRequiredProperties.len == 91
 
   it "encodes and rejects .bnb varints canonically":
     var bytes: seq[byte]
@@ -1609,6 +1613,71 @@ spec "bony package":
       raisesBonyLoadError(
         proc() = discard physicsChannelsFromMask(0b100000'u64),
         schemaViolation)
+
+  it "loads and round trips nested rig attachments through JSON and .bnb":
+    let jsonText = """
+{
+  "skeleton": { "name": "host", "version": "1.0.0" },
+  "bones": [{ "name": "root" }],
+  "slots": [{ "name": "nestedSlot", "bone": "root", "attachment": "nested_face" }],
+  "nestedRigAttachments": [
+    {
+      "name": "nested_face",
+      "skeleton": "faceRig",
+      "skin": "neutral",
+      "animation": "blink"
+    }
+  ],
+  "skins": [
+    {
+      "name": "default",
+      "entries": [
+        { "slot": "nestedSlot", "attachment": "nested_face", "target": "nested_face" }
+      ]
+    }
+  ]
+}
+"""
+    let fromJson = loadBonyJson(jsonText)
+    let bnbBytes = toBonyBnb(fromJson)
+    let fromBnb = loadBonyBnb(bnbBytes)
+    then:
+      fromJson.nestedRigAttachments.len == 1
+      fromBnb.nestedRigAttachments.len == 1
+      fromJson.nestedRigAttachments[0].name == "nested_face"
+      fromJson.nestedRigAttachments[0].skeleton == "faceRig"
+      fromJson.nestedRigAttachments[0].skin == "neutral"
+      fromJson.nestedRigAttachments[0].animation == "blink"
+      fromBnb.nestedRigAttachments[0].name == "nested_face"
+      fromBnb.nestedRigAttachments[0].skeleton == "faceRig"
+      fromBnb.nestedRigAttachments[0].skin == "neutral"
+      fromBnb.nestedRigAttachments[0].animation == "blink"
+      buildDrawBatches(fromJson).len == 0
+      toBonyJson(fromBnb) == toBonyJson(fromJson)
+      toBonyBnb(loadBonyJson(toBonyJson(fromBnb))) == bnbBytes
+
+  it "rejects malformed nested rig attachments":
+    let base = """
+{
+  "skeleton": { "name": "host" },
+  "bones": [{ "name": "root" }],
+  "slots": [{ "name": "nestedSlot", "bone": "root", "attachment": "nested_face" }],
+  "nestedRigAttachments": [REPLACE]
+}
+"""
+    then:
+      raisesBonyLoadError(base.replace("REPLACE", """{ "name": "", "skeleton": "faceRig" }"""), schemaViolation)
+      raisesBonyLoadError(base.replace("REPLACE", """{ "name": "nested_face", "skeleton": "" }"""), schemaViolation)
+      raisesBonyLoadError(base.replace("REPLACE", """{ "name": "nested_face", "skeleton": "a" }, { "name": "nested_face", "skeleton": "b" }"""), duplicateKey)
+      raisesBonyLoadError("""
+{
+  "skeleton": { "name": "host" },
+  "bones": [{ "name": "root" }],
+  "slots": [{ "name": "nestedSlot", "bone": "root", "attachment": "shared" }],
+  "regions": [{ "name": "shared", "width": 1, "height": 1 }],
+  "nestedRigAttachments": [{ "name": "shared", "skeleton": "faceRig" }]
+}
+""", duplicateKey)
 
   it "rejects transform constraints with bad refs, duplicate names, or out-of-range mixes":
     proc buildWith(tcs: seq[TransformConstraintData]): SkeletonData =

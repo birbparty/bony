@@ -5,13 +5,13 @@ prompt 31).
 
 This contract defines the `bony`-owned **skin attachment set** model: a named set
 of slot-visible attachment variants. Skins do not define geometry. Region,
-clipping, and mesh attachment records remain the concrete attachment definitions;
-skin entries bind those definitions into the attachment names that slots and
-attachment timelines can select.
+clipping, mesh, helper, and nested rig attachment records remain the concrete
+attachment definitions; skin entries bind those definitions into the attachment
+names that slots and attachment timelines can select.
 
 This slice is **format and contract only**. It does not add active-skin runtime
 lookup, importer behavior, conformance rigs, Dart parity, linked meshes,
-`inheritDeform`, `skinRequired`, or nested rigs.
+`inheritDeform`, `skinRequired`, or nested rig playback.
 
 ## Model
 
@@ -50,8 +50,8 @@ Each entry has:
 - `attachment` (string, required) - the slot-visible attachment name selected by
   setup slots and slot attachment timelines.
 - `target` (string, required) - the concrete attachment definition name. It MUST
-  resolve to exactly one loaded region attachment, clipping attachment, or mesh
-  attachment.
+  resolve to exactly one loaded slot-visible concrete attachment definition:
+  region, clipping, mesh, point, bounding-box, or nested rig attachment.
 
 The entry key is `(skin.name, slot, attachment)`. Multiple skins may use the same
 `slot` and `attachment` key to point at different targets.
@@ -85,7 +85,8 @@ A conforming loader rejects a first-class skin asset unless all rules hold:
 4. Every entry's `slot` names a loaded slot.
 5. Within one skin, `(slot, attachment)` is unique.
 6. Every entry's `target` resolves to exactly one loaded slot-visible concrete
-   attachment definition: region, clipping attachment, or mesh attachment.
+   attachment definition: region, clipping attachment, mesh attachment, point
+   attachment, bounding-box attachment, or nested rig attachment.
 7. A target name that is unknown or ambiguous across concrete attachment classes
    is invalid.
 8. A setup slot with a non-empty `slot.attachment` must resolve through the
@@ -165,5 +166,6 @@ This slice does not define or implement:
 - Runtime active-skin selection or draw-batch lookup.
 - Linked meshes, parent meshes, `inheritDeform`, or mesh inheritance.
 - `skinRequired` constraints or inactive constraint filtering.
-- Nested rigs, nested armatures, or skin-owned bones.
+- Nested rig runtime playback, nested asset loading, nested armatures, or
+  skin-owned bones.
 - Importer mapping behavior for any third-party format.

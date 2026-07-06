@@ -680,5 +680,6 @@ proc applyPose*(data: SkeletonData; pose: MixedPose): SkeletonData =
     data.skins,
     data.pointAttachments,
     data.boundingBoxAttachments,
+    data.nestedRigAttachments,
   )
   result = result.withDeformOverrides(overrides)

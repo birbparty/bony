@@ -406,6 +406,12 @@ typeKeys:
     milestone: M4
     ownerBead: bony-4set
     doc: Skin-owned binding from a slot-visible attachment name to a concrete attachment definition.
+  - id: nestedRigAttachment
+    key: 3005
+    status: active
+    milestone: M4
+    ownerBead: bony-5b5w
+    doc: Slot-visible nested rig attachment record carrying a nested skeleton reference and optional default skin/animation names; format/load only in this slice.
 
 propertyKeys:
   - id: name
@@ -1213,6 +1219,27 @@ propertyKeys:
     milestone: M4
     ownerBead: bony-4set
     doc: Concrete region, clipping, or mesh attachment definition referenced by a skin entry.
+  - id: nestedSkeleton
+    key: 3012
+    backingType: string
+    status: active
+    milestone: M4
+    ownerBead: bony-5b5w
+    doc: External or host-resolved nested SkeletonData reference id for a nested rig attachment.
+  - id: nestedSkin
+    key: 3013
+    backingType: string
+    status: active
+    milestone: M4
+    ownerBead: bony-5b5w
+    doc: Optional default skin name for the nested skeleton; empty string means no nested-skin default.
+  - id: nestedAnimation
+    key: 3014
+    backingType: string
+    status: active
+    milestone: M4
+    ownerBead: bony-5b5w
+    doc: Optional default animation name for the nested skeleton; empty string means no nested-animation default.
 
 objects:
   - type: skeleton
@@ -1274,6 +1301,13 @@ objects:
       - meshUvs
       - meshTriangles
     doc: Slot-bound deformable mesh attachment loaded by name; format/load only in this slice (ownerBead bony-lzj.1).
+  - type: nestedRigAttachment
+    properties:
+      - name
+      - nestedSkeleton
+      - nestedSkin
+      - nestedAnimation
+    doc: Slot-visible nested rig attachment loaded by name; runtime nested skeleton loading/playback is deferred.
   - type: path
     properties:
       - name

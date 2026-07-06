@@ -206,6 +206,12 @@
       "items": {
         "$ref": "#/$defs/skinEntry"
       }
+    },
+    "nestedRigAttachments": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/nestedRigAttachment"
+      }
     }
   },
   "required": [
@@ -782,6 +788,31 @@
         "meshUvs",
         "meshVertices",
         "name"
+      ]
+    },
+    "nestedRigAttachment": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "nestedSkeleton": {
+          "type": "string"
+        },
+        "nestedSkin": {
+          "type": "string",
+          "default": ""
+        },
+        "nestedAnimation": {
+          "type": "string",
+          "default": ""
+        }
+      },
+      "required": [
+        "name",
+        "nestedSkeleton"
       ]
     },
     "path": {

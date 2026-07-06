@@ -23,6 +23,7 @@ const
   meshAttachmentTypeKey = 3001'u64
   skinTypeKey = 3003'u64
   skinEntryTypeKey = 3004'u64
+  nestedRigAttachmentTypeKey = 3005'u64
   pathTypeKey = 4000'u64
   pathAttachmentTypeKey = 4001'u64
   ikConstraintTypeKey = 4002'u64
@@ -73,6 +74,9 @@ const
   deformKeysKey = 3009'u64
   skinAttachmentKey = 3010'u64
   skinTargetKey = 3011'u64
+  nestedSkeletonKey = 3012'u64
+  nestedSkinKey = 3013'u64
+  nestedAnimationKey = 3014'u64
   targetKey = 4000'u64
   pathKey = 4001'u64
   orderKey = 4002'u64
@@ -1185,6 +1189,26 @@ proc buildObjectRecords(data: SkeletonData; table: var BnbStringTable; toc: var 
     properties.addProperty(toc, meshTrianglesKey, writeMeshTrianglesPayload(mesh.triangles))
     result.add BnbObjectRecord(typeKey: meshAttachmentTypeKey, properties: properties)
 
+  for nested in data.nestedRigAttachments:
+    var properties: seq[BnbPropertyRecord]
+    properties.addStringIfNeeded(toc, table, nameKey, nested.name, "", required = true)
+    properties.addStringIfNeeded(toc, table, nestedSkeletonKey, nested.skeleton, "", required = true)
+    properties.addStringIfNeeded(
+      toc,
+      table,
+      nestedSkinKey,
+      nested.skin,
+      defaultString("nestedRigAttachment", "nestedSkin"),
+    )
+    properties.addStringIfNeeded(
+      toc,
+      table,
+      nestedAnimationKey,
+      nested.animation,
+      defaultString("nestedRigAttachment", "nestedAnimation"),
+    )
+    result.add BnbObjectRecord(typeKey: nestedRigAttachmentTypeKey, properties: properties)
+
   # IK section: canonical object-stream position is after attachments and before
   # paths (docs/binary-canonicalization.md). Emitted only when non-empty so
   # existing IK-free fixtures stay byte-identical. mix/bendPositive are
@@ -1609,6 +1633,7 @@ proc decodeSkeletonObjects(objects: openArray[BnbObjectRecord]; strings: BnbStri
   var regions: seq[RegionAttachment]
   var pointAttachments: seq[PointAttachmentData]
   var boundingBoxAttachments: seq[BoundingBoxAttachmentData]
+  var nestedRigAttachments: seq[NestedRigAttachmentData]
   var pathAttachments: seq[PathAttachmentData]
   var clips: seq[ClipAttachmentData]
   var meshes: seq[MeshAttachment]
@@ -1785,6 +1810,14 @@ proc decodeSkeletonObjects(objects: openArray[BnbObjectRecord]; strings: BnbStri
         readMeshTrianglesPayload(properties[meshTrianglesKey]),
         readMeshVerticesPayload(properties[meshVerticesKey], weighted, strings),
         weighted,
+      )
+    of nestedRigAttachmentTypeKey:
+      let properties = record.propertyMap([nameKey, nestedSkeletonKey, nestedSkinKey, nestedAnimationKey])
+      nestedRigAttachments.add nestedRigAttachmentData(
+        properties.readStringProperty(strings, nameKey, "nestedRigAttachment.name"),
+        properties.readStringProperty(strings, nestedSkeletonKey, "nestedRigAttachment.nestedSkeleton"),
+        properties.readOptionalStringProperty(strings, nestedSkinKey, defaultString("nestedRigAttachment", "nestedSkin")),
+        properties.readOptionalStringProperty(strings, nestedAnimationKey, defaultString("nestedRigAttachment", "nestedAnimation")),
       )
     of pathTypeKey:
       flushPendingIfAny()
@@ -1985,7 +2018,7 @@ proc decodeSkeletonObjects(objects: openArray[BnbObjectRecord]; strings: BnbStri
   skeletonData(
     headerValue, bones, slots, regions, pathAttachments, paths, loadedParameters, loadedDeformers,
     ikConstraints, transformConstraints, physicsConstraints, clips, meshes, skins,
-    pointAttachments, boundingBoxAttachments,
+    pointAttachments, boundingBoxAttachments, nestedRigAttachments,
   )
 
 

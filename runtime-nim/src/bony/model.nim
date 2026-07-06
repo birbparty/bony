@@ -84,6 +84,12 @@ type
     name: string
     vertices: seq[float64]
 
+  NestedRigAttachmentData* = object
+    name: string
+    skeleton: string
+    skin: string
+    animation: string
+
   PathAttachmentData* = object
     name: string
     p0x: float64
@@ -317,6 +323,7 @@ type
     regions: seq[RegionAttachment]
     pointAttachments: seq[PointAttachmentData]
     boundingBoxAttachments: seq[BoundingBoxAttachmentData]
+    nestedRigAttachments: seq[NestedRigAttachmentData]
     pathAttachments: seq[PathAttachmentData]
     clippingAttachments: seq[ClipAttachmentData]
     meshAttachments: seq[MeshAttachment]
@@ -530,6 +537,10 @@ proc boundingBoxAttachmentData*(name: string; vertices: openArray[float64]): Bou
   for index, value in vertices:
     quantized[index] = quantizeF32(value, "boundingBoxAttachment.vertices[" & $index & "]")
   BoundingBoxAttachmentData(name: name, vertices: quantized)
+
+
+proc nestedRigAttachmentData*(name, skeleton: string; skin = ""; animation = ""): NestedRigAttachmentData =
+  NestedRigAttachmentData(name: name, skeleton: skeleton, skin: skin, animation: animation)
 
 
 proc pathAttachmentData*(
@@ -806,6 +817,12 @@ proc name*(box: BoundingBoxAttachmentData): string = box.name
 proc vertices*(box: BoundingBoxAttachmentData): seq[float64] = box.vertices
 
 
+proc name*(nested: NestedRigAttachmentData): string = nested.name
+proc skeleton*(nested: NestedRigAttachmentData): string = nested.skeleton
+proc skin*(nested: NestedRigAttachmentData): string = nested.skin
+proc animation*(nested: NestedRigAttachmentData): string = nested.animation
+
+
 proc name*(pathAttachment: PathAttachmentData): string = pathAttachment.name
 proc p0x*(pathAttachment: PathAttachmentData): float64 = pathAttachment.p0x
 proc p0y*(pathAttachment: PathAttachmentData): float64 = pathAttachment.p0y
@@ -950,6 +967,9 @@ proc pointAttachments*(data: SkeletonData): seq[PointAttachmentData] = data.poin
 proc boundingBoxAttachments*(data: SkeletonData): seq[BoundingBoxAttachmentData] = data.boundingBoxAttachments
 
 
+proc nestedRigAttachments*(data: SkeletonData): seq[NestedRigAttachmentData] = data.nestedRigAttachments
+
+
 proc pathAttachments*(data: SkeletonData): seq[PathAttachmentData] = data.pathAttachments
 
 
@@ -1073,6 +1093,7 @@ proc validateSkeletonData*(
   skins: openArray[SkinData] = [];
   pointAttachments: openArray[PointAttachmentData] = [];
   boundingBoxAttachments: openArray[BoundingBoxAttachmentData] = [];
+  nestedRigAttachments: openArray[NestedRigAttachmentData] = [];
 ) =
   if header.name.len == 0:
     raise newBonyLoadError(schemaViolation, "skeleton.name must not be empty")
@@ -1175,6 +1196,21 @@ proc validateSkeletonData*(
     validateConvexPolygonVertices(box.vertices, context)
     allBoundingBoxNames.incl(box.name)
 
+  var allNestedRigNames = initHashSet[string]()
+  for index, nested in nestedRigAttachments:
+    let context = "nestedRigAttachments[" & $index & "]"
+    if nested.name.len == 0:
+      raise newBonyLoadError(schemaViolation, context & ".name must not be empty")
+    if nested.skeleton.len == 0:
+      raise newBonyLoadError(schemaViolation, context & ".skeleton must not be empty")
+    if nested.name in allNestedRigNames:
+      raise newBonyLoadError(duplicateKey, "duplicate nested rig attachment name: " & nested.name)
+    if nested.name in allRegionNames or nested.name in allClipNames or nested.name in allMeshNames or
+        nested.name in allPointNames or nested.name in allBoundingBoxNames:
+      raise newBonyLoadError(duplicateKey,
+        "nested rig attachment name collides with another slot attachment name: " & nested.name)
+    allNestedRigNames.incl(nested.name)
+
   var resolvedSlotAttachments = newSeq[string](slots.len)
   for index, slot in slots:
     let context = "slots[" & $index & "]"
@@ -1186,7 +1222,8 @@ proc validateSkeletonData*(
       raise newBonyLoadError(unknownRequiredReference, "unknown slot bone: " & slot.bone)
     if skins.len == 0 and slot.attachment.len > 0 and slot.attachment notin allRegionNames and
         slot.attachment notin allClipNames and slot.attachment notin allMeshNames and
-        slot.attachment notin allPointNames and slot.attachment notin allBoundingBoxNames:
+        slot.attachment notin allPointNames and slot.attachment notin allBoundingBoxNames and
+        slot.attachment notin allNestedRigNames:
       raise newBonyLoadError(unknownRequiredReference, "unknown slot attachment: " & slot.attachment)
     if skins.len == 0:
       resolvedSlotAttachments[index] = slot.attachment
@@ -1231,6 +1268,8 @@ proc validateSkeletonData*(
         if entry.target in allPointNames:
           inc targetMatches
         if entry.target in allBoundingBoxNames:
+          inc targetMatches
+        if entry.target in allNestedRigNames:
           inc targetMatches
         if targetMatches == 0:
           raise newBonyLoadError(unknownRequiredReference, "unknown skin entry target: " & entry.target)
@@ -1468,11 +1507,12 @@ proc skeletonData*(
   skins: openArray[SkinData] = [];
   pointAttachments: openArray[PointAttachmentData] = [];
   boundingBoxAttachments: openArray[BoundingBoxAttachmentData] = [];
+  nestedRigAttachments: openArray[NestedRigAttachmentData] = [];
 ): SkeletonData =
   validateSkeletonData(
     header, bones, slots, regions, pathAttachments, paths, parameters, deformers, ikConstraints,
     transformConstraints, physicsConstraints, clippingAttachments, meshAttachments, skins,
-    pointAttachments, boundingBoxAttachments,
+    pointAttachments, boundingBoxAttachments, nestedRigAttachments,
   )
   result.header = header
   result.bones = @bones
@@ -1480,6 +1520,7 @@ proc skeletonData*(
   result.regions = @regions
   result.pointAttachments = @pointAttachments
   result.boundingBoxAttachments = @boundingBoxAttachments
+  result.nestedRigAttachments = @nestedRigAttachments
   result.pathAttachments = @pathAttachments
   result.clippingAttachments = @clippingAttachments
   result.meshAttachments = @meshAttachments
@@ -1497,7 +1538,7 @@ proc validateSkeletonData*(data: SkeletonData) =
     data.header, data.bones, data.slots, data.regions, data.pathAttachments, data.paths,
     data.parameters, data.deformers, data.ikConstraints, data.transformConstraints,
     data.physicsConstraints, data.clippingAttachments, data.meshAttachments, data.skins,
-    data.pointAttachments, data.boundingBoxAttachments,
+    data.pointAttachments, data.boundingBoxAttachments, data.nestedRigAttachments,
   )
 
 

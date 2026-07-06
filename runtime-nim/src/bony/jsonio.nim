@@ -325,7 +325,7 @@ proc loadBonyJson*(text: string): SkeletonData =
       raise newBonyLoadError(schemaViolation, "invalid JSON: " & exc.msg)
 
   let root = requireObject(parsed, "root")
-  validateKnownKeys(root, ["skeleton", "bones", "slots", "regions", "pointAttachments", "boundingBoxAttachments", "clippingAttachments", "meshAttachments", "pathAttachments", "paths", "ikConstraints", "transformConstraints", "physicsConstraints", "skins", "parameters", "deformers", "animations", "stateMachines"], "root")
+  validateKnownKeys(root, ["skeleton", "bones", "slots", "regions", "pointAttachments", "boundingBoxAttachments", "nestedRigAttachments", "clippingAttachments", "meshAttachments", "pathAttachments", "paths", "ikConstraints", "transformConstraints", "physicsConstraints", "skins", "parameters", "deformers", "animations", "stateMachines"], "root")
 
   if not root.hasKey("skeleton"):
     raise newBonyLoadError(schemaViolation, "root.skeleton is required")
@@ -458,6 +458,20 @@ proc loadBonyJson*(text: string): SkeletonData =
       loadedBoundingBoxAttachments.add boundingBoxAttachmentData(
         requiredString(boxObject, "name", context),
         boxVertices,
+      )
+
+  var loadedNestedRigAttachments: seq[NestedRigAttachmentData] = @[]
+  if root.hasKey("nestedRigAttachments"):
+    let nestedRigAttachmentsNode = requireArray(root["nestedRigAttachments"], "nestedRigAttachments")
+    for index, nestedNode in nestedRigAttachmentsNode.elems:
+      let context = "nestedRigAttachments[" & $index & "]"
+      let nestedObject = requireObject(nestedNode, context)
+      validateKnownKeys(nestedObject, ["name", "skeleton", "skin", "animation"], context)
+      loadedNestedRigAttachments.add nestedRigAttachmentData(
+        requiredString(nestedObject, "name", context),
+        requiredString(nestedObject, "skeleton", context),
+        optionalString(nestedObject, "skin", defaultFor("nestedRigAttachment", "nestedSkin"), context),
+        optionalString(nestedObject, "animation", defaultFor("nestedRigAttachment", "nestedAnimation"), context),
       )
 
   var loadedPathAttachments: seq[PathAttachmentData] = @[]
@@ -849,7 +863,7 @@ proc loadBonyJson*(text: string): SkeletonData =
     loadedHeader, loadedBones, loadedSlots, loadedRegions, loadedPathAttachments, loadedPaths,
     loadedParameters, loadedDeformers, loadedIkConstraints, loadedTransformConstraints,
     loadedPhysicsConstraints, loadedClippingAttachments, loadedMeshAttachments, loadedSkins,
-    loadedPointAttachments, loadedBoundingBoxAttachments,
+    loadedPointAttachments, loadedBoundingBoxAttachments, loadedNestedRigAttachments,
   )
   let loadedAnimClips = parseBonyAnimations(root, result)
   discard parseBonyStateMachines(root, result, loadedAnimClips)
@@ -2115,6 +2129,29 @@ proc toBonyJson*(data: SkeletonData): string =
           result.add ", "
         result.add canonicalNumber(vertexValue)
       result.add "]"
+      result.add "\n"
+      result.addIndent(2)
+      result.add "}"
+    result.add "\n"
+    result.addIndent(1)
+    result.add "]"
+
+  if data.nestedRigAttachments.len > 0:
+    result.add ",\n"
+    result.addIndent(1)
+    result.add "\"nestedRigAttachments\": [\n"
+    for index, nested in data.nestedRigAttachments:
+      if index > 0:
+        result.add ",\n"
+      result.addIndent(2)
+      result.add "{\n"
+      first = true
+      result.addStringField("name", nested.name, 3, first)
+      result.addStringField("skeleton", nested.skeleton, 3, first)
+      if nested.skin != defaultFor("nestedRigAttachment", "nestedSkin"):
+        result.addStringField("skin", nested.skin, 3, first)
+      if nested.animation != defaultFor("nestedRigAttachment", "nestedAnimation"):
+        result.addStringField("animation", nested.animation, 3, first)
       result.add "\n"
       result.addIndent(2)
       result.add "}"

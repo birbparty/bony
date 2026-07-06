@@ -90,6 +90,15 @@ BoundingBoxAttachment _parseBoundingBoxAttachment(Map<String, dynamic> j) {
   );
 }
 
+NestedRigAttachment _parseNestedRigAttachment(Map<String, dynamic> j) {
+  return NestedRigAttachment(
+    name: _required<String>(j['name'], 'nestedRigAttachment.name'),
+    skeleton: _required<String>(j['skeleton'], 'nestedRigAttachment.skeleton'),
+    skin: (j['skin'] as String?) ?? '',
+    animation: (j['animation'] as String?) ?? '',
+  );
+}
+
 ClippingAttachment _parseClippingAttachment(Map<String, dynamic> j) {
   final verticesRaw =
       _required<List<dynamic>>(j['vertices'], 'clippingAttachment.vertices');
@@ -1085,6 +1094,28 @@ void _validate(SkeletonData data) {
     _validateConvexPolygonVertices(b.vertices, ctx);
   }
 
+  final nestedRigNames = <String>{};
+  for (var i = 0; i < data.nestedRigAttachments.length; i++) {
+    final n = data.nestedRigAttachments[i];
+    final ctx = 'nestedRigAttachments[$i]';
+    if (n.name.isEmpty) throw FormatException('$ctx.name must not be empty');
+    if (n.skeleton.isEmpty) {
+      throw FormatException('$ctx.skeleton must not be empty');
+    }
+    if (!nestedRigNames.add(n.name)) {
+      throw FormatException('duplicate nested rig attachment name: ${n.name}');
+    }
+    if (regionNames.contains(n.name) ||
+        clipNames.contains(n.name) ||
+        meshNames.contains(n.name) ||
+        pointNames.contains(n.name) ||
+        boundingBoxNames.contains(n.name)) {
+      throw FormatException(
+          'nested rig attachment name collides with another slot attachment name: '
+          '${n.name}');
+    }
+  }
+
   final slotNames = <String>{};
   final resolvedSlotAttachments = List<String>.filled(data.slots.length, '');
   for (var i = 0; i < data.slots.length; i++) {
@@ -1100,7 +1131,8 @@ void _validate(SkeletonData data) {
         !clipNames.contains(s.attachment) &&
         !meshNames.contains(s.attachment) &&
         !pointNames.contains(s.attachment) &&
-        !boundingBoxNames.contains(s.attachment)) {
+        !boundingBoxNames.contains(s.attachment) &&
+        !nestedRigNames.contains(s.attachment)) {
       throw FormatException('unknown slot attachment: ${s.attachment}');
     }
     if (data.skins.isEmpty) {
@@ -1154,6 +1186,7 @@ void _validate(SkeletonData data) {
         if (meshNames.contains(entry.target)) targetMatches++;
         if (pointNames.contains(entry.target)) targetMatches++;
         if (boundingBoxNames.contains(entry.target)) targetMatches++;
+        if (nestedRigNames.contains(entry.target)) targetMatches++;
         if (targetMatches == 0) {
           throw FormatException('unknown skin entry target: ${entry.target}');
         }
@@ -1624,6 +1657,7 @@ const int _bnbClippingAttachment = 3000;
 const int _bnbMeshAttachment = 3001;
 const int _bnbSkin = 3003;
 const int _bnbSkinEntry = 3004;
+const int _bnbNestedRigAttachment = 3005;
 const int _bnbPath = 4000;
 const int _bnbPathAttachment = 4001;
 const int _bnbIkConstraint = 4002;
@@ -1691,6 +1725,9 @@ const int _bkDeformVertexCount = 3008;
 const int _bkDeformKeys = 3009;
 const int _bkSkinAttachment = 3010;
 const int _bkSkinTarget = 3011;
+const int _bkNestedSkeleton = 3012;
+const int _bkNestedSkin = 3013;
+const int _bkNestedAnimation = 3014;
 const int _bkTarget = 4000;
 const int _bkPath = 4001;
 const int _bkOrder = 4002;
@@ -1791,6 +1828,7 @@ const _bnbKnownTypes = {
   _bnbBoundingBoxAttachment,
   _bnbClippingAttachment,
   _bnbMeshAttachment,
+  _bnbNestedRigAttachment,
   _bnbSkin,
   _bnbSkinEntry,
   _bnbPath,
@@ -2570,6 +2608,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
   final pathAttachments = <PathAttachment>[];
   final clips = <ClippingAttachment>[];
   final meshes = <MeshAttachment>[];
+  final nestedRigAttachments = <NestedRigAttachment>[];
   final ikConstraints = <IkConstraintData>[];
   final transformConstraints = <TransformConstraintData>[];
   final physicsConstraints = <PhysicsConstraintData>[];
@@ -2618,6 +2657,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
       pathAttachments: pathAttachments,
       pointAttachments: pointAttachments,
       boundingBoxAttachments: boundingBoxAttachments,
+      nestedRigAttachments: nestedRigAttachments,
       clippingAttachments: clips,
       meshAttachments: meshes,
       ikConstraints: ikConstraints,
@@ -2840,6 +2880,19 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
           vertices: _bMeshVertices(obj, meshWeighted, strings),
           uvs: _bMeshUvs(obj),
           triangles: _bMeshTriangles(obj),
+        ));
+      case _bnbNestedRigAttachment:
+        flushSkin();
+        flushPending();
+        nestedRigAttachments.add(NestedRigAttachment(
+          name: _bStr(obj, _bkName, strings, 'nestedRigAttachment.name'),
+          skeleton: _bStr(
+              obj, _bkNestedSkeleton, strings, 'nestedRigAttachment.skeleton'),
+          skin: _bStr(obj, _bkNestedSkin, strings, 'nestedRigAttachment.skin',
+              def: ''),
+          animation: _bStr(
+              obj, _bkNestedAnimation, strings, 'nestedRigAttachment.animation',
+              def: ''),
         ));
       case _bnbSkin:
         flushPending();
@@ -3622,6 +3675,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
     pathAttachments: pathAttachments,
     pointAttachments: pointAttachments,
     boundingBoxAttachments: boundingBoxAttachments,
+    nestedRigAttachments: nestedRigAttachments,
     clippingAttachments: clips,
     meshAttachments: meshes,
     ikConstraints: ikConstraints,
@@ -3995,6 +4049,11 @@ SkeletonData loadBonyJson(String jsonText) {
           .map((b) => _parseBoundingBoxAttachment(b as Map<String, dynamic>))
           .toList();
 
+  final nestedRigAttachments =
+      ((root['nestedRigAttachments'] as List<dynamic>?) ?? [])
+          .map((n) => _parseNestedRigAttachment(n as Map<String, dynamic>))
+          .toList();
+
   final paths = ((root['paths'] as List<dynamic>?) ?? [])
       .map((p) => _parsePath(p as Map<String, dynamic>))
       .toList();
@@ -4042,6 +4101,7 @@ SkeletonData loadBonyJson(String jsonText) {
     pathAttachments: pathAttachments,
     pointAttachments: pointAttachments,
     boundingBoxAttachments: boundingBoxAttachments,
+    nestedRigAttachments: nestedRigAttachments,
     clippingAttachments: clippingAttachments,
     meshAttachments: meshAttachments,
     ikConstraints: ikConstraints,
@@ -4088,6 +4148,7 @@ SkeletonData loadBonyJson(String jsonText) {
     pathAttachments: pathAttachments,
     pointAttachments: pointAttachments,
     boundingBoxAttachments: boundingBoxAttachments,
+    nestedRigAttachments: nestedRigAttachments,
     clippingAttachments: clippingAttachments,
     meshAttachments: meshAttachments,
     ikConstraints: ikConstraints,

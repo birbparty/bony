@@ -205,6 +205,37 @@ documentation prose.
 - **CI enforcement**: registry/defaults/codegen consistency is enforced by
   `codegen/generate.py --check`; clean-room posture is enforced by code review.
 
+### Nested Rig Attachment Schema Names (2026-07-06)
+
+- **Reason needed**: Bead `bony-5b5w` introduces a loadable slot-visible nested
+  rig attachment record and needs project-owned identifiers for its JSON and
+  `.bnb` surfaces.
+- **Classification**: project-owned design - not an external source of
+  implementation truth.
+- **What is recorded**: the serialized identifiers `nestedRigAttachment` (type),
+  `nestedRigAttachments` (skeleton-level array), canonical-JSON fields
+  `skeleton`, `skin`, and `animation`, and `.bnb` properties `nestedSkeleton`,
+  `nestedSkin`, and `nestedAnimation` were chosen from the local binding spec's
+  nested attachment category, the existing project-owned slot/skin attachment
+  model, and generic nested-asset/default-selection terminology. The record is a
+  concrete attachment definition referenced through the existing
+  `slot.attachment` field and optional `skinEntry.target` bindings. `skin` and
+  `animation` are stored defaults for the nested skeleton and are not resolved
+  against the host skeleton in this slice.
+- **Source**: none. The names, field set, type/property keys, validation rules,
+  object ordering, and deferred runtime boundaries were **not** derived from any
+  third-party runtime's nested-armature/component field set, wire layout, keys,
+  or documentation prose (DragonBones, Spine, Rive, Live2D, Lottie).
+- **Cleanroom compliance**: confirmed against the `docs/CLEANROOM.md` review
+  checklist - the record can be explained from the local binding spec,
+  `docs/nested-rig-attachment-contract.md`, and existing project-owned
+  attachment/skin contracts; the new keys (type `3005`, properties `3012..3014`
+  in the M4 band) are documented in `registry/`, `spec/`, and `docs/`; no build
+  step fetches prior-art source. Comparable nested-armature/artboard capabilities
+  remain category context only.
+- **CI enforcement**: registry/defaults/codegen consistency is enforced by
+  `codegen/generate.py --check`; clean-room posture is enforced by code review.
+
 ### Deform Timeline Schema Names (2026-07-03)
 
 - **Reason needed**: The M4 deform-timeline milestone (epic `bony-68lj`, prompt 23)

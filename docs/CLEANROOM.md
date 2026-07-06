@@ -142,6 +142,26 @@ Net-new serialized identifiers confirmed against the review checklist above.
   (2026-07-05)" in `docs/PROVENANCE.md`.
 - **Result**: checklist **satisfied**.
 
+### Nested Rig Attachment Serialized Names (2026-07-06, bead `bony-5b5w`)
+
+- **Net-new identifiers**: type `nestedRigAttachment`; top-level canonical JSON
+  array `nestedRigAttachments`; canonical-JSON fields `skeleton`, `skin`, and
+  `animation`; `.bnb` property keys `nestedSkeleton`, `nestedSkin`, and
+  `nestedAnimation`.
+- **Explainable without prior-art source**: yes - the names come from the local
+  binding spec's nested attachment category, the existing project-owned
+  slot/skin attachment model, and generic nested-asset/default-selection
+  terminology. The runtime behavior remains deferred and is documented as a
+  non-goal in `docs/nested-rig-attachment-contract.md`.
+- **Project-owned & documented**: type key `3005` and properties `3012..3014`
+  live in the M4 band in `registry/wire.yml`; defaults/required coverage lives
+  in `spec/defaults.yml`; JSON/BNB shape, validation, ordering, and non-goals
+  are specified in `docs/nested-rig-attachment-contract.md`.
+- **No build-step fetch of prior-art source**: confirmed.
+- **PROVENANCE updated**: yes - see "Nested Rig Attachment Schema Names
+  (2026-07-06)" in `docs/PROVENANCE.md`.
+- **Result**: checklist **satisfied**.
+
 ### Helper Geometry Attachment Serialized Names (2026-07-05, bead `bony-wb1d`)
 
 - **Net-new identifiers**: types `pointAttachment` and

@@ -187,6 +187,19 @@ objectDefaults:
         value: false
         omitWhenDefault: true
         applyOnLoad: true
+  - object: nestedRigAttachment
+    ownerBead: bony-5b5w
+    properties:
+      nestedSkin:
+        value: ""
+        omitWhenDefault: true
+        applyOnLoad: true
+        doc: Empty string means no default nested skin is requested.
+      nestedAnimation:
+        value: ""
+        omitWhenDefault: true
+        applyOnLoad: true
+        doc: Empty string means no default nested animation is requested.
   - object: path
     ownerBead: bony-8gs
     properties:
@@ -578,6 +591,14 @@ requiredProperties:
     property: meshTriangles
     reason: A mesh attachment must carry its triangle index list to assemble geometry.
     ownerBead: bony-lzj.1
+  - object: nestedRigAttachment
+    property: name
+    reason: Nested rig attachments are referenced by slot attachment names.
+    ownerBead: bony-5b5w
+  - object: nestedRigAttachment
+    property: nestedSkeleton
+    reason: A nested rig attachment must identify the nested skeleton asset or host-resolved skeleton id.
+    ownerBead: bony-5b5w
   - object: path
     property: name
     reason: Path constraints are referenced by stable unique names.
