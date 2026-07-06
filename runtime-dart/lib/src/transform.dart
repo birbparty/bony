@@ -224,6 +224,43 @@ _Point _transformPoint(Affine2 world, double x, double y) => _Point(
       world.b * x + world.d * y + world.ty,
     );
 
+Affine2 _composeAffine(Affine2 parent, Affine2 child) => Affine2(
+      a: parent.a * child.a + parent.c * child.b,
+      b: parent.b * child.a + parent.d * child.b,
+      c: parent.a * child.c + parent.c * child.d,
+      d: parent.b * child.c + parent.d * child.d,
+      tx: parent.a * child.tx + parent.c * child.ty + parent.tx,
+      ty: parent.b * child.tx + parent.d * child.ty + parent.ty,
+    );
+
+DrawVertex _composeVertex(Affine2 parent, DrawVertex vertex) {
+  final point = _transformPoint(parent, vertex.x, vertex.y);
+  return DrawVertex(
+    x: point.x,
+    y: point.y,
+    u: vertex.u,
+    v: vertex.v,
+    r: vertex.r,
+    g: vertex.g,
+    b: vertex.b,
+    a: vertex.a,
+  );
+}
+
+DrawBatch _composeBatch(Affine2 parent, DrawBatch batch) => DrawBatch(
+      slot: batch.slot,
+      bone: batch.bone,
+      attachment: batch.attachment,
+      blendMode: batch.blendMode,
+      texturePage: batch.texturePage,
+      clipId: batch.clipId,
+      world: _composeAffine(parent, batch.world),
+      vertices: [
+        for (final vertex in batch.vertices) _composeVertex(parent, vertex)
+      ],
+      indices: List<int>.from(batch.indices),
+    );
+
 _Point _transformVector(Affine2 world, double x, double y) => _Point(
       world.a * x + world.c * y,
       world.b * x + world.d * y,
@@ -1383,11 +1420,30 @@ List<DrawVertex> _applyDeformDeltas(
   return out;
 }
 
-List<DrawBatch> buildDrawBatches(
-  SkeletonData data, {
-  String activeSkin = 'default',
+class _DrawBatchBuild {
+  const _DrawBatchBuild(
+    this.batches,
+    this.batchSlotIndex,
+    this.batchClipPerTriangle,
+  );
+
+  final List<DrawBatch> batches;
+  final List<int> batchSlotIndex;
+  final List<bool> batchClipPerTriangle;
+}
+
+_DrawBatchBuild _buildDrawBatchBuild(
+  SkeletonData data,
+  List<Affine2> worlds, {
+  required String activeSkin,
+  required Map<String, SkeletonData> children,
+  required bool composeNested,
+  required List<String> activeIds,
 }) {
-  final worlds = computeWorldTransforms(data);
+  if (worlds.length != data.bones.length) {
+    throw FormatException(
+        'buildDrawBatches: worlds length ${worlds.length} must match bone count ${data.bones.length}');
+  }
   final boneIndex = <String, int>{};
   for (var i = 0; i < data.bones.length; i++) {
     boneIndex[data.bones[i].name] = i;
@@ -1398,6 +1454,10 @@ List<DrawBatch> buildDrawBatches(
   final meshMap = <String, MeshAttachment>{
     for (final m in data.meshAttachments) m.name: m,
   };
+  final nestedMap = <String, NestedRigAttachment>{
+    if (composeNested)
+      for (final n in data.nestedRigAttachments) n.name: n,
+  };
   // Transient deform-timeline overrides staged on the posed skeleton by
   // applyPose, keyed by slot name + mesh attachment (the mixer produces one
   // entry per slot/attachment).
@@ -1407,8 +1467,11 @@ List<DrawBatch> buildDrawBatches(
   };
 
   final baseBatches = <DrawBatch>[];
+  final batchSlotIndex = <int>[];
+  final batchClipPerTriangle = <bool>[];
   final resolvedSlotAttachment = <String, String>{};
-  for (final slot in data.slots) {
+  for (var slotIdx = 0; slotIdx < data.slots.length; slotIdx++) {
+    final slot = data.slots[slotIdx];
     if (slot.attachment.isEmpty) continue;
     final attachment = data.resolveSkinAttachmentTarget(
         activeSkin, slot.name, slot.attachment);
@@ -1456,6 +1519,43 @@ List<DrawBatch> buildDrawBatches(
           vertices: meshVerts,
           indices: List<int>.from(mesh.triangles),
         ));
+        batchSlotIndex.add(slotIdx);
+        batchClipPerTriangle.add(true);
+        continue;
+      }
+      final nested = nestedMap[attachment];
+      if (nested != null) {
+        if (activeIds.contains(nested.skeleton)) {
+          throw FormatException(
+              'cycleDetected: nested rig composition cycle detected for skeleton: ${nested.skeleton}');
+        }
+        final child = children[nested.skeleton];
+        if (child == null) {
+          throw FormatException(
+              'unknownRequiredReference: nested rig child skeleton is not resolved: ${nested.skeleton}');
+        }
+        final childSkin = nested.skin.isNotEmpty ? nested.skin : 'default';
+        if (!child.hasSkin(childSkin)) {
+          throw FormatException(
+              'unknownRequiredReference: nested rig child skin is not resolved: ${nested.skeleton}/$childSkin');
+        }
+        final childBuild = _buildDrawBatchBuild(
+          child,
+          computeWorldTransforms(child),
+          activeSkin: childSkin,
+          children: children,
+          composeNested: true,
+          activeIds: [...activeIds, nested.skeleton],
+        );
+        final hostWorld = worlds[boneIndex[slot.bone]!];
+        for (var childIndex = 0;
+            childIndex < childBuild.batches.length;
+            childIndex++) {
+          baseBatches
+              .add(_composeBatch(hostWorld, childBuild.batches[childIndex]));
+          batchSlotIndex.add(slotIdx);
+          batchClipPerTriangle.add(childBuild.batchClipPerTriangle[childIndex]);
+        }
       }
       continue;
     }
@@ -1479,54 +1579,98 @@ List<DrawBatch> buildDrawBatches(
       ],
       indices: [0, 1, 2, 2, 3, 0],
     ));
+    batchSlotIndex.add(slotIdx);
+    batchClipPerTriangle.add(false);
   }
 
+  List<DrawBatch> visibleBatches;
   if (data.deformers.isEmpty) {
-    return _applyClipping(
-        data, baseBatches, worlds, boneIndex, resolvedSlotAttachment);
+    visibleBatches = baseBatches;
+  } else {
+    // Sample each parameter at its default value.
+    final samples = data.parameters
+        .map((p) => ParameterSample(name: p.name, value: p.defaultValue))
+        .toList();
+    final efDefs = effectiveDeformers(data.deformers, samples);
+    if (efDefs.isEmpty) {
+      visibleBatches = baseBatches;
+    } else {
+      // Apply deformers per batch — each batch uses its own vertices as setup.
+      visibleBatches = baseBatches.map((batch) {
+        final verts = batch.vertices;
+        final positions = verts.map((v) => (x: v.x, y: v.y)).toList();
+        final deformed = applyDeformers(positions, efDefs);
+        return DrawBatch(
+          slot: batch.slot,
+          bone: batch.bone,
+          attachment: batch.attachment,
+          blendMode: batch.blendMode,
+          texturePage: batch.texturePage,
+          clipId: batch.clipId,
+          world: batch.world,
+          vertices: [
+            for (var i = 0; i < verts.length; i++)
+              DrawVertex(
+                x: deformed[i].x,
+                y: deformed[i].y,
+                u: verts[i].u,
+                v: verts[i].v,
+                r: verts[i].r,
+                g: verts[i].g,
+                b: verts[i].b,
+                a: verts[i].a,
+              ),
+          ],
+          indices: batch.indices,
+        );
+      }).toList();
+    }
   }
 
-  // Sample each parameter at its default value.
-  final samples = data.parameters
-      .map((p) => ParameterSample(name: p.name, value: p.defaultValue))
-      .toList();
-  final efDefs = effectiveDeformers(data.deformers, samples);
-  if (efDefs.isEmpty) {
-    return _applyClipping(
-        data, baseBatches, worlds, boneIndex, resolvedSlotAttachment);
-  }
+  return _DrawBatchBuild(
+    _applyClipping(
+      data,
+      visibleBatches,
+      worlds,
+      boneIndex,
+      resolvedSlotAttachment,
+      batchSlotIndex,
+      batchClipPerTriangle,
+    ),
+    batchSlotIndex,
+    batchClipPerTriangle,
+  );
+}
 
-  // Apply deformers per batch — each batch uses its own vertices as setup.
-  final remapped = baseBatches.map((batch) {
-    final verts = batch.vertices;
-    final positions = verts.map((v) => (x: v.x, y: v.y)).toList();
-    final deformed = applyDeformers(positions, efDefs);
-    return DrawBatch(
-      slot: batch.slot,
-      bone: batch.bone,
-      attachment: batch.attachment,
-      blendMode: batch.blendMode,
-      texturePage: batch.texturePage,
-      clipId: batch.clipId,
-      world: batch.world,
-      vertices: [
-        for (var i = 0; i < verts.length; i++)
-          DrawVertex(
-            x: deformed[i].x,
-            y: deformed[i].y,
-            u: verts[i].u,
-            v: verts[i].v,
-            r: verts[i].r,
-            g: verts[i].g,
-            b: verts[i].b,
-            a: verts[i].a,
-          ),
-      ],
-      indices: batch.indices,
-    );
-  }).toList();
-  return _applyClipping(
-      data, remapped, worlds, boneIndex, resolvedSlotAttachment);
+List<DrawBatch> buildDrawBatches(
+  SkeletonData data, {
+  String activeSkin = 'default',
+}) {
+  final worlds = computeWorldTransforms(data);
+  return _buildDrawBatchBuild(
+    data,
+    worlds,
+    activeSkin: activeSkin,
+    children: const {},
+    composeNested: false,
+    activeIds: const [],
+  ).batches;
+}
+
+List<DrawBatch> buildNestedDrawBatches(
+  SkeletonData data,
+  Map<String, SkeletonData> children, {
+  String activeSkin = 'default',
+  List<Affine2>? worlds,
+}) {
+  return _buildDrawBatchBuild(
+    data,
+    worlds ?? computeWorldTransforms(data),
+    activeSkin: activeSkin,
+    children: children,
+    composeNested: true,
+    activeIds: const [],
+  ).batches;
 }
 
 /// Populate `clipId` and geometrically clip covered draw batches, mirroring the
@@ -1541,6 +1685,8 @@ List<DrawBatch> _applyClipping(
   List<Affine2> worlds,
   Map<String, int> boneIndex,
   Map<String, String> resolvedSlotAttachment,
+  List<int> batchSlotIndex,
+  List<bool> batchClipPerTriangle,
 ) {
   if (data.clippingAttachments.isEmpty) return batches;
 
@@ -1551,11 +1697,6 @@ List<DrawBatch> _applyClipping(
   final clipMap = <String, ClippingAttachment>{
     for (final c in data.clippingAttachments) c.name: c,
   };
-  // Meshes are a triangle *soup* (explicit index list, shared/interior
-  // vertices), so they clip per-triangle via clipDrawBatchTriangles — NOT
-  // through clipDrawBatchPolygon, which reinterprets a batch's vertices as one
-  // convex boundary ring and would destroy the topology.
-  final meshNames = <String>{for (final m in data.meshAttachments) m.name};
   final lastSlotIndex = data.slots.length - 1;
 
   final result = List<DrawBatch>.from(batches);
@@ -1579,11 +1720,11 @@ List<DrawBatch> _applyClipping(
       clipPolygon.add(ClipPoint(quantizeF32(point.x), quantizeF32(point.y)));
     }
     for (var b = 0; b < result.length; b++) {
-      final sourceSlotIndex = slotIndexByName[result[b].slot]!;
+      final sourceSlotIndex = batchSlotIndex[b];
       if (sourceSlotIndex <= ownIndex || sourceSlotIndex > endIndex) continue;
       final batch = result[b];
       // Mesh batches clip per-triangle; region batches clip as a convex ring.
-      final clipped = meshNames.contains(batch.attachment)
+      final clipped = batchClipPerTriangle[b]
           ? clipDrawBatchTriangles(batch.vertices, batch.indices, clipPolygon)
           : clipDrawBatchPolygon(batch.vertices, clipPolygon);
       result[b] = DrawBatch(
