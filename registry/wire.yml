@@ -1150,6 +1150,55 @@ propertyKeys:
     milestone: M8
     ownerBead: bony-cl8.9
     doc: Layer-local listener target state index.
+  - id: listenerSlotIndex
+    key: 7064
+    backingType: varuint
+    status: active
+    milestone: M8
+    ownerBead: bony-g65e
+    doc: Skeleton slot index for pointer helper listeners.
+  - id: listenerHelperKind
+    key: 7065
+    backingType: varuint
+    status: active
+    milestone: M8
+    ownerBead: bony-g65e
+    doc: Project-owned tag for pointer listener helper target shape: point or boundingBox.
+  - id: listenerHelperTarget
+    key: 7066
+    backingType: string
+    status: active
+    milestone: M8
+    ownerBead: bony-g65e
+    doc: Concrete pointAttachment or boundingBoxAttachment name targeted by a pointer helper listener.
+  - id: listenerInputIndex
+    key: 7067
+    backingType: varuint
+    status: active
+    milestone: M8
+    ownerBead: bony-g65e
+    doc: State-machine-local input index mutated or fired by a pointer helper listener.
+  - id: listenerBoolValue
+    key: 7068
+    backingType: bool
+    status: active
+    milestone: M8
+    ownerBead: bony-g65e
+    doc: Bool value assigned by a pointer helper listener whose target input is bool.
+  - id: listenerNumberValue
+    key: 7069
+    backingType: f32
+    status: active
+    milestone: M8
+    ownerBead: bony-g65e
+    doc: Finite f32 value assigned by a pointer helper listener whose target input is number.
+  - id: listenerHitRadius
+    key: 7070
+    backingType: f32
+    status: active
+    milestone: M8
+    ownerBead: bony-g65e
+    doc: Explicit finite non-negative point hit radius for point-target pointer listeners.
   - id: skinAttachment
     key: 3010
     backingType: string
@@ -1402,6 +1451,13 @@ objects:
       - listenerLayerIndex
       - listenerFromStateIndex
       - listenerToStateIndex
+      - listenerSlotIndex
+      - listenerHelperKind
+      - listenerHelperTarget
+      - listenerInputIndex
+      - listenerBoolValue
+      - listenerNumberValue
+      - listenerHitRadius
     doc: State-machine listener child record owned by the most recent stateMachine.
   - type: skin
     properties:

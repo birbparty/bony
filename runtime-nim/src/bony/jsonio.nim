@@ -1159,8 +1159,10 @@ proc parseBonyStateMachines(
         else:
           raise newBonyLoadError(schemaViolation, inCtx & ".kind must be 'bool', 'number', or 'trigger'")
     var inputNames = initHashSet[string]()
+    var inputKinds = initTable[string, StateMachineInputKind]()
     for inp in inputs:
       inputNames.incl(inp.name)
+      inputKinds[inp.name] = inp.kind
     if not smObj.hasKey("layers"):
       raise newBonyLoadError(schemaViolation, smCtx & ".layers is required")
     let layersListNode = requireArray(smObj["layers"], smCtx & ".layers")
@@ -1264,25 +1266,44 @@ proc parseBonyStateMachines(
       for lstIndex, lstNode in lstListNode.elems:
         let lstCtx = smCtx & ".listeners[" & $lstIndex & "]"
         let lstObj = requireObject(lstNode, lstCtx)
-        validateKnownKeys(lstObj, ["name", "kind", "layer", "fromState", "toState"], lstCtx)
+        validateKnownKeys(lstObj,
+          ["name", "kind", "layer", "fromState", "toState", "slot", "targetKind", "target", "hitRadius", "input", "value"],
+          lstCtx)
         let lstName = requiredString(lstObj, "name", lstCtx)
         let lstKindStr = requiredString(lstObj, "kind", lstCtx)
-        let lstLayer = requiredString(lstObj, "layer", lstCtx)
-        if lstLayer notin layerStateMap:
-          raise newBonyLoadError(unknownRequiredReference, lstCtx & ".layer references unknown layer: " & lstLayer)
-        let lstStates = layerStateMap[lstLayer]
         case lstKindStr
         of "stateEnter":
+          let lstLayer = requiredString(lstObj, "layer", lstCtx)
+          if lstLayer notin layerStateMap:
+            raise newBonyLoadError(unknownRequiredReference, lstCtx & ".layer references unknown layer: " & lstLayer)
+          if lstObj.hasKey("slot") or lstObj.hasKey("targetKind") or lstObj.hasKey("target") or
+              lstObj.hasKey("hitRadius") or lstObj.hasKey("input") or lstObj.hasKey("value"):
+            raise newBonyLoadError(schemaViolation, lstCtx & " lifecycle listener must not contain pointer fields")
+          let lstStates = layerStateMap[lstLayer]
           let toState = requiredString(lstObj, "toState", lstCtx)
           if toState notin lstStates:
             raise newBonyLoadError(unknownRequiredReference, lstCtx & ".toState references unknown state: " & toState)
           listeners.add stateMachineStateEnterListener(lstName, lstLayer, toState)
         of "stateExit":
+          let lstLayer = requiredString(lstObj, "layer", lstCtx)
+          if lstLayer notin layerStateMap:
+            raise newBonyLoadError(unknownRequiredReference, lstCtx & ".layer references unknown layer: " & lstLayer)
+          if lstObj.hasKey("slot") or lstObj.hasKey("targetKind") or lstObj.hasKey("target") or
+              lstObj.hasKey("hitRadius") or lstObj.hasKey("input") or lstObj.hasKey("value"):
+            raise newBonyLoadError(schemaViolation, lstCtx & " lifecycle listener must not contain pointer fields")
+          let lstStates = layerStateMap[lstLayer]
           let fromState = requiredString(lstObj, "fromState", lstCtx)
           if fromState notin lstStates:
             raise newBonyLoadError(unknownRequiredReference, lstCtx & ".fromState references unknown state: " & fromState)
           listeners.add stateMachineStateExitListener(lstName, lstLayer, fromState)
         of "transition":
+          let lstLayer = requiredString(lstObj, "layer", lstCtx)
+          if lstLayer notin layerStateMap:
+            raise newBonyLoadError(unknownRequiredReference, lstCtx & ".layer references unknown layer: " & lstLayer)
+          if lstObj.hasKey("slot") or lstObj.hasKey("targetKind") or lstObj.hasKey("target") or
+              lstObj.hasKey("hitRadius") or lstObj.hasKey("input") or lstObj.hasKey("value"):
+            raise newBonyLoadError(schemaViolation, lstCtx & " lifecycle listener must not contain pointer fields")
+          let lstStates = layerStateMap[lstLayer]
           let fromState = requiredString(lstObj, "fromState", lstCtx)
           if fromState notin lstStates:
             raise newBonyLoadError(unknownRequiredReference, lstCtx & ".fromState references unknown state: " & fromState)
@@ -1290,9 +1311,73 @@ proc parseBonyStateMachines(
           if toState notin lstStates:
             raise newBonyLoadError(unknownRequiredReference, lstCtx & ".toState references unknown state: " & toState)
           listeners.add stateMachineTransitionListener(lstName, lstLayer, fromState, toState)
+        of "pointerDown", "pointerUp", "pointerEnter", "pointerExit", "pointerMove":
+          if lstObj.hasKey("layer") or lstObj.hasKey("fromState") or lstObj.hasKey("toState"):
+            raise newBonyLoadError(schemaViolation, lstCtx & " pointer listener must not contain lifecycle fields")
+          let slot = requiredString(lstObj, "slot", lstCtx)
+          let targetKindStr = requiredString(lstObj, "targetKind", lstCtx)
+          let targetKind =
+            case targetKindStr
+            of "point": pointHelperTarget
+            of "boundingBox": boundingBoxHelperTarget
+            else:
+              raise newBonyLoadError(schemaViolation, lstCtx & ".targetKind must be 'point' or 'boundingBox'")
+          let target = requiredString(lstObj, "target", lstCtx)
+          var hitRadius = 0.0
+          var hasHitRadius = false
+          case targetKind
+          of pointHelperTarget:
+            hitRadius = requiredFloat(lstObj, "hitRadius", lstCtx)
+            hasHitRadius = true
+          of boundingBoxHelperTarget:
+            if lstObj.hasKey("hitRadius"):
+              raise newBonyLoadError(schemaViolation, lstCtx & ".hitRadius is invalid for boundingBox pointer listeners")
+          let input = requiredString(lstObj, "input", lstCtx)
+          if input notin inputNames:
+            raise newBonyLoadError(unknownRequiredReference, lstCtx & ".input references unknown input: " & input)
+          var boolValue = false
+          var hasBoolValue = false
+          var numberValue = 0.0
+          var hasNumberValue = false
+          case inputKinds[input]
+          of boolInput:
+            if not lstObj.hasKey("value"):
+              raise newBonyLoadError(schemaViolation, lstCtx & ".value is required for bool pointer listeners")
+            if lstObj["value"].kind != JBool:
+              raise newBonyLoadError(schemaViolation, lstCtx & ".value must be bool")
+            boolValue = lstObj["value"].getBool()
+            hasBoolValue = true
+          of numberInput:
+            if not lstObj.hasKey("value"):
+              raise newBonyLoadError(schemaViolation, lstCtx & ".value is required for number pointer listeners")
+            if lstObj["value"].kind notin {JInt, JFloat}:
+              raise newBonyLoadError(schemaViolation, lstCtx & ".value must be numeric")
+            numberValue = quantizeF32(lstObj["value"].getFloat(), lstCtx & ".value")
+            hasNumberValue = true
+          of triggerInput:
+            if lstObj.hasKey("value"):
+              raise newBonyLoadError(schemaViolation, lstCtx & ".value is invalid for trigger pointer listeners")
+          let pointerKind =
+            case lstKindStr
+            of "pointerDown": pointerDownListener
+            of "pointerUp": pointerUpListener
+            of "pointerEnter": pointerEnterListener
+            of "pointerExit": pointerExitListener
+            else: pointerMoveListener
+          listeners.add stateMachinePointerListener(
+            lstName, pointerKind, slot, targetKind, target, input,
+            hitRadius = hitRadius,
+            hasHitRadius = hasHitRadius,
+            boolValue = boolValue,
+            hasBoolValue = hasBoolValue,
+            numberValue = numberValue,
+            hasNumberValue = hasNumberValue,
+          )
         else:
-          raise newBonyLoadError(schemaViolation, lstCtx & ".kind must be 'stateEnter', 'stateExit', or 'transition'")
-    result.add stateMachine(machineName, layers, inputs, listeners)
+          raise newBonyLoadError(schemaViolation, lstCtx & ".kind must be a lifecycle or pointer listener kind")
+    let machine = stateMachine(machineName, layers, inputs, listeners)
+    validatePointerListenerTargets(data, machine)
+    result.add machine
 
 
 proc loadBonyJsonAnimations*(text: string): Table[string, AnimationClip] =
@@ -1384,6 +1469,17 @@ proc stateMachineListenerKindName(kind: StateMachineListenerKind): string =
   of stateEnterListener: "stateEnter"
   of stateExitListener: "stateExit"
   of transitionListener: "transition"
+  of pointerDownListener: "pointerDown"
+  of pointerUpListener: "pointerUp"
+  of pointerEnterListener: "pointerEnter"
+  of pointerExitListener: "pointerExit"
+  of pointerMoveListener: "pointerMove"
+
+
+proc pointerHelperTargetKindName(kind: PointerHelperTargetKind): string =
+  case kind
+  of pointHelperTarget: "point"
+  of boundingBoxHelperTarget: "boundingBox"
 
 
 proc appendCurveFields(result: var string; curve: TimelineCurve; indent: int; first: var bool; key = "curve") =
@@ -1788,11 +1884,24 @@ proc appendStateMachinesJson(result: var string; machines: openArray[StateMachin
           var lFirst = true
           result.addStringField("name", listener.name, indent + 4, lFirst)
           result.addStringField("kind", stateMachineListenerKindName(listener.kind), indent + 4, lFirst)
-          result.addStringField("layer", listener.layer, indent + 4, lFirst)
-          if listener.fromState.len > 0:
-            result.addStringField("fromState", listener.fromState, indent + 4, lFirst)
-          if listener.toState.len > 0:
-            result.addStringField("toState", listener.toState, indent + 4, lFirst)
+          case listener.kind
+          of stateEnterListener, stateExitListener, transitionListener:
+            result.addStringField("layer", listener.layer, indent + 4, lFirst)
+            if listener.fromState.len > 0:
+              result.addStringField("fromState", listener.fromState, indent + 4, lFirst)
+            if listener.toState.len > 0:
+              result.addStringField("toState", listener.toState, indent + 4, lFirst)
+          of pointerDownListener, pointerUpListener, pointerEnterListener, pointerExitListener, pointerMoveListener:
+            result.addStringField("slot", listener.slot, indent + 4, lFirst)
+            result.addStringField("targetKind", pointerHelperTargetKindName(listener.targetKind), indent + 4, lFirst)
+            result.addStringField("target", listener.target, indent + 4, lFirst)
+            if listener.hasHitRadius:
+              result.addNumberField("hitRadius", listener.hitRadius, indent + 4, lFirst)
+            result.addStringField("input", listener.input, indent + 4, lFirst)
+            if listener.hasBoolValue:
+              result.addBoolField("value", listener.boolValue, indent + 4, lFirst)
+            elif listener.hasNumberValue:
+              result.addNumberField("value", listener.numberValue, indent + 4, lFirst)
           result.add "\n"
           result.addIndent(indent + 3)
           result.add "}"

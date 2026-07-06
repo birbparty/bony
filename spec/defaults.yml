@@ -442,8 +442,13 @@ objectDefaults:
         applyOnLoad: false
         doc: Numeric condition value can be omitted when zero, but loaders must validate condition-kind-specific presence from the raw record.
   - object: stateMachineListener
-    ownerBead: bony-cl8.9
+    ownerBead: bony-g65e
     properties:
+      listenerLayerIndex:
+        value: 0
+        omitWhenDefault: true
+        applyOnLoad: false
+        doc: Lifecycle listener layer index can be omitted when zero, but loaders must validate listener-kind-specific presence from the raw record.
       listenerFromStateIndex:
         value: 0
         omitWhenDefault: true
@@ -454,6 +459,41 @@ objectDefaults:
         omitWhenDefault: true
         applyOnLoad: false
         doc: Listener target state index can be omitted when zero, but loaders must validate listener-kind-specific presence from the raw record.
+      listenerSlotIndex:
+        value: 0
+        omitWhenDefault: true
+        applyOnLoad: false
+        doc: Pointer listener slot index can be omitted when zero, but loaders must validate pointer-kind-specific presence from the raw record.
+      listenerHelperKind:
+        value: 0
+        omitWhenDefault: true
+        applyOnLoad: false
+        doc: Pointer listener helper kind defaults to point only for canonical omission; loaders validate pointer-kind-specific presence from the raw record.
+      listenerHelperTarget:
+        value: ""
+        omitWhenDefault: true
+        applyOnLoad: false
+        doc: Pointer listener helper target must be present for pointer listeners; lifecycle listeners reject it.
+      listenerInputIndex:
+        value: 0
+        omitWhenDefault: true
+        applyOnLoad: false
+        doc: Pointer listener input index can be omitted when zero, but loaders must validate pointer-kind-specific presence from the raw record.
+      listenerBoolValue:
+        value: false
+        omitWhenDefault: true
+        applyOnLoad: false
+        doc: Pointer listener bool value may be false but loaders must validate explicit presence for bool-input pointer listeners.
+      listenerNumberValue:
+        value: 0.0
+        omitWhenDefault: true
+        applyOnLoad: false
+        doc: Pointer listener number value may be zero but loaders must validate explicit presence for number-input pointer listeners.
+      listenerHitRadius:
+        value: 0.0
+        omitWhenDefault: true
+        applyOnLoad: false
+        doc: Point listener hit radius may be zero but loaders must validate explicit presence for point-target pointer listeners.
   - object: skin
     ownerBead: bony-4set
     properties: {}
@@ -801,10 +841,6 @@ requiredProperties:
   - object: stateMachineListener
     property: stateMachineListenerKind
     reason: Listener kind determines active state-reference fields.
-    ownerBead: bony-cl8.9
-  - object: stateMachineListener
-    property: listenerLayerIndex
-    reason: Listeners must resolve to a state-machine layer.
     ownerBead: bony-cl8.9
   - object: skin
     property: name

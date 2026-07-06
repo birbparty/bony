@@ -304,6 +304,38 @@ documentation prose.
 - **CI enforcement**: registry/defaults/codegen consistency is enforced by
   `codegen/generate.py --check`; clean-room posture is enforced by code review.
 
+### Pointer Helper Listener Schema Names (2026-07-06)
+
+- **Reason needed**: The M21 pointer helper listener milestone (bead
+  `bony-g65e`) serializes state-machine listener records that bind pointer
+  interactions to non-rendered point and bounding-box helper attachments.
+- **Classification**: project-owned design - not an external source of
+  implementation truth.
+- **What is recorded**: the serialized listener kinds `pointerDown`,
+  `pointerUp`, `pointerEnter`, `pointerExit`, and `pointerMove`; canonical JSON
+  fields `slot`, `targetKind`, `target`, `hitRadius`, `input`, and `value`; and
+  `.bnb` M8 properties `listenerSlotIndex` (`7064`), `listenerHelperKind`
+  (`7065`), `listenerHelperTarget` (`7066`), `listenerInputIndex` (`7067`),
+  `listenerBoolValue` (`7068`), `listenerNumberValue` (`7069`), and
+  `listenerHitRadius` (`7070`). The record model reuses the existing
+  `stateMachineListener` object family and is specified in
+  `docs/pointer-helper-listener-contract.md`.
+- **Source**: none. The names, field set, validation rules, dispatch ordering,
+  and property keys were **not** derived from any third-party runtime's pointer,
+  listener, hit-test, data-binding, or interaction field set, wire layout, keys,
+  or documentation prose (DragonBones, Spine, Rive, Live2D, Lottie). The only
+  comparable input used is the capability category recorded in
+  `docs/comparable-feature-set.md`.
+- **Cleanroom compliance**: confirmed against the `docs/CLEANROOM.md` review
+  checklist - the record can be explained from `bony`'s binding spec, existing
+  state-machine/listener surfaces, `docs/helper-geometry-attachment-contract.md`,
+  `docs/skin-attachment-set-contract.md`, generic pointer terminology, and
+  public point-distance / polygon hit-test math; the new identifiers and keys
+  are project-owned and documented in `registry/`, `spec/`, and `docs/`; no
+  build step fetches prior-art source.
+- **CI enforcement**: registry/defaults/codegen consistency is enforced by
+  `codegen/generate.py --check`; clean-room posture is enforced by code review.
+
 ## Source Introduction Rule
 
 When a new external dependency, reference, algorithm paper, or importer input

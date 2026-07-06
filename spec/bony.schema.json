@@ -1621,7 +1621,12 @@
           "enum": [
             "stateEnter",
             "stateExit",
-            "transition"
+            "transition",
+            "pointerDown",
+            "pointerUp",
+            "pointerEnter",
+            "pointerExit",
+            "pointerMove"
           ]
         },
         "layer": {
@@ -1635,11 +1640,38 @@
         "toState": {
           "type": "string",
           "minLength": 1
+        },
+        "slot": {
+          "type": "string",
+          "minLength": 1
+        },
+        "targetKind": {
+          "type": "string",
+          "enum": [
+            "point",
+            "boundingBox"
+          ]
+        },
+        "target": {
+          "type": "string",
+          "minLength": 1
+        },
+        "hitRadius": {
+          "type": "number"
+        },
+        "input": {
+          "type": "string",
+          "minLength": 1
+        },
+        "value": {
+          "type": [
+            "boolean",
+            "number"
+          ]
         }
       },
       "required": [
         "kind",
-        "layer",
         "name"
       ]
     },

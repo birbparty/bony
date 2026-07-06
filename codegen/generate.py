@@ -1075,12 +1075,30 @@ def canonical_json_overrides() -> dict[str, Any]:
             "additionalProperties": False,
             "properties": {
                 "name": named_string,
-                "kind": {"type": "string", "enum": ["stateEnter", "stateExit", "transition"]},
+                "kind": {
+                    "type": "string",
+                    "enum": [
+                        "stateEnter",
+                        "stateExit",
+                        "transition",
+                        "pointerDown",
+                        "pointerUp",
+                        "pointerEnter",
+                        "pointerExit",
+                        "pointerMove",
+                    ],
+                },
                 "layer": named_string,
                 "fromState": named_string,
                 "toState": named_string,
+                "slot": named_string,
+                "targetKind": {"type": "string", "enum": ["point", "boundingBox"]},
+                "target": named_string,
+                "hitRadius": {"type": "number"},
+                "input": named_string,
+                "value": {"type": ["boolean", "number"]},
             },
-            "required": ["kind", "layer", "name"],
+            "required": ["kind", "name"],
         },
     }
 

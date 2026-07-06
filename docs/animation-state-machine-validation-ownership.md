@@ -173,16 +173,26 @@ payload because the input kind lives in the owning machine's input domain.
 
 | Check | Owner | Category |
 |-------|-------|----------|
-| Listener kind is stateEnter, stateExit, or transition | Registry/default decoding | `schemaViolation` |
-| Listener layer reference resolves in the owning machine | Loader reference validation | `unknownRequiredReference` |
+| Listener kind is stateEnter, stateExit, transition, pointerDown, pointerUp, pointerEnter, pointerExit, or pointerMove | Registry/default decoding | `schemaViolation` |
+| Lifecycle listener layer reference resolves in the owning machine | Loader reference validation | `unknownRequiredReference` |
 | State-enter listener has only `toState` | Schema/loader plus reference validation | `schemaViolation` for wrong field shape; `unknownRequiredReference` for unknown state |
 | State-exit listener has only `fromState` | Schema/loader plus reference validation | `schemaViolation` for wrong field shape; `unknownRequiredReference` for unknown state |
 | Transition listener has both source and target states | Schema/loader plus reference validation | `schemaViolation` for missing/wrong field shape; `unknownRequiredReference` for unknown state |
 | Transition listener targets an existing transition in the layer | Loader semantic validation | `unknownRequiredReference` |
+| Pointer listener has no lifecycle-only `layer`, `fromState`, or `toState` fields | Schema/loader | `schemaViolation` |
+| Pointer listener slot resolves in `SkeletonData.slots` | Loader reference validation | `unknownRequiredReference` |
+| Pointer listener helper target resolves in `pointAttachments` or `boundingBoxAttachments` according to `targetKind` | Loader reference validation | `unknownRequiredReference` |
+| Pointer listener target slot can expose the helper through setup `slot.attachment` or a declared skin entry | Loader semantic validation | `unknownRequiredReference` |
+| Pointer listener input resolves in the owning state machine | Loader reference validation | `unknownRequiredReference` |
+| Pointer bool/number/trigger value shape matches the referenced input kind | Schema/loader plus input-kind validation | `schemaViolation` for missing/wrong/inactive value; `numericOutOfRange` for non-finite f32 number |
+| Point pointer listener carries explicit finite non-negative `hitRadius`; bounding-box pointer listener carries no `hitRadius` | Schema/loader | `schemaViolation` or `numericOutOfRange` |
 
-Listener validation runs after layer state and transition resolution. This
-matches the reference-semantics contract and avoids accepting a listener that
-names two states but no actual transition.
+Lifecycle listener validation runs after layer state and transition resolution.
+Pointer listener validation additionally runs after skeleton slots, helper
+attachments, skins, and state-machine inputs are available. This matches the
+reference-semantics contract and avoids accepting a listener that names two
+states but no actual transition, or a pointer target that no active-skin lookup
+could ever expose.
 
 ## Runtime Constructor Role
 

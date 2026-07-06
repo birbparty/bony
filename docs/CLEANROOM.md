@@ -165,3 +165,29 @@ Net-new serialized identifiers confirmed against the review checklist above.
 - **PROVENANCE updated**: yes - see "Helper Geometry Attachment Schema Names
   (2026-07-05)" in `docs/PROVENANCE.md`.
 - **Result**: checklist **satisfied**.
+
+### Pointer Helper Listener Serialized Names (2026-07-06, bead `bony-g65e`)
+
+- **Net-new identifiers**: listener kinds `pointerDown`, `pointerUp`,
+  `pointerEnter`, `pointerExit`, and `pointerMove`; listener JSON fields
+  `slot`, `targetKind`, `target`, `hitRadius`, `input`, and `value`; `.bnb`
+  properties `listenerSlotIndex`, `listenerHelperKind`,
+  `listenerHelperTarget`, `listenerInputIndex`, `listenerBoolValue`,
+  `listenerNumberValue`, and `listenerHitRadius`.
+- **Compatible object reuse**: pointer listener records reuse the existing
+  project-owned `stateMachineListener` object family because they are still
+  state-machine-owned listeners; new M8 properties carry the pointer-specific
+  slot/helper/input/value fields.
+- **Explainable without prior-art source**: yes - the names and rules come from
+  the local binding spec's state-machine pointer category, existing bony helper
+  attachment and skin contracts, generic pointer-event terminology, and public
+  point-distance / polygon hit-test math.
+- **Project-owned & documented**: property keys `7064..7070` live in the M8
+  band in `registry/wire.yml`; defaults/required coverage lives in
+  `spec/defaults.yml`; JSON/BNB shape, validation, hit semantics, dispatch
+  order, and non-goals are specified in
+  `docs/pointer-helper-listener-contract.md`.
+- **No build-step fetch of prior-art source**: confirmed.
+- **PROVENANCE updated**: yes - see "Pointer Helper Listener Schema Names
+  (2026-07-06)" in `docs/PROVENANCE.md`.
+- **Result**: checklist **satisfied**.

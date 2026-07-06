@@ -1582,6 +1582,11 @@ proc listenerKindJson(kind: StateMachineListenerKind): string =
   of stateEnterListener: "stateEnter"
   of stateExitListener: "stateExit"
   of transitionListener: "transition"
+  of pointerDownListener: "pointerDown"
+  of pointerUpListener: "pointerUp"
+  of pointerEnterListener: "pointerEnter"
+  of pointerExitListener: "pointerExit"
+  of pointerMoveListener: "pointerMove"
 
 
 proc colorJson(color: timelines.ColorRgba): JsonNode =

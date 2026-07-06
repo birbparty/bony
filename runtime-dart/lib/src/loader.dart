@@ -1433,6 +1433,9 @@ void _validate(SkeletonData data) {
     final sm = data.stateMachines[smi];
     final smCtx = 'stateMachines[$smi](${sm.name})';
     final inputNames = <String>{for (final inp in sm.inputs) inp.name};
+    final inputsByName = <String, StateMachineInput>{
+      for (final inp in sm.inputs) inp.name: inp,
+    };
     final layerStateNames = <String, Set<String>>{};
     for (var li = 0; li < sm.layers.length; li++) {
       final layer = sm.layers[li];
@@ -1484,25 +1487,122 @@ void _validate(SkeletonData data) {
     for (var li = 0; li < sm.listeners.length; li++) {
       final lst = sm.listeners[li];
       final lstCtx = '$smCtx.listeners[$li](${lst.name})';
-      final lstStates = layerStateNames[lst.layer];
-      if (lstStates == null) {
-        throw FormatException(
-            '$lstCtx.layer references unknown layer: ${lst.layer}');
-      }
-      if (lst.kind == StateMachineListenerKind.stateEnter ||
-          lst.kind == StateMachineListenerKind.transition_) {
-        if (!lstStates.contains(lst.toState)) {
-          throw FormatException(
-              '$lstCtx.toState references unknown state: ${lst.toState}');
+      switch (lst.kind) {
+        case StateMachineListenerKind.stateEnter:
+        case StateMachineListenerKind.stateExit:
+        case StateMachineListenerKind.transition_:
+          final lstStates = layerStateNames[lst.layer];
+          if (lstStates == null) {
+            throw FormatException(
+                '$lstCtx.layer references unknown layer: ${lst.layer}');
+          }
+          if (lst.kind == StateMachineListenerKind.stateEnter ||
+              lst.kind == StateMachineListenerKind.transition_) {
+            if (!lstStates.contains(lst.toState)) {
+              throw FormatException(
+                  '$lstCtx.toState references unknown state: ${lst.toState}');
+            }
+          }
+          if (lst.kind == StateMachineListenerKind.stateExit ||
+              lst.kind == StateMachineListenerKind.transition_) {
+            if (!lstStates.contains(lst.fromState)) {
+              throw FormatException(
+                  '$lstCtx.fromState references unknown state: ${lst.fromState}');
+            }
+          }
+          if (lst.slot.isNotEmpty ||
+              lst.target.isNotEmpty ||
+              lst.input.isNotEmpty ||
+              lst.hitRadius != null ||
+              lst.boolValue != null ||
+              lst.numberValue != null) {
+            throw FormatException('$lstCtx lifecycle listener has pointer fields');
+          }
+        case StateMachineListenerKind.pointerDown:
+        case StateMachineListenerKind.pointerUp:
+        case StateMachineListenerKind.pointerEnter:
+        case StateMachineListenerKind.pointerExit:
+        case StateMachineListenerKind.pointerMove:
+          if (lst.layer.isNotEmpty ||
+              lst.fromState.isNotEmpty ||
+              lst.toState.isNotEmpty) {
+            throw FormatException('$lstCtx pointer listener has lifecycle fields');
+          }
+          final slotIndex = data.slots.indexWhere((s) => s.name == lst.slot);
+          if (slotIndex < 0) {
+            throw FormatException(
+                '$lstCtx.slot references unknown slot: ${lst.slot}');
+          }
+          final helperExists = switch (lst.targetKind) {
+            PointerHelperTargetKind.point => pointNames.contains(lst.target),
+            PointerHelperTargetKind.boundingBox =>
+              boundingBoxNames.contains(lst.target),
+          };
+          if (!helperExists) {
+            throw FormatException(
+                '$lstCtx.target references unknown helper attachment: ${lst.target}');
+          }
+          final setupMatches = data.slots[slotIndex].attachment == lst.target;
+          var skinMatches = false;
+          for (final skin in data.skins) {
+            for (final entry in skin.entries) {
+              if (entry.slot == lst.slot && entry.target == lst.target) {
+                skinMatches = true;
+                break;
+              }
+            }
+            if (skinMatches) break;
+          }
+          if (!setupMatches && !skinMatches) {
+            throw FormatException(
+                '$lstCtx.target does not resolve through slot setup or skins: '
+                '${lst.slot}/${lst.target}');
+          }
+          final input = inputsByName[lst.input];
+          if (input == null) {
+            throw FormatException(
+                '$lstCtx.input references unknown input: ${lst.input}');
+          }
+          switch (input.kind) {
+            case StateMachineInputKind.bool_:
+              if (lst.boolValue == null) {
+                throw FormatException(
+                    '$lstCtx.value is required for bool pointer listeners');
+              }
+              if (lst.numberValue != null) {
+                throw FormatException(
+                    '$lstCtx bool pointer listener must not have number value');
+              }
+            case StateMachineInputKind.number:
+              if (lst.boolValue != null) {
+                throw FormatException(
+                    '$lstCtx number pointer listener must not have bool value');
+              }
+              final value = lst.numberValue;
+              if (value == null || !value.isFinite) {
+                throw FormatException(
+                    '$lstCtx.value is required and finite for number pointer listeners');
+              }
+            case StateMachineInputKind.trigger:
+              if (lst.boolValue != null || lst.numberValue != null) {
+                throw FormatException(
+                    '$lstCtx trigger pointer listener must not have value');
+              }
+          }
+          switch (lst.targetKind) {
+            case PointerHelperTargetKind.point:
+              final radius = lst.hitRadius;
+              if (radius == null || !radius.isFinite || radius < 0.0) {
+                throw FormatException(
+                    '$lstCtx.hitRadius is required and non-negative for point pointer listeners');
+              }
+            case PointerHelperTargetKind.boundingBox:
+              if (lst.hitRadius != null) {
+                throw FormatException(
+                    '$lstCtx.hitRadius is invalid for boundingBox pointer listeners');
+              }
+          }
         }
-      }
-      if (lst.kind == StateMachineListenerKind.stateExit ||
-          lst.kind == StateMachineListenerKind.transition_) {
-        if (!lstStates.contains(lst.fromState)) {
-          throw FormatException(
-              '$lstCtx.fromState references unknown state: ${lst.fromState}');
-        }
-      }
     }
   }
 }
@@ -1647,6 +1747,13 @@ const int _bkStateMachineListenerKind = 7060;
 const int _bkListenerLayerIndex = 7061;
 const int _bkListenerFromStateIndex = 7062;
 const int _bkListenerToStateIndex = 7063;
+const int _bkListenerSlotIndex = 7064;
+const int _bkListenerHelperKind = 7065;
+const int _bkListenerHelperTarget = 7066;
+const int _bkListenerInputIndex = 7067;
+const int _bkListenerBoolValue = 7068;
+const int _bkListenerNumberValue = 7069;
+const int _bkListenerHitRadius = 7070;
 // M7 property keys.
 const int _bkParamMin = 6000;
 const int _bkParamMax = 6001;
@@ -3383,6 +3490,88 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
                       obj, _bkListenerToStateIndex, 'stateMachineListener.to'),
                   'stateMachineListener.to'),
             ));
+          case 3:
+          case 4:
+          case 5:
+          case 6:
+          case 7:
+            if (obj.props.containsKey(_bkListenerLayerIndex) ||
+                obj.props.containsKey(_bkListenerFromStateIndex) ||
+                obj.props.containsKey(_bkListenerToStateIndex)) {
+              throw const FormatException(
+                  '.bnb pointer listener must not contain lifecycle fields');
+            }
+            final slotIndex = _bRequiredVaruint(
+                obj, _bkListenerSlotIndex, 'stateMachineListener.slot');
+            if (slotIndex < 0 || slotIndex >= slots.length) {
+              throw const FormatException(
+                  '.bnb stateMachineListener.slot index is out of range');
+            }
+            final inputIndex = _bRequiredVaruint(
+                obj, _bkListenerInputIndex, 'stateMachineListener.input');
+            if (inputIndex < 0 || inputIndex >= machineInputs.length) {
+              throw const FormatException(
+                  '.bnb stateMachineListener.input index is out of range');
+            }
+            final helperKindTag = _bRequiredVaruint(
+                obj, _bkListenerHelperKind, 'stateMachineListener.helperKind');
+            final helperKind = switch (helperKindTag) {
+              0 => PointerHelperTargetKind.point,
+              1 => PointerHelperTargetKind.boundingBox,
+              _ => throw FormatException(
+                  '.bnb stateMachineListener.helperKind is invalid: $helperKindTag'),
+            };
+            final input = machineInputs[inputIndex];
+            bool? boolValue;
+            double? numberValue;
+            switch (input.kind) {
+              case StateMachineInputKind.bool_:
+                if (!obj.props.containsKey(_bkListenerBoolValue)) {
+                  throw const FormatException(
+                      '.bnb pointer bool listener value is required');
+                }
+                if (obj.props.containsKey(_bkListenerNumberValue)) {
+                  throw const FormatException(
+                      '.bnb pointer bool listener must not contain number value');
+                }
+                boolValue = _bBool(obj, _bkListenerBoolValue);
+              case StateMachineInputKind.number:
+                if (obj.props.containsKey(_bkListenerBoolValue)) {
+                  throw const FormatException(
+                      '.bnb pointer number listener must not contain bool value');
+                }
+                numberValue = _bF32(obj, _bkListenerNumberValue,
+                    'stateMachineListener.numberValue');
+              case StateMachineInputKind.trigger:
+                if (obj.props.containsKey(_bkListenerBoolValue) ||
+                    obj.props.containsKey(_bkListenerNumberValue)) {
+                  throw const FormatException(
+                      '.bnb pointer trigger listener must not contain values');
+                }
+            }
+            double? hitRadius;
+            switch (helperKind) {
+              case PointerHelperTargetKind.point:
+                hitRadius = _bF32(obj, _bkListenerHitRadius,
+                    'stateMachineListener.hitRadius');
+              case PointerHelperTargetKind.boundingBox:
+                if (obj.props.containsKey(_bkListenerHitRadius)) {
+                  throw const FormatException(
+                      '.bnb pointer bounding-box listener must not contain hitRadius');
+                }
+            }
+            machineListeners.add(StateMachineListener(
+              name: listenerName,
+              kind: StateMachineListenerKind.values[kindTag],
+              slot: slots[slotIndex].name,
+              targetKind: helperKind,
+              target: _bStr(obj, _bkListenerHelperTarget, strings,
+                  'stateMachineListener.target'),
+              hitRadius: hitRadius,
+              input: input.name,
+              boolValue: boolValue,
+              numberValue: numberValue,
+            ));
           default:
             throw FormatException(
                 '.bnb stateMachineListener.kind is invalid: $kindTag');
@@ -3635,9 +3824,9 @@ StateMachineData _parseStateMachine(Map<String, dynamic> j) {
     final lm = l as Map<String, dynamic>;
     final lname = _required<String>(lm['name'], 'listener.name');
     final lkind = _required<String>(lm['kind'], 'listener.kind');
-    final llayer = _required<String>(lm['layer'], 'listener.layer');
     switch (lkind) {
       case 'stateEnter':
+        final llayer = _required<String>(lm['layer'], 'listener.layer');
         return StateMachineListener(
           name: lname,
           kind: StateMachineListenerKind.stateEnter,
@@ -3645,6 +3834,7 @@ StateMachineData _parseStateMachine(Map<String, dynamic> j) {
           toState: _required<String>(lm['toState'], 'listener.toState'),
         );
       case 'stateExit':
+        final llayer = _required<String>(lm['layer'], 'listener.layer');
         return StateMachineListener(
           name: lname,
           kind: StateMachineListenerKind.stateExit,
@@ -3652,12 +3842,56 @@ StateMachineData _parseStateMachine(Map<String, dynamic> j) {
           fromState: _required<String>(lm['fromState'], 'listener.fromState'),
         );
       case 'transition':
+        final llayer = _required<String>(lm['layer'], 'listener.layer');
         return StateMachineListener(
           name: lname,
           kind: StateMachineListenerKind.transition_,
           layer: llayer,
           fromState: _required<String>(lm['fromState'], 'listener.fromState'),
           toState: _required<String>(lm['toState'], 'listener.toState'),
+        );
+      case 'pointerDown':
+      case 'pointerUp':
+      case 'pointerEnter':
+      case 'pointerExit':
+      case 'pointerMove':
+        final targetKindRaw =
+            _required<String>(lm['targetKind'], 'listener.targetKind');
+        final targetKind = switch (targetKindRaw) {
+          'point' => PointerHelperTargetKind.point,
+          'boundingBox' => PointerHelperTargetKind.boundingBox,
+          _ => throw FormatException('unknown listener targetKind: $targetKindRaw'),
+        };
+        bool? boolValue;
+        double? numberValue;
+        final value = lm['value'];
+        if (value is bool) {
+          boolValue = value;
+        } else if (value is num) {
+          numberValue = quantizeF32(value.toDouble());
+        } else if (lm.containsKey('value')) {
+          throw const FormatException('listener.value must be bool or number');
+        }
+        return StateMachineListener(
+          name: lname,
+          kind: switch (lkind) {
+            'pointerDown' => StateMachineListenerKind.pointerDown,
+            'pointerUp' => StateMachineListenerKind.pointerUp,
+            'pointerEnter' => StateMachineListenerKind.pointerEnter,
+            'pointerExit' => StateMachineListenerKind.pointerExit,
+            _ => StateMachineListenerKind.pointerMove,
+          },
+          slot: _required<String>(lm['slot'], 'listener.slot'),
+          targetKind: targetKind,
+          target: _required<String>(lm['target'], 'listener.target'),
+          hitRadius: lm.containsKey('hitRadius')
+              ? quantizeF32(
+                  _required<num>(lm['hitRadius'], 'listener.hitRadius')
+                      .toDouble())
+              : null,
+          input: _required<String>(lm['input'], 'listener.input'),
+          boolValue: boolValue,
+          numberValue: numberValue,
         );
       default:
         throw FormatException('unknown listener kind: $lkind');

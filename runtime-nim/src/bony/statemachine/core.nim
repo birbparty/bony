@@ -51,7 +51,16 @@ type
   StateMachineListenerKind* = enum
     stateEnterListener,
     stateExitListener,
-    transitionListener
+    transitionListener,
+    pointerDownListener,
+    pointerUpListener,
+    pointerEnterListener,
+    pointerExitListener,
+    pointerMoveListener
+
+  PointerHelperTargetKind* = enum
+    pointHelperTarget,
+    boundingBoxHelperTarget
 
   StateMachineListener* = object
     name*: string
@@ -59,6 +68,16 @@ type
     layer*: string
     fromState*: string
     toState*: string
+    slot*: string
+    targetKind*: PointerHelperTargetKind
+    target*: string
+    hitRadius*: float64
+    hasHitRadius*: bool
+    input*: string
+    boolValue*: bool
+    hasBoolValue*: bool
+    numberValue*: float64
+    hasNumberValue*: bool
 
   StateMachineListenerEvent* = object
     listener*: string
@@ -300,6 +319,48 @@ proc stateMachineTransitionListener*(name, layer, fromState, toState: string): S
   validateName(result.toState, "state-machine listener to")
 
 
+proc stateMachinePointerListener*(
+  name: string;
+  kind: StateMachineListenerKind;
+  slot: string;
+  targetKind: PointerHelperTargetKind;
+  target: string;
+  input: string;
+  hitRadius = 0.0;
+  hasHitRadius = false;
+  boolValue = false;
+  hasBoolValue = false;
+  numberValue = 0.0;
+  hasNumberValue = false;
+): StateMachineListener =
+  if kind notin {
+    pointerDownListener,
+    pointerUpListener,
+    pointerEnterListener,
+    pointerExitListener,
+    pointerMoveListener,
+  }:
+    raise newBonyLoadError(schemaViolation, "state-machine pointer listener kind is not a pointer kind")
+  result = StateMachineListener(
+    name: name,
+    kind: kind,
+    slot: slot,
+    targetKind: targetKind,
+    target: target,
+    hitRadius: hitRadius,
+    hasHitRadius: hasHitRadius,
+    input: input,
+    boolValue: boolValue,
+    hasBoolValue: hasBoolValue,
+    numberValue: numberValue,
+    hasNumberValue: hasNumberValue,
+  )
+  validateName(result.name, "state-machine listener")
+  validateName(result.slot, "state-machine pointer listener slot")
+  validateName(result.target, "state-machine pointer listener target")
+  validateName(result.input, "state-machine pointer listener input")
+
+
 proc stateMachineBlendClip*(clip: AnimationClip; value: float64; loop = false): StateMachineBlendClip =
   normalizeBlendClip(StateMachineBlendClip(clip: clip, value: value, loop: loop))
 
@@ -378,31 +439,78 @@ proc hasTransition(layer: StateMachineLayer; fromState, toState: string): bool =
 
 proc normalizeListener(machine: StateMachine; listener: StateMachineListener): StateMachineListener =
   validateName(listener.name, "state-machine listener")
-  validateName(listener.layer, "state-machine listener layer")
-  let layer = machine.layerByName(listener.layer)
-  result = StateMachineListener(name: listener.name, kind: listener.kind, layer: listener.layer)
+  result = StateMachineListener(name: listener.name, kind: listener.kind)
   case listener.kind
   of stateEnterListener:
+    validateName(listener.layer, "state-machine listener layer")
+    let layer = machine.layerByName(listener.layer)
     if listener.fromState.len != 0:
       raise newBonyLoadError(schemaViolation, "state-machine enter listener must not have a from state")
     validateName(listener.toState, "state-machine listener state")
     discard layer.stateByName(listener.toState)
+    result.layer = listener.layer
     result.toState = listener.toState
   of stateExitListener:
+    validateName(listener.layer, "state-machine listener layer")
+    let layer = machine.layerByName(listener.layer)
     validateName(listener.fromState, "state-machine listener state")
     if listener.toState.len != 0:
       raise newBonyLoadError(schemaViolation, "state-machine exit listener must not have a to state")
     discard layer.stateByName(listener.fromState)
+    result.layer = listener.layer
     result.fromState = listener.fromState
   of transitionListener:
+    validateName(listener.layer, "state-machine listener layer")
+    let layer = machine.layerByName(listener.layer)
     validateName(listener.fromState, "state-machine listener from")
     validateName(listener.toState, "state-machine listener to")
     discard layer.stateByName(listener.fromState)
     discard layer.stateByName(listener.toState)
     if not layer.hasTransition(listener.fromState, listener.toState):
       raise newBonyLoadError(unknownRequiredReference, "unknown state-machine transition listener target")
+    result.layer = listener.layer
     result.fromState = listener.fromState
     result.toState = listener.toState
+  of pointerDownListener, pointerUpListener, pointerEnterListener, pointerExitListener, pointerMoveListener:
+    if listener.layer.len != 0 or listener.fromState.len != 0 or listener.toState.len != 0:
+      raise newBonyLoadError(schemaViolation, "state-machine pointer listener must not have lifecycle state fields")
+    validateName(listener.slot, "state-machine pointer listener slot")
+    validateName(listener.target, "state-machine pointer listener target")
+    validateName(listener.input, "state-machine pointer listener input")
+    result.slot = listener.slot
+    result.targetKind = listener.targetKind
+    result.target = listener.target
+    result.input = listener.input
+    let input = machine.inputByName(listener.input)
+    case input.kind
+    of boolInput:
+      if not listener.hasBoolValue:
+        raise newBonyLoadError(schemaViolation, "state-machine pointer bool listener value is required")
+      if listener.hasNumberValue:
+        raise newBonyLoadError(schemaViolation, "state-machine pointer bool listener must not have a number value")
+      result.boolValue = listener.boolValue
+      result.hasBoolValue = true
+    of numberInput:
+      if listener.hasBoolValue:
+        raise newBonyLoadError(schemaViolation, "state-machine pointer number listener must not have a bool value")
+      if not listener.hasNumberValue:
+        raise newBonyLoadError(schemaViolation, "state-machine pointer number listener value is required")
+      result.numberValue = quantizeF32(listener.numberValue, "stateMachine.pointerListener.value")
+      result.hasNumberValue = true
+    of triggerInput:
+      if listener.hasBoolValue or listener.hasNumberValue:
+        raise newBonyLoadError(schemaViolation, "state-machine pointer trigger listener must not have a value")
+    case listener.targetKind
+    of pointHelperTarget:
+      if not listener.hasHitRadius:
+        raise newBonyLoadError(schemaViolation, "state-machine pointer point listener hitRadius is required")
+      result.hitRadius = quantizeF32(listener.hitRadius, "stateMachine.pointerListener.hitRadius")
+      if result.hitRadius < 0.0:
+        raise newBonyLoadError(schemaViolation, "state-machine pointer point listener hitRadius must be non-negative")
+      result.hasHitRadius = true
+    of boundingBoxHelperTarget:
+      if listener.hasHitRadius:
+        raise newBonyLoadError(schemaViolation, "state-machine pointer bounding-box listener must not have hitRadius")
 
 
 proc normalizeMachine(machine: StateMachine): StateMachine =
@@ -459,6 +567,55 @@ proc stateMachine*(
   listeners: openArray[StateMachineListener] = [];
 ): StateMachine =
   normalizeMachine(StateMachine(name: name, layers: @layers, inputs: @inputs, listeners: @listeners))
+
+
+proc validatePointerListenerTargets*(data: SkeletonData; machine: StateMachine) =
+  for listener in machine.listeners:
+    if listener.kind notin {
+      pointerDownListener,
+      pointerUpListener,
+      pointerEnterListener,
+      pointerExitListener,
+      pointerMoveListener,
+    }:
+      continue
+    var slotFound = false
+    var setupMatches = false
+    for slot in data.slots:
+      if slot.name == listener.slot:
+        slotFound = true
+        setupMatches = slot.attachment == listener.target
+        break
+    if not slotFound:
+      raise newBonyLoadError(unknownRequiredReference, "state-machine pointer listener slot references unknown slot: " & listener.slot)
+
+    var helperFound = false
+    case listener.targetKind
+    of pointHelperTarget:
+      for point in data.pointAttachments:
+        if point.name == listener.target:
+          helperFound = true
+          break
+    of boundingBoxHelperTarget:
+      for box in data.boundingBoxAttachments:
+        if box.name == listener.target:
+          helperFound = true
+          break
+    if not helperFound:
+      raise newBonyLoadError(unknownRequiredReference, "state-machine pointer listener target references unknown helper attachment: " & listener.target)
+
+    var skinMatches = false
+    for skin in data.skins:
+      for entry in skin.entries:
+        if entry.slot == listener.slot and entry.target == listener.target:
+          skinMatches = true
+          break
+      if skinMatches:
+        break
+    if not setupMatches and not skinMatches:
+      raise newBonyLoadError(unknownRequiredReference,
+        "state-machine pointer listener target does not resolve through slot setup or skins: " &
+        listener.slot & "/" & listener.target)
 
 
 proc initStateMachineRuntime*(machine: StateMachine): StateMachineRuntime =
@@ -638,6 +795,8 @@ proc addListenerEvents(
     of transitionListener:
       if listener.fromState != fromState or listener.toState != toState:
         continue
+    of pointerDownListener, pointerUpListener, pointerEnterListener, pointerExitListener, pointerMoveListener:
+      continue
     runtime.events.add StateMachineListenerEvent(
       listener: listener.name,
       kind: kind,

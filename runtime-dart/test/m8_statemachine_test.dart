@@ -55,7 +55,8 @@ void main() {
 
   List<String> _listenerSurface(StateMachineData machine) => [
         for (final listener in machine.listeners)
-          '${listener.name}:${listener.kind.name}:${listener.layer}:${listener.fromState}:${listener.toState}',
+          '${listener.name}:${listener.kind.name}:${listener.layer}:${listener.fromState}:${listener.toState}:'
+              '${listener.slot}:${listener.targetKind.name}:${listener.target}:${listener.hitRadius}:${listener.input}:${listener.boolValue}:${listener.numberValue}',
       ];
 
   group('M8 state machine parsed', () {
@@ -638,6 +639,64 @@ void main() {
           '"layers":[{"name":"body","states":[{"name":"idle","kind":"clip","clip":"idle"},{"name":"move","kind":"clip","clip":"idle"}],"transitions":[]}],'
           '"listeners":[{"name":"ev","kind":"transition","layer":"body","fromState":"idle","toState":"missing"}]}]}';
       expect(() => loadBonyJson(json), throwsFormatException);
+    });
+
+    test('loads pointer helper listeners', () {
+      final json = '{"skeleton":{"name":"pointer"},"bones":[{"name":"root"}],'
+          '"slots":[{"name":"tip_slot","bone":"root","attachment":"tip"},{"name":"button_slot","bone":"root","attachment":"button"}],'
+          '"pointAttachments":[{"name":"tip","x":1,"y":2,"rotation":0}],'
+          '"boundingBoxAttachments":[{"name":"button_hit","vertices":[-2,-1,2,-1,2,1,-2,1]}],'
+          '"skins":[{"name":"default","entries":[{"slot":"tip_slot","attachment":"tip","target":"tip"},{"slot":"button_slot","attachment":"button","target":"button_hit"}]}],'
+          '"animations":[{"name":"idle","boneTimelines":[]}],'
+          '"stateMachines":[{"name":"ui",'
+          '"inputs":[{"name":"pressed","kind":"bool"},{"name":"hover","kind":"number"},{"name":"fire","kind":"trigger"}],'
+          '"layers":[{"name":"base","states":[{"name":"idle","kind":"clip","clip":"idle"}]}],'
+          '"listeners":['
+          '{"name":"down","kind":"pointerDown","slot":"tip_slot","targetKind":"point","target":"tip","hitRadius":4,"input":"pressed","value":false},'
+          '{"name":"move","kind":"pointerMove","slot":"button_slot","targetKind":"boundingBox","target":"button_hit","input":"hover","value":0.25},'
+          '{"name":"up","kind":"pointerUp","slot":"tip_slot","targetKind":"point","target":"tip","hitRadius":0,"input":"fire"}'
+          ']}]}';
+      final machine = loadBonyJson(json).stateMachines.single;
+      expect(machine.listeners, hasLength(3));
+      expect(machine.listeners[0].kind, StateMachineListenerKind.pointerDown);
+      expect(machine.listeners[0].targetKind, PointerHelperTargetKind.point);
+      expect(machine.listeners[0].boolValue, isFalse);
+      expect(machine.listeners[1].targetKind,
+          PointerHelperTargetKind.boundingBox);
+      expect(machine.listeners[1].numberValue, closeTo(0.25, 1e-9));
+      expect(machine.listeners[2].boolValue, isNull);
+      expect(machine.listeners[2].numberValue, isNull);
+    });
+
+    test('rejects malformed pointer helper listeners', () {
+      const base = '{"skeleton":{"name":"pointer"},"bones":[{"name":"root"}],'
+          '"slots":[{"name":"tip_slot","bone":"root","attachment":"tip"}],'
+          '"pointAttachments":[{"name":"tip","x":0,"y":0,"rotation":0}],'
+          '"animations":[{"name":"idle","boneTimelines":[]}],'
+          '"stateMachines":[{"name":"ui",'
+          '"inputs":[{"name":"pressed","kind":"bool"},{"name":"fire","kind":"trigger"}],'
+          '"layers":[{"name":"base","states":[{"name":"idle","kind":"clip","clip":"idle"}]}],'
+          '"listeners":[REPLACE_LISTENER]}]}';
+      expect(
+        () => loadBonyJson(base.replaceFirst('REPLACE_LISTENER',
+            '{"name":"bad","kind":"pointerDown","slot":"tip_slot","targetKind":"point","target":"tip","input":"pressed","value":true}')),
+        throwsFormatException,
+      );
+      expect(
+        () => loadBonyJson(base.replaceFirst('REPLACE_LISTENER',
+            '{"name":"bad","kind":"pointerDown","slot":"tip_slot","targetKind":"point","target":"tip","hitRadius":1,"input":"pressed"}')),
+        throwsFormatException,
+      );
+      expect(
+        () => loadBonyJson(base.replaceFirst('REPLACE_LISTENER',
+            '{"name":"bad","kind":"pointerUp","slot":"tip_slot","targetKind":"point","target":"tip","hitRadius":1,"input":"fire","value":true}')),
+        throwsFormatException,
+      );
+      expect(
+        () => loadBonyJson(base.replaceFirst('REPLACE_LISTENER',
+            '{"name":"bad","kind":"pointerDown","slot":"tip_slot","targetKind":"point","target":"other","hitRadius":1,"input":"pressed","value":true}')),
+        throwsFormatException,
+      );
     });
   });
 }

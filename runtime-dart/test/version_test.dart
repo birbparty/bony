@@ -32,7 +32,10 @@ void main() {
     // property keys, and required name/slot/attachment/target entries), plus
     // helper geometry point/boundingBox attachments (type keys 1002/1003, no
     // new property keys because they reuse name/x/y/rotation/vertices, and 6
-    // required properties).
+    // required properties), plus pointer helper listener fields (7 appended M8
+    // property keys 7064..7070, 8 default-table entries including
+    // listenerLayerIndex, and listenerLayerIndex moved out of unconditional
+    // requiredProperties).
     expect(bonyTypeKeys, hasLength(34));
     expect(bonyTypeKeys.any((t) => t.id == 'pointAttachment' && t.key == 1002),
         isTrue);
@@ -43,13 +46,21 @@ void main() {
     expect(bonyTypeKeys.any((t) => t.id == 'skin' && t.key == 3003), isTrue);
     expect(
         bonyTypeKeys.any((t) => t.id == 'skinEntry' && t.key == 3004), isTrue);
-    expect(bonyPropertyKeys, hasLength(108));
+    expect(bonyPropertyKeys, hasLength(115));
     expect(
         bonyPropertyKeys.any((p) => p.id == 'skinAttachment' && p.key == 3010),
         isTrue);
     expect(bonyPropertyKeys.any((p) => p.id == 'skinTarget' && p.key == 3011),
         isTrue);
-    expect(bonyPropertyDefaults, hasLength(55));
-    expect(bonyRequiredProperties, hasLength(90));
+    expect(
+        bonyPropertyKeys
+            .any((p) => p.id == 'listenerSlotIndex' && p.key == 7064),
+        isTrue);
+    expect(
+        bonyPropertyKeys
+            .any((p) => p.id == 'listenerHitRadius' && p.key == 7070),
+        isTrue);
+    expect(bonyPropertyDefaults, hasLength(63));
+    expect(bonyRequiredProperties, hasLength(89));
   });
 }

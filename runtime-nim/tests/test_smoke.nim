@@ -165,11 +165,13 @@ spec "bony package":
       bonyTypeKeys.anyIt(it.id == "boundingBoxAttachment" and it.key == 1003'u64)
       bonyTypeKeys.anyIt(it.id == "skin" and it.key == 3003'u64)
       bonyTypeKeys.anyIt(it.id == "skinEntry" and it.key == 3004'u64)
-      bonyPropertyKeys.len == 108
+      bonyPropertyKeys.len == 115
       bonyPropertyKeys.anyIt(it.id == "skinAttachment" and it.key == 3010'u64)
       bonyPropertyKeys.anyIt(it.id == "skinTarget" and it.key == 3011'u64)
-      bonyPropertyDefaults.len == 55
-      bonyRequiredProperties.len == 90
+      bonyPropertyKeys.anyIt(it.id == "listenerSlotIndex" and it.key == 7064'u64)
+      bonyPropertyKeys.anyIt(it.id == "listenerHitRadius" and it.key == 7070'u64)
+      bonyPropertyDefaults.len == 63
+      bonyRequiredProperties.len == 89
 
   it "encodes and rejects .bnb varints canonically":
     var bytes: seq[byte]
@@ -6732,6 +6734,112 @@ spec "bony package":
       machines.len == 1
       machines[0].layers[0].states[0].kind == blend1DState
       machines[0].layers[0].states[0].blendClips.len == 2
+
+  it "loads and round-trips pointer helper listeners through JSON and .bnb":
+    let jsonText = """
+      {
+        "skeleton": {"name": "pointer-listeners"},
+        "bones": [{"name": "root"}],
+        "slots": [
+          {"name": "tip_slot", "bone": "root", "attachment": "tip"},
+          {"name": "button_slot", "bone": "root", "attachment": "button"}
+        ],
+        "pointAttachments": [
+          {"name": "tip", "x": 1.0, "y": 2.0, "rotation": 0.0}
+        ],
+        "boundingBoxAttachments": [
+          {"name": "button_hit", "vertices": [-2, -1, 2, -1, 2, 1, -2, 1]}
+        ],
+        "skins": [
+          {
+            "name": "default",
+            "entries": [
+              {"slot": "tip_slot", "attachment": "tip", "target": "tip"},
+              {"slot": "button_slot", "attachment": "button", "target": "button_hit"}
+            ]
+          }
+        ],
+        "animations": [
+          {"name": "idle", "boneTimelines": [{"bone": "root", "property": "rotate", "keyframes": [{"t": 0.0, "value": 0.0}]}]}
+        ],
+        "stateMachines": [
+          {
+            "name": "ui",
+            "inputs": [
+              {"name": "pressed", "kind": "bool"},
+              {"name": "hoverX", "kind": "number"},
+              {"name": "fire", "kind": "trigger"}
+            ],
+            "layers": [
+              {
+                "name": "base",
+                "states": [{"name": "idle", "kind": "clip", "clip": "idle"}]
+              }
+            ],
+            "listeners": [
+              {"name": "tip_down", "kind": "pointerDown", "slot": "tip_slot", "targetKind": "point", "target": "tip", "hitRadius": 4.0, "input": "pressed", "value": false},
+              {"name": "button_move", "kind": "pointerMove", "slot": "button_slot", "targetKind": "boundingBox", "target": "button_hit", "input": "hoverX", "value": 0.25},
+              {"name": "tip_up", "kind": "pointerUp", "slot": "tip_slot", "targetKind": "point", "target": "tip", "hitRadius": 0.0, "input": "fire"}
+            ]
+          }
+        ]
+      }
+    """
+    let asset = loadBonyJsonAsset(jsonText)
+    let fromBnb = loadBonyBnbAsset(toBonyBnb(asset))
+    let jsonRoundTrip = loadBonyJsonAsset(toBonyJson(asset))
+
+    then:
+      asset.stateMachines[0].listeners.len == 3
+      asset.stateMachines[0].listeners[0].kind == pointerDownListener
+      asset.stateMachines[0].listeners[0].targetKind == pointHelperTarget
+      asset.stateMachines[0].listeners[0].slot == "tip_slot"
+      asset.stateMachines[0].listeners[0].target == "tip"
+      asset.stateMachines[0].listeners[0].hasHitRadius
+      asset.stateMachines[0].listeners[0].hitRadius == 4.0
+      asset.stateMachines[0].listeners[0].hasBoolValue
+      asset.stateMachines[0].listeners[0].boolValue == false
+      asset.stateMachines[0].listeners[1].kind == pointerMoveListener
+      asset.stateMachines[0].listeners[1].targetKind == boundingBoxHelperTarget
+      asset.stateMachines[0].listeners[1].hasNumberValue
+      asset.stateMachines[0].listeners[1].numberValue == 0.25
+      asset.stateMachines[0].listeners[2].kind == pointerUpListener
+      not asset.stateMachines[0].listeners[2].hasBoolValue
+      not asset.stateMachines[0].listeners[2].hasNumberValue
+      fromBnb.stateMachines[0].listeners[0].kind == pointerDownListener
+      fromBnb.stateMachines[0].listeners[1].target == "button_hit"
+      jsonRoundTrip.stateMachines[0].listeners[2].input == "fire"
+
+  it "rejects malformed pointer helper listeners":
+    let base = """
+      {
+        "skeleton": {"name": "bad-pointer-listeners"},
+        "bones": [{"name": "root"}],
+        "slots": [{"name": "tip_slot", "bone": "root", "attachment": "tip"}],
+        "pointAttachments": [{"name": "tip", "x": 0, "y": 0, "rotation": 0}],
+        "animations": [{"name": "idle", "boneTimelines": []}],
+        "stateMachines": [{
+          "name": "ui",
+          "inputs": [{"name": "pressed", "kind": "bool"}, {"name": "fire", "kind": "trigger"}],
+          "layers": [{"name": "base", "states": [{"name": "idle", "kind": "clip", "clip": "idle"}]}],
+          "listeners": [REPLACE_LISTENER]
+        }]
+      }
+    """
+    let missingRadius = base.replace("REPLACE_LISTENER",
+      """{"name":"bad","kind":"pointerDown","slot":"tip_slot","targetKind":"point","target":"tip","input":"pressed","value":true}""")
+    let missingBoolValue = base.replace("REPLACE_LISTENER",
+      """{"name":"bad","kind":"pointerDown","slot":"tip_slot","targetKind":"point","target":"tip","hitRadius":1,"input":"pressed"}""")
+    let triggerValue = base.replace("REPLACE_LISTENER",
+      """{"name":"bad","kind":"pointerUp","slot":"tip_slot","targetKind":"point","target":"tip","hitRadius":1,"input":"fire","value":true}""")
+    let unresolvedTarget = base.replace("REPLACE_LISTENER",
+      """{"name":"bad","kind":"pointerDown","slot":"tip_slot","targetKind":"point","target":"other","hitRadius":1,"input":"pressed","value":true}""")
+
+    then:
+      raisesBonyLoadError(proc() = discard loadBonyJsonAsset(missingRadius), schemaViolation)
+      raisesBonyLoadError(proc() = discard loadBonyJsonAsset(missingBoolValue), schemaViolation)
+      raisesBonyLoadError(proc() = discard loadBonyJsonAsset(triggerValue), schemaViolation)
+      raisesBonyLoadError(proc() = discard loadBonyJsonAsset(unresolvedTarget), unknownRequiredReference)
 
   it "loads m8_rig.bony conformance asset":
     let data = loadBonyJson(readFile(repoPath("conformance", "assets", "m8_rig.bony")))

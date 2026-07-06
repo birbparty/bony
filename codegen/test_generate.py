@@ -68,6 +68,13 @@ M3_M8_PROPERTY_KEYS = {
     "listenerLayerIndex": 7061,
     "listenerFromStateIndex": 7062,
     "listenerToStateIndex": 7063,
+    "listenerSlotIndex": 7064,
+    "listenerHelperKind": 7065,
+    "listenerHelperTarget": 7066,
+    "listenerInputIndex": 7067,
+    "listenerBoolValue": 7068,
+    "listenerNumberValue": 7069,
+    "listenerHitRadius": 7070,
 }
 
 M4_SKIN_TYPE_KEYS = {
@@ -297,7 +304,7 @@ class GeneratorValidationTests(unittest.TestCase):
             nim,
         )
         self.assertIn(
-            'BonyObjectSpec(typeId: "stateMachineListener", properties: @["name", "stateMachineListenerKind", "listenerLayerIndex", "listenerFromStateIndex", "listenerToStateIndex"])',
+            'BonyObjectSpec(typeId: "stateMachineListener", properties: @["name", "stateMachineListenerKind", "listenerLayerIndex", "listenerFromStateIndex", "listenerToStateIndex", "listenerSlotIndex", "listenerHelperKind", "listenerHelperTarget", "listenerInputIndex", "listenerBoolValue", "listenerNumberValue", "listenerHitRadius"])',
             nim,
         )
         self.assertIn(
@@ -309,7 +316,7 @@ class GeneratorValidationTests(unittest.TestCase):
             dart,
         )
         self.assertIn(
-            'BonyObjectSpec(typeId: \'stateMachineListener\', properties: ["name", "stateMachineListenerKind", "listenerLayerIndex", "listenerFromStateIndex", "listenerToStateIndex"])',
+            'BonyObjectSpec(typeId: \'stateMachineListener\', properties: ["name", "stateMachineListenerKind", "listenerLayerIndex", "listenerFromStateIndex", "listenerToStateIndex", "listenerSlotIndex", "listenerHelperKind", "listenerHelperTarget", "listenerInputIndex", "listenerBoolValue", "listenerNumberValue", "listenerHitRadius"])',
             dart,
         )
 

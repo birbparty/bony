@@ -260,6 +260,12 @@ class StateMachineRuntime {
           if (listener.fromState != fromState) continue;
         case StateMachineListenerKind.transition_:
           if (listener.fromState != fromState || listener.toState != toState) continue;
+        case StateMachineListenerKind.pointerDown:
+        case StateMachineListenerKind.pointerUp:
+        case StateMachineListenerKind.pointerEnter:
+        case StateMachineListenerKind.pointerExit:
+        case StateMachineListenerKind.pointerMove:
+          continue;
       }
       events.add(StateMachineListenerEvent(
         listener: listener.name,

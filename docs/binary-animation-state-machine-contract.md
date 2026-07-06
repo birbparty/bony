@@ -19,6 +19,7 @@ This contract covers the current local feature slice:
 - State machines with bool, number, and trigger inputs.
 - Layers with clip states and blend1d states.
 - Blend clips, transitions, conditions, and listeners.
+- Pointer helper listeners over point and bounding-box helper attachments.
 
 Event timelines are out of scope for this binary slice. Nim has event timeline
 types, but current JSON loading does not populate them and Dart does not expose
@@ -35,6 +36,7 @@ The detailed rules are split across these project-owned contracts:
 | Canonical object order, child adjacency, string traversal, default omission | [binary-canonicalization.md](binary-canonicalization.md) |
 | Binary reference domains and name reconstruction | [binary-animation-state-machine-reference-semantics.md](binary-animation-state-machine-reference-semantics.md) |
 | Schema/decoder/loader/runtime validation ownership | [animation-state-machine-validation-ownership.md](animation-state-machine-validation-ownership.md) |
+| Pointer helper listener JSON/BNB shape and target validation | [pointer-helper-listener-contract.md](pointer-helper-listener-contract.md) |
 | Nim aggregate loaded-asset shape | [nim-loaded-asset-shape.md](nim-loaded-asset-shape.md) |
 | Binary ToC and unknown-property skip mechanics | [binary-toc-skip-semantics.md](binary-toc-skip-semantics.md) |
 | Shared load error categories and unknown-object handling | [load-validation-contract.md](load-validation-contract.md) |
@@ -138,6 +140,8 @@ Required binary domains include:
 - Initial states, transitions, and listener state fields reference layer-local
   states by index.
 - Listeners reference owning-machine layers by index.
+- Pointer listeners reference skeleton slots by index, helper targets by string,
+  and owning-machine inputs by index.
 
 Binary indices are scoped to the old-reader known-object projection. Skipped
 unknown objects and properties are not semantic targets and must not occupy known
@@ -162,6 +166,9 @@ defensive backstop for direct programmatic API callers, but loaders own:
 - State-machine type constraints such as blend1d requiring a number input,
   condition kind matching input kind, and transition listeners targeting an
   existing transition.
+- Pointer listener constraints such as slot/helper target resolution through
+  setup attachments or skin entries, input kind matching value shape, point
+  radius presence, and lifecycle-field rejection.
 
 Shared error categories come from [load-validation-contract.md](load-validation-contract.md).
 Implementation work must reconcile Nim's current `BonyLoadErrorKind` with shared

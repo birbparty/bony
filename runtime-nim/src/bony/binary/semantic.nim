@@ -127,6 +127,13 @@ const
   listenerLayerIndexKey = 7061'u64
   listenerFromStateIndexKey = 7062'u64
   listenerToStateIndexKey = 7063'u64
+  listenerSlotIndexKey = 7064'u64
+  listenerHelperKindKey = 7065'u64
+  listenerHelperTargetKey = 7066'u64
+  listenerInputIndexKey = 7067'u64
+  listenerBoolValueKey = 7068'u64
+  listenerNumberValueKey = 7069'u64
+  listenerHitRadiusKey = 7070'u64
 
   parameterTypeKey = 6000'u64
   deformerTypeKey = 6001'u64
@@ -778,6 +785,15 @@ proc listenerKindFromTag(tag: uint64): StateMachineListenerKind =
   if tag > uint64(ord(high(StateMachineListenerKind))):
     raise newBonyLoadError(schemaViolation, ".bnb stateMachineListener.kind is invalid")
   StateMachineListenerKind(tag)
+
+
+proc helperKindTag(kind: PointerHelperTargetKind): uint64 = uint64(ord(kind))
+
+
+proc helperKindFromTag(tag: uint64): PointerHelperTargetKind =
+  if tag > uint64(ord(high(PointerHelperTargetKind))):
+    raise newBonyLoadError(schemaViolation, ".bnb stateMachineListener.helperKind is invalid")
+  PointerHelperTargetKind(tag)
 
 
 proc sequenceModeTag(mode: SequenceMode): uint64 = uint64(ord(mode))
@@ -1483,18 +1499,34 @@ proc buildObjectRecords(asset: BonyAsset; table: var BnbStringTable; toc: var Ta
       var properties: seq[BnbPropertyRecord]
       properties.addStringIfNeeded(toc, table, nameKey, listener.name, "", required = true)
       properties.addUintIfNeeded(toc, stateMachineListenerKindKey, listener.kind.listenerKindTag, required = true)
-      let listenerLayerIndex = layerIndexes.requiredIndex(listener.layer, "stateMachineListener.layer")
-      properties.addUintIfNeeded(toc, listenerLayerIndexKey, uint64(listenerLayerIndex), required = true)
-      let layer = machine.layers[listenerLayerIndex]
-      let stateIndexes = layer.states.indexByStateName()
       case listener.kind
       of stateEnterListener:
+        let listenerLayerIndex = layerIndexes.requiredIndex(listener.layer, "stateMachineListener.layer")
+        properties.addUintIfNeeded(toc, listenerLayerIndexKey, uint64(listenerLayerIndex), required = true)
+        let stateIndexes = machine.layers[listenerLayerIndex].states.indexByStateName()
         properties.addUintIfNeeded(toc, listenerToStateIndexKey, uint64(stateIndexes.requiredIndex(listener.toState, "stateMachineListener.to")), required = true)
       of stateExitListener:
+        let listenerLayerIndex = layerIndexes.requiredIndex(listener.layer, "stateMachineListener.layer")
+        properties.addUintIfNeeded(toc, listenerLayerIndexKey, uint64(listenerLayerIndex), required = true)
+        let stateIndexes = machine.layers[listenerLayerIndex].states.indexByStateName()
         properties.addUintIfNeeded(toc, listenerFromStateIndexKey, uint64(stateIndexes.requiredIndex(listener.fromState, "stateMachineListener.from")), required = true)
       of transitionListener:
+        let listenerLayerIndex = layerIndexes.requiredIndex(listener.layer, "stateMachineListener.layer")
+        properties.addUintIfNeeded(toc, listenerLayerIndexKey, uint64(listenerLayerIndex), required = true)
+        let stateIndexes = machine.layers[listenerLayerIndex].states.indexByStateName()
         properties.addUintIfNeeded(toc, listenerFromStateIndexKey, uint64(stateIndexes.requiredIndex(listener.fromState, "stateMachineListener.from")), required = true)
         properties.addUintIfNeeded(toc, listenerToStateIndexKey, uint64(stateIndexes.requiredIndex(listener.toState, "stateMachineListener.to")), required = true)
+      of pointerDownListener, pointerUpListener, pointerEnterListener, pointerExitListener, pointerMoveListener:
+        properties.addUintIfNeeded(toc, listenerSlotIndexKey, uint64(slotIndexes.requiredIndex(listener.slot, "stateMachineListener.slot")), required = true)
+        properties.addUintIfNeeded(toc, listenerHelperKindKey, listener.targetKind.helperKindTag, required = true)
+        properties.addStringIfNeeded(toc, table, listenerHelperTargetKey, listener.target, "", required = true)
+        properties.addUintIfNeeded(toc, listenerInputIndexKey, uint64(inputIndexes.requiredIndex(listener.input, "stateMachineListener.input")), required = true)
+        if listener.hasBoolValue:
+          properties.addProperty(toc, listenerBoolValueKey, writeBoolPayload(listener.boolValue))
+        if listener.hasNumberValue:
+          properties.addFloatIfNeeded(toc, listenerNumberValueKey, listener.numberValue, 0.0, required = true)
+        if listener.hasHitRadius:
+          properties.addFloatIfNeeded(toc, listenerHitRadiusKey, listener.hitRadius, 0.0, required = true)
       result.add BnbObjectRecord(typeKey: stateMachineListenerTypeKey, properties: properties)
 
 
@@ -2098,6 +2130,7 @@ proc decodeStateMachineObjects(
   objects: openArray[BnbObjectRecord];
   strings: BnbStringTable;
   animations: openArray[AnimationClip];
+  skeleton: SkeletonData;
 ): seq[StateMachine] =
   var machineName = ""
   var inputs: seq[StateMachineInput]
@@ -2229,28 +2262,90 @@ proc decodeStateMachineObjects(
       if machineName.len == 0:
         raise newBonyLoadError(schemaViolation, ".bnb stateMachineListener record without stateMachine")
       flushLayer()
-      let properties = record.propertyMap([nameKey, stateMachineListenerKindKey, listenerLayerIndexKey, listenerFromStateIndexKey, listenerToStateIndexKey])
+      let properties = record.propertyMap([
+        nameKey, stateMachineListenerKindKey, listenerLayerIndexKey, listenerFromStateIndexKey, listenerToStateIndexKey,
+        listenerSlotIndexKey, listenerHelperKindKey, listenerHelperTargetKey, listenerInputIndexKey,
+        listenerBoolValueKey, listenerNumberValueKey, listenerHitRadiusKey,
+      ])
       let name = properties.readStringProperty(strings, nameKey, "stateMachineListener.name")
       let kind = listenerKindFromTag(properties.readRequiredUintProperty(stateMachineListenerKindKey, "stateMachineListener.kind"))
-      let layerIndex = int(properties.readRequiredUintProperty(listenerLayerIndexKey, "stateMachineListener.layer"))
-      if layerIndex >= layers.len:
-        raise newBonyLoadError(unknownRequiredReference, ".bnb stateMachineListener.layer is out of range")
-      let layer = layers[layerIndex]
       case kind
       of stateEnterListener:
+        let layerIndex = int(properties.readRequiredUintProperty(listenerLayerIndexKey, "stateMachineListener.layer"))
+        if layerIndex >= layers.len:
+          raise newBonyLoadError(unknownRequiredReference, ".bnb stateMachineListener.layer is out of range")
+        let layer = layers[layerIndex]
         if listenerFromStateIndexKey in properties:
           raise newBonyLoadError(schemaViolation, ".bnb enter listener must not contain from state")
         listeners.add stateMachineStateEnterListener(name, layer.name, stateNameByIndex(layer.states, properties.readRequiredUintProperty(listenerToStateIndexKey, "stateMachineListener.to"), "stateMachineListener.to"))
       of stateExitListener:
+        let layerIndex = int(properties.readRequiredUintProperty(listenerLayerIndexKey, "stateMachineListener.layer"))
+        if layerIndex >= layers.len:
+          raise newBonyLoadError(unknownRequiredReference, ".bnb stateMachineListener.layer is out of range")
+        let layer = layers[layerIndex]
         if listenerToStateIndexKey in properties:
           raise newBonyLoadError(schemaViolation, ".bnb exit listener must not contain to state")
         listeners.add stateMachineStateExitListener(name, layer.name, stateNameByIndex(layer.states, properties.readRequiredUintProperty(listenerFromStateIndexKey, "stateMachineListener.from"), "stateMachineListener.from"))
       of transitionListener:
+        let layerIndex = int(properties.readRequiredUintProperty(listenerLayerIndexKey, "stateMachineListener.layer"))
+        if layerIndex >= layers.len:
+          raise newBonyLoadError(unknownRequiredReference, ".bnb stateMachineListener.layer is out of range")
+        let layer = layers[layerIndex]
         listeners.add stateMachineTransitionListener(
           name,
           layer.name,
           stateNameByIndex(layer.states, properties.readRequiredUintProperty(listenerFromStateIndexKey, "stateMachineListener.from"), "stateMachineListener.from"),
           stateNameByIndex(layer.states, properties.readRequiredUintProperty(listenerToStateIndexKey, "stateMachineListener.to"), "stateMachineListener.to"),
+        )
+      of pointerDownListener, pointerUpListener, pointerEnterListener, pointerExitListener, pointerMoveListener:
+        if listenerLayerIndexKey in properties or listenerFromStateIndexKey in properties or listenerToStateIndexKey in properties:
+          raise newBonyLoadError(schemaViolation, ".bnb pointer listener must not contain lifecycle fields")
+        let slotIndex = int(properties.readRequiredUintProperty(listenerSlotIndexKey, "stateMachineListener.slot"))
+        if slotIndex >= skeleton.slots.len:
+          raise newBonyLoadError(unknownRequiredReference, ".bnb stateMachineListener.slot is out of range")
+        let inputIndex = int(properties.readRequiredUintProperty(listenerInputIndexKey, "stateMachineListener.input"))
+        if inputIndex >= inputs.len:
+          raise newBonyLoadError(unknownRequiredReference, ".bnb stateMachineListener.input is out of range")
+        let targetKind = helperKindFromTag(uint64(properties.readRequiredUintProperty(listenerHelperKindKey, "stateMachineListener.helperKind")))
+        let target = properties.readStringProperty(strings, listenerHelperTargetKey, "stateMachineListener.target")
+        let input = inputs[inputIndex]
+        var boolValue = false
+        var hasBoolValue = false
+        var numberValue = 0.0
+        var hasNumberValue = false
+        case input.kind
+        of boolInput:
+          if listenerBoolValueKey notin properties:
+            raise newBonyLoadError(schemaViolation, ".bnb pointer bool listener value is required")
+          if listenerNumberValueKey in properties:
+            raise newBonyLoadError(schemaViolation, ".bnb pointer bool listener must not contain number value")
+          boolValue = properties.readOptionalBoolProperty(listenerBoolValueKey, false, "stateMachineListener.boolValue")
+          hasBoolValue = true
+        of numberInput:
+          if listenerBoolValueKey in properties:
+            raise newBonyLoadError(schemaViolation, ".bnb pointer number listener must not contain bool value")
+          numberValue = properties.readFloatProperty(listenerNumberValueKey, "stateMachineListener.numberValue")
+          hasNumberValue = true
+        of triggerInput:
+          if listenerBoolValueKey in properties or listenerNumberValueKey in properties:
+            raise newBonyLoadError(schemaViolation, ".bnb pointer trigger listener must not contain values")
+        var hitRadius = 0.0
+        var hasHitRadius = false
+        case targetKind
+        of pointHelperTarget:
+          hitRadius = properties.readFloatProperty(listenerHitRadiusKey, "stateMachineListener.hitRadius")
+          hasHitRadius = true
+        of boundingBoxHelperTarget:
+          if listenerHitRadiusKey in properties:
+            raise newBonyLoadError(schemaViolation, ".bnb pointer bounding-box listener must not contain hitRadius")
+        listeners.add stateMachinePointerListener(
+          name, kind, skeleton.slots[slotIndex].name, targetKind, target, input.name,
+          hitRadius = hitRadius,
+          hasHitRadius = hasHitRadius,
+          boolValue = boolValue,
+          hasBoolValue = hasBoolValue,
+          numberValue = numberValue,
+          hasNumberValue = hasNumberValue,
         )
     else:
       discard
@@ -2260,7 +2355,10 @@ proc decodeStateMachineObjects(
 proc decodeAssetObjects(objects: openArray[BnbObjectRecord]; strings: BnbStringTable): BonyAsset =
   let skeleton = decodeSkeletonObjects(objects, strings)
   let animations = decodeAnimationObjects(objects, strings, skeleton)
-  bonyAsset(skeleton, animations, decodeStateMachineObjects(objects, strings, animations))
+  let machines = decodeStateMachineObjects(objects, strings, animations, skeleton)
+  for machine in machines:
+    validatePointerListenerTargets(skeleton, machine)
+  bonyAsset(skeleton, animations, machines)
 
 
 proc loadBonyBnb*(input: openArray[byte]): SkeletonData =

@@ -1462,10 +1462,33 @@
         "listenerToStateIndex": {
           "type": "integer",
           "minimum": 0
+        },
+        "listenerSlotIndex": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "listenerHelperKind": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "listenerHelperTarget": {
+          "type": "string"
+        },
+        "listenerInputIndex": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "listenerBoolValue": {
+          "type": "boolean"
+        },
+        "listenerNumberValue": {
+          "type": "number"
+        },
+        "listenerHitRadius": {
+          "type": "number"
         }
       },
       "required": [
-        "listenerLayerIndex",
         "name",
         "stateMachineListenerKind"
       ]

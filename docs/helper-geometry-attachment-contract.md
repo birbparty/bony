@@ -125,6 +125,9 @@ any polygon edge is within the project tolerance from
 
 ## Non-Goals
 
-This contract does not define pointer listener dispatch, state-machine hit-test
-wiring, importer conversion, visible debug rendering, vector paths, nested
+Pointer listener records over these helpers are defined separately in
+`docs/pointer-helper-listener-contract.md`.
+
+This contract does not define pointer input scripts, runtime state-machine
+dispatch, importer conversion, visible debug rendering, vector paths, nested
 rigs, skin-owned helper attachments, linked meshes, or `skinRequired`.
