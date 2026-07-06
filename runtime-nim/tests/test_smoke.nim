@@ -1679,6 +1679,152 @@ spec "bony package":
 }
 """, duplicateKey)
 
+  it "composes host-resolved nested rig setup draw batches":
+    let host = skeletonData(
+      skeletonHeader("host", "1.0.0"),
+      @[boneData("root", "", localTransform(x = 10.0, y = 20.0))],
+      @[slotData("nestedSlot", "root", "nested_face")],
+      nestedRigAttachments = @[nestedRigAttachmentData("nested_face", "faceRig")],
+    )
+    let child = skeletonData(
+      skeletonHeader("child", "1.0.0"),
+      @[boneData("root", "", localTransform(x = 1.0))],
+      @[slotData("childSlot", "root", "face")],
+      @[regionAttachment("face", 2.0, 2.0)],
+    )
+    var children = initTable[string, SkeletonData]()
+    children["faceRig"] = child
+    let childOnly = buildDrawBatches(child)
+    let batches = buildNestedDrawBatches(host, children)
+
+    then:
+      buildDrawBatches(host).len == 0
+      childOnly.len == 1
+      batches.len == 1
+      batches[0].slot == "childSlot"
+      batches[0].bone == "root"
+      batches[0].attachment == "face"
+      closeTo(batches[0].world.tx, 11.0)
+      closeTo(batches[0].world.ty, 20.0)
+      closeTo(batches[0].vertices[0].x, 10.0)
+      closeTo(batches[0].vertices[0].y, 19.0)
+      closeTo(batches[0].vertices[2].x, 12.0)
+      closeTo(batches[0].vertices[2].y, 21.0)
+      abs(batches[0].vertices[0].x - childOnly[0].vertices[0].x) > 1e-4
+
+  it "uses default and explicit nested child skins":
+    let child = skeletonData(
+      skeletonHeader("child", "1.0.0"),
+      @[boneData("root", "")],
+      @[slotData("face", "root", "face")],
+      @[regionAttachment("defaultFace", 2.0, 2.0), regionAttachment("fancyFace", 4.0, 2.0)],
+      skins = @[
+        skinData("default", @[skinEntryData("face", "face", "defaultFace")]),
+        skinData("fancy", @[skinEntryData("face", "face", "fancyFace")]),
+      ],
+    )
+    let host = skeletonData(
+      skeletonHeader("host", "1.0.0"),
+      @[boneData("root", "")],
+      @[
+        slotData("defaultSlot", "root", "nested_default"),
+        slotData("fancySlot", "root", "nested_fancy"),
+      ],
+      nestedRigAttachments = @[
+        nestedRigAttachmentData("nested_default", "faceRig"),
+        nestedRigAttachmentData("nested_fancy", "faceRig", skin = "fancy"),
+      ],
+      skins = @[skinData("default", @[
+        skinEntryData("defaultSlot", "nested_default", "nested_default"),
+        skinEntryData("fancySlot", "nested_fancy", "nested_fancy"),
+      ])],
+    )
+    var children = initTable[string, SkeletonData]()
+    children["faceRig"] = child
+    let batches = buildNestedDrawBatches(host, children)
+
+    then:
+      batches.len == 2
+      batches[0].attachment == "defaultFace"
+      closeTo(batches[0].vertices[0].x, -1.0)
+      closeTo(batches[0].vertices[2].x, 1.0)
+      batches[1].attachment == "fancyFace"
+      closeTo(batches[1].vertices[0].x, -2.0)
+      closeTo(batches[1].vertices[2].x, 2.0)
+
+  it "rejects missing child skeletons, unknown child skins, and nested cycles":
+    let missingHost = skeletonData(
+      skeletonHeader("host", "1.0.0"),
+      @[boneData("root", "")],
+      @[slotData("nestedSlot", "root", "nested_face")],
+      nestedRigAttachments = @[nestedRigAttachmentData("nested_face", "faceRig")],
+    )
+    let missingSkinHost = skeletonData(
+      skeletonHeader("host", "1.0.0"),
+      @[boneData("root", "")],
+      @[slotData("nestedSlot", "root", "nested_face")],
+      nestedRigAttachments = @[nestedRigAttachmentData("nested_face", "faceRig", skin = "missing")],
+    )
+    let plainChild = skeletonData(
+      skeletonHeader("child", "1.0.0"),
+      @[boneData("root", "")],
+      @[slotData("childSlot", "root", "face")],
+      @[regionAttachment("face", 2.0, 2.0)],
+    )
+    let recursiveChild = skeletonData(
+      skeletonHeader("recursive", "1.0.0"),
+      @[boneData("root", "")],
+      @[slotData("selfSlot", "root", "nested_self")],
+      nestedRigAttachments = @[nestedRigAttachmentData("nested_self", "faceRig")],
+    )
+    var emptyChildren = initTable[string, SkeletonData]()
+    var plainChildren = initTable[string, SkeletonData]()
+    plainChildren["faceRig"] = plainChild
+    var recursiveChildren = initTable[string, SkeletonData]()
+    recursiveChildren["faceRig"] = recursiveChild
+
+    then:
+      raisesBonyLoadError(
+        proc() = discard buildNestedDrawBatches(missingHost, emptyChildren),
+        unknownRequiredReference)
+      raisesBonyLoadError(
+        proc() = discard buildNestedDrawBatches(missingSkinHost, plainChildren),
+        unknownRequiredReference)
+      raisesBonyLoadError(
+        proc() = discard buildNestedDrawBatches(missingHost, recursiveChildren),
+        cycleDetected)
+
+  it "clips composed nested child batches through host clipping ranges":
+    let child = skeletonData(
+      skeletonHeader("child", "1.0.0"),
+      @[boneData("root", "")],
+      @[slotData("childSlot", "root", "face")],
+      @[regionAttachment("face", 4.0, 4.0)],
+    )
+    let host = skeletonData(
+      skeletonHeader("host", "1.0.0"),
+      @[boneData("root", "")],
+      @[
+        slotData("clipSlot", "root", "host_clip"),
+        slotData("nestedSlot", "root", "nested_face"),
+      ],
+      clippingAttachments = @[
+        clipAttachmentData("host_clip", @[0.0, -10.0, 100.0, -10.0, 100.0, 10.0, 0.0, 10.0]),
+      ],
+      nestedRigAttachments = @[nestedRigAttachmentData("nested_face", "faceRig")],
+    )
+    var children = initTable[string, SkeletonData]()
+    children["faceRig"] = child
+    let batches = buildNestedDrawBatches(host, children)
+
+    then:
+      batches.len == 1
+      batches[0].clipId == "host_clip"
+      batches[0].vertices.len >= 4
+      batches[0].indices.len >= 6
+      batches[0].vertices.allIt(it.x >= -1e-9)
+      batches[0].vertices.anyIt(closeWithin(it.x, 0.0, 1e-9))
+
   it "rejects transform constraints with bad refs, duplicate names, or out-of-range mixes":
     proc buildWith(tcs: seq[TransformConstraintData]): SkeletonData =
       skeletonData(

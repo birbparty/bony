@@ -36,6 +36,13 @@ type
     reflection: Linear2
     scaleShear: Linear2
 
+  NestedSkeletonMap* = Table[string, SkeletonData]
+
+  DrawBatchBuild = object
+    batches: seq[DrawBatch]
+    batchSlotIndex: seq[int]
+    batchClipPerTriangle: seq[bool]
+
 
 proc identityLinear(): Linear2 =
   Linear2(a: 1.0, b: 0.0, c: 0.0, d: 1.0)
@@ -249,6 +256,48 @@ proc transformPoint(world: Affine2; x, y: float64): tuple[x: float64, y: float64
     x: world.a * x + world.c * y + world.tx,
     y: world.b * x + world.d * y + world.ty,
   )
+
+
+proc composeAffine(parent, child: Affine2): Affine2 =
+  ## Column-major affine composition: parent * child.
+  Affine2(
+    a: parent.a * child.a + parent.c * child.b,
+    b: parent.b * child.a + parent.d * child.b,
+    c: parent.a * child.c + parent.c * child.d,
+    d: parent.b * child.c + parent.d * child.d,
+    tx: parent.a * child.tx + parent.c * child.ty + parent.tx,
+    ty: parent.b * child.tx + parent.d * child.ty + parent.ty,
+  )
+
+
+proc composeVertex(parent: Affine2; vertex: DrawVertex): DrawVertex =
+  let point = transformPoint(parent, vertex.x, vertex.y)
+  DrawVertex(
+    x: point.x,
+    y: point.y,
+    u: vertex.u,
+    v: vertex.v,
+    r: vertex.r,
+    g: vertex.g,
+    b: vertex.b,
+    a: vertex.a,
+  )
+
+
+proc composeBatch(parent: Affine2; batch: DrawBatch): DrawBatch =
+  result = DrawBatch(
+    slot: batch.slot,
+    bone: batch.bone,
+    attachment: batch.attachment,
+    texturePage: batch.texturePage,
+    blendMode: batch.blendMode,
+    clipId: batch.clipId,
+    world: composeAffine(parent, batch.world),
+    vertices: newSeq[DrawVertex](batch.vertices.len),
+    indices: batch.indices,
+  )
+  for index, vertex in batch.vertices:
+    result.vertices[index] = composeVertex(parent, vertex)
 
 
 proc worldRotationDegrees(world: Affine2): float64
@@ -965,21 +1014,27 @@ proc meshVertex(sv: SkinnedMeshVertex): DrawVertex =
   )
 
 
-proc buildDrawBatches*(data: SkeletonData; worlds: seq[Affine2]; activeSkin = "default"): seq[DrawBatch] =
-  ## Build draw batches using caller-supplied world transforms. Callers that have
-  ## advanced the stateful physics stage pass the physics-adjusted worlds here so
-  ## draw-batch vertices reflect physics. `worlds[i]` must be the world transform
-  ## of `data.bones[i]` — same length and index ordering as `computeWorldTransforms`.
-  ## Raised (not `doAssert`ed) so the guard survives `-d:danger`: a stripped check
-  ## here would reintroduce the silent out-of-bounds read this seam exists to prevent.
+proc buildDrawBatchBuild(
+  data: SkeletonData;
+  worlds: seq[Affine2];
+  activeSkin: string;
+  children: NestedSkeletonMap;
+  composeNested: bool;
+  activeIds: seq[string];
+): DrawBatchBuild =
+  ## Internal draw-batch builder. Legacy callers pass `composeNested = false`;
+  ## the opt-in nested API passes a host-provided child skeleton map and recurses
+  ## through this same path so child clipping happens before parent composition.
   if worlds.len != data.bones.len:
     raise newBonyLoadError(schemaViolation,
       "buildDrawBatches: worlds length " & $worlds.len &
       " must match bone count " & $data.bones.len)
+  var batches: seq[DrawBatch] = @[]
   var boneIndex = initTable[string, int]()
   var regions = initTable[string, RegionAttachment]()
   var meshes = initTable[string, MeshAttachment]()
   var clips = initTable[string, ClipAttachmentData]()
+  var nestedRigs = initTable[string, NestedRigAttachmentData]()
   # Transient deform-timeline override stamped on the posed data by the mixer,
   # keyed by slot name + mesh attachment (the mixer produces one entry per
   # slot/attachment, so keying by slot alone would collapse distinct entries).
@@ -993,6 +1048,9 @@ proc buildDrawBatches*(data: SkeletonData; worlds: seq[Affine2]; activeSkin = "d
     meshes[mesh.name] = mesh
   for clip in data.clippingAttachments:
     clips[clip.name] = clip
+  if composeNested:
+    for nested in data.nestedRigAttachments:
+      nestedRigs[nested.name] = nested
   for override in data.deformOverrides:
     deformBySlotAttachment[override.slot & "\0" & override.attachment] = override
 
@@ -1002,9 +1060,10 @@ proc buildDrawBatches*(data: SkeletonData; worlds: seq[Affine2]; activeSkin = "d
     slotIndexByName[slot.name] = index
 
   # Draw-order slot index of each emitted batch. Batches are a subsequence of the
-  # slots (one per region-attachment slot), so this maps batch -> draw position
-  # for computing clip-covered ranges below.
+  # slots (one or more visible batches per drawing slot), so this maps batch ->
+  # draw position for computing clip-covered ranges below.
   var batchSlotIndex: seq[int] = @[]
+  var batchClipPerTriangle: seq[bool] = @[]
   for slotIdx, slot in data.slots:
     if slot.attachment.len == 0:
       continue
@@ -1043,7 +1102,7 @@ proc buildDrawBatches*(data: SkeletonData; worlds: seq[Affine2]; activeSkin = "d
       var meshVerts = newSeq[DrawVertex](skinned.len)
       for i, sv in skinned:
         meshVerts[i] = meshVertex(sv)
-      result.add DrawBatch(
+      batches.add DrawBatch(
         slot: slot.name,
         bone: slot.bone,
         attachment: attachment,
@@ -1055,6 +1114,36 @@ proc buildDrawBatches*(data: SkeletonData; worlds: seq[Affine2]; activeSkin = "d
         indices: mesh.triangles,
       )
       batchSlotIndex.add slotIdx
+      batchClipPerTriangle.add true
+      continue
+    if composeNested and nestedRigs.hasKey(attachment):
+      let nested = nestedRigs[attachment]
+      if nested.skeleton in activeIds:
+        raise newBonyLoadError(cycleDetected,
+          "nested rig composition cycle detected for skeleton: " & nested.skeleton)
+      if not children.hasKey(nested.skeleton):
+        raise newBonyLoadError(unknownRequiredReference,
+          "nested rig child skeleton is not resolved: " & nested.skeleton)
+      let childSkin = if nested.skin.len > 0: nested.skin else: "default"
+      let child = children[nested.skeleton]
+      if not child.hasSkin(childSkin):
+        raise newBonyLoadError(unknownRequiredReference,
+          "nested rig child skin is not resolved: " & nested.skeleton & "/" & childSkin)
+      var nextIds = activeIds
+      nextIds.add nested.skeleton
+      let hostWorld = worlds[boneIndex[slot.bone]]
+      let childBuild = buildDrawBatchBuild(
+        child,
+        computeWorldTransforms(child),
+        childSkin,
+        children,
+        true,
+        nextIds,
+      )
+      for childIndex, childBatch in childBuild.batches:
+        batches.add composeBatch(hostWorld, childBatch)
+        batchSlotIndex.add slotIdx
+        batchClipPerTriangle.add childBuild.batchClipPerTriangle[childIndex]
       continue
     if not regions.hasKey(attachment):
       # A slot whose attachment names a clipping attachment (or any non-region)
@@ -1066,7 +1155,7 @@ proc buildDrawBatches*(data: SkeletonData; worlds: seq[Affine2]; activeSkin = "d
     let world = worlds[index]
     let halfWidth = region.width * 0.5
     let halfHeight = region.height * 0.5
-    result.add DrawBatch(
+    batches.add DrawBatch(
       slot: slot.name,
       bone: slot.bone,
       attachment: attachment,
@@ -1083,6 +1172,7 @@ proc buildDrawBatches*(data: SkeletonData; worlds: seq[Affine2]; activeSkin = "d
       indices: @[0'u16, 1'u16, 2'u16, 2'u16, 3'u16, 0'u16],
     )
     batchSlotIndex.add slotIdx
+    batchClipPerTriangle.add false
 
   # Clip pass: each slot whose attachment names a clipping attachment sets
   # `clipId` on, and geometrically clips, the draw batches in its covered range
@@ -1112,28 +1202,57 @@ proc buildDrawBatches*(data: SkeletonData; worlds: seq[Affine2]; activeSkin = "d
           quantizeF32(point.y, "clip.poly.y"),
         )
         p += 2
-      for batchIdx in 0 ..< result.len:
+      for batchIdx in 0 ..< batches.len:
         let sourceSlotIndex = batchSlotIndex[batchIdx]
         if sourceSlotIndex <= ownIndex or sourceSlotIndex > endIndex:
           continue
-        if meshes.hasKey(result[batchIdx].attachment):
+        if batchClipPerTriangle[batchIdx]:
           # Meshes are a triangle *soup* (explicit index list, shared/interior
           # vertices), so they clip per-triangle via clipDrawBatchTriangles —
           # NOT through clipDrawBatchPolygon, which reinterprets a batch's
           # vertices as one convex boundary ring and would destroy the topology.
           # See docs/mesh-attachment-contract.md ("per-triangle mesh clipping").
-          result[batchIdx].clipId = clip.name
+          batches[batchIdx].clipId = clip.name
           let clipped = clipDrawBatchTriangles(
-            result[batchIdx].vertices, result[batchIdx].indices, clipPolygon)
+            batches[batchIdx].vertices, batches[batchIdx].indices, clipPolygon)
           if clipped.changed:
-            result[batchIdx].vertices = clipped.vertices
-            result[batchIdx].indices = clipped.indices
+            batches[batchIdx].vertices = clipped.vertices
+            batches[batchIdx].indices = clipped.indices
           continue
-        result[batchIdx].clipId = clip.name
-        let clipped = clipDrawBatchPolygon(result[batchIdx].vertices, clipPolygon)
+        batches[batchIdx].clipId = clip.name
+        let clipped = clipDrawBatchPolygon(batches[batchIdx].vertices, clipPolygon)
         if clipped.changed:
-          result[batchIdx].vertices = clipped.vertices
-          result[batchIdx].indices = clipped.indices
+          batches[batchIdx].vertices = clipped.vertices
+          batches[batchIdx].indices = clipped.indices
+
+  DrawBatchBuild(
+    batches: batches,
+    batchSlotIndex: batchSlotIndex,
+    batchClipPerTriangle: batchClipPerTriangle,
+  )
+
+
+proc buildDrawBatches*(data: SkeletonData; worlds: seq[Affine2]; activeSkin = "default"): seq[DrawBatch] =
+  ## Build draw batches using caller-supplied world transforms. Callers that have
+  ## advanced the stateful physics stage pass the physics-adjusted worlds here so
+  ## draw-batch vertices reflect physics. `worlds[i]` must be the world transform
+  ## of `data.bones[i]` — same length and index ordering as `computeWorldTransforms`.
+  ## Raised (not `doAssert`ed) so the guard survives `-d:danger`: a stripped check
+  ## here would reintroduce the silent out-of-bounds read this seam exists to prevent.
+  var noChildren = initTable[string, SkeletonData]()
+  buildDrawBatchBuild(data, worlds, activeSkin, noChildren, false, @[]).batches
+
+
+proc buildNestedDrawBatches*(
+  data: SkeletonData;
+  worlds: seq[Affine2];
+  children: NestedSkeletonMap;
+  activeSkin = "default";
+): seq[DrawBatch] =
+  ## Opt-in host-resolved nested rig setup-pose composition. `children` maps each
+  ## `NestedRigAttachmentData.skeleton` id to an already-loaded child
+  ## `SkeletonData`. Legacy `buildDrawBatches` remains non-composing.
+  buildDrawBatchBuild(data, worlds, activeSkin, children, true, @[]).batches
 
 
 proc buildDrawBatches*(data: SkeletonData): seq[DrawBatch] =
@@ -1145,3 +1264,13 @@ proc buildDrawBatches*(data: SkeletonData): seq[DrawBatch] =
 proc buildDrawBatches*(data: SkeletonData; activeSkin: string): seq[DrawBatch] =
   ## Convenience overload for runtime skin selection with pure world transforms.
   buildDrawBatches(data, computeWorldTransforms(data), activeSkin)
+
+
+proc buildNestedDrawBatches*(
+  data: SkeletonData;
+  children: NestedSkeletonMap;
+  activeSkin = "default";
+): seq[DrawBatch] =
+  ## Convenience overload for setup-pose nested composition with pure world
+  ## transforms.
+  buildNestedDrawBatches(data, computeWorldTransforms(data), children, activeSkin)
