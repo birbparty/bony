@@ -1,0 +1,13 @@
+{
+  "format": "bony.input-script.v1",
+  "asset": "m21_pointer_listener_rig.bony",
+  "stateMachine": "pointer_story",
+  "samples": [
+    {"name": "rest", "t": 0.0, "inputs": {}},
+    {"name": "enter", "t": 0.1, "pointer": {"kind": "pointerEnter", "x": 40.0, "y": 0.0}},
+    {"name": "down", "t": 0.2, "pointer": {"kind": "pointerDown", "x": 40.0, "y": 0.0}},
+    {"name": "move", "t": 0.3, "pointer": {"kind": "pointerMove", "x": 57.320508, "y": 10.0}},
+    {"name": "up", "t": 0.4, "pointer": {"kind": "pointerUp", "x": 57.320508, "y": 10.0}},
+    {"name": "exit", "t": 0.5, "pointer": {"kind": "pointerExit", "x": 40.0, "y": 0.0}}
+  ]
+}

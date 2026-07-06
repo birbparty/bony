@@ -83,6 +83,27 @@
                 {"type": "string", "const": "fire"}
               ]
             }
+          },
+          "pointer": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "x", "y"],
+            "description": "Optional state-machine pointer sample. Direct inputs are applied first, then pointer listener mutations for this pointer, then the state machine advances and evaluates transitions for the sample.",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": ["pointerDown", "pointerUp", "pointerEnter", "pointerExit", "pointerMove"],
+                "description": "Pointer listener kind to dispatch for this sample."
+              },
+              "x": {
+                "type": "number",
+                "description": "Pointer x coordinate in skeleton world space."
+              },
+              "y": {
+                "type": "number",
+                "description": "Pointer y coordinate in skeleton world space."
+              }
+            }
           }
         }
       }

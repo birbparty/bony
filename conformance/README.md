@@ -48,6 +48,7 @@ conformance/
 | M18 | `m18_mesh_deform_anim_rig` | Animated mesh deform: a clip-owned deform timeline moves mesh vertices over time; first nonzero-time mesh golden |
 | M19 | `m19_event_rig` | Animation events: a clip-owned event timeline fires distinct value-carrying events at keyframe times, surfaced in the golden's `animationEvents` channel via incremental per-sample-window dispatch through the Nim and Dart clip-mirror story paths |
 | M20 | `m20_skin_rig` | Skin attachment sets: active-skin attachment lookup, default-skin fallback for missing variant entries, JSON/BNB parity, and deform-timeline resolution through the selected skin |
+| M21 | `m21_pointer_listener_rig` | Pointer helper listeners: bounding-box and point helper hit testing, pointer-driven bool/number/trigger input mutation, same-sample state transition, and pointer events in the state-machine `events` channel |
 
 The `M5 (IK)` row is a second M5 asset (structured like the standalone M9 row):
 the table is one-asset-per-row, so `m5_ik_rig` gets its own row rather than being
@@ -585,6 +586,50 @@ Notes for readers comparing runtimes:
   `.bnb`, resolves active-skin draw batches with default fallback, resolves
   deform timelines through skin lookup, and reproduces both committed goldens
   within `1e-4` (`runtime-dart/test/m20_skin_test.dart`).
+
+### M21 pointer listener rig (`m21_pointer_listener_rig`)
+
+`m21_pointer_listener_rig` freezes the Nim reference behavior for pointer
+listeners over non-rendered helper geometry. It has one `button` bone with two
+helper slots:
+- `button_box_slot` exposes the `button_hit` bounding-box attachment.
+- `button_point_slot` exposes the `spark_point` point attachment.
+
+The `pointer_story` state machine carries four inputs: `hover` (bool),
+`pressed` (bool), `intensity` (number), and `pulse` (trigger). Five pointer
+listeners mutate those inputs:
+- `box_enter` (`pointerEnter`) sets `hover = true` on the bounding box.
+- `box_down` (`pointerDown`) sets `pressed = true` on the bounding box.
+- `point_move` (`pointerMove`) sets `intensity = 4.5` on the point radius.
+- `point_up` (`pointerUp`) fires `pulse` on the point radius.
+- `box_exit` (`pointerExit`) sets `hover = false` on the bounding box.
+
+One story script drives six samples:
+- `m21_pointer_listener_story.json` → `m21_pointer_listener_<sample>.json` for
+  `rest`, `enter`, `down`, `move`, `up`, and `exit`.
+
+**Non-vacuous pointer and transition proof.** The `down` sample dispatches
+`box_down` before transition evaluation, so `pressed` becomes true and the
+state machine transitions from `idle` to `pressed` in the same sample. Its
+`events` array records the pointer event first, then the existing lifecycle
+order: `idle_exit`, `idle_to_pressed`, `pressed_enter`. The entered `pressed`
+state samples a `30°` button rotation at `t=0`, changing the `button` world
+basis from identity to `a≈0.8660, b≈0.5`. The later point samples hit the rotated
+point location `(57.320507, 10)`, proving point helper hit testing uses the
+current world transform rather than setup-only coordinates.
+
+Notes for readers comparing runtimes:
+- The goldens are reproduced identically from both
+  `m21_pointer_listener_rig.bony` and
+  `conformance/assets/bnb/m21_pointer_listener_rig.bnb`; the `.bnb` fixture is
+  non-empty at 846 bytes.
+- Pointer listener events are state-machine listener events in the existing
+  `events` channel. They are not `animationEvents`; pointer records include
+  listener name/kind, slot, target kind/name, mutated input/value, and pointer
+  world coordinates.
+- Cross-runtime status: this slice defines and tests the **Nim reference**
+  dispatch path only. Dart runtime parity is intentionally out of scope for M21
+  step 2 and is tracked as the next milestone slice.
 
 ### Image goldens (Nim reference rasterizer only)
 

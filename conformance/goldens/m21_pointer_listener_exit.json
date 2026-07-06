@@ -1,0 +1,113 @@
+{
+  "format": "bony.numeric-golden.v1",
+  "skeleton": "m21-pointer-listener-rig",
+  "version": "1.0.0",
+  "time": 0.5,
+  "stateMachine": "pointer_story",
+  "sample": "exit",
+  "inputs": [
+    {
+      "name": "hover",
+      "kind": "bool",
+      "value": false
+    },
+    {
+      "name": "pressed",
+      "kind": "bool",
+      "value": true
+    },
+    {
+      "name": "intensity",
+      "kind": "number",
+      "value": 4.5
+    },
+    {
+      "name": "pulse",
+      "kind": "trigger",
+      "value": true
+    }
+  ],
+  "layers": [
+    {
+      "name": "main",
+      "state": "pressed",
+      "time": 0.0,
+      "pose": {
+        "scalars": [
+          {
+            "target": "button",
+            "kind": "rotate",
+            "value": 30.0
+          }
+        ],
+        "vectors": [],
+        "attachments": [],
+        "inherits": [],
+        "colors": [],
+        "colors2": [],
+        "sequences": []
+      }
+    }
+  ],
+  "events": [
+    {
+      "listener": "box_exit",
+      "kind": "pointerExit",
+      "slot": "button_box_slot",
+      "targetKind": "boundingBox",
+      "target": "button_hit",
+      "input": "hover",
+      "inputKind": "bool",
+      "boolValue": false,
+      "pointerX": 40.0,
+      "pointerY": 0.0
+    }
+  ],
+  "bones": [
+    {
+      "name": "root",
+      "parent": "",
+      "world": {
+        "a": 1.0,
+        "b": 0.0,
+        "c": 6.123233995736766e-17,
+        "d": 1.0,
+        "tx": 0.0,
+        "ty": 0.0
+      }
+    },
+    {
+      "name": "button",
+      "parent": "root",
+      "world": {
+        "a": 0.8660254037844387,
+        "b": 0.49999999999999994,
+        "c": -0.4999999999999998,
+        "d": 0.8660254037844387,
+        "tx": 40.0,
+        "ty": 0.0
+      }
+    }
+  ],
+  "slots": [
+    {
+      "name": "button_box_slot",
+      "bone": "button",
+      "attachment": "button_hit",
+      "r": 1.0,
+      "g": 1.0,
+      "b": 1.0,
+      "a": 1.0
+    },
+    {
+      "name": "button_point_slot",
+      "bone": "button",
+      "attachment": "spark_point",
+      "r": 1.0,
+      "g": 1.0,
+      "b": 1.0,
+      "a": 1.0
+    }
+  ],
+  "drawBatches": []
+}

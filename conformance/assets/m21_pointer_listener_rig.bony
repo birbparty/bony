@@ -1,0 +1,127 @@
+{
+  "skeleton": {
+    "name": "m21-pointer-listener-rig",
+    "version": "1.0.0"
+  },
+  "bones": [
+    {"name": "root"},
+    {"name": "button", "parent": "root", "x": 40}
+  ],
+  "slots": [
+    {"name": "button_box_slot", "bone": "button", "attachment": "button_hit"},
+    {"name": "button_point_slot", "bone": "button", "attachment": "spark_point"}
+  ],
+  "pointAttachments": [
+    {"name": "spark_point", "x": 20, "y": 0, "rotation": 0}
+  ],
+  "boundingBoxAttachments": [
+    {"name": "button_hit", "vertices": [-15, -10, 15, -10, 15, 10, -15, 10]}
+  ],
+  "animations": [
+    {
+      "name": "idle",
+      "boneTimelines": [
+        {
+          "bone": "button",
+          "property": "rotate",
+          "keyframes": [
+            {"t": 0.0, "value": 0.0}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "pressed",
+      "boneTimelines": [
+        {
+          "bone": "button",
+          "property": "rotate",
+          "keyframes": [
+            {"t": 0.0, "value": 30.0}
+          ]
+        }
+      ]
+    }
+  ],
+  "stateMachines": [
+    {
+      "name": "pointer_story",
+      "inputs": [
+        {"name": "hover", "kind": "bool"},
+        {"name": "pressed", "kind": "bool"},
+        {"name": "intensity", "kind": "number", "default": 0.0},
+        {"name": "pulse", "kind": "trigger"}
+      ],
+      "layers": [
+        {
+          "name": "main",
+          "states": [
+            {"name": "idle", "kind": "clip", "clip": "idle"},
+            {"name": "pressed", "kind": "clip", "clip": "pressed"}
+          ],
+          "initialState": "idle",
+          "transitions": [
+            {
+              "fromState": "idle",
+              "toState": "pressed",
+              "conditions": [
+                {"input": "pressed", "kind": "boolEquals", "value": true}
+              ]
+            }
+          ]
+        }
+      ],
+      "listeners": [
+        {
+          "name": "box_enter",
+          "kind": "pointerEnter",
+          "slot": "button_box_slot",
+          "targetKind": "boundingBox",
+          "target": "button_hit",
+          "input": "hover",
+          "value": true
+        },
+        {
+          "name": "box_down",
+          "kind": "pointerDown",
+          "slot": "button_box_slot",
+          "targetKind": "boundingBox",
+          "target": "button_hit",
+          "input": "pressed",
+          "value": true
+        },
+        {
+          "name": "point_move",
+          "kind": "pointerMove",
+          "slot": "button_point_slot",
+          "targetKind": "point",
+          "target": "spark_point",
+          "hitRadius": 3,
+          "input": "intensity",
+          "value": 4.5
+        },
+        {
+          "name": "point_up",
+          "kind": "pointerUp",
+          "slot": "button_point_slot",
+          "targetKind": "point",
+          "target": "spark_point",
+          "hitRadius": 3,
+          "input": "pulse"
+        },
+        {
+          "name": "box_exit",
+          "kind": "pointerExit",
+          "slot": "button_box_slot",
+          "targetKind": "boundingBox",
+          "target": "button_hit",
+          "input": "hover",
+          "value": false
+        },
+        {"name": "idle_exit", "kind": "stateExit", "layer": "main", "fromState": "idle"},
+        {"name": "idle_to_pressed", "kind": "transition", "layer": "main", "fromState": "idle", "toState": "pressed"},
+        {"name": "pressed_enter", "kind": "stateEnter", "layer": "main", "toState": "pressed"}
+      ]
+    }
+  ]
+}

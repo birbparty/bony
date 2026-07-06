@@ -1,0 +1,113 @@
+{
+  "format": "bony.numeric-golden.v1",
+  "skeleton": "m21-pointer-listener-rig",
+  "version": "1.0.0",
+  "time": 0.10000000149011612,
+  "stateMachine": "pointer_story",
+  "sample": "enter",
+  "inputs": [
+    {
+      "name": "hover",
+      "kind": "bool",
+      "value": true
+    },
+    {
+      "name": "pressed",
+      "kind": "bool",
+      "value": false
+    },
+    {
+      "name": "intensity",
+      "kind": "number",
+      "value": 0.0
+    },
+    {
+      "name": "pulse",
+      "kind": "trigger",
+      "value": false
+    }
+  ],
+  "layers": [
+    {
+      "name": "main",
+      "state": "idle",
+      "time": 0.0,
+      "pose": {
+        "scalars": [
+          {
+            "target": "button",
+            "kind": "rotate",
+            "value": 0.0
+          }
+        ],
+        "vectors": [],
+        "attachments": [],
+        "inherits": [],
+        "colors": [],
+        "colors2": [],
+        "sequences": []
+      }
+    }
+  ],
+  "events": [
+    {
+      "listener": "box_enter",
+      "kind": "pointerEnter",
+      "slot": "button_box_slot",
+      "targetKind": "boundingBox",
+      "target": "button_hit",
+      "input": "hover",
+      "inputKind": "bool",
+      "boolValue": true,
+      "pointerX": 40.0,
+      "pointerY": 0.0
+    }
+  ],
+  "bones": [
+    {
+      "name": "root",
+      "parent": "",
+      "world": {
+        "a": 1.0,
+        "b": 0.0,
+        "c": 6.123233995736766e-17,
+        "d": 1.0,
+        "tx": 0.0,
+        "ty": 0.0
+      }
+    },
+    {
+      "name": "button",
+      "parent": "root",
+      "world": {
+        "a": 1.0,
+        "b": 0.0,
+        "c": 1.2246467991473532e-16,
+        "d": 1.0,
+        "tx": 40.0,
+        "ty": 0.0
+      }
+    }
+  ],
+  "slots": [
+    {
+      "name": "button_box_slot",
+      "bone": "button",
+      "attachment": "button_hit",
+      "r": 1.0,
+      "g": 1.0,
+      "b": 1.0,
+      "a": 1.0
+    },
+    {
+      "name": "button_point_slot",
+      "bone": "button",
+      "attachment": "spark_point",
+      "r": 1.0,
+      "g": 1.0,
+      "b": 1.0,
+      "a": 1.0
+    }
+  ],
+  "drawBatches": []
+}

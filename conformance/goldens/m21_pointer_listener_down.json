@@ -1,0 +1,134 @@
+{
+  "format": "bony.numeric-golden.v1",
+  "skeleton": "m21-pointer-listener-rig",
+  "version": "1.0.0",
+  "time": 0.20000000298023224,
+  "stateMachine": "pointer_story",
+  "sample": "down",
+  "inputs": [
+    {
+      "name": "hover",
+      "kind": "bool",
+      "value": true
+    },
+    {
+      "name": "pressed",
+      "kind": "bool",
+      "value": true
+    },
+    {
+      "name": "intensity",
+      "kind": "number",
+      "value": 0.0
+    },
+    {
+      "name": "pulse",
+      "kind": "trigger",
+      "value": false
+    }
+  ],
+  "layers": [
+    {
+      "name": "main",
+      "state": "pressed",
+      "time": 0.0,
+      "pose": {
+        "scalars": [
+          {
+            "target": "button",
+            "kind": "rotate",
+            "value": 30.0
+          }
+        ],
+        "vectors": [],
+        "attachments": [],
+        "inherits": [],
+        "colors": [],
+        "colors2": [],
+        "sequences": []
+      }
+    }
+  ],
+  "events": [
+    {
+      "listener": "box_down",
+      "kind": "pointerDown",
+      "slot": "button_box_slot",
+      "targetKind": "boundingBox",
+      "target": "button_hit",
+      "input": "pressed",
+      "inputKind": "bool",
+      "boolValue": true,
+      "pointerX": 40.0,
+      "pointerY": 0.0
+    },
+    {
+      "listener": "idle_exit",
+      "kind": "stateExit",
+      "layer": "main",
+      "fromState": "idle",
+      "toState": "pressed"
+    },
+    {
+      "listener": "idle_to_pressed",
+      "kind": "transition",
+      "layer": "main",
+      "fromState": "idle",
+      "toState": "pressed"
+    },
+    {
+      "listener": "pressed_enter",
+      "kind": "stateEnter",
+      "layer": "main",
+      "fromState": "idle",
+      "toState": "pressed"
+    }
+  ],
+  "bones": [
+    {
+      "name": "root",
+      "parent": "",
+      "world": {
+        "a": 1.0,
+        "b": 0.0,
+        "c": 6.123233995736766e-17,
+        "d": 1.0,
+        "tx": 0.0,
+        "ty": 0.0
+      }
+    },
+    {
+      "name": "button",
+      "parent": "root",
+      "world": {
+        "a": 0.8660254037844387,
+        "b": 0.49999999999999994,
+        "c": -0.4999999999999998,
+        "d": 0.8660254037844387,
+        "tx": 40.0,
+        "ty": 0.0
+      }
+    }
+  ],
+  "slots": [
+    {
+      "name": "button_box_slot",
+      "bone": "button",
+      "attachment": "button_hit",
+      "r": 1.0,
+      "g": 1.0,
+      "b": 1.0,
+      "a": 1.0
+    },
+    {
+      "name": "button_point_slot",
+      "bone": "button",
+      "attachment": "spark_point",
+      "r": 1.0,
+      "g": 1.0,
+      "b": 1.0,
+      "a": 1.0
+    }
+  ],
+  "drawBatches": []
+}

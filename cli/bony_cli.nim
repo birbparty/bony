@@ -72,10 +72,17 @@ type
     boolValue: bool
     numberValue: float64
 
+  ScriptPointer = object
+    kind: StateMachineListenerKind
+    x: float64
+    y: float64
+
   InputScriptSample = object
     name: string
     time: float64
     inputs: seq[ScriptInput]
+    pointer: ScriptPointer
+    hasPointer: bool
 
   InputScript = object
     asset: string
@@ -1236,6 +1243,25 @@ proc scriptTime(node: JsonNode; key, context: string): float64 =
     raise newBonyLoadError(schemaViolation, context & "." & key & " must be non-negative")
 
 
+proc scriptFloat(node: JsonNode; key, context: string): float64 =
+  if not node.hasKey(key):
+    raise newBonyLoadError(schemaViolation, context & "." & key & " is required")
+  if node[key].kind notin {JInt, JFloat}:
+    raise newBonyLoadError(schemaViolation, context & "." & key & " must be a number")
+  quantizeF32(node[key].getFloat(), context & "." & key)
+
+
+proc parsePointerKind(value, context: string): StateMachineListenerKind =
+  case value
+  of "pointerDown": pointerDownListener
+  of "pointerUp": pointerUpListener
+  of "pointerEnter": pointerEnterListener
+  of "pointerExit": pointerExitListener
+  of "pointerMove": pointerMoveListener
+  else:
+    raise newBonyLoadError(schemaViolation, context & ".kind must be a pointer listener kind")
+
+
 proc safeSampleName(name: string): bool =
   if name.len == 0:
     return false
@@ -1278,7 +1304,7 @@ proc parseInputScript(path: string): InputScript =
   for sampleIndex, item in samplesNode.elems:
     let context = "inputScript.samples[" & $sampleIndex & "]"
     let sampleObj = requireScriptObject(item, context)
-    validateBonyKeys(sampleObj, ["name", "t", "inputs"], context)
+    validateBonyKeys(sampleObj, ["name", "t", "inputs", "pointer"], context)
     var sample = InputScriptSample(
       name: scriptString(sampleObj, "name", context),
       time: scriptTime(sampleObj, "t", context),
@@ -1305,6 +1331,15 @@ proc parseInputScript(path: string): InputScript =
           sample.inputs.add ScriptInput(name: inputName, kind: scriptTriggerInput)
         else:
           raise newBonyLoadError(schemaViolation, context & ".inputs." & inputName & " must be bool, number, or \"fire\"")
+    if sampleObj.hasKey("pointer"):
+      let pointerObj = requireScriptObject(sampleObj["pointer"], context & ".pointer")
+      validateBonyKeys(pointerObj, ["kind", "x", "y"], context & ".pointer")
+      sample.pointer = ScriptPointer(
+        kind: parsePointerKind(scriptString(pointerObj, "kind", context & ".pointer", required = true), context & ".pointer"),
+        x: scriptFloat(pointerObj, "x", context & ".pointer"),
+        y: scriptFloat(pointerObj, "y", context & ".pointer"),
+      )
+      sample.hasPointer = true
     result.samples.add sample
 
 
@@ -1485,8 +1520,23 @@ proc executeStateMachineScript(
   var previousTime = 0.0
   var matched = false
   for index, sample in script.samples:
+    runtime.clearEvents()
     runtime.applyScriptInputs(sample.inputs)
-    runtime.update(sample.time - previousTime)
+    if sample.hasPointer:
+      let pointerEvaluated = runtime.evaluate(dataRef)
+      let pointerPosed = data.applyRenderablePose(pointerEvaluated.pose)
+      if not pointerPosed.hasSkin(script.activeSkin):
+        raise newBonyLoadError(unknownRequiredReference, "unknown active skin: " & script.activeSkin)
+      let pointerWorlds = computeWorldTransforms(pointerPosed)
+      runtime.dispatchPointerListeners(
+        pointerPosed,
+        pointerWorlds,
+        script.activeSkin,
+        sample.pointer.kind,
+        sample.pointer.x,
+        sample.pointer.y,
+      )
+    runtime.update(sample.time - previousTime, preserveEvents = true)
     let evaluated = runtime.evaluate(dataRef)
     let posed = data.applyRenderablePose(evaluated.pose)
     if not posed.hasSkin(script.activeSkin):
@@ -1587,6 +1637,12 @@ proc listenerKindJson(kind: StateMachineListenerKind): string =
   of pointerEnterListener: "pointerEnter"
   of pointerExitListener: "pointerExit"
   of pointerMoveListener: "pointerMove"
+
+
+proc pointerHelperTargetKindJson(kind: PointerHelperTargetKind): string =
+  case kind
+  of pointHelperTarget: "point"
+  of boundingBoxHelperTarget: "boundingBox"
 
 
 proc colorJson(color: timelines.ColorRgba): JsonNode =
@@ -1761,9 +1817,25 @@ proc stateMachineEventsJson(runtime: StateMachineRuntime): JsonNode =
     var node = newJObject()
     node["listener"] = newJString(event.listener)
     node["kind"] = newJString(listenerKindJson(event.kind))
-    node["layer"] = newJString(event.layer)
-    node["fromState"] = newJString(event.fromState)
-    node["toState"] = newJString(event.toState)
+    if event.hasPointer:
+      node["slot"] = newJString(event.slot)
+      node["targetKind"] = newJString(pointerHelperTargetKindJson(event.targetKind))
+      node["target"] = newJString(event.target)
+      node["input"] = newJString(event.input)
+      node["inputKind"] = newJString(inputKindJson(event.inputKind))
+      case event.inputKind
+      of boolInput:
+        node["boolValue"] = newJBool(event.boolValue)
+      of numberInput:
+        node["numberValue"] = newJFloat(event.numberValue)
+      of triggerInput:
+        node["triggerValue"] = newJBool(event.triggerValue)
+      node["pointerX"] = newJFloat(event.pointerX)
+      node["pointerY"] = newJFloat(event.pointerY)
+    else:
+      node["layer"] = newJString(event.layer)
+      node["fromState"] = newJString(event.fromState)
+      node["toState"] = newJString(event.toState)
     result.add node
 
 

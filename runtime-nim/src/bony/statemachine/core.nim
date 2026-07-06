@@ -5,6 +5,7 @@ import std/[algorithm, math, sets, tables]
 import bony/anim/mixer
 import bony/anim/timelines
 import bony/model
+import bony/transform
 
 type
   StateMachineInputKind* = enum
@@ -85,6 +86,19 @@ type
     layer*: string
     fromState*: string
     toState*: string
+    slot*: string
+    targetKind*: PointerHelperTargetKind
+    target*: string
+    input*: string
+    inputKind*: StateMachineInputKind
+    boolValue*: bool
+    hasBoolValue*: bool
+    numberValue*: float64
+    hasNumberValue*: bool
+    triggerValue*: bool
+    pointerX*: float64
+    pointerY*: float64
+    hasPointer*: bool
 
   StateMachineStateKind* = enum
     clipState,
@@ -724,6 +738,11 @@ proc consumeTrigger*(runtime: var StateMachineRuntime; name: string): bool =
   runtime.clearTrigger(name)
 
 
+proc clearEvents*(runtime: var StateMachineRuntime) =
+  runtime = normalizedRuntime(runtime)
+  runtime.events.setLen(0)
+
+
 proc resetInputs*(runtime: var StateMachineRuntime) =
   runtime = normalizedRuntime(runtime)
   runtime.inputs.setLen(0)
@@ -832,9 +851,97 @@ proc applyTransitions(runtime: var StateMachineRuntime) =
     runtime.inputs[index].boolValue = false
 
 
-proc update*(runtime: var StateMachineRuntime; dt: float64) =
+proc isPointerListenerKind*(kind: StateMachineListenerKind): bool =
+  kind in {
+    pointerDownListener,
+    pointerUpListener,
+    pointerEnterListener,
+    pointerExitListener,
+    pointerMoveListener,
+  }
+
+
+proc visibleSlotTarget(data: SkeletonData; activeSkin, slotName: string): string =
+  for slot in data.slots:
+    if slot.name == slotName:
+      return data.resolveSkinAttachmentTarget(activeSkin, slot.name, slot.attachment)
+  raise newBonyLoadError(unknownRequiredReference, "state-machine pointer listener slot references unknown slot: " & slotName)
+
+
+proc listenerHit(
+  data: SkeletonData;
+  worlds: openArray[Affine2];
+  listener: StateMachineListener;
+  pointerX, pointerY: float64;
+): bool =
+  case listener.targetKind
+  of pointHelperTarget:
+    data.pointerHitsPointTarget(worlds, listener.slot, listener.target, pointerX, pointerY, listener.hitRadius)
+  of boundingBoxHelperTarget:
+    data.pointerHitsBoundingBoxTarget(worlds, listener.slot, listener.target, pointerX, pointerY)
+
+
+proc addPointerEvent(
+  runtime: var StateMachineRuntime;
+  listener: StateMachineListener;
+  input: StateMachineInput;
+  pointerX, pointerY: float64;
+) =
+  runtime.events.add StateMachineListenerEvent(
+    listener: listener.name,
+    kind: listener.kind,
+    slot: listener.slot,
+    targetKind: listener.targetKind,
+    target: listener.target,
+    input: listener.input,
+    inputKind: input.kind,
+    boolValue: listener.boolValue,
+    hasBoolValue: listener.hasBoolValue,
+    numberValue: listener.numberValue,
+    hasNumberValue: listener.hasNumberValue,
+    triggerValue: input.kind == triggerInput,
+    pointerX: pointerX,
+    pointerY: pointerY,
+    hasPointer: true,
+  )
+
+
+proc dispatchPointerListeners*(
+  runtime: var StateMachineRuntime;
+  data: SkeletonData;
+  worlds: openArray[Affine2];
+  activeSkin: string;
+  kind: StateMachineListenerKind;
+  pointerX, pointerY: float64;
+) =
+  if not kind.isPointerListenerKind:
+    raise newBonyLoadError(schemaViolation, "state-machine pointer dispatch kind is not a pointer listener kind")
   runtime = normalizedRuntime(runtime)
-  runtime.events.setLen(0)
+  discard requireFiniteF64(pointerX, "stateMachine.pointer.x")
+  discard requireFiniteF64(pointerY, "stateMachine.pointer.y")
+  for listener in runtime.machine.listeners:
+    if listener.kind != kind:
+      continue
+    if data.visibleSlotTarget(activeSkin, listener.slot) != listener.target:
+      continue
+    if not data.listenerHit(worlds, listener, pointerX, pointerY):
+      continue
+
+    let input = runtime.machine.inputByName(listener.input)
+    case input.kind
+    of boolInput:
+      runtime.setBoolInput(listener.input, listener.boolValue)
+    of numberInput:
+      runtime.setNumberInput(listener.input, listener.numberValue)
+    of triggerInput:
+      runtime.fireTrigger(listener.input)
+    runtime.addPointerEvent(listener, input, pointerX, pointerY)
+
+
+proc update*(runtime: var StateMachineRuntime; dt: float64; preserveEvents = false) =
+  runtime = normalizedRuntime(runtime)
+  if not preserveEvents:
+    runtime.events.setLen(0)
   let step = quantizeStateMachineTime(dt, "stateMachine.dt")
   for layer in runtime.layers.mitems:
     discard quantizeStateMachineTime(layer.time, "stateMachine.layer.time")
