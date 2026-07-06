@@ -142,6 +142,28 @@ Net-new serialized identifiers confirmed against the review checklist above.
   (2026-07-05)" in `docs/PROVENANCE.md`.
 - **Result**: checklist **satisfied**.
 
+### SkinRequired Activation Serialized Names (2026-07-06, bead `bony-i4x6.1`)
+
+- **Net-new identifiers**: canonical-JSON field `skinRequired` on bones and
+  constraints; skin-owned canonical-JSON membership fields `bones`,
+  `ikConstraints`, `transformConstraints`, `pathConstraints`, and
+  `physicsConstraints`; `.bnb` property keys `skinRequired`, `skinBones`,
+  `skinIkConstraints`, `skinTransformConstraints`, `skinPathConstraints`, and
+  `skinPhysicsConstraints`.
+- **Explainable without prior-art source**: yes - the names come from the local
+  `docs/skin-required-activation-contract.md`, the existing first-class
+  `skins[]` model, and generic required-membership terminology. Membership
+  fields use the already project-owned typed domains.
+- **Project-owned & documented**: keys `4027..4032` live in the M5 property band
+  because this surface activates M5 constraint families; `skinRequired` is
+  intentionally reused on `bone` as a documented cross-band activation flag, and
+  skin-owned membership keys are intentionally stored on `skin` records while
+  referencing M5 constraint source indices.
+- **No build-step fetch of prior-art source**: confirmed.
+- **PROVENANCE updated**: yes - see "SkinRequired Activation Schema Names
+  (2026-07-06)" in `docs/PROVENANCE.md`.
+- **Result**: checklist **satisfied**.
+
 ### Nested Rig Attachment Serialized Names (2026-07-06, bead `bony-5b5w`)
 
 - **Net-new identifiers**: type `nestedRigAttachment`; top-level canonical JSON

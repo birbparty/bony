@@ -1,6 +1,6 @@
 ## M6/M7 semantic .bnb encoder/decoder for the current SkeletonData model.
 
-import std/[algorithm, json, sets, strutils, tables]
+import std/[algorithm, json, sequtils, sets, strutils, tables]
 
 import bony/anim/timelines
 import bony/asset
@@ -104,6 +104,12 @@ const
   windKey = 4024'u64
   physicsMixKey = 4025'u64
   channelsKey = 4026'u64
+  skinRequiredKey = 4027'u64
+  skinBonesKey = 4028'u64
+  skinIkConstraintsKey = 4029'u64
+  skinTransformConstraintsKey = 4030'u64
+  skinPathConstraintsKey = 4031'u64
+  skinPhysicsConstraintsKey = 4032'u64
   boneIndexKey = 2000'u64
   boneTimelineKindKey = 2001'u64
   slotIndexKey = 2002'u64
@@ -542,6 +548,30 @@ proc readBonesPayload(payload: openArray[byte]; table: BnbStringTable): seq[stri
     result.add table.stringAt(nameIndex)
   if index != payload.len:
     raise newBonyLoadError(schemaViolation, ".bnb ikConstraint bones payload has trailing bytes")
+
+
+proc writeIndexListPayload(
+  refs: openArray[string];
+  indexByName: Table[string, int];
+  context: string;
+): seq[byte] =
+  result.writeVaruint(uint64(refs.len))
+  for item in refs:
+    if item notin indexByName:
+      raise newBonyLoadError(unknownRequiredReference, ".bnb " & context & " references unknown name: " & item)
+    result.writeVaruint(uint64(indexByName[item]))
+
+
+proc readIndexListPayload(payload: openArray[byte]; names: openArray[string]; context: string): seq[string] =
+  var index = 0
+  let count = payload.readVaruint(index)
+  for _ in 0'u64 ..< count:
+    let sourceIndex = payload.readVaruint(index)
+    if sourceIndex >= uint64(names.len):
+      raise newBonyLoadError(unknownRequiredReference, ".bnb " & context & " index is out of range")
+    result.add names[int(sourceIndex)]
+  if index != payload.len:
+    raise newBonyLoadError(schemaViolation, ".bnb " & context & " payload has trailing bytes")
 
 
 proc writeMeshVerticesPayload(
@@ -1122,6 +1152,7 @@ proc buildObjectRecords(data: SkeletonData; table: var BnbStringTable; toc: var 
       transformModeName(local.transformMode),
       defaultString("bone", "transformMode"),
     )
+    properties.addBoolIfNeeded(toc, skinRequiredKey, bone.skinRequired, defaultBool("bone", "skinRequired"))
     result.add BnbObjectRecord(typeKey: boneTypeKey, properties: properties)
 
   for slot in data.slots:
@@ -1220,6 +1251,7 @@ proc buildObjectRecords(data: SkeletonData; table: var BnbStringTable; toc: var 
     properties.addProperty(toc, bonesKey, writeBonesPayload(ik.bones, table))
     properties.addStringIfNeeded(toc, table, targetKey, ik.target, "", required = true)
     properties.addIntIfNeeded(toc, orderKey, ik.order, defaultInt("ikConstraint", "order"))
+    properties.addBoolIfNeeded(toc, skinRequiredKey, ik.skinRequired, defaultBool("ikConstraint", "skinRequired"))
     properties.addFloatIfNeeded(toc, mixKey, ik.mix, defaultFloat("ikConstraint", "mix"), required = ik.hasMix)
     if ik.hasBendPositive:
       properties.addProperty(toc, bendPositiveKey, writeBoolPayload(ik.bendPositive))
@@ -1236,6 +1268,7 @@ proc buildObjectRecords(data: SkeletonData; table: var BnbStringTable; toc: var 
     properties.addStringIfNeeded(toc, table, boneKey, tc.bone, "", required = true)
     properties.addStringIfNeeded(toc, table, targetKey, tc.target, "", required = true)
     properties.addIntIfNeeded(toc, orderKey, tc.order, defaultInt("transformConstraint", "order"))
+    properties.addBoolIfNeeded(toc, skinRequiredKey, tc.skinRequired, defaultBool("transformConstraint", "skinRequired"))
     properties.addFloatIfNeeded(toc, translateMixKey, tc.translateMix, defaultFloat("transformConstraint", "translateMix"), required = tc.hasTranslateMix)
     properties.addFloatIfNeeded(toc, rotateMixKey, tc.rotateMix, defaultFloat("transformConstraint", "rotateMix"), required = tc.hasRotateMix)
     properties.addFloatIfNeeded(toc, scaleMixKey, tc.scaleMix, defaultFloat("transformConstraint", "scaleMix"), required = tc.hasScaleMix)
@@ -1249,6 +1282,7 @@ proc buildObjectRecords(data: SkeletonData; table: var BnbStringTable; toc: var 
     properties.addStringIfNeeded(toc, table, targetKey, path.target, "", required = true)
     properties.addStringIfNeeded(toc, table, pathKey, path.path, "", required = true)
     properties.addIntIfNeeded(toc, orderKey, path.order, defaultInt("path", "order"))
+    properties.addBoolIfNeeded(toc, skinRequiredKey, path.skinRequired, defaultBool("path", "skinRequired"))
     properties.addFloatIfNeeded(toc, positionKey, path.position, defaultFloat("path", "position"), required = path.hasPosition)
     properties.addFloatIfNeeded(toc, translateMixKey, path.translateMix, defaultFloat("path", "translateMix"), required = path.hasTranslateMix)
     properties.addFloatIfNeeded(toc, rotateMixKey, path.rotateMix, defaultFloat("path", "rotateMix"), required = path.hasRotateMix)
@@ -1264,6 +1298,7 @@ proc buildObjectRecords(data: SkeletonData; table: var BnbStringTable; toc: var 
     properties.addStringIfNeeded(toc, table, nameKey, pc.name, "", required = true)
     properties.addStringIfNeeded(toc, table, boneKey, pc.bone, "", required = true)
     properties.addIntIfNeeded(toc, orderKey, pc.order, defaultInt("physicsConstraint", "order"))
+    properties.addBoolIfNeeded(toc, skinRequiredKey, pc.skinRequired, defaultBool("physicsConstraint", "skinRequired"))
     properties.addProperty(toc, channelsKey, writeVaruintPayload(physicsChannelsToMask(pc.channels)))
     properties.addFloatIfNeeded(toc, inertiaKey, pc.inertia, defaultFloat("physicsConstraint", "inertia"), required = pc.hasInertia)
     properties.addFloatIfNeeded(toc, strengthKey, pc.strength, defaultFloat("physicsConstraint", "strength"), required = pc.hasStrength)
@@ -1294,9 +1329,40 @@ proc buildObjectRecords(data: SkeletonData; table: var BnbStringTable; toc: var 
         result = cmp(a.attachment, b.attachment)
     )
 
+  proc indexByNames(names: openArray[string]): Table[string, int] =
+    for index, name in names:
+      result[name] = index
+
+  let boneNameIndex = data.bones.mapIt(it.name).indexByNames()
+  let ikNameIndex = data.ikConstraints.mapIt(it.name).indexByNames()
+  let transformNameIndex = data.transformConstraints.mapIt(it.name).indexByNames()
+  let pathNameIndex = data.paths.mapIt(it.name).indexByNames()
+  let physicsNameIndex = data.physicsConstraints.mapIt(it.name).indexByNames()
+
+  proc orderedRefs(refs: openArray[string]; indexByName: Table[string, int]): seq[string] =
+    result = @refs
+    result.sort(proc(a, b: string): int =
+      cmp(indexByName.getOrDefault(a, high(int)), indexByName.getOrDefault(b, high(int)))
+    )
+
   for skin in orderedSkins():
     var properties: seq[BnbPropertyRecord]
     properties.addStringIfNeeded(toc, table, nameKey, skin.name, "", required = true)
+    let skinBones = orderedRefs(skin.bones, boneNameIndex)
+    if skinBones.len > 0:
+      properties.addProperty(toc, skinBonesKey, writeIndexListPayload(skinBones, boneNameIndex, "skin.bones"))
+    let skinIk = orderedRefs(skin.ikConstraints, ikNameIndex)
+    if skinIk.len > 0:
+      properties.addProperty(toc, skinIkConstraintsKey, writeIndexListPayload(skinIk, ikNameIndex, "skin.ikConstraints"))
+    let skinTransform = orderedRefs(skin.transformConstraints, transformNameIndex)
+    if skinTransform.len > 0:
+      properties.addProperty(toc, skinTransformConstraintsKey, writeIndexListPayload(skinTransform, transformNameIndex, "skin.transformConstraints"))
+    let skinPaths = orderedRefs(skin.pathConstraints, pathNameIndex)
+    if skinPaths.len > 0:
+      properties.addProperty(toc, skinPathConstraintsKey, writeIndexListPayload(skinPaths, pathNameIndex, "skin.pathConstraints"))
+    let skinPhysics = orderedRefs(skin.physicsConstraints, physicsNameIndex)
+    if skinPhysics.len > 0:
+      properties.addProperty(toc, skinPhysicsConstraintsKey, writeIndexListPayload(skinPhysics, physicsNameIndex, "skin.physicsConstraints"))
     result.add BnbObjectRecord(typeKey: skinTypeKey, properties: properties)
     for entry in sortedSkinEntries(skin):
       var entryProperties: seq[BnbPropertyRecord]
@@ -1659,6 +1725,11 @@ proc decodeSkeletonObjects(objects: openArray[BnbObjectRecord]; strings: BnbStri
   var pendingKeyforms: seq[Keyform] = @[]
   var currentSkinName = ""
   var currentSkinEntries: seq[SkinEntryData] = @[]
+  var currentSkinBones: seq[string] = @[]
+  var currentSkinIkConstraints: seq[string] = @[]
+  var currentSkinTransformConstraints: seq[string] = @[]
+  var currentSkinPathConstraints: seq[string] = @[]
+  var currentSkinPhysicsConstraints: seq[string] = @[]
 
   template flushPendingIfAny() =
     if deformerPending and geometryReady:
@@ -1674,9 +1745,42 @@ proc decodeSkeletonObjects(objects: openArray[BnbObjectRecord]; strings: BnbStri
 
   template flushSkinIfAny() =
     if currentSkinName.len > 0:
-      skins.add skinData(currentSkinName, currentSkinEntries)
+      skins.add skinData(
+        currentSkinName,
+        currentSkinEntries,
+        bones = currentSkinBones,
+        ikConstraints = currentSkinIkConstraints,
+        transformConstraints = currentSkinTransformConstraints,
+        pathConstraints = currentSkinPathConstraints,
+        physicsConstraints = currentSkinPhysicsConstraints,
+      )
       currentSkinName = ""
       currentSkinEntries = @[]
+      currentSkinBones = @[]
+      currentSkinIkConstraints = @[]
+      currentSkinTransformConstraints = @[]
+      currentSkinPathConstraints = @[]
+      currentSkinPhysicsConstraints = @[]
+
+  proc boneNames(): seq[string] =
+    for bone in bones:
+      result.add bone.name
+
+  proc ikNames(): seq[string] =
+    for ik in ikConstraints:
+      result.add ik.name
+
+  proc transformNames(): seq[string] =
+    for tc in transformConstraints:
+      result.add tc.name
+
+  proc pathNames(): seq[string] =
+    for path in paths:
+      result.add path.name
+
+  proc physicsNames(): seq[string] =
+    for pc in physicsConstraints:
+      result.add pc.name
 
   for record in objects:
     case record.typeKey
@@ -1704,6 +1808,7 @@ proc decodeSkeletonObjects(objects: openArray[BnbObjectRecord]; strings: BnbStri
         inheritScaleKey,
         inheritReflectionKey,
         transformModeKey,
+        skinRequiredKey,
       ])
       let inheritRotation = properties.readOptionalBoolProperty(
         inheritRotationKey,
@@ -1737,6 +1842,11 @@ proc decodeSkeletonObjects(objects: openArray[BnbObjectRecord]; strings: BnbStri
           transformMode = parseTransformMode(
             properties.readOptionalStringProperty(strings, transformModeKey, defaultString("bone", "transformMode")),
           ),
+        ),
+        skinRequired = properties.readOptionalBoolProperty(
+          skinRequiredKey,
+          defaultBool("bone", "skinRequired"),
+          "bone.skinRequired",
         ),
       )
     of slotTypeKey:
@@ -1821,13 +1931,18 @@ proc decodeSkeletonObjects(objects: openArray[BnbObjectRecord]; strings: BnbStri
       )
     of pathTypeKey:
       flushPendingIfAny()
-      let properties = record.propertyMap([nameKey, boneKey, targetKey, pathKey, orderKey, positionKey, translateMixKey, rotateMixKey])
+      let properties = record.propertyMap([nameKey, boneKey, targetKey, pathKey, orderKey, skinRequiredKey, positionKey, translateMixKey, rotateMixKey])
       paths.add pathConstraintData(
         properties.readStringProperty(strings, nameKey, "path.name"),
         properties.readStringProperty(strings, boneKey, "path.bone"),
         properties.readStringProperty(strings, targetKey, "path.target"),
         properties.readStringProperty(strings, pathKey, "path.path"),
         properties.readOptionalIntProperty(orderKey, defaultInt("path", "order"), "path.order"),
+        skinRequired = properties.readOptionalBoolProperty(
+          skinRequiredKey,
+          defaultBool("path", "skinRequired"),
+          "path.skinRequired",
+        ),
         hasPosition = positionKey in properties,
         position = properties.readOptionalFloatProperty(positionKey, defaultFloat("path", "position"), "path.position"),
         hasTranslateMix = translateMixKey in properties,
@@ -1837,7 +1952,7 @@ proc decodeSkeletonObjects(objects: openArray[BnbObjectRecord]; strings: BnbStri
       )
     of ikConstraintTypeKey:
       flushPendingIfAny()
-      let properties = record.propertyMap([nameKey, bonesKey, targetKey, orderKey, mixKey, bendPositiveKey])
+      let properties = record.propertyMap([nameKey, bonesKey, targetKey, orderKey, skinRequiredKey, mixKey, bendPositiveKey])
       if bonesKey notin properties:
         raise newBonyLoadError(schemaViolation, ".bnb ikConstraint.bones is required")
       ikConstraints.add ikConstraintData(
@@ -1845,6 +1960,11 @@ proc decodeSkeletonObjects(objects: openArray[BnbObjectRecord]; strings: BnbStri
         properties.readStringProperty(strings, targetKey, "ikConstraint.target"),
         readBonesPayload(properties[bonesKey], strings),
         order = properties.readOptionalIntProperty(orderKey, defaultInt("ikConstraint", "order"), "ikConstraint.order"),
+        skinRequired = properties.readOptionalBoolProperty(
+          skinRequiredKey,
+          defaultBool("ikConstraint", "skinRequired"),
+          "ikConstraint.skinRequired",
+        ),
         hasMix = mixKey in properties,
         mix = properties.readOptionalFloatProperty(mixKey, defaultFloat("ikConstraint", "mix"), "ikConstraint.mix"),
         hasBendPositive = bendPositiveKey in properties,
@@ -1852,12 +1972,17 @@ proc decodeSkeletonObjects(objects: openArray[BnbObjectRecord]; strings: BnbStri
       )
     of transformConstraintTypeKey:
       flushPendingIfAny()
-      let properties = record.propertyMap([nameKey, boneKey, targetKey, orderKey, translateMixKey, rotateMixKey, scaleMixKey, shearMixKey])
+      let properties = record.propertyMap([nameKey, boneKey, targetKey, orderKey, skinRequiredKey, translateMixKey, rotateMixKey, scaleMixKey, shearMixKey])
       transformConstraints.add transformConstraintData(
         properties.readStringProperty(strings, nameKey, "transformConstraint.name"),
         properties.readStringProperty(strings, boneKey, "transformConstraint.bone"),
         properties.readStringProperty(strings, targetKey, "transformConstraint.target"),
         order = properties.readOptionalIntProperty(orderKey, defaultInt("transformConstraint", "order"), "transformConstraint.order"),
+        skinRequired = properties.readOptionalBoolProperty(
+          skinRequiredKey,
+          defaultBool("transformConstraint", "skinRequired"),
+          "transformConstraint.skinRequired",
+        ),
         hasTranslateMix = translateMixKey in properties,
         translateMix = properties.readOptionalFloatProperty(translateMixKey, defaultFloat("transformConstraint", "translateMix"), "transformConstraint.translateMix"),
         hasRotateMix = rotateMixKey in properties,
@@ -1869,7 +1994,7 @@ proc decodeSkeletonObjects(objects: openArray[BnbObjectRecord]; strings: BnbStri
       )
     of physicsConstraintTypeKey:
       flushPendingIfAny()
-      let properties = record.propertyMap([nameKey, boneKey, orderKey, channelsKey, inertiaKey, strengthKey, dampingKey, massKey, gravityKey, windKey, physicsMixKey])
+      let properties = record.propertyMap([nameKey, boneKey, orderKey, skinRequiredKey, channelsKey, inertiaKey, strengthKey, dampingKey, massKey, gravityKey, windKey, physicsMixKey])
       if channelsKey notin properties:
         raise newBonyLoadError(schemaViolation, ".bnb physicsConstraint.channels is required")
       let channelMask = readVaruintPayload(properties[channelsKey], "physicsConstraint.channels")
@@ -1878,6 +2003,11 @@ proc decodeSkeletonObjects(objects: openArray[BnbObjectRecord]; strings: BnbStri
         properties.readStringProperty(strings, boneKey, "physicsConstraint.bone"),
         physicsChannelsFromMask(channelMask, "physicsConstraint.channels"),
         order = properties.readOptionalIntProperty(orderKey, defaultInt("physicsConstraint", "order"), "physicsConstraint.order"),
+        skinRequired = properties.readOptionalBoolProperty(
+          skinRequiredKey,
+          defaultBool("physicsConstraint", "skinRequired"),
+          "physicsConstraint.skinRequired",
+        ),
         hasInertia = inertiaKey in properties,
         inertia = properties.readOptionalFloatProperty(inertiaKey, defaultFloat("physicsConstraint", "inertia"), "physicsConstraint.inertia"),
         hasStrength = strengthKey in properties,
@@ -1914,9 +2044,31 @@ proc decodeSkeletonObjects(objects: openArray[BnbObjectRecord]; strings: BnbStri
     of skinTypeKey:
       flushPendingIfAny()
       flushSkinIfAny()
-      let properties = record.propertyMap([nameKey])
+      let properties = record.propertyMap([
+        nameKey,
+        skinBonesKey,
+        skinIkConstraintsKey,
+        skinTransformConstraintsKey,
+        skinPathConstraintsKey,
+        skinPhysicsConstraintsKey,
+      ])
       currentSkinName = properties.readStringProperty(strings, nameKey, "skin.name")
       currentSkinEntries = @[]
+      currentSkinBones =
+        if skinBonesKey in properties: readIndexListPayload(properties[skinBonesKey], boneNames(), "skin.bones")
+        else: @[]
+      currentSkinIkConstraints =
+        if skinIkConstraintsKey in properties: readIndexListPayload(properties[skinIkConstraintsKey], ikNames(), "skin.ikConstraints")
+        else: @[]
+      currentSkinTransformConstraints =
+        if skinTransformConstraintsKey in properties: readIndexListPayload(properties[skinTransformConstraintsKey], transformNames(), "skin.transformConstraints")
+        else: @[]
+      currentSkinPathConstraints =
+        if skinPathConstraintsKey in properties: readIndexListPayload(properties[skinPathConstraintsKey], pathNames(), "skin.pathConstraints")
+        else: @[]
+      currentSkinPhysicsConstraints =
+        if skinPhysicsConstraintsKey in properties: readIndexListPayload(properties[skinPhysicsConstraintsKey], physicsNames(), "skin.physicsConstraints")
+        else: @[]
     of skinEntryTypeKey:
       flushPendingIfAny()
       if currentSkinName.len == 0:

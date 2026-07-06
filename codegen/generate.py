@@ -72,6 +72,36 @@ PACKED_BYTES_METADATA: dict[str, dict[str, Any]] = {
         "structuralSchema": "base64Only",
         "validatedBy": "loader",
     },
+    "skinBones": {
+        "payload": "skinRequiredBoneMembership",
+        "layout": "docs/skin-required-activation-contract.md#serialized-surface",
+        "structuralSchema": "base64Only",
+        "validatedBy": "loader",
+    },
+    "skinIkConstraints": {
+        "payload": "skinRequiredIkConstraintMembership",
+        "layout": "docs/skin-required-activation-contract.md#serialized-surface",
+        "structuralSchema": "base64Only",
+        "validatedBy": "loader",
+    },
+    "skinTransformConstraints": {
+        "payload": "skinRequiredTransformConstraintMembership",
+        "layout": "docs/skin-required-activation-contract.md#serialized-surface",
+        "structuralSchema": "base64Only",
+        "validatedBy": "loader",
+    },
+    "skinPathConstraints": {
+        "payload": "skinRequiredPathConstraintMembership",
+        "layout": "docs/skin-required-activation-contract.md#serialized-surface",
+        "structuralSchema": "base64Only",
+        "validatedBy": "loader",
+    },
+    "skinPhysicsConstraints": {
+        "payload": "skinRequiredPhysicsConstraintMembership",
+        "layout": "docs/skin-required-activation-contract.md#serialized-surface",
+        "structuralSchema": "base64Only",
+        "validatedBy": "loader",
+    },
 }
 
 
@@ -652,6 +682,7 @@ def canonical_json_overrides() -> dict[str, Any]:
                 "bones": {"type": "array", "minItems": 1, "items": named_string},
                 "target": {"type": "string"},
                 "order": {"type": "integer", "default": 0},
+                "skinRequired": {"type": "boolean", "default": False},
                 "mix": {"type": "number", "minimum": 0, "maximum": 1, "default": 1.0},
                 "bendPositive": {"type": "boolean", "default": True},
             },
@@ -941,6 +972,11 @@ def canonical_json_overrides() -> dict[str, Any]:
             "additionalProperties": False,
             "properties": {
                 "name": named_string,
+                "bones": {"type": "array", "items": named_string, "default": []},
+                "ikConstraints": {"type": "array", "items": named_string, "default": []},
+                "transformConstraints": {"type": "array", "items": named_string, "default": []},
+                "pathConstraints": {"type": "array", "items": named_string, "default": []},
+                "physicsConstraints": {"type": "array", "items": named_string, "default": []},
                 "entries": {
                     "type": "array",
                     "items": {"$ref": "#/$defs/skinEntry"},

@@ -226,6 +226,10 @@
             "noScaleOrReflection"
           ],
           "default": "normal"
+        },
+        "skinRequired": {
+          "type": "boolean",
+          "default": false
         }
       },
       "required": [
@@ -810,6 +814,10 @@
           "type": "integer",
           "default": 0
         },
+        "skinRequired": {
+          "type": "boolean",
+          "default": false
+        },
         "position": {
           "type": "number",
           "minimum": 0,
@@ -856,6 +864,10 @@
           "type": "integer",
           "default": 0
         },
+        "skinRequired": {
+          "type": "boolean",
+          "default": false
+        },
         "mix": {
           "type": "number",
           "minimum": 0,
@@ -890,6 +902,10 @@
         "order": {
           "type": "integer",
           "default": 0
+        },
+        "skinRequired": {
+          "type": "boolean",
+          "default": false
         },
         "translateMix": {
           "type": "number",
@@ -932,6 +948,10 @@
         "order": {
           "type": "integer",
           "default": 0
+        },
+        "skinRequired": {
+          "type": "boolean",
+          "default": false
         },
         "channels": {
           "type": "integer",
@@ -1714,6 +1734,46 @@
         "name": {
           "type": "string",
           "minLength": 1
+        },
+        "bones": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "default": []
+        },
+        "ikConstraints": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "default": []
+        },
+        "transformConstraints": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "default": []
+        },
+        "pathConstraints": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "default": []
+        },
+        "physicsConstraints": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "default": []
         },
         "entries": {
           "type": "array",

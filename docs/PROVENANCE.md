@@ -301,6 +301,34 @@ documentation prose.
 - **CI enforcement**: registry/defaults/codegen consistency is enforced by
   `codegen/generate.py --check`; clean-room posture is enforced by code review.
 
+### SkinRequired Activation Schema Names (2026-07-06)
+
+- **Reason needed**: Bead `bony-i4x6.1` serializes the format/load surface for
+  the binding `docs/skin-required-activation-contract.md`: gated bones and
+  constraints plus skin-owned membership lists that a later runtime slice will
+  consume.
+- **Classification**: project-owned design - not an external source of
+  implementation truth.
+- **What is recorded**: canonical-JSON field `skinRequired`; skin-owned
+  canonical-JSON membership arrays `bones`, `ikConstraints`,
+  `transformConstraints`, `pathConstraints`, and `physicsConstraints`; `.bnb`
+  property keys `skinRequired` (`4027`), `skinBones` (`4028`),
+  `skinIkConstraints` (`4029`), `skinTransformConstraints` (`4030`),
+  `skinPathConstraints` (`4031`), and `skinPhysicsConstraints` (`4032`).
+  Membership payloads store typed source indices; canonical JSON stores names.
+- **Source**: none. The field names, key choices, membership grouping, and
+  packed-index layouts were **not** derived from any third-party runtime,
+  importer, generated definitions, exact wire layout, keys, or documentation
+  prose (DragonBones, Spine, Rive, Live2D, Lottie). They follow the local
+  binding contract, the existing project-owned skin model, and generic
+  typed-membership terminology.
+- **Cleanroom compliance**: confirmed against `docs/CLEANROOM.md`. The M5 key
+  band is used for all new properties because the surface activates M5
+  constraint families; its use on `bone` and `skin` records is a documented
+  cross-band exception for one activation surface.
+- **CI enforcement**: registry/defaults/codegen consistency is enforced by
+  `codegen/generate.py --check`; clean-room posture is enforced by code review.
+
 ### Event Timeline Schema Names (2026-07-04)
 
 - **Reason needed**: The M3 event-timeline milestone (epic `bony-0ofc`, prompt 27)

@@ -199,9 +199,9 @@ Required membership checks:
 These checks make runtime filtering a deterministic activation decision rather
 than a best-effort recovery path.
 
-## Future Serialized Surface
+## Serialized Surface
 
-A later format/load slice must add explicit skin-owned membership lists for:
+The format/load surface stores explicit skin-owned membership lists for:
 
 - Required bones.
 - Required IK constraints.
@@ -209,7 +209,7 @@ A later format/load slice must add explicit skin-owned membership lists for:
 - Required path constraints.
 - Required physics constraints.
 
-The future surface must satisfy these requirements:
+The serialized surface satisfies these requirements:
 
 - Membership is stored under the owning skin, separate from attachment `entries`.
 - Canonical JSON references loaded item names.

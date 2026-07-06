@@ -806,6 +806,48 @@ propertyKeys:
     milestone: M5
     ownerBead: bony-1pp
     doc: Physics constraint enabled-channel bitmask; one bit per PhysicsChannel ordinal (pcX=bit0, pcY=bit1, pcRotate=bit2, pcScaleX=bit3, pcShearX=bit4). At least one bit must be set.
+  - id: skinRequired
+    key: 4027
+    backingType: bool
+    status: active
+    milestone: M5
+    ownerBead: bony-i4x6.1
+    doc: Whether a bone or constraint is activated by skin-owned membership lists; reused on bone and constraint objects as a cross-band activation flag.
+  - id: skinBones
+    key: 4028
+    backingType: bytes
+    status: active
+    milestone: M5
+    ownerBead: bony-i4x6.1
+    doc: Skin-owned required-bone membership list; packed as varuint count followed by count*(varuint bone source index).
+  - id: skinIkConstraints
+    key: 4029
+    backingType: bytes
+    status: active
+    milestone: M5
+    ownerBead: bony-i4x6.1
+    doc: Skin-owned required IK constraint membership list; packed as varuint count followed by count*(varuint IK constraint source index).
+  - id: skinTransformConstraints
+    key: 4030
+    backingType: bytes
+    status: active
+    milestone: M5
+    ownerBead: bony-i4x6.1
+    doc: Skin-owned required transform constraint membership list; packed as varuint count followed by count*(varuint transform constraint source index).
+  - id: skinPathConstraints
+    key: 4031
+    backingType: bytes
+    status: active
+    milestone: M5
+    ownerBead: bony-i4x6.1
+    doc: Skin-owned required path constraint membership list; packed as varuint count followed by count*(varuint path constraint source index).
+  - id: skinPhysicsConstraints
+    key: 4032
+    backingType: bytes
+    status: active
+    milestone: M5
+    ownerBead: bony-i4x6.1
+    doc: Skin-owned required physics constraint membership list; packed as varuint count followed by count*(varuint physics constraint source index).
   - id: parameterMin
     key: 6000
     backingType: f32
@@ -1262,6 +1304,7 @@ objects:
       - inheritScale
       - inheritReflection
       - transformMode
+      - skinRequired
     doc: Bone object loaded in parent-first order.
   - type: slot
     properties:
@@ -1315,6 +1358,7 @@ objects:
       - target
       - path
       - order
+      - skinRequired
       - position
       - translateMix
       - rotateMix
@@ -1325,6 +1369,7 @@ objects:
       - bones
       - target
       - order
+      - skinRequired
       - mix
       - bendPositive
     doc: IK constraint record loaded in source order.
@@ -1334,6 +1379,7 @@ objects:
       - bone
       - target
       - order
+      - skinRequired
       - translateMix
       - rotateMix
       - scaleMix
@@ -1344,6 +1390,7 @@ objects:
       - name
       - bone
       - order
+      - skinRequired
       - channels
       - inertia
       - strength
@@ -1496,6 +1543,11 @@ objects:
   - type: skin
     properties:
       - name
+      - skinBones
+      - skinIkConstraints
+      - skinTransformConstraints
+      - skinPathConstraints
+      - skinPhysicsConstraints
     doc: Named attachment-set parent record; followed immediately by owned skinEntry children.
   - type: skinEntry
     properties:

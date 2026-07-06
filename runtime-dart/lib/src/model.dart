@@ -25,6 +25,7 @@ class BoneData {
     required this.inheritScale,
     required this.inheritReflection,
     required this.transformMode,
+    this.skinRequired = false,
   });
 
   final String name;
@@ -40,6 +41,7 @@ class BoneData {
   final bool inheritScale;
   final bool inheritReflection;
   final String transformMode;
+  final bool skinRequired;
 }
 
 class SlotData {
@@ -114,6 +116,7 @@ class PathConstraintData {
     required this.target,
     required this.path,
     required this.order,
+    this.skinRequired = false,
     this.position,
     this.translateMix,
     this.rotateMix,
@@ -124,6 +127,7 @@ class PathConstraintData {
   final String target;
   final String path;
   final int order;
+  final bool skinRequired;
   final double? position;
   final double? translateMix;
   final double? rotateMix;
@@ -138,6 +142,7 @@ class IkConstraintData {
     required this.bones,
     required this.target,
     required this.order,
+    this.skinRequired = false,
     this.mix,
     this.bendPositive,
   });
@@ -148,6 +153,7 @@ class IkConstraintData {
   final List<String> bones;
   final String target;
   final int order;
+  final bool skinRequired;
 
   /// Solver blend amount. `null` means the field was absent on load (defaults
   /// to 1.0); mirrors the Nim `hasMix` flag via nullability.
@@ -174,6 +180,7 @@ class TransformConstraintData {
     required this.bone,
     required this.target,
     required this.order,
+    this.skinRequired = false,
     this.translateMix,
     this.rotateMix,
     this.scaleMix,
@@ -184,6 +191,7 @@ class TransformConstraintData {
   final String bone;
   final String target;
   final int order;
+  final bool skinRequired;
   final double? translateMix;
   final double? rotateMix;
   final double? scaleMix;
@@ -213,6 +221,7 @@ class PhysicsConstraintData {
     required this.bone,
     required this.channels,
     this.order = 0,
+    this.skinRequired = false,
     this.inertia,
     this.strength,
     this.damping,
@@ -226,6 +235,7 @@ class PhysicsConstraintData {
   final String bone;
   final Set<PhysicsChannel> channels;
   final int order;
+  final bool skinRequired;
   final double? inertia;
   final double? strength;
   final double? damping;
@@ -363,10 +373,20 @@ class SkinData {
   const SkinData({
     required this.name,
     this.entries = const [],
+    this.bones = const [],
+    this.ikConstraints = const [],
+    this.transformConstraints = const [],
+    this.pathConstraints = const [],
+    this.physicsConstraints = const [],
   });
 
   final String name;
   final List<SkinEntryData> entries;
+  final List<String> bones;
+  final List<String> ikConstraints;
+  final List<String> transformConstraints;
+  final List<String> pathConstraints;
+  final List<String> physicsConstraints;
 }
 
 class SkeletonData {

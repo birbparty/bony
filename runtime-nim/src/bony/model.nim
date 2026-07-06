@@ -63,6 +63,7 @@ type
     name: string
     parent: string
     local: LocalTransform
+    skinRequired: bool
 
   SlotData* = object
     name: string
@@ -143,6 +144,11 @@ type
   SkinData* = object
     name: string
     entries: seq[SkinEntryData]
+    bones: seq[string]
+    ikConstraints: seq[string]
+    transformConstraints: seq[string]
+    pathConstraints: seq[string]
+    physicsConstraints: seq[string]
 
   MeshDelta* = object
     ## A single per-vertex mesh offset applied by a deform timeline. Relocated
@@ -167,6 +173,7 @@ type
     target: string
     path: string
     order: int
+    skinRequired: bool
     hasPosition: bool
     position: float64
     hasTranslateMix: bool
@@ -179,6 +186,7 @@ type
     bones: seq[string]
     target: string
     order: int
+    skinRequired: bool
     hasMix: bool
     mix: float64
     hasBendPositive: bool
@@ -189,6 +197,7 @@ type
     bone: string
     target: string
     order: int
+    skinRequired: bool
     hasTranslateMix: bool
     translateMix: float64
     hasRotateMix: bool
@@ -208,6 +217,7 @@ type
     name: string
     bone: string
     order: int
+    skinRequired: bool
     channels: set[PhysicsChannel]
     hasInertia: bool
     inertia: float64
@@ -507,8 +517,8 @@ proc localTransform*(
   )
 
 
-proc boneData*(name, parent: string; local = localTransform()): BoneData =
-  BoneData(name: name, parent: parent, local: local)
+proc boneData*(name, parent: string; local = localTransform(); skinRequired = false): BoneData =
+  BoneData(name: name, parent: parent, local: local, skinRequired: skinRequired)
 
 
 proc slotData*(name, bone, attachment: string): SlotData =
@@ -607,13 +617,30 @@ proc skinEntryData*(slot, attachment, target: string): SkinEntryData =
   SkinEntryData(slot: slot, attachment: attachment, target: target)
 
 
-proc skinData*(name: string; entries: openArray[SkinEntryData] = []): SkinData =
-  SkinData(name: name, entries: @entries)
+proc skinData*(
+  name: string;
+  entries: openArray[SkinEntryData] = [];
+  bones: openArray[string] = [];
+  ikConstraints: openArray[string] = [];
+  transformConstraints: openArray[string] = [];
+  pathConstraints: openArray[string] = [];
+  physicsConstraints: openArray[string] = [];
+): SkinData =
+  SkinData(
+    name: name,
+    entries: @entries,
+    bones: @bones,
+    ikConstraints: @ikConstraints,
+    transformConstraints: @transformConstraints,
+    pathConstraints: @pathConstraints,
+    physicsConstraints: @physicsConstraints,
+  )
 
 
 proc pathConstraintData*(
   name, bone, target, path: string;
   order = 0;
+  skinRequired = false;
   hasPosition = false;
   position = 0.0;
   hasTranslateMix = false;
@@ -636,6 +663,7 @@ proc pathConstraintData*(
     target: target,
     path: path,
     order: order,
+    skinRequired: skinRequired,
     hasPosition: hasPosition,
     position: storedPosition,
     hasTranslateMix: hasTranslateMix,
@@ -649,6 +677,7 @@ proc ikConstraintData*(
   name, target: string;
   bones: seq[string];
   order = 0;
+  skinRequired = false;
   hasMix = false;
   mix = 1.0;
   hasBendPositive = false;
@@ -662,6 +691,7 @@ proc ikConstraintData*(
     bones: bones,
     target: target,
     order: order,
+    skinRequired: skinRequired,
     hasMix: hasMix,
     mix: storedMix,
     hasBendPositive: hasBendPositive,
@@ -672,6 +702,7 @@ proc ikConstraintData*(
 proc transformConstraintData*(
   name, bone, target: string;
   order = 0;
+  skinRequired = false;
   hasTranslateMix = false;
   translateMix = 1.0;
   hasRotateMix = false;
@@ -704,6 +735,7 @@ proc transformConstraintData*(
     bone: bone,
     target: target,
     order: order,
+    skinRequired: skinRequired,
     hasTranslateMix: hasTranslateMix,
     translateMix: storedTranslateMix,
     hasRotateMix: hasRotateMix,
@@ -719,6 +751,7 @@ proc physicsConstraintData*(
   name, bone: string;
   channels: set[PhysicsChannel];
   order = 0;
+  skinRequired = false;
   hasInertia = false;
   inertia = 0.0;
   hasStrength = false;
@@ -757,6 +790,7 @@ proc physicsConstraintData*(
     name: name,
     bone: bone,
     order: order,
+    skinRequired: skinRequired,
     channels: channels,
     hasInertia: hasInertia,
     inertia: storedInertia,
@@ -788,6 +822,9 @@ proc parent*(bone: BoneData): string = bone.parent
 
 
 proc local*(bone: BoneData): LocalTransform = bone.local
+
+
+proc skinRequired*(bone: BoneData): bool = bone.skinRequired
 
 
 proc name*(slot: SlotData): string = slot.name
@@ -842,6 +879,11 @@ proc attachment*(entry: SkinEntryData): string = entry.attachment
 proc target*(entry: SkinEntryData): string = entry.target
 proc name*(skin: SkinData): string = skin.name
 proc entries*(skin: SkinData): seq[SkinEntryData] = skin.entries
+proc bones*(skin: SkinData): seq[string] = skin.bones
+proc ikConstraints*(skin: SkinData): seq[string] = skin.ikConstraints
+proc transformConstraints*(skin: SkinData): seq[string] = skin.transformConstraints
+proc pathConstraints*(skin: SkinData): seq[string] = skin.pathConstraints
+proc physicsConstraints*(skin: SkinData): seq[string] = skin.physicsConstraints
 
 
 proc name*(path: PathConstraintData): string = path.name
@@ -849,6 +891,7 @@ proc bone*(path: PathConstraintData): string = path.bone
 proc target*(path: PathConstraintData): string = path.target
 proc path*(path: PathConstraintData): string = path.path
 proc order*(path: PathConstraintData): int = path.order
+proc skinRequired*(path: PathConstraintData): bool = path.skinRequired
 proc hasPosition*(path: PathConstraintData): bool = path.hasPosition
 proc position*(path: PathConstraintData): float64 = path.position
 proc hasTranslateMix*(path: PathConstraintData): bool = path.hasTranslateMix
@@ -863,6 +906,7 @@ proc name*(ik: IkConstraintData): string = ik.name
 proc bones*(ik: IkConstraintData): seq[string] = ik.bones
 proc target*(ik: IkConstraintData): string = ik.target
 proc order*(ik: IkConstraintData): int = ik.order
+proc skinRequired*(ik: IkConstraintData): bool = ik.skinRequired
 proc hasMix*(ik: IkConstraintData): bool = ik.hasMix
 proc mix*(ik: IkConstraintData): float64 = ik.mix
 proc hasBendPositive*(ik: IkConstraintData): bool = ik.hasBendPositive
@@ -880,6 +924,7 @@ proc name*(tc: TransformConstraintData): string = tc.name
 proc bone*(tc: TransformConstraintData): string = tc.bone
 proc target*(tc: TransformConstraintData): string = tc.target
 proc order*(tc: TransformConstraintData): int = tc.order
+proc skinRequired*(tc: TransformConstraintData): bool = tc.skinRequired
 proc hasTranslateMix*(tc: TransformConstraintData): bool = tc.hasTranslateMix
 proc translateMix*(tc: TransformConstraintData): float64 = tc.translateMix
 proc hasRotateMix*(tc: TransformConstraintData): bool = tc.hasRotateMix
@@ -900,6 +945,7 @@ proc runtimeEvaluable*(tc: TransformConstraintData): bool =
 proc name*(pc: PhysicsConstraintData): string = pc.name
 proc bone*(pc: PhysicsConstraintData): string = pc.bone
 proc order*(pc: PhysicsConstraintData): int = pc.order
+proc skinRequired*(pc: PhysicsConstraintData): bool = pc.skinRequired
 proc channels*(pc: PhysicsConstraintData): set[PhysicsChannel] = pc.channels
 proc hasInertia*(pc: PhysicsConstraintData): bool = pc.hasInertia
 proc inertia*(pc: PhysicsConstraintData): float64 = pc.inertia
@@ -1074,6 +1120,36 @@ proc checkDeformerAcyclic(
     checkDeformerAcyclic(parent, parentById, visiting, visited)
   visiting.excl(id)
   visited.incl(id)
+
+
+proc requireUniqueMembership(list: openArray[string]; context: string): HashSet[string] =
+  for name in list:
+    if name.len == 0:
+      raise newBonyLoadError(schemaViolation, context & " must not contain empty references")
+    if name in result:
+      raise newBonyLoadError(duplicateKey, "duplicate skinRequired membership reference in " & context & ": " & name)
+    result.incl(name)
+
+
+proc ensureRequiredMembership(
+  refs: openArray[string];
+  validNames: HashSet[string];
+  requiredNames: HashSet[string];
+  context, domain: string;
+): HashSet[string] =
+  result = requireUniqueMembership(refs, context)
+  for name in result:
+    if name notin validNames:
+      raise newBonyLoadError(unknownRequiredReference, "unknown skinRequired " & domain & " membership: " & name)
+    if name notin requiredNames:
+      raise newBonyLoadError(schemaViolation,
+        "skinRequired " & domain & " membership references non-required item: " & name)
+
+
+proc unionSets(a, b: HashSet[string]): HashSet[string] =
+  result = a
+  for item in b:
+    result.incl(item)
 
 
 proc validateSkeletonData*(
@@ -1443,6 +1519,169 @@ proc validateSkeletonData*(
     if pc.mix < 0.0 or pc.mix > 1.0:
       raise newBonyLoadError(schemaViolation, context & ".physicsMix must be in [0, 1]")
     allPhysicsNames.incl(pc.name)
+
+  if skins.len > 0:
+    var requiredBoneNames = initHashSet[string]()
+    for bone in bones:
+      if bone.skinRequired:
+        requiredBoneNames.incl(bone.name)
+    var requiredIkNames = initHashSet[string]()
+    for ik in ikConstraints:
+      if ik.skinRequired:
+        requiredIkNames.incl(ik.name)
+    var requiredTransformNames = initHashSet[string]()
+    for tc in transformConstraints:
+      if tc.skinRequired:
+        requiredTransformNames.incl(tc.name)
+    var requiredPathNames = initHashSet[string]()
+    for path in paths:
+      if path.skinRequired:
+        requiredPathNames.incl(path.name)
+    var requiredPhysicsNames = initHashSet[string]()
+    for pc in physicsConstraints:
+      if pc.skinRequired:
+        requiredPhysicsNames.incl(pc.name)
+
+    for bone in bones:
+      if bone.skinRequired:
+        continue
+      var parent = bone.parent
+      while parent.len > 0:
+        if parent in requiredBoneNames:
+          raise newBonyLoadError(schemaViolation,
+            "non-required bone has a skinRequired ancestor: " & bone.name)
+        parent = boneParentByName.getOrDefault(parent, "")
+
+    var defaultBones = initHashSet[string]()
+    var defaultIk = initHashSet[string]()
+    var defaultTransform = initHashSet[string]()
+    var defaultPath = initHashSet[string]()
+    var defaultPhysics = initHashSet[string]()
+
+    for skinIndex, skin in skins:
+      let skinContext = "skins[" & $skinIndex & "]"
+      let skinBones = ensureRequiredMembership(
+        skin.bones, allNames, requiredBoneNames, skinContext & ".bones", "bone")
+      let skinIk = ensureRequiredMembership(
+        skin.ikConstraints, allIkNames, requiredIkNames, skinContext & ".ikConstraints", "ikConstraint")
+      let skinTransform = ensureRequiredMembership(
+        skin.transformConstraints, allTransformNames, requiredTransformNames,
+        skinContext & ".transformConstraints", "transformConstraint")
+      let skinPath = ensureRequiredMembership(
+        skin.pathConstraints, allPathNames, requiredPathNames, skinContext & ".pathConstraints", "pathConstraint")
+      let skinPhysics = ensureRequiredMembership(
+        skin.physicsConstraints, allPhysicsNames, requiredPhysicsNames,
+        skinContext & ".physicsConstraints", "physicsConstraint")
+      if skin.name == "default":
+        defaultBones = skinBones
+        defaultIk = skinIk
+        defaultTransform = skinTransform
+        defaultPath = skinPath
+        defaultPhysics = skinPhysics
+
+    for ik in ikConstraints:
+      if ik.skinRequired:
+        continue
+      for boneName in ik.bones:
+        if boneName in requiredBoneNames and boneName notin defaultBones:
+          raise newBonyLoadError(schemaViolation,
+            "non-required ikConstraint depends on skinRequired bone not active for every skin: " & ik.name)
+      if ik.target in requiredBoneNames and ik.target notin defaultBones:
+        raise newBonyLoadError(schemaViolation,
+          "non-required ikConstraint depends on skinRequired target not active for every skin: " & ik.name)
+    for tc in transformConstraints:
+      if tc.skinRequired:
+        continue
+      if tc.bone in requiredBoneNames and tc.bone notin defaultBones:
+        raise newBonyLoadError(schemaViolation,
+          "non-required transformConstraint depends on skinRequired bone not active for every skin: " & tc.name)
+      if tc.target in requiredBoneNames and tc.target notin defaultBones:
+        raise newBonyLoadError(schemaViolation,
+          "non-required transformConstraint depends on skinRequired target not active for every skin: " & tc.name)
+    for path in paths:
+      if path.skinRequired:
+        continue
+      if path.bone in requiredBoneNames and path.bone notin defaultBones:
+        raise newBonyLoadError(schemaViolation,
+          "non-required pathConstraint depends on skinRequired bone not active for every skin: " & path.name)
+      if path.target in requiredBoneNames and path.target notin defaultBones:
+        raise newBonyLoadError(schemaViolation,
+          "non-required pathConstraint depends on skinRequired target not active for every skin: " & path.name)
+    for pc in physicsConstraints:
+      if (not pc.skinRequired) and pc.bone in requiredBoneNames and pc.bone notin defaultBones:
+        raise newBonyLoadError(schemaViolation,
+          "non-required physicsConstraint depends on skinRequired bone not active for every skin: " & pc.name)
+
+    let bonesForSkinRequired = @bones
+
+    proc requireActiveRequiredBone(activeBones: HashSet[string]; boneName, context: string) =
+      if boneName in requiredBoneNames and boneName notin activeBones:
+        raise newBonyLoadError(schemaViolation, context & " depends on inactive required bone: " & boneName)
+
+    proc checkActiveBoneClosure(activeBones: HashSet[string]; context: string) =
+      for bone in bonesForSkinRequired:
+        if bone.name notin activeBones:
+          continue
+        var parent = bone.parent
+        while parent.len > 0:
+          if parent in requiredBoneNames and parent notin activeBones:
+            raise newBonyLoadError(schemaViolation,
+              context & " activates required bone '" & bone.name &
+                "' without required ancestor '" & parent & "'")
+          parent = boneParentByName.getOrDefault(parent, "")
+
+    for skinIndex, skin in skins:
+      let skinContext = if skin.name == "default": "skin 'default'" else: "skin '" & skin.name & "'"
+      let activeBones =
+        if skin.name == "default":
+          defaultBones
+        else:
+          unionSets(defaultBones, ensureRequiredMembership(
+            skin.bones, allNames, requiredBoneNames, "skins[" & $skinIndex & "].bones", "bone"))
+      let activeIk =
+        if skin.name == "default":
+          defaultIk
+        else:
+          unionSets(defaultIk, ensureRequiredMembership(
+            skin.ikConstraints, allIkNames, requiredIkNames, "skins[" & $skinIndex & "].ikConstraints", "ikConstraint"))
+      let activeTransform =
+        if skin.name == "default":
+          defaultTransform
+        else:
+          unionSets(defaultTransform, ensureRequiredMembership(
+            skin.transformConstraints, allTransformNames, requiredTransformNames,
+            "skins[" & $skinIndex & "].transformConstraints", "transformConstraint"))
+      let activePath =
+        if skin.name == "default":
+          defaultPath
+        else:
+          unionSets(defaultPath, ensureRequiredMembership(
+            skin.pathConstraints, allPathNames, requiredPathNames, "skins[" & $skinIndex & "].pathConstraints", "pathConstraint"))
+      let activePhysics =
+        if skin.name == "default":
+          defaultPhysics
+        else:
+          unionSets(defaultPhysics, ensureRequiredMembership(
+            skin.physicsConstraints, allPhysicsNames, requiredPhysicsNames,
+            "skins[" & $skinIndex & "].physicsConstraints", "physicsConstraint"))
+
+      checkActiveBoneClosure(activeBones, skinContext)
+      for ik in ikConstraints:
+        if ik.skinRequired and ik.name in activeIk:
+          for boneName in ik.bones:
+            requireActiveRequiredBone(activeBones, boneName, skinContext & " ikConstraint '" & ik.name & "'")
+          requireActiveRequiredBone(activeBones, ik.target, skinContext & " ikConstraint '" & ik.name & "'")
+      for tc in transformConstraints:
+        if tc.skinRequired and tc.name in activeTransform:
+          requireActiveRequiredBone(activeBones, tc.bone, skinContext & " transformConstraint '" & tc.name & "'")
+          requireActiveRequiredBone(activeBones, tc.target, skinContext & " transformConstraint '" & tc.name & "'")
+      for path in paths:
+        if path.skinRequired and path.name in activePath:
+          requireActiveRequiredBone(activeBones, path.bone, skinContext & " pathConstraint '" & path.name & "'")
+          requireActiveRequiredBone(activeBones, path.target, skinContext & " pathConstraint '" & path.name & "'")
+      for pc in physicsConstraints:
+        if pc.skinRequired and pc.name in activePhysics:
+          requireActiveRequiredBone(activeBones, pc.bone, skinContext & " physicsConstraint '" & pc.name & "'")
 
   var paramNames = initHashSet[string]()
   for index, param in parameters:

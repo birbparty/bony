@@ -166,15 +166,18 @@ spec "bony package":
       bonyTypeKeys.anyIt(it.id == "skin" and it.key == 3003'u64)
       bonyTypeKeys.anyIt(it.id == "skinEntry" and it.key == 3004'u64)
       bonyTypeKeys.anyIt(it.id == "nestedRigAttachment" and it.key == 3005'u64)
-      bonyPropertyKeys.len == 118
+      bonyPropertyKeys.len == 124
       bonyPropertyKeys.anyIt(it.id == "skinAttachment" and it.key == 3010'u64)
       bonyPropertyKeys.anyIt(it.id == "skinTarget" and it.key == 3011'u64)
       bonyPropertyKeys.anyIt(it.id == "nestedSkeleton" and it.key == 3012'u64)
       bonyPropertyKeys.anyIt(it.id == "nestedSkin" and it.key == 3013'u64)
       bonyPropertyKeys.anyIt(it.id == "nestedAnimation" and it.key == 3014'u64)
+      bonyPropertyKeys.anyIt(it.id == "skinRequired" and it.key == 4027'u64)
+      bonyPropertyKeys.anyIt(it.id == "skinBones" and it.key == 4028'u64)
+      bonyPropertyKeys.anyIt(it.id == "skinPhysicsConstraints" and it.key == 4032'u64)
       bonyPropertyKeys.anyIt(it.id == "listenerSlotIndex" and it.key == 7064'u64)
       bonyPropertyKeys.anyIt(it.id == "listenerHitRadius" and it.key == 7070'u64)
-      bonyPropertyDefaults.len == 65
+      bonyPropertyDefaults.len == 75
       bonyRequiredProperties.len == 91
 
   it "encodes and rejects .bnb varints canonically":

@@ -36,7 +36,9 @@ void main() {
     // property keys 7064..7070, 8 default-table entries including
     // listenerLayerIndex, and listenerLayerIndex moved out of unconditional
     // requiredProperties), plus nestedRigAttachment (type key 3005, property
-    // keys 3012..3014, 2 defaults, and 2 required properties).
+    // keys 3012..3014, 2 defaults, and 2 required properties), plus
+    // skinRequired activation (property keys 4027..4032 and 10 default-table
+    // entries).
     expect(bonyTypeKeys, hasLength(35));
     expect(bonyTypeKeys.any((t) => t.id == 'pointAttachment' && t.key == 1002),
         isTrue);
@@ -50,7 +52,7 @@ void main() {
     expect(
         bonyTypeKeys.any((t) => t.id == 'nestedRigAttachment' && t.key == 3005),
         isTrue);
-    expect(bonyPropertyKeys, hasLength(118));
+    expect(bonyPropertyKeys, hasLength(124));
     expect(
         bonyPropertyKeys.any((p) => p.id == 'skinAttachment' && p.key == 3010),
         isTrue);
@@ -64,6 +66,14 @@ void main() {
     expect(
         bonyPropertyKeys.any((p) => p.id == 'nestedAnimation' && p.key == 3014),
         isTrue);
+    expect(bonyPropertyKeys.any((p) => p.id == 'skinRequired' && p.key == 4027),
+        isTrue);
+    expect(bonyPropertyKeys.any((p) => p.id == 'skinBones' && p.key == 4028),
+        isTrue);
+    expect(
+        bonyPropertyKeys
+            .any((p) => p.id == 'skinPhysicsConstraints' && p.key == 4032),
+        isTrue);
     expect(
         bonyPropertyKeys
             .any((p) => p.id == 'listenerSlotIndex' && p.key == 7064),
@@ -72,7 +82,7 @@ void main() {
         bonyPropertyKeys
             .any((p) => p.id == 'listenerHitRadius' && p.key == 7070),
         isTrue);
-    expect(bonyPropertyDefaults, hasLength(65));
+    expect(bonyPropertyDefaults, hasLength(75));
     expect(bonyRequiredProperties, hasLength(91));
   });
 }

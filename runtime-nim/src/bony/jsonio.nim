@@ -1,6 +1,6 @@
 ## M1 .bony JSON loader/serializer.
 
-import std/[algorithm, json, math, sets, strutils, tables]
+import std/[algorithm, json, math, sequtils, sets, strutils, tables]
 
 import bony/generated/wire
 import bony/asset
@@ -203,6 +203,17 @@ proc requiredString(node: JsonNode; key, context: string): string =
   optionalString(node, key, "", context)
 
 
+proc optionalStringArray(node: JsonNode; key, context: string): seq[string] =
+  if not node.hasKey(key):
+    return @[]
+  let arrayNode = requireArray(node[key], context & "." & key)
+  for index, item in arrayNode.elems:
+    let itemContext = context & "." & key & "[" & $index & "]"
+    if item.kind != JString:
+      raise newBonyLoadError(schemaViolation, itemContext & " must be a string")
+    result.add item.getStr()
+
+
 proc parseTransformMode(value: string; context: string): TransformMode =
   case value
   of "normal": normal
@@ -361,6 +372,7 @@ proc loadBonyJson*(text: string): SkeletonData =
         "inheritScale",
         "inheritReflection",
         "transformMode",
+        "skinRequired",
       ],
       context,
     )
@@ -397,6 +409,7 @@ proc loadBonyJson*(text: string): SkeletonData =
         inheritReflection = inheritReflection,
         transformMode = mode,
       ),
+      skinRequired = optionalBool(boneObject, "skinRequired", defaultBool(boneTypeId, "skinRequired"), context),
     )
 
   var loadedSlots: seq[SlotData] = @[]
@@ -611,13 +624,14 @@ proc loadBonyJson*(text: string): SkeletonData =
     for index, pathNode in pathsNode.elems:
       let context = "paths[" & $index & "]"
       let pathObject = requireObject(pathNode, context)
-      validateKnownKeys(pathObject, ["name", "bone", "target", "path", "order", "position", "translateMix", "rotateMix"], context)
+      validateKnownKeys(pathObject, ["name", "bone", "target", "path", "order", "skinRequired", "position", "translateMix", "rotateMix"], context)
       loadedPaths.add pathConstraintData(
         requiredString(pathObject, "name", context),
         requiredString(pathObject, "bone", context),
         requiredString(pathObject, "target", context),
         requiredString(pathObject, "path", context),
         optionalInt(pathObject, "order", defaultInt(pathTypeId, "order"), context),
+        skinRequired = optionalBool(pathObject, "skinRequired", defaultBool(pathTypeId, "skinRequired"), context),
         hasPosition = pathObject.hasKey("position"),
         position = optionalFloat(pathObject, "position", defaultFloat(pathTypeId, "position"), context),
         hasTranslateMix = pathObject.hasKey("translateMix"),
@@ -632,7 +646,7 @@ proc loadBonyJson*(text: string): SkeletonData =
     for index, ikNode in ikConstraintsNode.elems:
       let context = "ikConstraints[" & $index & "]"
       let ikObject = requireObject(ikNode, context)
-      validateKnownKeys(ikObject, ["name", "bones", "target", "order", "mix", "bendPositive"], context)
+      validateKnownKeys(ikObject, ["name", "bones", "target", "order", "skinRequired", "mix", "bendPositive"], context)
       if not ikObject.hasKey("bones"):
         raise newBonyLoadError(schemaViolation, context & ".bones is required")
       let bonesNode = requireArray(ikObject["bones"], context & ".bones")
@@ -647,6 +661,7 @@ proc loadBonyJson*(text: string): SkeletonData =
         requiredString(ikObject, "target", context),
         ikBones,
         order = optionalInt(ikObject, "order", defaultInt(ikConstraintTypeId, "order"), context),
+        skinRequired = optionalBool(ikObject, "skinRequired", defaultBool(ikConstraintTypeId, "skinRequired"), context),
         hasMix = ikObject.hasKey("mix"),
         mix = optionalFloat(ikObject, "mix", defaultFloat(ikConstraintTypeId, "mix"), context),
         hasBendPositive = ikObject.hasKey("bendPositive"),
@@ -659,12 +674,13 @@ proc loadBonyJson*(text: string): SkeletonData =
     for index, tcNode in transformConstraintsNode.elems:
       let context = "transformConstraints[" & $index & "]"
       let tcObject = requireObject(tcNode, context)
-      validateKnownKeys(tcObject, ["name", "bone", "target", "order", "translateMix", "rotateMix", "scaleMix", "shearMix"], context)
+      validateKnownKeys(tcObject, ["name", "bone", "target", "order", "skinRequired", "translateMix", "rotateMix", "scaleMix", "shearMix"], context)
       loadedTransformConstraints.add transformConstraintData(
         requiredString(tcObject, "name", context),
         requiredString(tcObject, "bone", context),
         requiredString(tcObject, "target", context),
         order = optionalInt(tcObject, "order", defaultInt(transformConstraintTypeId, "order"), context),
+        skinRequired = optionalBool(tcObject, "skinRequired", defaultBool(transformConstraintTypeId, "skinRequired"), context),
         hasTranslateMix = tcObject.hasKey("translateMix"),
         translateMix = optionalFloat(tcObject, "translateMix", defaultFloat(transformConstraintTypeId, "translateMix"), context),
         hasRotateMix = tcObject.hasKey("rotateMix"),
@@ -681,7 +697,7 @@ proc loadBonyJson*(text: string): SkeletonData =
     for index, pcNode in physicsConstraintsNode.elems:
       let context = "physicsConstraints[" & $index & "]"
       let pcObject = requireObject(pcNode, context)
-      validateKnownKeys(pcObject, ["name", "bone", "order", "channels", "inertia", "strength", "damping", "mass", "gravity", "wind", "physicsMix"], context)
+      validateKnownKeys(pcObject, ["name", "bone", "order", "skinRequired", "channels", "inertia", "strength", "damping", "mass", "gravity", "wind", "physicsMix"], context)
       let channelMask = requiredInt(pcObject, "channels", context)
       if channelMask < 0:
         raise newBonyLoadError(schemaViolation, context & ".channels must be non-negative")
@@ -690,6 +706,7 @@ proc loadBonyJson*(text: string): SkeletonData =
         requiredString(pcObject, "bone", context),
         physicsChannelsFromMask(uint64(channelMask), context & ".channels"),
         order = optionalInt(pcObject, "order", defaultInt(physicsConstraintTypeId, "order"), context),
+        skinRequired = optionalBool(pcObject, "skinRequired", defaultBool(physicsConstraintTypeId, "skinRequired"), context),
         hasInertia = pcObject.hasKey("inertia"),
         inertia = optionalFloat(pcObject, "inertia", defaultFloat(physicsConstraintTypeId, "inertia"), context),
         hasStrength = pcObject.hasKey("strength"),
@@ -712,7 +729,7 @@ proc loadBonyJson*(text: string): SkeletonData =
     for skinIndex, skinNode in skinsNode.elems:
       let context = "skins[" & $skinIndex & "]"
       let skinObject = requireObject(skinNode, context)
-      validateKnownKeys(skinObject, ["name", "entries"], context)
+      validateKnownKeys(skinObject, ["name", "entries", "bones", "ikConstraints", "transformConstraints", "pathConstraints", "physicsConstraints"], context)
       var entries: seq[SkinEntryData] = @[]
       if skinObject.hasKey("entries"):
         let entriesNode = requireArray(skinObject["entries"], context & ".entries")
@@ -728,6 +745,11 @@ proc loadBonyJson*(text: string): SkeletonData =
       loadedSkins.add skinData(
         requiredString(skinObject, "name", context),
         entries,
+        bones = optionalStringArray(skinObject, "bones", context),
+        ikConstraints = optionalStringArray(skinObject, "ikConstraints", context),
+        transformConstraints = optionalStringArray(skinObject, "transformConstraints", context),
+        pathConstraints = optionalStringArray(skinObject, "pathConstraints", context),
+        physicsConstraints = optionalStringArray(skinObject, "physicsConstraints", context),
       )
 
   var loadedParameters: seq[ParameterAxis] = @[]
@@ -1952,6 +1974,27 @@ proc sortedSkinEntries(data: SkeletonData; skin: SkinData): seq[SkinEntryData] =
   )
 
 
+proc orderedMembership(refs: openArray[string]; orderedNames: openArray[string]): seq[string] =
+  var refSet = initHashSet[string]()
+  for item in refs:
+    refSet.incl(item)
+  for name in orderedNames:
+    if name in refSet:
+      result.add name
+
+
+proc addStringArrayField(output: var string; key: string; values: openArray[string]; indent: int; first: var bool) =
+  if values.len == 0:
+    return
+  output.addFieldPrefix(key, indent, first)
+  output.add "["
+  for index, value in values:
+    if index > 0:
+      output.add ", "
+    output.addJsonString(value)
+  output.add "]"
+
+
 proc appendSkinsJson(result: var string; data: SkeletonData; indent = 1) =
   result.addIndent(indent)
   result.add "\"skins\": ["
@@ -1965,6 +2008,31 @@ proc appendSkinsJson(result: var string; data: SkeletonData; indent = 1) =
       result.add "{\n"
       var first = true
       result.addStringField("name", skin.name, indent + 2, first)
+      result.addStringArrayField("bones", orderedMembership(skin.bones, data.bones.mapIt(it.name)), indent + 2, first)
+      result.addStringArrayField(
+        "ikConstraints",
+        orderedMembership(skin.ikConstraints, data.ikConstraints.mapIt(it.name)),
+        indent + 2,
+        first,
+      )
+      result.addStringArrayField(
+        "transformConstraints",
+        orderedMembership(skin.transformConstraints, data.transformConstraints.mapIt(it.name)),
+        indent + 2,
+        first,
+      )
+      result.addStringArrayField(
+        "pathConstraints",
+        orderedMembership(skin.pathConstraints, data.paths.mapIt(it.name)),
+        indent + 2,
+        first,
+      )
+      result.addStringArrayField(
+        "physicsConstraints",
+        orderedMembership(skin.physicsConstraints, data.physicsConstraints.mapIt(it.name)),
+        indent + 2,
+        first,
+      )
       let entries = sortedSkinEntries(data, skin)
       if entries.len > 0:
         result.addFieldPrefix("entries", indent + 2, first)
@@ -2042,6 +2110,8 @@ proc toBonyJson*(data: SkeletonData): string =
         result.addBoolField("inheritReflection", local.inheritReflection, 3, first)
       if transformModeName(local.transformMode) != defaultFor(boneTypeId, "transformMode"):
         result.addStringField("transformMode", transformModeName(local.transformMode), 3, first)
+      if bone.skinRequired != defaultBool(boneTypeId, "skinRequired"):
+        result.addBoolField("skinRequired", bone.skinRequired, 3, first)
       result.add "\n"
       result.addIndent(2)
       result.add "}"
@@ -2175,6 +2245,8 @@ proc toBonyJson*(data: SkeletonData): string =
       result.addStringField("path", path.path, 3, first)
       if path.order != defaultInt(pathTypeId, "order"):
         result.addIntField("order", path.order, 3, first)
+      if path.skinRequired != defaultBool(pathTypeId, "skinRequired"):
+        result.addBoolField("skinRequired", path.skinRequired, 3, first)
       if path.hasPosition:
         result.addNumberField("position", path.position, 3, first)
       if path.hasTranslateMix:
@@ -2209,6 +2281,8 @@ proc toBonyJson*(data: SkeletonData): string =
       result.addStringField("target", ik.target, 3, first)
       if ik.order != defaultInt(ikConstraintTypeId, "order"):
         result.addIntField("order", ik.order, 3, first)
+      if ik.skinRequired != defaultBool(ikConstraintTypeId, "skinRequired"):
+        result.addBoolField("skinRequired", ik.skinRequired, 3, first)
       if ik.hasMix:
         result.addNumberField("mix", ik.mix, 3, first)
       if ik.hasBendPositive:
@@ -2235,6 +2309,8 @@ proc toBonyJson*(data: SkeletonData): string =
       result.addStringField("target", tc.target, 3, first)
       if tc.order != defaultInt(transformConstraintTypeId, "order"):
         result.addIntField("order", tc.order, 3, first)
+      if tc.skinRequired != defaultBool(transformConstraintTypeId, "skinRequired"):
+        result.addBoolField("skinRequired", tc.skinRequired, 3, first)
       if tc.hasTranslateMix:
         result.addNumberField("translateMix", tc.translateMix, 3, first)
       if tc.hasRotateMix:
@@ -2264,6 +2340,8 @@ proc toBonyJson*(data: SkeletonData): string =
       result.addStringField("bone", pc.bone, 3, first)
       if pc.order != defaultInt(physicsConstraintTypeId, "order"):
         result.addIntField("order", pc.order, 3, first)
+      if pc.skinRequired != defaultBool(physicsConstraintTypeId, "skinRequired"):
+        result.addBoolField("skinRequired", pc.skinRequired, 3, first)
       result.addIntField("channels", int(physicsChannelsToMask(pc.channels)), 3, first)
       if pc.hasInertia:
         result.addNumberField("inertia", pc.inertia, 3, first)

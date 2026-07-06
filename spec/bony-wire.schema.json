@@ -298,6 +298,10 @@
             "noScaleOrReflection"
           ],
           "default": "normal"
+        },
+        "skinRequired": {
+          "type": "boolean",
+          "default": false
         }
       },
       "required": [
@@ -836,6 +840,10 @@
           "type": "integer",
           "default": 0
         },
+        "skinRequired": {
+          "type": "boolean",
+          "default": false
+        },
         "position": {
           "type": "number",
           "minimum": 0,
@@ -884,6 +892,10 @@
           "type": "integer",
           "default": 0
         },
+        "skinRequired": {
+          "type": "boolean",
+          "default": false
+        },
         "mix": {
           "type": "number",
           "minimum": 0,
@@ -916,6 +928,10 @@
         "order": {
           "type": "integer",
           "default": 0
+        },
+        "skinRequired": {
+          "type": "boolean",
+          "default": false
         },
         "translateMix": {
           "type": "number",
@@ -958,6 +974,10 @@
         "order": {
           "type": "integer",
           "default": 0
+        },
+        "skinRequired": {
+          "type": "boolean",
+          "default": false
         },
         "channels": {
           "type": "integer",
@@ -1531,6 +1551,61 @@
         "name": {
           "type": "string",
           "minLength": 1
+        },
+        "skinBones": {
+          "type": "string",
+          "contentEncoding": "base64",
+          "x-bony-packedBytes": {
+            "payload": "skinRequiredBoneMembership",
+            "layout": "docs/skin-required-activation-contract.md#serialized-surface",
+            "structuralSchema": "base64Only",
+            "validatedBy": "loader"
+          },
+          "default": ""
+        },
+        "skinIkConstraints": {
+          "type": "string",
+          "contentEncoding": "base64",
+          "x-bony-packedBytes": {
+            "payload": "skinRequiredIkConstraintMembership",
+            "layout": "docs/skin-required-activation-contract.md#serialized-surface",
+            "structuralSchema": "base64Only",
+            "validatedBy": "loader"
+          },
+          "default": ""
+        },
+        "skinTransformConstraints": {
+          "type": "string",
+          "contentEncoding": "base64",
+          "x-bony-packedBytes": {
+            "payload": "skinRequiredTransformConstraintMembership",
+            "layout": "docs/skin-required-activation-contract.md#serialized-surface",
+            "structuralSchema": "base64Only",
+            "validatedBy": "loader"
+          },
+          "default": ""
+        },
+        "skinPathConstraints": {
+          "type": "string",
+          "contentEncoding": "base64",
+          "x-bony-packedBytes": {
+            "payload": "skinRequiredPathConstraintMembership",
+            "layout": "docs/skin-required-activation-contract.md#serialized-surface",
+            "structuralSchema": "base64Only",
+            "validatedBy": "loader"
+          },
+          "default": ""
+        },
+        "skinPhysicsConstraints": {
+          "type": "string",
+          "contentEncoding": "base64",
+          "x-bony-packedBytes": {
+            "payload": "skinRequiredPhysicsConstraintMembership",
+            "layout": "docs/skin-required-activation-contract.md#serialized-surface",
+            "structuralSchema": "base64Only",
+            "validatedBy": "loader"
+          },
+          "default": ""
         }
       },
       "required": [

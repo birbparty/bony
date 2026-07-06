@@ -41,6 +41,12 @@ A bead that needs keys from more than one milestone must either split the
 registry edit or explicitly document the cross-band exception in both the bead
 description and the affected registry entry `doc` fields.
 
+Documented exception: bead `bony-i4x6.1` uses M5 property keys `4027..4032`
+for the `skinRequired` activation surface even when those properties are valid
+on `bone` and `skin` records. The keys belong to M5 because the surface gates
+M5 constraint families as one atomic format/load slice; the registry entry docs
+and provenance records describe the cross-band use.
+
 Downstream registry-editing beads should include this exact instruction in
 their description:
 

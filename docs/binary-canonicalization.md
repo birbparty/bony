@@ -178,6 +178,11 @@ Within each group:
   `skinAttachment` canonical UTF-8 byte order. This is the concrete form of the
   skin/slot/attachment ordering rule; it orders skin bindings, not the earlier
   concrete attachment definition records.
+- SkinRequired membership payloads on a `skin` parent are emitted as typed
+  source-index lists sorted by their owning domain order: bones in skeleton
+  order, and IK, transform, path, and physics constraints in loaded source
+  array order. This mirrors the canonical JSON membership order in
+  `docs/skin-required-activation-contract.md`.
 - Animation records are emitted before state-machine records. This is required
   because state-machine clip and blend-clip references index the loaded
   animation sequence.

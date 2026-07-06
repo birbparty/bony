@@ -72,6 +72,39 @@ const skinnedMeshJson = """{
   ]
 }"""
 
+const skinRequiredJson = """{
+  "skeleton": { "name": "skin-required", "version": "1.0.0" },
+  "bones": [
+    { "name": "root" },
+    { "name": "gear", "parent": "root", "skinRequired": true }
+  ],
+  "pathAttachments": [
+    { "name": "rail", "p0x": 0, "p0y": 0, "p1x": 1, "p1y": 0, "p2x": 2, "p2y": 0, "p3x": 3, "p3y": 0 }
+  ],
+  "ikConstraints": [
+    { "name": "aim", "bones": ["gear"], "target": "root", "skinRequired": true }
+  ],
+  "transformConstraints": [
+    { "name": "copy", "bone": "gear", "target": "root", "skinRequired": true }
+  ],
+  "paths": [
+    { "name": "follow", "bone": "gear", "target": "root", "path": "rail", "skinRequired": true }
+  ],
+  "physicsConstraints": [
+    { "name": "spring", "bone": "gear", "channels": 1, "skinRequired": true }
+  ],
+  "skins": [
+    {
+      "name": "default",
+      "bones": ["gear"],
+      "ikConstraints": ["aim"],
+      "transformConstraints": ["copy"],
+      "pathConstraints": ["follow"],
+      "physicsConstraints": ["spring"]
+    }
+  ]
+}"""
+
 
 spec "Nim skin attachment resolution":
   it "round-trips explicit skins through JSON and BNB":
@@ -139,3 +172,60 @@ spec "Nim skin attachment resolution":
     then:
       posed.skins.len == data.skins.len
       posed.resolveSkinAttachmentTarget("armor", "body", "body") == "body_armor_region"
+
+  it "round-trips skinRequired flags and skin membership through JSON and BNB":
+    let data = loadBonyJson(skinRequiredJson)
+    let jsonText = toBonyJson(data)
+    let fromJson = loadBonyJson(jsonText)
+    let fromBnb = loadBonyBnb(toBonyBnb(data))
+
+    then:
+      data.bones[1].skinRequired
+      data.ikConstraints[0].skinRequired
+      data.transformConstraints[0].skinRequired
+      data.paths[0].skinRequired
+      data.physicsConstraints[0].skinRequired
+      jsonText.contains("\"skinRequired\": true")
+      jsonText.contains("\"bones\": [\"gear\"]")
+      fromJson.skins[0].bones == @["gear"]
+      fromJson.skins[0].ikConstraints == @["aim"]
+      fromBnb.bones[1].skinRequired
+      fromBnb.skins[0].transformConstraints == @["copy"]
+      fromBnb.skins[0].pathConstraints == @["follow"]
+      fromBnb.skins[0].physicsConstraints == @["spring"]
+
+  it "rejects malformed skinRequired membership":
+    let unknownRef = skinRequiredJson.replace(
+      "\"name\": \"default\",\n      \"bones\": [\"gear\"]",
+      "\"name\": \"default\",\n      \"bones\": [\"ghost\"]",
+    )
+    let duplicateRef = skinRequiredJson.replace(
+      "\"name\": \"default\",\n      \"bones\": [\"gear\"]",
+      "\"name\": \"default\",\n      \"bones\": [\"gear\", \"gear\"]",
+    )
+    let nonRequiredRef = skinRequiredJson.replace(
+      "\"name\": \"default\",\n      \"bones\": [\"gear\"]",
+      "\"name\": \"default\",\n      \"bones\": [\"root\"]",
+    )
+    let nonRequiredDescendant = skinRequiredJson.replace(
+      "{ \"name\": \"gear\", \"parent\": \"root\", \"skinRequired\": true }",
+      "{ \"name\": \"gear\", \"parent\": \"root\", \"skinRequired\": true }, { \"name\": \"leaf\", \"parent\": \"gear\" }",
+    )
+    let missingRequiredParent = skinRequiredJson.replace(
+      "{ \"name\": \"root\" }",
+      "{ \"name\": \"root\", \"skinRequired\": true }",
+    )
+    let requiredConstraintMissingDependency = skinRequiredJson
+      .replace("\"bones\": [\"gear\"],\n      \"ikConstraints\"", "\"bones\": [],\n      \"ikConstraints\"")
+    let nonRequiredConstraintWithInactiveDependency = skinRequiredJson
+      .replace("\"name\": \"default\",\n      \"bones\": [\"gear\"]", "\"name\": \"default\",")
+      .replace("\"skinRequired\": true }\n  ],\n  \"paths\"", "\"skinRequired\": false }\n  ],\n  \"paths\"")
+
+    then:
+      raisesBonyLoadError(proc() = discard loadBonyJson(unknownRef), unknownRequiredReference)
+      raisesBonyLoadError(proc() = discard loadBonyJson(duplicateRef), duplicateKey)
+      raisesBonyLoadError(proc() = discard loadBonyJson(nonRequiredRef), schemaViolation)
+      raisesBonyLoadError(proc() = discard loadBonyJson(nonRequiredDescendant), schemaViolation)
+      raisesBonyLoadError(proc() = discard loadBonyJson(missingRequiredParent), schemaViolation)
+      raisesBonyLoadError(proc() = discard loadBonyJson(requiredConstraintMissingDependency), schemaViolation)
+      raisesBonyLoadError(proc() = discard loadBonyJson(nonRequiredConstraintWithInactiveDependency), schemaViolation)

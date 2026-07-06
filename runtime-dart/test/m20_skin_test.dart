@@ -4,6 +4,7 @@
 
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data' show ByteData, Endian, Uint8List;
 
 import 'package:bony/bony.dart';
 import 'package:test/test.dart';
@@ -14,6 +15,176 @@ void _expectClose(double actual, double expected, String label) {
   expect((actual - expected).abs(), lessThanOrEqualTo(_tol),
       reason: '$label: actual=$actual expected=$expected');
 }
+
+void _writeVaruint(List<int> out, int value) {
+  var v = value;
+  while (v >= 0x80) {
+    out.add((v & 0x7f) | 0x80);
+    v >>= 7;
+  }
+  out.add(v);
+}
+
+void _writeString(List<int> out, String value) {
+  final units = value.codeUnits;
+  _writeVaruint(out, units.length);
+  out.addAll(units);
+}
+
+void _writeProp(List<int> out, int key, List<int> payload) {
+  _writeVaruint(out, key);
+  _writeVaruint(out, payload.length);
+  out.addAll(payload);
+}
+
+List<int> _str(int index) => [index];
+List<int> _bool(bool value) => [value ? 1 : 0];
+
+List<int> _varuintPayload(int value) {
+  final out = <int>[];
+  _writeVaruint(out, value);
+  return out;
+}
+
+List<int> _f64(double value) {
+  final bytes = ByteData(8)..setFloat64(0, value, Endian.little);
+  return bytes.buffer.asUint8List().toList();
+}
+
+List<int> _ikBonesPayload(int stringIndex) {
+  final out = <int>[];
+  _writeVaruint(out, 1);
+  _writeVaruint(out, stringIndex);
+  return out;
+}
+
+List<int> _indexListPayload(int sourceIndex) {
+  final out = <int>[];
+  _writeVaruint(out, 1);
+  _writeVaruint(out, sourceIndex);
+  return out;
+}
+
+Uint8List _skinRequiredBnb() {
+  final out = <int>[
+    0x42, 0x4f, 0x4e, 0x59,
+    0x00,
+    0x02,
+    0x00,
+  ];
+  final strings = [
+    'skin-required',
+    'root',
+    'gear',
+    'rail',
+    'aim',
+    'copy',
+    'follow',
+    'spring',
+    'default',
+  ];
+  _writeVaruint(out, strings.length);
+  for (final value in strings) {
+    _writeString(out, value);
+  }
+
+  _writeVaruint(out, 1);
+  _writeProp(out, 1, _str(0));
+  out.add(0);
+
+  _writeVaruint(out, 2);
+  _writeProp(out, 1, _str(1));
+  out.add(0);
+
+  _writeVaruint(out, 2);
+  _writeProp(out, 1, _str(2));
+  _writeProp(out, 3, _str(1));
+  _writeProp(out, 4027, _bool(true));
+  out.add(0);
+
+  _writeVaruint(out, 4002);
+  _writeProp(out, 1, _str(4));
+  _writeProp(out, 4014, _ikBonesPayload(2));
+  _writeProp(out, 4000, _str(1));
+  _writeProp(out, 4027, _bool(true));
+  out.add(0);
+
+  _writeVaruint(out, 4003);
+  _writeProp(out, 1, _str(5));
+  _writeProp(out, 1012, _str(2));
+  _writeProp(out, 4000, _str(1));
+  _writeProp(out, 4027, _bool(true));
+  out.add(0);
+
+  _writeVaruint(out, 4001);
+  _writeProp(out, 1, _str(3));
+  for (final key in [4003, 4004, 4005, 4006, 4007, 4008, 4009, 4010]) {
+    _writeProp(out, key, _f64(0));
+  }
+  out.add(0);
+
+  _writeVaruint(out, 4000);
+  _writeProp(out, 1, _str(6));
+  _writeProp(out, 1012, _str(2));
+  _writeProp(out, 4000, _str(1));
+  _writeProp(out, 4001, _str(3));
+  _writeProp(out, 4027, _bool(true));
+  out.add(0);
+
+  _writeVaruint(out, 4004);
+  _writeProp(out, 1, _str(7));
+  _writeProp(out, 1012, _str(2));
+  _writeProp(out, 4027, _bool(true));
+  _writeProp(out, 4026, _varuintPayload(1));
+  out.add(0);
+
+  _writeVaruint(out, 3003);
+  _writeProp(out, 1, _str(8));
+  _writeProp(out, 4028, _indexListPayload(1));
+  _writeProp(out, 4029, _indexListPayload(0));
+  _writeProp(out, 4030, _indexListPayload(0));
+  _writeProp(out, 4031, _indexListPayload(0));
+  _writeProp(out, 4032, _indexListPayload(0));
+  out.add(0);
+
+  out.add(0);
+  return Uint8List.fromList(out);
+}
+
+const _skinRequiredJson = '''
+{
+  "skeleton": { "name": "skin-required" },
+  "bones": [
+    { "name": "root" },
+    { "name": "gear", "parent": "root", "skinRequired": true }
+  ],
+  "ikConstraints": [
+    { "name": "aim", "bones": ["gear"], "target": "root", "skinRequired": true }
+  ],
+  "transformConstraints": [
+    { "name": "copy", "bone": "gear", "target": "root", "skinRequired": true }
+  ],
+  "pathAttachments": [
+    { "name": "rail", "p0x": 0, "p0y": 0, "p1x": 0, "p1y": 0, "p2x": 0, "p2y": 0, "p3x": 0, "p3y": 0 }
+  ],
+  "paths": [
+    { "name": "follow", "bone": "gear", "target": "root", "path": "rail", "skinRequired": true }
+  ],
+  "physicsConstraints": [
+    { "name": "spring", "bone": "gear", "channels": 1, "skinRequired": true }
+  ],
+  "skins": [
+    {
+      "name": "default",
+      "bones": ["gear"],
+      "ikConstraints": ["aim"],
+      "transformConstraints": ["copy"],
+      "pathConstraints": ["follow"],
+      "physicsConstraints": ["spring"]
+    }
+  ]
+}
+''';
 
 Map<String, dynamic> _jsonFile(String path) =>
     jsonDecode(File(path).readAsStringSync()) as Map<String, dynamic>;
@@ -141,6 +312,52 @@ void main() {
       expect(armorBatches[2].attachment, 'patch_variant_mesh');
       _expectClose(defaultBatches[2].vertices[2].y, 8.0, 'default patch v2.y');
       _expectClose(armorBatches[2].vertices[2].y, 20.0, 'armor patch v2.y');
+    });
+  });
+
+  group('skinRequired format surface', () {
+    test('loads JSON and BNB metadata', () {
+      final fromJson = loadBonyJson(_skinRequiredJson);
+      final fromBnb = loadBonyBnb(_skinRequiredBnb());
+      for (final data in [fromJson, fromBnb]) {
+        expect(data.bones[1].skinRequired, isTrue);
+        expect(data.ikConstraints.single.skinRequired, isTrue);
+        expect(data.transformConstraints.single.skinRequired, isTrue);
+        expect(data.paths.single.skinRequired, isTrue);
+        expect(data.physicsConstraints.single.skinRequired, isTrue);
+        expect(data.skins.single.bones, ['gear']);
+        expect(data.skins.single.ikConstraints, ['aim']);
+        expect(data.skins.single.transformConstraints, ['copy']);
+        expect(data.skins.single.pathConstraints, ['follow']);
+        expect(data.skins.single.physicsConstraints, ['spring']);
+      }
+    });
+
+    test('rejects malformed membership', () {
+      expect(
+        () => loadBonyJson(
+          _skinRequiredJson.replaceFirst(
+              '"name": "default",\n      "bones": ["gear"]',
+              '"name": "default",\n      "bones": ["ghost"]'),
+        ),
+        throwsFormatException,
+      );
+      expect(
+        () => loadBonyJson(
+          _skinRequiredJson.replaceFirst(
+              '"name": "default",\n      "bones": ["gear"]',
+              '"name": "default",\n      "bones": ["gear", "gear"]'),
+        ),
+        throwsFormatException,
+      );
+      expect(
+        () => loadBonyJson(
+          _skinRequiredJson.replaceFirst(
+              '"name": "default",\n      "bones": ["gear"]',
+              '"name": "default",\n      "bones": ["root"]'),
+        ),
+        throwsFormatException,
+      );
     });
   });
 }

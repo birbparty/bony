@@ -51,6 +51,7 @@ BoneData _parseBone(Map<String, dynamic> j) {
     inheritScale: (j['inheritScale'] as bool?) ?? true,
     inheritReflection: (j['inheritReflection'] as bool?) ?? true,
     transformMode: (j['transformMode'] as String?) ?? 'normal',
+    skinRequired: (j['skinRequired'] as bool?) ?? false,
   );
 }
 
@@ -175,6 +176,10 @@ MeshAttachment _parseMeshAttachment(Map<String, dynamic> j) {
 
 SkinData _parseSkin(Map<String, dynamic> j, int index) {
   final ctx = 'skins[$index]';
+  List<String> stringList(String key) =>
+      ((j[key] as List<dynamic>?) ?? const [])
+          .map((v) => _required<String>(v, '$ctx.$key[]'))
+          .toList();
   final entriesRaw = j['entries'] as List<dynamic>? ?? const [];
   final entries = <SkinEntryData>[];
   for (var ei = 0; ei < entriesRaw.length; ei++) {
@@ -189,6 +194,11 @@ SkinData _parseSkin(Map<String, dynamic> j, int index) {
   return SkinData(
     name: _required<String>(j['name'], '$ctx.name'),
     entries: entries,
+    bones: stringList('bones'),
+    ikConstraints: stringList('ikConstraints'),
+    transformConstraints: stringList('transformConstraints'),
+    pathConstraints: stringList('pathConstraints'),
+    physicsConstraints: stringList('physicsConstraints'),
   );
 }
 
@@ -200,6 +210,7 @@ PathConstraintData _parsePath(Map<String, dynamic> j) {
     path: _required<String>(j['path'], 'path.path'),
     // JSON doesn't distinguish int from double; toInt() handles "order": 0.0.
     order: (j['order'] as num?)?.toInt() ?? 0,
+    skinRequired: (j['skinRequired'] as bool?) ?? false,
     position: (j['position'] as num?)?.toDouble(),
     translateMix: (j['translateMix'] as num?)?.toDouble(),
     rotateMix: (j['rotateMix'] as num?)?.toDouble(),
@@ -223,6 +234,7 @@ IkConstraintData _parseIk(Map<String, dynamic> j) {
     target: _required<String>(j['target'], 'ikConstraint.target'),
     // JSON doesn't distinguish int from double; toInt() handles "order": 0.0.
     order: (j['order'] as num?)?.toInt() ?? 0,
+    skinRequired: (j['skinRequired'] as bool?) ?? false,
     // null preserves "absent" (mix defaults to 1.0, bendPositive to true).
     mix: mixRaw == null ? null : quantizeF32(mixRaw),
     bendPositive: j['bendPositive'] as bool?,
@@ -244,6 +256,7 @@ TransformConstraintData _parseTransform(Map<String, dynamic> j) {
     bone: _required<String>(j['bone'], 'transformConstraint.bone'),
     target: _required<String>(j['target'], 'transformConstraint.target'),
     order: (j['order'] as num?)?.toInt() ?? 0,
+    skinRequired: (j['skinRequired'] as bool?) ?? false,
     translateMix: mixOf('translateMix'),
     rotateMix: mixOf('rotateMix'),
     scaleMix: mixOf('scaleMix'),
@@ -273,6 +286,7 @@ PhysicsConstraintData _parsePhysics(Map<String, dynamic> j) {
     bone: _required<String>(j['bone'], 'physicsConstraint.bone'),
     channels: channels,
     order: (j['order'] as num?)?.toInt() ?? 0,
+    skinRequired: (j['skinRequired'] as bool?) ?? false,
     inertia: paramOf('inertia'),
     strength: paramOf('strength'),
     damping: paramOf('damping'),
@@ -1401,6 +1415,220 @@ void _validate(SkeletonData data) {
     }
   }
 
+  if (data.skins.isNotEmpty) {
+    final requiredBones = {
+      for (final b in data.bones)
+        if (b.skinRequired) b.name,
+    };
+    final requiredIk = {
+      for (final ik in data.ikConstraints)
+        if (ik.skinRequired) ik.name,
+    };
+    final requiredTransform = {
+      for (final tc in data.transformConstraints)
+        if (tc.skinRequired) tc.name,
+    };
+    final requiredPath = {
+      for (final p in data.paths)
+        if (p.skinRequired) p.name,
+    };
+    final requiredPhysics = {
+      for (final pc in data.physicsConstraints)
+        if (pc.skinRequired) pc.name,
+    };
+
+    Set<String> ensureMembership(
+      List<String> refs,
+      Set<String> valid,
+      Set<String> required,
+      String ctx,
+      String domain,
+    ) {
+      final out = <String>{};
+      for (final ref in refs) {
+        if (ref.isEmpty) {
+          throw FormatException('$ctx must not contain empty references');
+        }
+        if (!out.add(ref)) {
+          throw FormatException(
+              'duplicate skinRequired membership reference in $ctx: $ref');
+        }
+        if (!valid.contains(ref)) {
+          throw FormatException(
+              'unknown skinRequired $domain membership: $ref');
+        }
+        if (!required.contains(ref)) {
+          throw FormatException(
+              'skinRequired $domain membership references non-required item: $ref');
+        }
+      }
+      return out;
+    }
+
+    for (final bone in data.bones) {
+      if (bone.skinRequired) continue;
+      var parent = bone.parent;
+      while (parent.isNotEmpty) {
+        if (requiredBones.contains(parent)) {
+          throw FormatException(
+              'non-required bone has a skinRequired ancestor: ${bone.name}');
+        }
+        parent = boneParentByName[parent] ?? '';
+      }
+    }
+
+    var defaultBones = <String>{};
+    var defaultIk = <String>{};
+    var defaultTransform = <String>{};
+    var defaultPath = <String>{};
+    var defaultPhysics = <String>{};
+    for (var si = 0; si < data.skins.length; si++) {
+      final skin = data.skins[si];
+      final ctx = 'skins[$si]';
+      final skinBones =
+          ensureMembership(skin.bones, boneNames, requiredBones, '$ctx.bones', 'bone');
+      final skinIk = ensureMembership(
+          skin.ikConstraints, ikNames, requiredIk, '$ctx.ikConstraints', 'ikConstraint');
+      final skinTransform = ensureMembership(skin.transformConstraints,
+          transformNames, requiredTransform, '$ctx.transformConstraints', 'transformConstraint');
+      final skinPath = ensureMembership(
+          skin.pathConstraints, pathNames, requiredPath, '$ctx.pathConstraints', 'pathConstraint');
+      final skinPhysics = ensureMembership(skin.physicsConstraints, physicsNames,
+          requiredPhysics, '$ctx.physicsConstraints', 'physicsConstraint');
+      if (skin.name == 'default') {
+        defaultBones = skinBones;
+        defaultIk = skinIk;
+        defaultTransform = skinTransform;
+        defaultPath = skinPath;
+        defaultPhysics = skinPhysics;
+      }
+    }
+
+    void requireDefaultRequiredBone(String boneName, String constraintName) {
+      if (requiredBones.contains(boneName) && !defaultBones.contains(boneName)) {
+        throw FormatException(
+            'non-required $constraintName depends on skinRequired bone not active for every skin: $boneName');
+      }
+    }
+
+    for (final ik in data.ikConstraints) {
+      if (ik.skinRequired) continue;
+      for (final boneName in ik.bones) {
+        requireDefaultRequiredBone(boneName, 'ikConstraint ${ik.name}');
+      }
+      requireDefaultRequiredBone(ik.target, 'ikConstraint ${ik.name}');
+    }
+    for (final tc in data.transformConstraints) {
+      if (tc.skinRequired) continue;
+      requireDefaultRequiredBone(tc.bone, 'transformConstraint ${tc.name}');
+      requireDefaultRequiredBone(tc.target, 'transformConstraint ${tc.name}');
+    }
+    for (final path in data.paths) {
+      if (path.skinRequired) continue;
+      requireDefaultRequiredBone(path.bone, 'pathConstraint ${path.name}');
+      requireDefaultRequiredBone(path.target, 'pathConstraint ${path.name}');
+    }
+    for (final pc in data.physicsConstraints) {
+      if (pc.skinRequired) continue;
+      requireDefaultRequiredBone(pc.bone, 'physicsConstraint ${pc.name}');
+    }
+
+    void requireActiveRequiredBone(
+        Set<String> activeBones, String boneName, String ctx) {
+      if (requiredBones.contains(boneName) && !activeBones.contains(boneName)) {
+        throw FormatException('$ctx depends on inactive required bone: $boneName');
+      }
+    }
+
+    void checkActiveBoneClosure(Set<String> activeBones, String ctx) {
+      for (final bone in data.bones) {
+        if (!activeBones.contains(bone.name)) continue;
+        var parent = bone.parent;
+        while (parent.isNotEmpty) {
+          if (requiredBones.contains(parent) && !activeBones.contains(parent)) {
+            throw FormatException(
+                "$ctx activates required bone '${bone.name}' without required ancestor '$parent'");
+          }
+          parent = boneParentByName[parent] ?? '';
+        }
+      }
+    }
+
+    for (var si = 0; si < data.skins.length; si++) {
+      final skin = data.skins[si];
+      final ctx = skin.name == 'default' ? "skin 'default'" : "skin '${skin.name}'";
+      final activeBones = skin.name == 'default'
+          ? defaultBones
+          : {
+              ...defaultBones,
+              ...ensureMembership(skin.bones, boneNames, requiredBones,
+                  'skins[$si].bones', 'bone'),
+            };
+      final activeIk = skin.name == 'default'
+          ? defaultIk
+          : {
+              ...defaultIk,
+              ...ensureMembership(skin.ikConstraints, ikNames, requiredIk,
+                  'skins[$si].ikConstraints', 'ikConstraint'),
+            };
+      final activeTransform = skin.name == 'default'
+          ? defaultTransform
+          : {
+              ...defaultTransform,
+              ...ensureMembership(skin.transformConstraints, transformNames,
+                  requiredTransform, 'skins[$si].transformConstraints', 'transformConstraint'),
+            };
+      final activePath = skin.name == 'default'
+          ? defaultPath
+          : {
+              ...defaultPath,
+              ...ensureMembership(skin.pathConstraints, pathNames, requiredPath,
+                  'skins[$si].pathConstraints', 'pathConstraint'),
+            };
+      final activePhysics = skin.name == 'default'
+          ? defaultPhysics
+          : {
+              ...defaultPhysics,
+              ...ensureMembership(skin.physicsConstraints, physicsNames,
+                  requiredPhysics, 'skins[$si].physicsConstraints', 'physicsConstraint'),
+            };
+
+      checkActiveBoneClosure(activeBones, ctx);
+      for (final ik in data.ikConstraints) {
+        if (ik.skinRequired && activeIk.contains(ik.name)) {
+          for (final boneName in ik.bones) {
+            requireActiveRequiredBone(
+                activeBones, boneName, "$ctx ikConstraint '${ik.name}'");
+          }
+          requireActiveRequiredBone(
+              activeBones, ik.target, "$ctx ikConstraint '${ik.name}'");
+        }
+      }
+      for (final tc in data.transformConstraints) {
+        if (tc.skinRequired && activeTransform.contains(tc.name)) {
+          requireActiveRequiredBone(
+              activeBones, tc.bone, "$ctx transformConstraint '${tc.name}'");
+          requireActiveRequiredBone(
+              activeBones, tc.target, "$ctx transformConstraint '${tc.name}'");
+        }
+      }
+      for (final path in data.paths) {
+        if (path.skinRequired && activePath.contains(path.name)) {
+          requireActiveRequiredBone(
+              activeBones, path.bone, "$ctx pathConstraint '${path.name}'");
+          requireActiveRequiredBone(
+              activeBones, path.target, "$ctx pathConstraint '${path.name}'");
+        }
+      }
+      for (final pc in data.physicsConstraints) {
+        if (pc.skinRequired && activePhysics.contains(pc.name)) {
+          requireActiveRequiredBone(
+              activeBones, pc.bone, "$ctx physicsConstraint '${pc.name}'");
+        }
+      }
+    }
+  }
+
   for (var ai = 0; ai < data.animations.length; ai++) {
     final anim = data.animations[ai];
     final ctx = 'animations[$ai](${anim.name})';
@@ -1759,6 +1987,12 @@ const int _bkGravity = 4023;
 const int _bkWind = 4024;
 const int _bkPhysicsMix = 4025;
 const int _bkChannels = 4026;
+const int _bkSkinRequired = 4027;
+const int _bkSkinBones = 4028;
+const int _bkSkinIkConstraints = 4029;
+const int _bkSkinTransformConstraints = 4030;
+const int _bkSkinPathConstraints = 4031;
+const int _bkSkinPhysicsConstraints = 4032;
 const int _bkBoneIndex = 2000;
 const int _bkBoneTimelineKind = 2001;
 const int _bkSlotIndex = 2002;
@@ -2056,6 +2290,23 @@ List<String> _bIkBones(_BnbObj obj, List<String> strings) {
     out.add(c.readStr(strings));
   }
   _bCheckExhausted(c, 'ikConstraint.bones');
+  return out;
+}
+
+List<String> _bIndexList(_BnbObj obj, int key, List<String> names, String ctx) {
+  final payload = obj.props[key];
+  if (payload == null) return const [];
+  final c = _BnbCur(payload);
+  final count = c.readVaruint();
+  final out = <String>[];
+  for (var i = 0; i < count; i++) {
+    final sourceIndex = c.readVaruint();
+    if (sourceIndex < 0 || sourceIndex >= names.length) {
+      throw FormatException('.bnb $ctx index is out of range');
+    }
+    out.add(names[sourceIndex]);
+  }
+  _bCheckExhausted(c, ctx);
   return out;
 }
 
@@ -2636,13 +2887,39 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
   final seenAnimationNames = <String>{};
   var currentSkinName = '';
   var currentSkinEntries = <SkinEntryData>[];
+  var currentSkinBones = <String>[];
+  var currentSkinIkConstraints = <String>[];
+  var currentSkinTransformConstraints = <String>[];
+  var currentSkinPathConstraints = <String>[];
+  var currentSkinPhysicsConstraints = <String>[];
 
   void flushSkin() {
     if (currentSkinName.isEmpty) return;
-    skins.add(SkinData(name: currentSkinName, entries: currentSkinEntries));
+    skins.add(SkinData(
+      name: currentSkinName,
+      entries: currentSkinEntries,
+      bones: currentSkinBones,
+      ikConstraints: currentSkinIkConstraints,
+      transformConstraints: currentSkinTransformConstraints,
+      pathConstraints: currentSkinPathConstraints,
+      physicsConstraints: currentSkinPhysicsConstraints,
+    ));
     currentSkinName = '';
     currentSkinEntries = [];
+    currentSkinBones = [];
+    currentSkinIkConstraints = [];
+    currentSkinTransformConstraints = [];
+    currentSkinPathConstraints = [];
+    currentSkinPhysicsConstraints = [];
   }
+
+  List<String> boneNames() => bones.map((b) => b.name).toList();
+  List<String> ikNames() => ikConstraints.map((ik) => ik.name).toList();
+  List<String> transformNames() =>
+      transformConstraints.map((tc) => tc.name).toList();
+  List<String> pathNames() => paths.map((p) => p.name).toList();
+  List<String> physicsNames() =>
+      physicsConstraints.map((pc) => pc.name).toList();
 
   SkeletonData skinResolutionData() {
     if (header == null) {
@@ -2826,6 +3103,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
           transformMode: _bStr(
               obj, _bkTransformMode, strings, 'bone.transformMode',
               def: 'normal'),
+          skinRequired: _bBool(obj, _bkSkinRequired),
         ));
       case _bnbSlot:
         flushSkin();
@@ -2898,6 +3176,16 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
         flushPending();
         flushSkin();
         currentSkinName = _bStr(obj, _bkName, strings, 'skin.name');
+        currentSkinBones =
+            _bIndexList(obj, _bkSkinBones, boneNames(), 'skin.bones');
+        currentSkinIkConstraints = _bIndexList(
+            obj, _bkSkinIkConstraints, ikNames(), 'skin.ikConstraints');
+        currentSkinTransformConstraints = _bIndexList(obj,
+            _bkSkinTransformConstraints, transformNames(), 'skin.transformConstraints');
+        currentSkinPathConstraints = _bIndexList(
+            obj, _bkSkinPathConstraints, pathNames(), 'skin.pathConstraints');
+        currentSkinPhysicsConstraints = _bIndexList(obj,
+            _bkSkinPhysicsConstraints, physicsNames(), 'skin.physicsConstraints');
       case _bnbSkinEntry:
         flushPending();
         if (currentSkinName.isEmpty) {
@@ -2919,6 +3207,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
           target: _bStr(obj, _bkTarget, strings, 'path.target'),
           path: _bStr(obj, _bkPath, strings, 'path.path'),
           order: _bVarint(obj, _bkOrder, def: 0),
+          skinRequired: _bBool(obj, _bkSkinRequired),
           position: obj.props.containsKey(_bkPosition)
               ? _bF32(obj, _bkPosition, 'path.position')
               : null,
@@ -2937,6 +3226,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
           bones: _bIkBones(obj, strings),
           target: _bStr(obj, _bkTarget, strings, 'ikConstraint.target'),
           order: _bVarint(obj, _bkOrder, def: 0),
+          skinRequired: _bBool(obj, _bkSkinRequired),
           // Absent => null (mix defaults to 1.0, bendPositive to true).
           mix: obj.props.containsKey(_bkMix)
               ? _bF32(obj, _bkMix, 'ikConstraint.mix')
@@ -2953,6 +3243,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
           bone: _bStr(obj, _bkBone, strings, 'transformConstraint.bone'),
           target: _bStr(obj, _bkTarget, strings, 'transformConstraint.target'),
           order: _bVarint(obj, _bkOrder, def: 0),
+          skinRequired: _bBool(obj, _bkSkinRequired),
           // Absent => null (each mix defaults to 1.0).
           translateMix: obj.props.containsKey(_bkTranslateMix)
               ? _bF32(obj, _bkTranslateMix, 'transformConstraint.translateMix')
@@ -2982,6 +3273,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
           // backingType and the Nim writeVaruintPayload emission.
           channels: physicsChannelsFromMask(_bVaruint(obj, _bkChannels)),
           order: _bVarint(obj, _bkOrder, def: 0),
+          skinRequired: _bBool(obj, _bkSkinRequired),
           // Absent => null (integrator defaults: mass=1.0/physicsMix=1.0/rest 0.0).
           inertia: obj.props.containsKey(_bkInertia)
               ? _bF32(obj, _bkInertia, 'physicsConstraint.inertia')
