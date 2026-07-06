@@ -674,6 +674,26 @@ def canonical_json_overrides() -> dict[str, Any]:
         },
     }
     return {
+        "region": {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "name": named_string,
+                "width": {"type": "number", "minimum": 0},
+                "height": {"type": "number", "minimum": 0},
+                "texturePage": {"type": "string", "default": ""},
+                "u0": {"type": "number", "minimum": 0, "maximum": 1, "default": 0.0},
+                "v0": {"type": "number", "minimum": 0, "maximum": 1, "default": 0.0},
+                "u1": {"type": "number", "minimum": 0, "maximum": 1, "default": 1.0},
+                "v1": {"type": "number", "minimum": 0, "maximum": 1, "default": 1.0},
+                "alphaMode": {
+                    "type": "string",
+                    "enum": ["straight", "premultiplied"],
+                    "default": "straight",
+                },
+            },
+            "required": ["height", "name", "width"],
+        },
         "ikConstraint": {
             "type": "object",
             "additionalProperties": False,

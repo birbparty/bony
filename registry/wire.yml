@@ -547,6 +547,48 @@ propertyKeys:
     milestone: M2
     ownerBead: bony-v1p
     doc: Region attachment height in skeleton units.
+  - id: texturePage
+    key: 8000
+    backingType: string
+    status: active
+    milestone: M9
+    ownerBead: bony-2j7z
+    doc: Logical atlas texture page identifier for a textured region; empty means the legacy untextured region surface.
+  - id: u0
+    key: 8001
+    backingType: f32
+    status: active
+    milestone: M9
+    ownerBead: bony-2j7z
+    doc: Left edge of a region's UV rectangle in texture-page unit coordinates.
+  - id: v0
+    key: 8002
+    backingType: f32
+    status: active
+    milestone: M9
+    ownerBead: bony-2j7z
+    doc: Top edge of a region's UV rectangle in texture-page unit coordinates.
+  - id: u1
+    key: 8003
+    backingType: f32
+    status: active
+    milestone: M9
+    ownerBead: bony-2j7z
+    doc: Right edge of a region's UV rectangle in texture-page unit coordinates.
+  - id: v1
+    key: 8004
+    backingType: f32
+    status: active
+    milestone: M9
+    ownerBead: bony-2j7z
+    doc: Bottom edge of a region's UV rectangle in texture-page unit coordinates.
+  - id: alphaMode
+    key: 8005
+    backingType: string
+    status: active
+    milestone: M9
+    ownerBead: bony-2j7z
+    doc: Texture page alpha mode for atlas-backed region metadata; "straight" or "premultiplied".
   - id: vertices
     key: 3000
     backingType: bytes
@@ -1317,6 +1359,12 @@ objects:
       - name
       - width
       - height
+      - texturePage
+      - u0
+      - v0
+      - u1
+      - v1
+      - alphaMode
     doc: Rectangular region attachment used by the M2 draw-batch surface.
   - type: pointAttachment
     properties:

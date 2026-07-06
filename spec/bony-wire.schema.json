@@ -659,6 +659,30 @@
         "height": {
           "type": "number",
           "minimum": 0
+        },
+        "texturePage": {
+          "type": "string",
+          "default": ""
+        },
+        "u0": {
+          "type": "number",
+          "default": 0.0
+        },
+        "v0": {
+          "type": "number",
+          "default": 0.0
+        },
+        "u1": {
+          "type": "number",
+          "default": 1.0
+        },
+        "v1": {
+          "type": "number",
+          "default": 1.0
+        },
+        "alphaMode": {
+          "type": "string",
+          "default": "straight"
         }
       },
       "required": [

@@ -15,6 +15,7 @@ const
   skeletonTypeId = "skeleton"
   boneTypeId = "bone"
   slotTypeId = "slot"
+  regionTypeId = "region"
   pathTypeId = "path"
   ikConstraintTypeId = "ikConstraint"
   transformConstraintTypeId = "transformConstraint"
@@ -431,11 +432,17 @@ proc loadBonyJson*(text: string): SkeletonData =
     for index, regionNode in regionsNode.elems:
       let context = "regions[" & $index & "]"
       let regionObject = requireObject(regionNode, context)
-      validateKnownKeys(regionObject, ["name", "width", "height"], context)
+      validateKnownKeys(regionObject, ["name", "width", "height", "texturePage", "u0", "v0", "u1", "v1", "alphaMode"], context)
       loadedRegions.add regionAttachment(
         requiredString(regionObject, "name", context),
         requiredFloat(regionObject, "width", context),
         requiredFloat(regionObject, "height", context),
+        texturePage = optionalString(regionObject, "texturePage", defaultFor(regionTypeId, "texturePage"), context),
+        u0 = optionalFloat(regionObject, "u0", defaultFloat(regionTypeId, "u0"), context),
+        v0 = optionalFloat(regionObject, "v0", defaultFloat(regionTypeId, "v0"), context),
+        u1 = optionalFloat(regionObject, "u1", defaultFloat(regionTypeId, "u1"), context),
+        v1 = optionalFloat(regionObject, "v1", defaultFloat(regionTypeId, "v1"), context),
+        alphaMode = optionalString(regionObject, "alphaMode", defaultFor(regionTypeId, "alphaMode"), context),
       )
 
   var loadedPointAttachments: seq[PointAttachmentData] = @[]
@@ -2153,6 +2160,18 @@ proc toBonyJson*(data: SkeletonData): string =
       result.addStringField("name", region.name, 3, first)
       result.addNumberField("width", region.width, 3, first)
       result.addNumberField("height", region.height, 3, first)
+      if region.texturePage != defaultFor(regionTypeId, "texturePage"):
+        result.addStringField("texturePage", region.texturePage, 3, first)
+      if region.u0 != defaultFloat(regionTypeId, "u0"):
+        result.addNumberField("u0", region.u0, 3, first)
+      if region.v0 != defaultFloat(regionTypeId, "v0"):
+        result.addNumberField("v0", region.v0, 3, first)
+      if region.u1 != defaultFloat(regionTypeId, "u1"):
+        result.addNumberField("u1", region.u1, 3, first)
+      if region.v1 != defaultFloat(regionTypeId, "v1"):
+        result.addNumberField("v1", region.v1, 3, first)
+      if region.alphaMode != defaultFor(regionTypeId, "alphaMode"):
+        result.addStringField("alphaMode", region.alphaMode, 3, first)
       result.add "\n"
       result.addIndent(2)
       result.add "}"

@@ -1,0 +1,22 @@
+{
+  "skeleton": {"name": "m24_atlas_region", "version": "0.1.0"},
+  "bones": [
+    {"name": "root"}
+  ],
+  "slots": [
+    {"name": "textured_slot", "bone": "root", "attachment": "textured_region"}
+  ],
+  "regions": [
+    {
+      "name": "textured_region",
+      "width": 20,
+      "height": 10,
+      "texturePage": "atlas_0.png",
+      "u0": 0.25,
+      "v0": 0.125,
+      "u1": 0.5,
+      "v1": 0.375,
+      "alphaMode": "premultiplied"
+    }
+  ]
+}

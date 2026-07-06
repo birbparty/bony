@@ -61,11 +61,23 @@ class RegionAttachment {
     required this.name,
     required this.width,
     required this.height,
+    this.texturePage = '',
+    this.u0 = 0.0,
+    this.v0 = 0.0,
+    this.u1 = 1.0,
+    this.v1 = 1.0,
+    this.alphaMode = 'straight',
   });
 
   final String name;
   final double width;
   final double height;
+  final String texturePage;
+  final double u0;
+  final double v0;
+  final double u1;
+  final double v1;
+  final String alphaMode;
 }
 
 class PointAttachment {

@@ -184,6 +184,23 @@ Net-new serialized identifiers confirmed against the review checklist above.
   (2026-07-06)" in `docs/PROVENANCE.md`.
 - **Result**: checklist **satisfied**.
 
+### Atlas-Backed Region Texture Serialized Names (2026-07-06, bead `bony-2j7z`)
+
+- **Net-new identifiers**: region fields `texturePage`, `u0`, `v0`, `u1`,
+  `v1`, and `alphaMode`; `.bnb` property keys `8000..8005`.
+- **Explainable without prior-art source**: yes - the names come from bony's
+  existing project-owned `DrawBatch.texturePage`, the project-owned
+  `bony.atlas.v1` sidecar schema, generic UV-rectangle terminology, and the
+  alpha-mode vocabulary already specified by `docs/drawbatch-raylib-contract.md`.
+- **Project-owned & documented**: the fields are specified in
+  `docs/atlas-region-texture-contract.md`; registry/default coverage lives in
+  `registry/wire.yml` and `spec/defaults.yml`; JSON and `.bnb` schemas are
+  generated from those sources.
+- **No build-step fetch of prior-art source**: confirmed.
+- **PROVENANCE updated**: yes - see "Atlas-Backed Region Texture Schema Names
+  (2026-07-06)" in `docs/PROVENANCE.md`.
+- **Result**: checklist **satisfied**.
+
 ### Helper Geometry Attachment Serialized Names (2026-07-05, bead `bony-wb1d`)
 
 - **Net-new identifiers**: types `pointAttachment` and

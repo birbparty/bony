@@ -170,8 +170,34 @@ objectDefaults:
         omitWhenDefault: true
         applyOnLoad: true
   - object: region
-    ownerBead: bony-v1p
-    properties: {}
+    ownerBead: bony-2j7z
+    properties:
+      texturePage:
+        value: ""
+        omitWhenDefault: true
+        applyOnLoad: true
+        doc: Empty texture page preserves the legacy untextured region draw-batch surface.
+      u0:
+        value: 0.0
+        omitWhenDefault: true
+        applyOnLoad: true
+      v0:
+        value: 0.0
+        omitWhenDefault: true
+        applyOnLoad: true
+      u1:
+        value: 1.0
+        omitWhenDefault: true
+        applyOnLoad: true
+      v1:
+        value: 1.0
+        omitWhenDefault: true
+        applyOnLoad: true
+      alphaMode:
+        value: "straight"
+        omitWhenDefault: true
+        applyOnLoad: true
+        doc: Straight alpha is the default for hand-authored and atlas-backed texture pages unless explicitly marked premultiplied.
   - object: pointAttachment
     ownerBead: bony-wb1d
     properties: {}

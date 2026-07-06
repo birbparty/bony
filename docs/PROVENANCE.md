@@ -395,6 +395,30 @@ documentation prose.
 - **CI enforcement**: registry/defaults/codegen consistency is enforced by
   `codegen/generate.py --check`; clean-room posture is enforced by code review.
 
+### Atlas-Backed Region Texture Schema Names (2026-07-06)
+
+- **Reason needed**: Bead `bony-2j7z` makes project-owned atlas metadata
+  observable in canonical region draw batches so visual-fidelity tooling can
+  carry texture pages and atlas UV rectangles through `.bony`, `.bnb`, Nim, and
+  Dart.
+- **Classification**: project-owned design - not an external source of
+  implementation truth.
+- **What is recorded**: canonical region fields `texturePage`, `u0`, `v0`,
+  `u1`, `v1`, and `alphaMode`; M9 `.bnb` property keys `8000..8005`; defaults
+  that preserve legacy region records; and the sidecar-to-canonical mapping
+  from `bony.atlas.v1` page/region metadata.
+- **Source**: none. The names and semantics are derived from bony's existing
+  `DrawBatch.texturePage`, the local `spec/bony-atlas.schema.json` sidecar,
+  generic UV-coordinate terminology, and the bony raylib adapter alpha-mode
+  contract. They were **not** derived from DragonBones, Spine, Rive, Live2D,
+  Lottie, or any third-party runtime/importer atlas format or wire layout.
+- **Cleanroom compliance**: confirmed against `docs/CLEANROOM.md`; the new keys
+  use the allocated M9 band for tooling/importer metadata that becomes
+  first-class format data, and the binding rules are documented in
+  `docs/atlas-region-texture-contract.md`.
+- **CI enforcement**: registry/defaults/codegen consistency is enforced by
+  `codegen/generate.py --check`; clean-room posture is enforced by code review.
+
 ## Source Introduction Rule
 
 When a new external dependency, reference, algorithm paper, or importer input

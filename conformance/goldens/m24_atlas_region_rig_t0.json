@@ -1,0 +1,99 @@
+{
+  "format": "bony.numeric-golden.v1",
+  "skeleton": "m24_atlas_region",
+  "version": "0.1.0",
+  "time": 0.0,
+  "bones": [
+    {
+      "name": "root",
+      "parent": "",
+      "world": {
+        "a": 1.0,
+        "b": 0.0,
+        "c": 6.123233995736766e-17,
+        "d": 1.0,
+        "tx": 0.0,
+        "ty": 0.0
+      }
+    }
+  ],
+  "slots": [
+    {
+      "name": "textured_slot",
+      "bone": "root",
+      "attachment": "textured_region",
+      "r": 1.0,
+      "g": 1.0,
+      "b": 1.0,
+      "a": 1.0
+    }
+  ],
+  "drawBatches": [
+    {
+      "slot": "textured_slot",
+      "bone": "root",
+      "attachment": "textured_region",
+      "texturePage": "atlas_0.png",
+      "blendMode": "normal",
+      "clipId": "",
+      "world": {
+        "a": 1.0,
+        "b": 0.0,
+        "c": 6.123233995736766e-17,
+        "d": 1.0,
+        "tx": 0.0,
+        "ty": 0.0
+      },
+      "vertices": [
+        {
+          "x": -10.0,
+          "y": -5.0,
+          "u": 0.25,
+          "v": 0.125,
+          "r": 1.0,
+          "g": 1.0,
+          "b": 1.0,
+          "a": 1.0
+        },
+        {
+          "x": 10.0,
+          "y": -5.0,
+          "u": 0.5,
+          "v": 0.125,
+          "r": 1.0,
+          "g": 1.0,
+          "b": 1.0,
+          "a": 1.0
+        },
+        {
+          "x": 10.0,
+          "y": 5.0,
+          "u": 0.5,
+          "v": 0.375,
+          "r": 1.0,
+          "g": 1.0,
+          "b": 1.0,
+          "a": 1.0
+        },
+        {
+          "x": -10.0,
+          "y": 5.0,
+          "u": 0.25,
+          "v": 0.375,
+          "r": 1.0,
+          "g": 1.0,
+          "b": 1.0,
+          "a": 1.0
+        }
+      ],
+      "indices": [
+        0,
+        1,
+        2,
+        2,
+        3,
+        0
+      ]
+    }
+  ]
+}

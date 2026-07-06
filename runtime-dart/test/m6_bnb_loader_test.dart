@@ -23,15 +23,16 @@ void _expectClose(double actual, double expected, String label) {
   expect(
     (actual - expected).abs(),
     lessThanOrEqualTo(_tol),
-    reason: '$label: actual=$actual expected=$expected diff=${(actual - expected).abs()}',
+    reason:
+        '$label: actual=$actual expected=$expected diff=${(actual - expected).abs()}',
   );
 }
 
 void _expectAffine(Affine2 actual, Affine2 expected, String label) {
-  _expectClose(actual.a,  expected.a,  '$label.a');
-  _expectClose(actual.b,  expected.b,  '$label.b');
-  _expectClose(actual.c,  expected.c,  '$label.c');
-  _expectClose(actual.d,  expected.d,  '$label.d');
+  _expectClose(actual.a, expected.a, '$label.a');
+  _expectClose(actual.b, expected.b, '$label.b');
+  _expectClose(actual.c, expected.c, '$label.c');
+  _expectClose(actual.d, expected.d, '$label.d');
   _expectClose(actual.tx, expected.tx, '$label.tx');
   _expectClose(actual.ty, expected.ty, '$label.ty');
 }
@@ -68,7 +69,8 @@ void _checkRig(String rigName) {
 
   test('all bone names match JSON (same order)', () {
     for (var i = 0; i < jsonData.bones.length; i++) {
-      expect(bnbData.bones[i].name, jsonData.bones[i].name, reason: 'bones[$i].name');
+      expect(bnbData.bones[i].name, jsonData.bones[i].name,
+          reason: 'bones[$i].name');
     }
   });
 
@@ -94,6 +96,8 @@ void _checkRig(String rigName) {
           reason: '$rigName batches[$i].attachment');
       expect(bnbBatches[i].blendMode, jsonBatches[i].blendMode,
           reason: '$rigName batches[$i].blendMode');
+      expect(bnbBatches[i].texturePage, jsonBatches[i].texturePage,
+          reason: '$rigName batches[$i].texturePage');
     }
   });
 
@@ -153,7 +157,16 @@ void main() {
   });
 
   // --- bnb == json parity for all rigs ---
-  for (final rigName in ['m1_rig', 'm2_rig', 'm3_rig', 'm4_rig', 'm5_rig', 'm7_rig', 'm8_rig']) {
+  for (final rigName in [
+    'm1_rig',
+    'm2_rig',
+    'm3_rig',
+    'm4_rig',
+    'm5_rig',
+    'm7_rig',
+    'm8_rig',
+    'm24_atlas_region_rig',
+  ]) {
     group('$rigName.bnb parity with JSON loader', () => _checkRig(rigName));
   }
 }

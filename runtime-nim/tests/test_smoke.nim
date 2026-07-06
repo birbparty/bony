@@ -166,18 +166,30 @@ spec "bony package":
       bonyTypeKeys.anyIt(it.id == "skin" and it.key == 3003'u64)
       bonyTypeKeys.anyIt(it.id == "skinEntry" and it.key == 3004'u64)
       bonyTypeKeys.anyIt(it.id == "nestedRigAttachment" and it.key == 3005'u64)
-      bonyPropertyKeys.len == 124
+      bonyPropertyKeys.len == 130
       bonyPropertyKeys.anyIt(it.id == "skinAttachment" and it.key == 3010'u64)
       bonyPropertyKeys.anyIt(it.id == "skinTarget" and it.key == 3011'u64)
       bonyPropertyKeys.anyIt(it.id == "nestedSkeleton" and it.key == 3012'u64)
       bonyPropertyKeys.anyIt(it.id == "nestedSkin" and it.key == 3013'u64)
       bonyPropertyKeys.anyIt(it.id == "nestedAnimation" and it.key == 3014'u64)
+      bonyPropertyKeys.anyIt(it.id == "texturePage" and it.key == 8000'u64)
+      bonyPropertyKeys.anyIt(it.id == "u0" and it.key == 8001'u64)
+      bonyPropertyKeys.anyIt(it.id == "v0" and it.key == 8002'u64)
+      bonyPropertyKeys.anyIt(it.id == "u1" and it.key == 8003'u64)
+      bonyPropertyKeys.anyIt(it.id == "v1" and it.key == 8004'u64)
+      bonyPropertyKeys.anyIt(it.id == "alphaMode" and it.key == 8005'u64)
       bonyPropertyKeys.anyIt(it.id == "skinRequired" and it.key == 4027'u64)
       bonyPropertyKeys.anyIt(it.id == "skinBones" and it.key == 4028'u64)
       bonyPropertyKeys.anyIt(it.id == "skinPhysicsConstraints" and it.key == 4032'u64)
       bonyPropertyKeys.anyIt(it.id == "listenerSlotIndex" and it.key == 7064'u64)
       bonyPropertyKeys.anyIt(it.id == "listenerHitRadius" and it.key == 7070'u64)
-      bonyPropertyDefaults.len == 75
+      bonyPropertyDefaults.len == 81
+      bonyPropertyDefaults.anyIt(it.objectId == "region" and it.propertyId == "texturePage" and it.value == "\"\"")
+      bonyPropertyDefaults.anyIt(it.objectId == "region" and it.propertyId == "u0" and it.value == "0.0")
+      bonyPropertyDefaults.anyIt(it.objectId == "region" and it.propertyId == "v0" and it.value == "0.0")
+      bonyPropertyDefaults.anyIt(it.objectId == "region" and it.propertyId == "u1" and it.value == "1.0")
+      bonyPropertyDefaults.anyIt(it.objectId == "region" and it.propertyId == "v1" and it.value == "1.0")
+      bonyPropertyDefaults.anyIt(it.objectId == "region" and it.propertyId == "alphaMode" and it.value == "\"straight\"")
       bonyRequiredProperties.len == 91
 
   it "encodes and rejects .bnb varints canonically":
@@ -540,7 +552,22 @@ spec "bony package":
         discard loadBonyBnb(fixture)
         inc loaded
     then:
-      loaded == 25  # m1–m5, m5_ik, m5_transform, m5_physics, m7, m8, m9_non_scalar, m11_clip, m12_mesh, m13_mesh_deform, m14_mesh_warp, m15_mesh_unweighted_deform, m16_mesh_multi_deform, m17_mesh_clip, m18_mesh_deform_anim, m19_event, m20_skin, m21_pointer_listener, m22_skin_required, m23_nested, m23_nested_child
+      loaded == 26  # m1–m5, m5_ik, m5_transform, m5_physics, m7, m8, m9_non_scalar, m11_clip, m12_mesh, m13_mesh_deform, m14_mesh_warp, m15_mesh_unweighted_deform, m16_mesh_multi_deform, m17_mesh_clip, m18_mesh_deform_anim, m19_event, m20_skin, m21_pointer_listener, m22_skin_required, m23_nested, m23_nested_child, m24_atlas_region
+
+  it "emits atlas-backed region texturePage and UVs from JSON and .bnb":
+    let jsonData = loadBonyJson(readFile(repoPath("conformance", "assets", "m24_atlas_region_rig.bony")))
+    let bnbData = loadBonyBnb(cast[seq[byte]](readFile(repoPath("conformance", "assets", "bnb", "m24_atlas_region_rig.bnb"))))
+    let jsonBatch = buildDrawBatches(jsonData)[0]
+    let bnbBatch = buildDrawBatches(bnbData)[0]
+    then:
+      jsonBatch.texturePage == "atlas_0.png"
+      bnbBatch.texturePage == jsonBatch.texturePage
+      closeTo(jsonBatch.vertices[0].u, 0.25)
+      closeTo(jsonBatch.vertices[0].v, 0.125)
+      closeTo(jsonBatch.vertices[2].u, 0.5)
+      closeTo(jsonBatch.vertices[2].v, 0.375)
+      closeTo(bnbBatch.vertices[0].u, jsonBatch.vertices[0].u)
+      closeTo(bnbBatch.vertices[2].v, jsonBatch.vertices[2].v)
 
   it "rejects malformed semantic .bnb payloads":
     then:

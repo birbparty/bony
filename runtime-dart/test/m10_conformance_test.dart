@@ -26,15 +26,16 @@ void _expectClose(double actual, double expected, String label) {
   expect(
     (actual - expected).abs(),
     lessThanOrEqualTo(_tol),
-    reason: '$label: actual=$actual expected=$expected diff=${(actual - expected).abs()}',
+    reason:
+        '$label: actual=$actual expected=$expected diff=${(actual - expected).abs()}',
   );
 }
 
 void _expectAffine(Affine2 actual, Map<String, dynamic> golden, String label) {
-  _expectClose(actual.a,  (golden['a']  as num).toDouble(), '$label.a');
-  _expectClose(actual.b,  (golden['b']  as num).toDouble(), '$label.b');
-  _expectClose(actual.c,  (golden['c']  as num).toDouble(), '$label.c');
-  _expectClose(actual.d,  (golden['d']  as num).toDouble(), '$label.d');
+  _expectClose(actual.a, (golden['a'] as num).toDouble(), '$label.a');
+  _expectClose(actual.b, (golden['b'] as num).toDouble(), '$label.b');
+  _expectClose(actual.c, (golden['c'] as num).toDouble(), '$label.c');
+  _expectClose(actual.d, (golden['d'] as num).toDouble(), '$label.d');
   _expectClose(actual.tx, (golden['tx'] as num).toDouble(), '$label.tx');
   _expectClose(actual.ty, (golden['ty'] as num).toDouble(), '$label.ty');
 }
@@ -93,8 +94,8 @@ void _checkGolden(
     });
 
     test('draw batch count matches golden', () {
-      expect(batches,
-          hasLength((golden['drawBatches'] as List<dynamic>).length));
+      expect(
+          batches, hasLength((golden['drawBatches'] as List<dynamic>).length));
     });
 
     test('draw batch order matches golden', () {
@@ -107,23 +108,25 @@ void _checkGolden(
     });
 
     test('draw batch metadata matches golden', () {
-      final goldenBatches = (golden['drawBatches'] as List<dynamic>)
-          .cast<Map<String, dynamic>>();
+      final goldenBatches =
+          (golden['drawBatches'] as List<dynamic>).cast<Map<String, dynamic>>();
       for (var i = 0; i < goldenBatches.length; i++) {
         final gb = goldenBatches[i];
         final b = batches[i];
         expect(b.slot, gb['slot'], reason: 'batches[$i].slot');
         expect(b.bone, gb['bone'], reason: 'batches[$i].bone');
-        expect(b.attachment, gb['attachment'], reason: 'batches[$i].attachment');
+        expect(b.attachment, gb['attachment'],
+            reason: 'batches[$i].attachment');
         expect(b.blendMode, gb['blendMode'], reason: 'batches[$i].blendMode');
-        expect(b.texturePage, gb['texturePage'], reason: 'batches[$i].texturePage');
+        expect(b.texturePage, gb['texturePage'],
+            reason: 'batches[$i].texturePage');
         expect(b.clipId, gb['clipId'], reason: 'batches[$i].clipId');
       }
     });
 
     test('draw batch world matrices match golden', () {
-      final goldenBatches = (golden['drawBatches'] as List<dynamic>)
-          .cast<Map<String, dynamic>>();
+      final goldenBatches =
+          (golden['drawBatches'] as List<dynamic>).cast<Map<String, dynamic>>();
       for (var i = 0; i < goldenBatches.length; i++) {
         _expectAffine(
           batches[i].world,
@@ -134,8 +137,8 @@ void _checkGolden(
     });
 
     test('draw batch vertices match golden (abs <= 1e-4)', () {
-      final goldenBatches = (golden['drawBatches'] as List<dynamic>)
-          .cast<Map<String, dynamic>>();
+      final goldenBatches =
+          (golden['drawBatches'] as List<dynamic>).cast<Map<String, dynamic>>();
       for (var i = 0; i < goldenBatches.length; i++) {
         final gverts = (goldenBatches[i]['vertices'] as List<dynamic>)
             .cast<Map<String, dynamic>>();
@@ -158,8 +161,8 @@ void _checkGolden(
     });
 
     test('draw batch indices match golden exactly', () {
-      final goldenBatches = (golden['drawBatches'] as List<dynamic>)
-          .cast<Map<String, dynamic>>();
+      final goldenBatches =
+          (golden['drawBatches'] as List<dynamic>).cast<Map<String, dynamic>>();
       for (var i = 0; i < goldenBatches.length; i++) {
         final gidx = (goldenBatches[i]['indices'] as List<dynamic>)
             .map((e) => (e as num).toInt())
@@ -214,5 +217,11 @@ void main() {
     'M17-MeshClip',
     '../conformance/assets/m17_mesh_clip_rig.bony',
     '../conformance/goldens/m17_mesh_clip_rig_t0.json',
+  );
+
+  _checkGolden(
+    'M24-AtlasRegion',
+    '../conformance/assets/m24_atlas_region_rig.bony',
+    '../conformance/goldens/m24_atlas_region_rig_t0.json',
   );
 }

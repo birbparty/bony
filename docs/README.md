@@ -70,6 +70,7 @@ validation, and (where applicable) the deterministic runtime algorithm.
 
 | Document | What it defines |
 |----------|----------------|
+| [atlas-region-texture-contract.md](atlas-region-texture-contract.md) | Canonical atlas-backed region texture metadata: `texturePage`, UV rectangle, alpha mode defaults, sidecar mapping, draw-batch output, and M9 `.bnb` keys |
 | [clipping-attachment-contract.md](clipping-attachment-contract.md) | Slot-bound convex clipping attachment: format, load validation, `untilSlot`-inclusive range + no-overlap rule, packed `vertices` byte layout, and the (forward-referenced) deterministic Sutherland-Hodgman clip algorithm |
 | [helper-geometry-attachment-contract.md](helper-geometry-attachment-contract.md) | Non-rendered point and bounding-box helper attachments: JSON/BNB shape, slot-reference validation, shared packed polygon `vertices` payload, and deterministic future helper-query math |
 | [pointer-helper-listener-contract.md](pointer-helper-listener-contract.md) | State-machine pointer listener records over point and bounding-box helper attachments: JSON/BNB listener fields, slot/skin target validation, input value rules, hit semantics, dispatch order, and non-goals |

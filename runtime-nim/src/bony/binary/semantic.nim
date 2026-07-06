@@ -62,6 +62,12 @@ const
   attachmentKey = 1013'u64
   widthKey = 1014'u64
   heightKey = 1015'u64
+  texturePageKey = 8000'u64
+  u0Key = 8001'u64
+  v0Key = 8002'u64
+  u1Key = 8003'u64
+  v1Key = 8004'u64
+  alphaModeKey = 8005'u64
   verticesKey = 3000'u64
   untilSlotKey = 3001'u64
   meshWeightedKey = 3002'u64
@@ -1167,6 +1173,12 @@ proc buildObjectRecords(data: SkeletonData; table: var BnbStringTable; toc: var 
     properties.addStringIfNeeded(toc, table, nameKey, region.name, "", required = true)
     properties.addFloatIfNeeded(toc, widthKey, region.width, 0.0, required = true)
     properties.addFloatIfNeeded(toc, heightKey, region.height, 0.0, required = true)
+    properties.addStringIfNeeded(toc, table, texturePageKey, region.texturePage, defaultString("region", "texturePage"))
+    properties.addFloatIfNeeded(toc, u0Key, region.u0, defaultFloat("region", "u0"))
+    properties.addFloatIfNeeded(toc, v0Key, region.v0, defaultFloat("region", "v0"))
+    properties.addFloatIfNeeded(toc, u1Key, region.u1, defaultFloat("region", "u1"))
+    properties.addFloatIfNeeded(toc, v1Key, region.v1, defaultFloat("region", "v1"))
+    properties.addStringIfNeeded(toc, table, alphaModeKey, region.alphaMode, defaultString("region", "alphaMode"))
     result.add BnbObjectRecord(typeKey: regionTypeKey, properties: properties)
 
   for point in data.pointAttachments:
@@ -1857,11 +1869,17 @@ proc decodeSkeletonObjects(objects: openArray[BnbObjectRecord]; strings: BnbStri
         properties.readOptionalStringProperty(strings, attachmentKey, defaultString("slot", "attachment")),
       )
     of regionTypeKey:
-      let properties = record.propertyMap([nameKey, widthKey, heightKey])
+      let properties = record.propertyMap([nameKey, widthKey, heightKey, texturePageKey, u0Key, v0Key, u1Key, v1Key, alphaModeKey])
       regions.add regionAttachment(
         properties.readStringProperty(strings, nameKey, "region.name"),
         properties.readFloatProperty(widthKey, "region.width"),
         properties.readFloatProperty(heightKey, "region.height"),
+        texturePage = properties.readOptionalStringProperty(strings, texturePageKey, defaultString("region", "texturePage")),
+        u0 = properties.readOptionalFloatProperty(u0Key, defaultFloat("region", "u0"), "region.u0"),
+        v0 = properties.readOptionalFloatProperty(v0Key, defaultFloat("region", "v0"), "region.v0"),
+        u1 = properties.readOptionalFloatProperty(u1Key, defaultFloat("region", "u1"), "region.u1"),
+        v1 = properties.readOptionalFloatProperty(v1Key, defaultFloat("region", "v1"), "region.v1"),
+        alphaMode = properties.readOptionalStringProperty(strings, alphaModeKey, defaultString("region", "alphaMode")),
       )
     of pointAttachmentTypeKey:
       let properties = record.propertyMap([nameKey, xKey, yKey, rotationKey])

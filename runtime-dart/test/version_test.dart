@@ -38,7 +38,8 @@ void main() {
     // requiredProperties), plus nestedRigAttachment (type key 3005, property
     // keys 3012..3014, 2 defaults, and 2 required properties), plus
     // skinRequired activation (property keys 4027..4032 and 10 default-table
-    // entries).
+    // entries), plus atlas-backed region texture metadata (property keys
+    // 8000..8005 and 6 default-table entries).
     expect(bonyTypeKeys, hasLength(35));
     expect(bonyTypeKeys.any((t) => t.id == 'pointAttachment' && t.key == 1002),
         isTrue);
@@ -52,7 +53,7 @@ void main() {
     expect(
         bonyTypeKeys.any((t) => t.id == 'nestedRigAttachment' && t.key == 3005),
         isTrue);
-    expect(bonyPropertyKeys, hasLength(124));
+    expect(bonyPropertyKeys, hasLength(130));
     expect(
         bonyPropertyKeys.any((p) => p.id == 'skinAttachment' && p.key == 3010),
         isTrue);
@@ -82,7 +83,43 @@ void main() {
         bonyPropertyKeys
             .any((p) => p.id == 'listenerHitRadius' && p.key == 7070),
         isTrue);
-    expect(bonyPropertyDefaults, hasLength(75));
+    expect(bonyPropertyKeys.any((p) => p.id == 'texturePage' && p.key == 8000),
+        isTrue);
+    expect(bonyPropertyKeys.any((p) => p.id == 'u0' && p.key == 8001), isTrue);
+    expect(bonyPropertyKeys.any((p) => p.id == 'v0' && p.key == 8002), isTrue);
+    expect(bonyPropertyKeys.any((p) => p.id == 'u1' && p.key == 8003), isTrue);
+    expect(bonyPropertyKeys.any((p) => p.id == 'v1' && p.key == 8004), isTrue);
+    expect(bonyPropertyKeys.any((p) => p.id == 'alphaMode' && p.key == 8005),
+        isTrue);
+    expect(bonyPropertyDefaults, hasLength(81));
+    expect(
+        bonyPropertyDefaults.any((d) =>
+            d.objectId == 'region' &&
+            d.propertyId == 'texturePage' &&
+            d.value == '""'),
+        isTrue);
+    expect(
+        bonyPropertyDefaults.any((d) =>
+            d.objectId == 'region' && d.propertyId == 'u0' && d.value == '0.0'),
+        isTrue);
+    expect(
+        bonyPropertyDefaults.any((d) =>
+            d.objectId == 'region' && d.propertyId == 'v0' && d.value == '0.0'),
+        isTrue);
+    expect(
+        bonyPropertyDefaults.any((d) =>
+            d.objectId == 'region' && d.propertyId == 'u1' && d.value == '1.0'),
+        isTrue);
+    expect(
+        bonyPropertyDefaults.any((d) =>
+            d.objectId == 'region' && d.propertyId == 'v1' && d.value == '1.0'),
+        isTrue);
+    expect(
+        bonyPropertyDefaults.any((d) =>
+            d.objectId == 'region' &&
+            d.propertyId == 'alphaMode' &&
+            d.value == '"straight"'),
+        isTrue);
     expect(bonyRequiredProperties, hasLength(91));
   });
 }

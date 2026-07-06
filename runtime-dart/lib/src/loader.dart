@@ -64,10 +64,28 @@ SlotData _parseSlot(Map<String, dynamic> j) {
 }
 
 RegionAttachment _parseRegion(Map<String, dynamic> j) {
+  double field(String key, double defaultValue) {
+    final raw = j[key];
+    if (raw == null) return quantizeF32(defaultValue);
+    if (raw is! num) {
+      throw FormatException(
+        'field region.$key: expected num, got ${raw.runtimeType}',
+      );
+    }
+    return quantizeF32(raw.toDouble());
+  }
+
   return RegionAttachment(
     name: _required<String>(j['name'], 'region.name'),
-    width: _required<num>(j['width'], 'region.width').toDouble(),
-    height: _required<num>(j['height'], 'region.height').toDouble(),
+    width: quantizeF32(_required<num>(j['width'], 'region.width').toDouble()),
+    height:
+        quantizeF32(_required<num>(j['height'], 'region.height').toDouble()),
+    texturePage: (j['texturePage'] as String?) ?? '',
+    u0: field('u0', 0.0),
+    v0: field('v0', 0.0),
+    u1: field('u1', 1.0),
+    v1: field('v1', 1.0),
+    alphaMode: (j['alphaMode'] as String?) ?? 'straight',
   );
 }
 
@@ -963,6 +981,31 @@ void _validate(SkeletonData data) {
     if (r.width < 0 || r.height < 0) {
       throw FormatException('$ctx dimensions must be non-negative');
     }
+    if (r.u0 < 0.0 ||
+        r.u0 > 1.0 ||
+        r.v0 < 0.0 ||
+        r.v0 > 1.0 ||
+        r.u1 < 0.0 ||
+        r.u1 > 1.0 ||
+        r.v1 < 0.0 ||
+        r.v1 > 1.0) {
+      throw FormatException('$ctx UV coordinates must be in 0..1');
+    }
+    if (r.u0 > r.u1 || r.v0 > r.v1) {
+      throw FormatException('$ctx UV rectangle must be ordered');
+    }
+    if (r.alphaMode != 'straight' && r.alphaMode != 'premultiplied') {
+      throw FormatException('$ctx.alphaMode must be straight or premultiplied');
+    }
+    if (r.texturePage.isEmpty &&
+        (r.u0 != 0.0 ||
+            r.v0 != 0.0 ||
+            r.u1 != 1.0 ||
+            r.v1 != 1.0 ||
+            r.alphaMode != 'straight')) {
+      throw FormatException(
+          '$ctx.texturePage is required for region texture metadata');
+    }
     if (!regionNames.add(r.name)) {
       throw FormatException('duplicate region name: ${r.name}');
     }
@@ -1485,16 +1528,24 @@ void _validate(SkeletonData data) {
     for (var si = 0; si < data.skins.length; si++) {
       final skin = data.skins[si];
       final ctx = 'skins[$si]';
-      final skinBones =
-          ensureMembership(skin.bones, boneNames, requiredBones, '$ctx.bones', 'bone');
-      final skinIk = ensureMembership(
-          skin.ikConstraints, ikNames, requiredIk, '$ctx.ikConstraints', 'ikConstraint');
-      final skinTransform = ensureMembership(skin.transformConstraints,
-          transformNames, requiredTransform, '$ctx.transformConstraints', 'transformConstraint');
-      final skinPath = ensureMembership(
-          skin.pathConstraints, pathNames, requiredPath, '$ctx.pathConstraints', 'pathConstraint');
-      final skinPhysics = ensureMembership(skin.physicsConstraints, physicsNames,
-          requiredPhysics, '$ctx.physicsConstraints', 'physicsConstraint');
+      final skinBones = ensureMembership(
+          skin.bones, boneNames, requiredBones, '$ctx.bones', 'bone');
+      final skinIk = ensureMembership(skin.ikConstraints, ikNames, requiredIk,
+          '$ctx.ikConstraints', 'ikConstraint');
+      final skinTransform = ensureMembership(
+          skin.transformConstraints,
+          transformNames,
+          requiredTransform,
+          '$ctx.transformConstraints',
+          'transformConstraint');
+      final skinPath = ensureMembership(skin.pathConstraints, pathNames,
+          requiredPath, '$ctx.pathConstraints', 'pathConstraint');
+      final skinPhysics = ensureMembership(
+          skin.physicsConstraints,
+          physicsNames,
+          requiredPhysics,
+          '$ctx.physicsConstraints',
+          'physicsConstraint');
       if (skin.name == 'default') {
         defaultBones = skinBones;
         defaultIk = skinIk;
@@ -1505,7 +1556,8 @@ void _validate(SkeletonData data) {
     }
 
     void requireDefaultRequiredBone(String boneName, String constraintName) {
-      if (requiredBones.contains(boneName) && !defaultBones.contains(boneName)) {
+      if (requiredBones.contains(boneName) &&
+          !defaultBones.contains(boneName)) {
         throw FormatException(
             'non-required $constraintName depends on skinRequired bone not active for every skin: $boneName');
       }
@@ -1536,7 +1588,8 @@ void _validate(SkeletonData data) {
     void requireActiveRequiredBone(
         Set<String> activeBones, String boneName, String ctx) {
       if (requiredBones.contains(boneName) && !activeBones.contains(boneName)) {
-        throw FormatException('$ctx depends on inactive required bone: $boneName');
+        throw FormatException(
+            '$ctx depends on inactive required bone: $boneName');
       }
     }
 
@@ -1556,7 +1609,8 @@ void _validate(SkeletonData data) {
 
     for (var si = 0; si < data.skins.length; si++) {
       final skin = data.skins[si];
-      final ctx = skin.name == 'default' ? "skin 'default'" : "skin '${skin.name}'";
+      final ctx =
+          skin.name == 'default' ? "skin 'default'" : "skin '${skin.name}'";
       final activeBones = skin.name == 'default'
           ? defaultBones
           : {
@@ -1575,8 +1629,12 @@ void _validate(SkeletonData data) {
           ? defaultTransform
           : {
               ...defaultTransform,
-              ...ensureMembership(skin.transformConstraints, transformNames,
-                  requiredTransform, 'skins[$si].transformConstraints', 'transformConstraint'),
+              ...ensureMembership(
+                  skin.transformConstraints,
+                  transformNames,
+                  requiredTransform,
+                  'skins[$si].transformConstraints',
+                  'transformConstraint'),
             };
       final activePath = skin.name == 'default'
           ? defaultPath
@@ -1589,8 +1647,12 @@ void _validate(SkeletonData data) {
           ? defaultPhysics
           : {
               ...defaultPhysics,
-              ...ensureMembership(skin.physicsConstraints, physicsNames,
-                  requiredPhysics, 'skins[$si].physicsConstraints', 'physicsConstraint'),
+              ...ensureMembership(
+                  skin.physicsConstraints,
+                  physicsNames,
+                  requiredPhysics,
+                  'skins[$si].physicsConstraints',
+                  'physicsConstraint'),
             };
 
       checkActiveBoneClosure(activeBones, ctx);
@@ -1932,6 +1994,12 @@ const int _bkBone = 1012;
 const int _bkAttachment = 1013;
 const int _bkWidth = 1014;
 const int _bkHeight = 1015;
+const int _bkTexturePage = 8000;
+const int _bkU0 = 8001;
+const int _bkV0 = 8002;
+const int _bkU1 = 8003;
+const int _bkV1 = 8004;
+const int _bkAlphaMode = 8005;
 // Clipping attachment property keys (M4). vertices is a packed-f32-pairs bytes
 // payload (varuint count + count*(f32 x, f32 y)); untilSlot is a string.
 const int _bkVertices = 3000;
@@ -3121,6 +3189,14 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
           name: _bStr(obj, _bkName, strings, 'region.name'),
           width: _bF32(obj, _bkWidth, 'region.width'),
           height: _bF32(obj, _bkHeight, 'region.height'),
+          texturePage: _bStr(obj, _bkTexturePage, strings, 'region.texturePage',
+              def: ''),
+          u0: _bF32(obj, _bkU0, 'region.u0', def: 0.0),
+          v0: _bF32(obj, _bkV0, 'region.v0', def: 0.0),
+          u1: _bF32(obj, _bkU1, 'region.u1', def: 1.0),
+          v1: _bF32(obj, _bkV1, 'region.v1', def: 1.0),
+          alphaMode: _bStr(obj, _bkAlphaMode, strings, 'region.alphaMode',
+              def: 'straight'),
         ));
       case _bnbPointAttachment:
         flushSkin();
@@ -3180,12 +3256,18 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
             _bIndexList(obj, _bkSkinBones, boneNames(), 'skin.bones');
         currentSkinIkConstraints = _bIndexList(
             obj, _bkSkinIkConstraints, ikNames(), 'skin.ikConstraints');
-        currentSkinTransformConstraints = _bIndexList(obj,
-            _bkSkinTransformConstraints, transformNames(), 'skin.transformConstraints');
+        currentSkinTransformConstraints = _bIndexList(
+            obj,
+            _bkSkinTransformConstraints,
+            transformNames(),
+            'skin.transformConstraints');
         currentSkinPathConstraints = _bIndexList(
             obj, _bkSkinPathConstraints, pathNames(), 'skin.pathConstraints');
-        currentSkinPhysicsConstraints = _bIndexList(obj,
-            _bkSkinPhysicsConstraints, physicsNames(), 'skin.physicsConstraints');
+        currentSkinPhysicsConstraints = _bIndexList(
+            obj,
+            _bkSkinPhysicsConstraints,
+            physicsNames(),
+            'skin.physicsConstraints');
       case _bnbSkinEntry:
         flushPending();
         if (currentSkinName.isEmpty) {

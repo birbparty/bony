@@ -74,6 +74,12 @@ type
     name: string
     width: float64
     height: float64
+    texturePage: string
+    u0: float64
+    v0: float64
+    u1: float64
+    v1: float64
+    alphaMode: string
 
   PointAttachmentData* = object
     name: string
@@ -536,11 +542,26 @@ proc slotData*(name, bone, attachment: string): SlotData =
   SlotData(name: name, bone: bone, attachment: attachment)
 
 
-proc regionAttachment*(name: string; width, height: float64): RegionAttachment =
+proc regionAttachment*(
+  name: string;
+  width, height: float64;
+  texturePage = "";
+  u0 = 0.0;
+  v0 = 0.0;
+  u1 = 1.0;
+  v1 = 1.0;
+  alphaMode = "straight";
+): RegionAttachment =
   RegionAttachment(
     name: name,
     width: quantizeF32(width, "region.width"),
     height: quantizeF32(height, "region.height"),
+    texturePage: texturePage,
+    u0: quantizeF32(u0, "region.u0"),
+    v0: quantizeF32(v0, "region.v0"),
+    u1: quantizeF32(u1, "region.u1"),
+    v1: quantizeF32(v1, "region.v1"),
+    alphaMode: alphaMode,
   )
 
 
@@ -854,6 +875,24 @@ proc width*(region: RegionAttachment): float64 = region.width
 
 
 proc height*(region: RegionAttachment): float64 = region.height
+
+
+proc texturePage*(region: RegionAttachment): string = region.texturePage
+
+
+proc u0*(region: RegionAttachment): float64 = region.u0
+
+
+proc v0*(region: RegionAttachment): float64 = region.v0
+
+
+proc u1*(region: RegionAttachment): float64 = region.u1
+
+
+proc v1*(region: RegionAttachment): float64 = region.v1
+
+
+proc alphaMode*(region: RegionAttachment): string = region.alphaMode
 
 
 proc name*(point: PointAttachmentData): string = point.name
@@ -1315,6 +1354,19 @@ proc validateSkeletonData*(
       raise newBonyLoadError(schemaViolation, context & ".name must not be empty")
     if region.width < 0 or region.height < 0:
       raise newBonyLoadError(schemaViolation, context & " dimensions must be non-negative")
+    discard quantizeUnit(region.u0, context & ".u0")
+    discard quantizeUnit(region.v0, context & ".v0")
+    discard quantizeUnit(region.u1, context & ".u1")
+    discard quantizeUnit(region.v1, context & ".v1")
+    if region.u0 > region.u1 or region.v0 > region.v1:
+      raise newBonyLoadError(schemaViolation, context & " UV rectangle must be ordered")
+    if region.alphaMode notin ["straight", "premultiplied"]:
+      raise newBonyLoadError(schemaViolation, context & ".alphaMode must be straight or premultiplied")
+    if region.texturePage.len == 0 and (
+      region.u0 != 0.0 or region.v0 != 0.0 or region.u1 != 1.0 or region.v1 != 1.0 or
+      region.alphaMode != "straight"
+    ):
+      raise newBonyLoadError(schemaViolation, context & ".texturePage is required for region texture metadata")
     if region.name in allRegionNames:
       raise newBonyLoadError(duplicateKey, "duplicate region name: " & region.name)
     allRegionNames.incl(region.name)

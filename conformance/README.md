@@ -51,6 +51,7 @@ conformance/
 | M21 | `m21_pointer_listener_rig` | Pointer helper listeners: bounding-box and point helper hit testing, pointer-driven bool/number/trigger input mutation, same-sample state transition, and pointer events in the state-machine `events` channel |
 | M22 | `m22_skin_required_rig` | `skinRequired` activation: default-plus-active-skin membership, inactive required bone draw suppression, required IK/transform/path no-op vs active solve, later active constraint order stability, and inactive/active physics behavior |
 | M23 | `m23_nested_rig` | Host-resolved nested rig setup-pose composition: child draw-order insertion, host affine composition, explicit child skin selection, and host clipping of composed child geometry |
+| M24 | `m24_atlas_region_rig` | Atlas-backed region texture metadata: non-empty `DrawBatch.texturePage`, non-default UV rectangle, JSON/BNB parity, and legacy full-quad defaults for untextured regions |
 
 The `M5 (IK)` row is a second M5 asset (structured like the standalone M9 row):
 the table is one-asset-per-row, so `m5_ik_rig` gets its own row rather than being
@@ -737,6 +738,19 @@ Notes for readers comparing runtimes:
 - Cross-runtime status: the setup-pose golden is honored by both the Nim
   reference and the Dart runtime (`runtime-dart/test/m23_nested_rig_conformance_test.dart`).
 
+### M24 atlas region rig (`m24_atlas_region_rig`)
+
+`m24_atlas_region_rig` freezes the canonical atlas-backed region texture surface
+from `docs/atlas-region-texture-contract.md`. It has a single root bone, one
+slot, and one region whose `texturePage` is `atlas_0.png` with UV rectangle
+`(0.25, 0.125) -> (0.5, 0.375)`.
+
+The golden is `m24_atlas_region_rig_t0.json`. Its region draw batch must carry a
+non-empty `texturePage`, and its vertex UVs must differ from the default
+full-quad values by more than `1e-4`. The fixture also includes a `.bnb` file so
+the JSON and binary loaders prove the same texture metadata reaches
+`buildDrawBatches`.
+
 ### Image goldens (Nim reference rasterizer only)
 
 Image goldens (`*_play.png`) are Nim-only regression artifacts for the reference
@@ -766,6 +780,7 @@ and do not need to be reproduced by Dart or other runtimes.
 | m21_pointer_listener_rig | pending (no PNG golden produced) |
 | m22_skin_required_rig | pending (no PNG golden produced) |
 | m23_nested_rig | pending (no PNG golden produced) |
+| m24_atlas_region_rig | pending (no PNG golden produced) |
 
 ---
 
