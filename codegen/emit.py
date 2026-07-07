@@ -4,8 +4,8 @@ import json
 import re
 from typing import Any
 
-from schema_types import SourceError, TargetLangSpec
-from validate import inferred_equality_mode, require_list
+from .schema_types import SourceError, TargetLangSpec
+from .validate import inferred_equality_mode, require_list
 
 
 NIM_SCALAR_BACKINGS = {

@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from schema_types import Line, SourceError
+from .schema_types import Line, SourceError
 
 
 def load_yaml_subset(path: Path) -> Any:

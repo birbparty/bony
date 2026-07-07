@@ -5,8 +5,8 @@ import json
 from pathlib import Path
 from typing import Any, cast
 
-from schema_types import ObjectEntry, PropertyKeyEntry, SourceError, TypeKeyEntry
-from validate import require_list
+from .schema_types import ObjectEntry, PropertyKeyEntry, SourceError, TypeKeyEntry
+from .validate import require_list
 
 
 PACKED_BYTES_METADATA: dict[str, dict[str, Any]] = {
@@ -278,7 +278,9 @@ def schema_for_property(property_id: str, backing_type: str) -> dict[str, Any]:
     schema = schema_for_backing_type(backing_type)
     if backing_type == "bytes" and property_id in PACKED_BYTES_METADATA:
         schema["x-bony-packedBytes"] = dict(PACKED_BYTES_METADATA[property_id])
-    schema.update(PROPERTY_SCHEMA_OVERRIDES.get(property_id, {}))
+    override = PROPERTY_SCHEMA_OVERRIDES.get(property_id)
+    if override is not None:
+        schema.update(deepcopy(override))
     return schema
 
 

@@ -1,15 +1,17 @@
+"""Generate bony runtime metadata and schema from registry/default sources."""
+
 from __future__ import annotations
 
 import argparse
 import sys
 from pathlib import Path
 
-from emit import generate_dart, generate_nim
-from paths import DART_WIRE_PATH, DEFAULTS_PATH, NIM_WIRE_PATH, REGISTRY_PATH, ROOT, SCHEMA_PATH, WIRE_SCHEMA_PATH
-from schema import generate_schema, generate_wire_schema
-from schema_types import SourceError
-from validate import validate_sources
-from yaml_subset import load_yaml_subset
+from .emit import generate_dart, generate_nim
+from .paths import DART_WIRE_PATH, DEFAULTS_PATH, NIM_WIRE_PATH, REGISTRY_PATH, ROOT, SCHEMA_PATH, WIRE_SCHEMA_PATH
+from .schema import generate_schema, generate_wire_schema
+from .schema_types import SourceError
+from .validate import validate_sources
+from .yaml_subset import load_yaml_subset
 
 
 def write_or_check(path: Path, content: str, check: bool, changed: list[Path]) -> None:

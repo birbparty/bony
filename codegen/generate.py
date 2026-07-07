@@ -3,13 +3,19 @@
 
 from __future__ import annotations
 
-from cli import main, write_or_check
-from emit import *
-from paths import *
-from schema import *
-from schema_types import *
-from validate import *
-from yaml_subset import *
+if __package__ in (None, ""):
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from codegen.cli import main, write_or_check
+from codegen.emit import *
+from codegen.paths import *
+from codegen.schema import *
+from codegen.schema_types import *
+from codegen.validate import *
+from codegen.yaml_subset import *
 
 
 if __name__ == "__main__":

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import sys
 import json
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -172,6 +173,17 @@ class GeneratorValidationTests(unittest.TestCase):
         defaults = generate.load_yaml_subset(generate.ROOT / "spec" / "defaults.yml")
         return registry, defaults
 
+    def test_generate_module_entrypoint_is_package_import_compatible(self) -> None:
+        result = subprocess.run(
+            [sys.executable, "-m", "codegen.generate", "--check"],
+            cwd=generate.ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_valid_non_empty_sources_generate_runtime_metadata(self) -> None:
         registry = sample_registry()
         defaults = sample_defaults()
@@ -222,6 +234,21 @@ class GeneratorValidationTests(unittest.TestCase):
         self.assertIn("warp", schema["$defs"]["deformer"]["properties"])
         self.assertIn("boneTimelines", schema["$defs"]["animationClip"]["properties"])
         self.assertIn("layers", schema["$defs"]["stateMachine"]["properties"])
+
+    def test_schema_for_property_returns_mutation_safe_overrides(self) -> None:
+        transform_mode = generate.schema_for_property("transformMode", "string")
+        transform_mode["enum"].append("badMode")
+
+        self.assertEqual(
+            generate.schema_for_property("transformMode", "string")["enum"],
+            [
+                "normal",
+                "onlyTranslation",
+                "noRotationOrReflection",
+                "noScale",
+                "noScaleOrReflection",
+            ],
+        )
 
     def test_project_m3_m8_keys_are_in_reserved_bands(self) -> None:
         registry, defaults = self.project_sources()

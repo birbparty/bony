@@ -5,8 +5,8 @@ import binascii
 import re
 from typing import Any
 
-from schema_types import SourceError
-from yaml_subset import split_inline_list
+from .schema_types import SourceError
+from .yaml_subset import split_inline_list
 
 
 def require_list(source: dict[str, Any], key: str) -> list[dict[str, Any]]:
