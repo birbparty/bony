@@ -1,6 +1,7 @@
-import std/[os, osproc, streams]
+import std/[os, osproc]
 
 import bony
+import testutil
 
 const mixedOrderFixture = """
 {
@@ -234,24 +235,8 @@ const ikOmitCanonicalFixture = """{
 }
 """
 
-proc canonicalJson(text: string): string =
-  toBonyJson(loadBonyJson(text))
-
 proc viaBnb(text: string): string =
   toBonyJson(loadKnownBonyBnb(toBonyBnb(loadBonyJson(text))))
-
-proc readBytes(path: string): seq[byte] =
-  let content = readFile(path)
-  result = newSeq[byte](content.len)
-  for index, ch in content:
-    result[index] = byte(ord(ch))
-
-proc runProcess(binary: string; args: openArray[string]): tuple[output: string; exitCode: int] =
-  let process = startProcess(binary, args = args, options = {poStdErrToStdOut})
-  let output = process.outputStream.readAll()
-  let exitCode = process.waitForExit()
-  process.close()
-  (output, exitCode)
 
 proc expectJsonBnbJsonIdempotent(name, input, expected: string) =
   let canonical = canonicalJson(input)

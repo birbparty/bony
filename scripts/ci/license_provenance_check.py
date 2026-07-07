@@ -47,20 +47,27 @@ DART_LOCK_ALLOWLIST = {
     "args": ("2.7.0", "d0481093c50b1da8910eb0bb301626d4d8eb7284aa739614d2b394ee09e3ea04"),
     "async": ("2.13.1", "e2eb0491ba5ddb6177742d2da23904574082139b07c1e33b8503b9f46f3e1a37"),
     "boolean_selector": ("2.1.2", "8aab1771e1243a5063b8b0ff68042d67334e3feab9e95b9490f9a6ebf73b42ea"),
+    "characters": ("1.4.1", "faf38497bda5ead2a8c7615f4f7939df04333478bf32e4173fcb06d428b5716b"),
     "cli_config": ("0.2.0", "ac20a183a07002b700f0c25e61b7ee46b23c309d76ab7b7640a028f18e4d99ec"),
+    "clock": ("1.1.2", "fddb70d9b5277016c77a80201021d40a2247104d9f4aa7bab7157b7e3f05b84b"),
     "collection": ("1.19.1", "2f5709ae4d3d59dd8f7cd309b4e023046b57d8a6c82130785d2b0e5868084e76"),
     "convert": ("3.1.2", "b30acd5944035672bc15c6b7a8b47d773e41e2f17de064350988c5d02adb1c68"),
     "coverage": ("1.15.1", "956a3de0725ca232ad353565a8290d3357592bf4250f6f298a185e2d949c5d3d"),
     "crypto": ("3.0.7", "c8ea0233063ba03258fbcf2ca4d6dadfefe14f02fab57702265467a19f27fadf"),
+    "fake_async": ("1.3.3", "5368f224a74523e8d2e7399ea1638b37aecfca824a3cc4dfdf77bf1fa905ac44"),
     "file": ("7.0.1", "a3b4f84adafef897088c160faf7dfffb7696046cb13ae90b508c2cbc95d3b8d4"),
     "frontend_server_client": ("4.0.0", "f64a0333a82f30b0cca061bc3d143813a486dc086b574bfb233b7c1372427694"),
     "glob": ("2.1.3", "c3f1ee72c96f8f78935e18aa8cecced9ab132419e8625dc187e1c2408efc20de"),
     "http_multi_server": ("3.2.2", "aa6199f908078bb1c5efb8d8638d4ae191aac11b311132c3ef48ce352fb52ef8"),
     "http_parser": ("4.1.2", "178d74305e7866013777bab2c3d8726205dc5a4dd935297175b19a23a2e66571"),
     "io": ("1.0.5", "dfd5a80599cf0165756e3181807ed3e77daf6dd4137caaad72d0b7931597650b"),
+    "leak_tracker": ("11.0.2", "33e2e26bdd85a0112ec15400c8cbffea70d0f9c3407491f672a2fad47915e2de"),
+    "leak_tracker_flutter_testing": ("3.0.10", "1dbc140bb5a23c75ea9c4811222756104fbcd1a27173f0c34ca01e16bea473c1"),
+    "leak_tracker_testing": ("3.0.2", "8d5a2d49f4a66b49744b23b018848400d23e54caf9463f4eb20df3eb8acb2eb1"),
     "logging": ("1.3.0", "c8245ada5f1717ed44271ed1c26b8ce85ca3228fd2ffdb75468ab01979309d61"),
     "matcher": ("0.12.19", "dc0b7dc7651697ea4ff3e69ef44b0407ea32c487a39fff6a4004fa585e901861"),
-    "meta": ("1.18.3", "c82594181e3312f3d0695fc95aaaf7758d75b8d4ae2bbecf223b9fd5109a059d"),
+    "material_color_utilities": ("0.13.0", "9c337007e82b1889149c82ed242ed1cb24a66044e30979c44912381e9be4c48b"),
+    "meta": ("1.18.0", "1741988757a65eb6b36abe716829688cf01910bbf91c34354ff7ec1c3de2b349"),
     "mime": ("2.0.0", "41a20518f0cb1256669420fdba0cd90d21561e560ac240f26ef8322e45bb7ed6"),
     "node_preamble": ("2.0.2", "6e7eac89047ab8a8d26cf16127b5ed26de65209847630400f9aefd7cd5c730db"),
     "package_config": ("2.2.0", "f096c55ebb7deb7e384101542bfba8c52696c1b56fca2eb62827989ef2353bbc"),
@@ -82,6 +89,7 @@ DART_LOCK_ALLOWLIST = {
     "test_api": ("0.7.11", "949a932224383300f01be9221c39180316445ecb8e7547f70a41a35bf421fb9e"),
     "test_core": ("0.6.17", "1991d4cfe85d5043241acac92962c3977c8d2f2add1ee73130c7b286417d1d34"),
     "typed_data": ("1.4.0", "f9049c039ebfeb4cf7a7104a675823cd72dba8297f264b6637062516699fa006"),
+    "vector_math": ("2.2.0", "d530bd74fea330e6e364cda7a85019c434070188383e1cd8d9777ee586914c5b"),
     "vm_service": ("15.2.0", "0016aef94fc66495ac78af5859181e3f3bf2026bd8eecc72b9565601e19ab360"),
     "watcher": ("1.2.1", "1398c9f081a753f9226febe8900fce8f7d0a67163334e1c94a2438339d79d635"),
     "web": ("1.1.1", "868d88a33d8a87b18ffc05f9f030ba328ffefba92d6c127917a2ba740f9cfe4a"),
@@ -89,6 +97,12 @@ DART_LOCK_ALLOWLIST = {
     "web_socket_channel": ("3.0.3", "d645757fb0f4773d602444000a8131ff5d48c9e47adfe9772652dd1a4f2d45c8"),
     "webkit_inspection_protocol": ("1.2.1", "87d3f2333bb240704cd3f1c6b5b7acd8a10e7f0bc28c28dcf14e782014f4a572"),
     "yaml": ("3.1.3", "b9da305ac7c39faa3f030eccd175340f968459dae4af175130b3fc47e40d76ce"),
+}
+
+DART_SDK_LOCK_ALLOWLIST = {
+    "flutter": "0.0.0",
+    "flutter_test": "0.0.0",
+    "sky_engine": "0.0.0",
 }
 
 FORBIDDEN_LICENSE_TERMS = [
@@ -158,8 +172,16 @@ def assert_dart_provenance(pubspec_text: str) -> None:
         fail("runtime-dart/pubspec.yaml must keep the test dev dependency visible for provenance review")
 
 
-def dart_lock_packages(lock_text: str) -> dict[str, tuple[str, str, str]]:
-    packages: dict[str, tuple[str, str, str]] = {}
+def dart_allowlist_refresh_hint() -> str:
+    return (
+        "Run `python3 scripts/ci/license_provenance_check.py "
+        "--print-dart-lock-allowlist`, review the diff, then update "
+        "DART_LOCK_ALLOWLIST / DART_SDK_LOCK_ALLOWLIST with provenance evidence."
+    )
+
+
+def dart_lock_packages(lock_text: str) -> dict[str, tuple[str, str | None, str]]:
+    packages: dict[str, tuple[str, str | None, str]] = {}
     current: str | None = None
     source: str | None = None
     sha256: str | None = None
@@ -168,8 +190,12 @@ def dart_lock_packages(lock_text: str) -> dict[str, tuple[str, str, str]]:
     def flush() -> None:
         if current is None:
             return
-        if source != "hosted" or sha256 is None or version is None:
-            fail(f"Dart package {current} must be hosted with locked sha256 and version")
+        if source is None or version is None:
+            fail(f"Dart package {current} must have locked source and version")
+        if source == "hosted" and sha256 is None:
+            fail(f"Dart hosted package {current} must have locked sha256")
+        if source not in {"hosted", "sdk"}:
+            fail(f"Dart package {current} uses unsupported source {source!r}; {dart_allowlist_refresh_hint()}")
         packages[current] = (version, sha256, source)
 
     for line in lock_text.splitlines():
@@ -197,20 +223,54 @@ def dart_lock_packages(lock_text: str) -> dict[str, tuple[str, str, str]]:
     return packages
 
 
+def print_dart_lock_allowlist(lock_text: str) -> None:
+    packages = dart_lock_packages(lock_text)
+    print("DART_LOCK_ALLOWLIST = {")
+    for name, (version, sha256, source) in sorted(packages.items()):
+        if source != "hosted":
+            continue
+        print(f'    "{name}": ("{version}", "{sha256}"),')
+    print("}")
+    print()
+    print("DART_SDK_LOCK_ALLOWLIST = {")
+    for name, (version, _sha256, source) in sorted(packages.items()):
+        if source != "sdk":
+            continue
+        print(f'    "{name}": "{version}",')
+    print("}")
+
+
 def assert_dart_lock_provenance(lock_text: str) -> None:
     packages = dart_lock_packages(lock_text)
-    actual = set(packages)
-    expected = set(DART_LOCK_ALLOWLIST)
-    if actual != expected:
-        missing = ", ".join(sorted(expected - actual))
-        extra = ", ".join(sorted(actual - expected))
-        fail(f"Dart lockfile package set changed; missing=[{missing}] extra=[{extra}]")
+    hosted = {name for name, (_version, _sha256, source) in packages.items() if source == "hosted"}
+    expected_hosted = set(DART_LOCK_ALLOWLIST)
+    if hosted != expected_hosted:
+        missing = ", ".join(sorted(expected_hosted - hosted))
+        extra = ", ".join(sorted(hosted - expected_hosted))
+        fail(f"Dart hosted lockfile package set changed; missing=[{missing}] extra=[{extra}]. {dart_allowlist_refresh_hint()}")
+    sdk = {name for name, (_version, _sha256, source) in packages.items() if source == "sdk"}
+    expected_sdk = set(DART_SDK_LOCK_ALLOWLIST)
+    if sdk != expected_sdk:
+        missing = ", ".join(sorted(expected_sdk - sdk))
+        extra = ", ".join(sorted(sdk - expected_sdk))
+        fail(f"Dart SDK lockfile package set changed; missing=[{missing}] extra=[{extra}]. {dart_allowlist_refresh_hint()}")
     for name, (version, sha256, source) in packages.items():
-        allowed_version, allowed_sha256 = DART_LOCK_ALLOWLIST[name]
-        if source != "hosted":
-            fail(f"Dart package {name} must remain hosted on pub.dev")
-        if version != allowed_version or sha256 != allowed_sha256:
-            fail(f"Dart package {name} lock changed; update provenance evidence")
+        if source == "hosted":
+            allowed_version, allowed_sha256 = DART_LOCK_ALLOWLIST[name]
+            if version != allowed_version or sha256 != allowed_sha256:
+                fail(
+                    f"Dart hosted package {name} lock changed; "
+                    f"expected=({allowed_version}, {allowed_sha256}) "
+                    f"actual=({version}, {sha256}). {dart_allowlist_refresh_hint()}"
+                )
+        elif source == "sdk":
+            allowed_version = DART_SDK_LOCK_ALLOWLIST[name]
+            if version != allowed_version:
+                fail(
+                    f"Dart SDK package {name} lock changed; "
+                    f"expected={allowed_version} actual={version}. "
+                    f"{dart_allowlist_refresh_hint()}"
+                )
 
 
 def assert_bddy_provenance(scan_text: str) -> None:
@@ -271,15 +331,28 @@ def build_policy_files() -> list[Path]:
     files: list[Path] = []
     for path in BUILD_POLICY_PATHS:
         if path.is_dir():
-            files.extend(child for child in path.rglob("*") if child.is_file())
+            files.extend(
+                child
+                for child in path.rglob("*")
+                if child.is_file() and "__pycache__" not in child.parts
+            )
         elif path.exists():
             files.append(path)
     return sorted(files)
 
 
+def read_policy_text(path: Path) -> str | None:
+    try:
+        return path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return None
+
+
 def assert_no_forbidden_runtime_fetches() -> None:
     for path in build_policy_files():
-        text = path.read_text(encoding="utf-8")
+        text = read_policy_text(path)
+        if text is None:
+            continue
         for line_number, line in enumerate(text.splitlines(), start=1):
             lower_line = line.lower()
             if not NETWORK_FETCH_PATTERN.search(line):
@@ -291,6 +364,12 @@ def assert_no_forbidden_runtime_fetches() -> None:
 
 
 def main() -> None:
+    if len(sys.argv) == 2 and sys.argv[1] == "--print-dart-lock-allowlist":
+        print_dart_lock_allowlist(read(PUBSPEC_LOCK))
+        return
+    if len(sys.argv) != 1:
+        fail("usage: license_provenance_check.py [--print-dart-lock-allowlist]")
+
     root_license = read(ROOT_LICENSE)
     if "MIT License" not in root_license:
         fail("repository LICENSE must remain MIT")

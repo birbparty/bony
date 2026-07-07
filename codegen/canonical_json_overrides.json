@@ -1,0 +1,1095 @@
+{
+  "region": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "name": {
+        "type": "string",
+        "minLength": 1
+      },
+      "width": {
+        "type": "number",
+        "minimum": 0
+      },
+      "height": {
+        "type": "number",
+        "minimum": 0
+      },
+      "texturePage": {
+        "type": "string",
+        "default": ""
+      },
+      "u0": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1,
+        "default": 0.0
+      },
+      "v0": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1,
+        "default": 0.0
+      },
+      "u1": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1,
+        "default": 1.0
+      },
+      "v1": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1,
+        "default": 1.0
+      },
+      "alphaMode": {
+        "type": "string",
+        "enum": [
+          "straight",
+          "premultiplied"
+        ],
+        "default": "straight"
+      }
+    },
+    "required": [
+      "height",
+      "name",
+      "width"
+    ]
+  },
+  "ikConstraint": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "name": {
+        "type": "string",
+        "minLength": 1
+      },
+      "bones": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "target": {
+        "type": "string"
+      },
+      "order": {
+        "type": "integer",
+        "default": 0
+      },
+      "skinRequired": {
+        "type": "boolean",
+        "default": false
+      },
+      "mix": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1,
+        "default": 1.0
+      },
+      "bendPositive": {
+        "type": "boolean",
+        "default": true
+      }
+    },
+    "required": [
+      "bones",
+      "name",
+      "target"
+    ]
+  },
+  "clippingAttachment": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "name": {
+        "type": "string",
+        "minLength": 1
+      },
+      "vertices": {
+        "type": "array",
+        "minItems": 6,
+        "items": {
+          "type": "number"
+        }
+      },
+      "untilSlot": {
+        "type": "string",
+        "default": ""
+      }
+    },
+    "required": [
+      "name",
+      "vertices"
+    ]
+  },
+  "pointAttachment": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "name": {
+        "type": "string",
+        "minLength": 1
+      },
+      "x": {
+        "type": "number"
+      },
+      "y": {
+        "type": "number"
+      },
+      "rotation": {
+        "type": "number"
+      }
+    },
+    "required": [
+      "name",
+      "rotation",
+      "x",
+      "y"
+    ]
+  },
+  "boundingBoxAttachment": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "name": {
+        "type": "string",
+        "minLength": 1
+      },
+      "vertices": {
+        "type": "array",
+        "minItems": 6,
+        "items": {
+          "type": "number"
+        }
+      }
+    },
+    "required": [
+      "name",
+      "vertices"
+    ]
+  },
+  "meshAttachment": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "name": {
+        "type": "string",
+        "minLength": 1
+      },
+      "weighted": {
+        "type": "boolean",
+        "default": false
+      },
+      "vertices": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "x": {
+                  "type": "number"
+                },
+                "y": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "x",
+                "y"
+              ]
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "influences": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "bone": {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "bindX": {
+                        "type": "number"
+                      },
+                      "bindY": {
+                        "type": "number"
+                      },
+                      "weight": {
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "bindX",
+                      "bindY",
+                      "bone",
+                      "weight"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "influences"
+              ]
+            }
+          ]
+        }
+      },
+      "uvs": {
+        "type": "array",
+        "minItems": 2,
+        "items": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "description": "Flat [u0, v0, u1, v1, ...] pairs; each coordinate is unit-range 0..1; length is even and matches the vertex count (loader-validated per docs/mesh-attachment-contract.md)."
+      },
+      "triangles": {
+        "type": "array",
+        "minItems": 3,
+        "items": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "description": "Flat vertex-index triples; length is a multiple of 3 (loader-validated per docs/mesh-attachment-contract.md)."
+      }
+    },
+    "required": [
+      "name",
+      "triangles",
+      "uvs",
+      "vertices"
+    ]
+  },
+  "nestedRigAttachment": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "name": {
+        "type": "string",
+        "minLength": 1
+      },
+      "skeleton": {
+        "type": "string",
+        "minLength": 1
+      },
+      "skin": {
+        "type": "string",
+        "default": ""
+      },
+      "animation": {
+        "type": "string",
+        "default": ""
+      }
+    },
+    "required": [
+      "name",
+      "skeleton"
+    ]
+  },
+  "parameter": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "name": {
+        "type": "string",
+        "minLength": 1
+      },
+      "min": {
+        "type": "number"
+      },
+      "max": {
+        "type": "number"
+      },
+      "default": {
+        "type": "number",
+        "default": 0.0
+      }
+    },
+    "required": [
+      "max",
+      "min",
+      "name"
+    ]
+  },
+  "deformer": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "id": {
+        "type": "string",
+        "minLength": 1
+      },
+      "parent": {
+        "type": "string",
+        "default": ""
+      },
+      "order": {
+        "type": "integer",
+        "default": 0
+      },
+      "kind": {
+        "type": "string",
+        "enum": [
+          "warp",
+          "rotation"
+        ]
+      },
+      "warp": {
+        "$ref": "#/$defs/warpLattice"
+      },
+      "rotation": {
+        "$ref": "#/$defs/rotationDeformer"
+      },
+      "keyformBlend": {
+        "$ref": "#/$defs/keyformBlend"
+      }
+    },
+    "required": [
+      "id",
+      "kind"
+    ]
+  },
+  "warpLattice": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "rows": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "cols": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "minX": {
+        "type": "number"
+      },
+      "minY": {
+        "type": "number"
+      },
+      "maxX": {
+        "type": "number"
+      },
+      "maxY": {
+        "type": "number"
+      },
+      "controlPoints": {
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/deformerPoint"
+        }
+      }
+    },
+    "required": [
+      "cols",
+      "controlPoints",
+      "maxX",
+      "maxY",
+      "minX",
+      "minY",
+      "rows"
+    ]
+  },
+  "deformerPoint": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "x": {
+        "type": "number"
+      },
+      "y": {
+        "type": "number"
+      }
+    },
+    "required": [
+      "x",
+      "y"
+    ]
+  },
+  "rotationDeformer": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "pivotX": {
+        "type": "number"
+      },
+      "pivotY": {
+        "type": "number"
+      },
+      "angleDegrees": {
+        "type": "number"
+      },
+      "scaleX": {
+        "type": "number",
+        "default": 1.0
+      },
+      "scaleY": {
+        "type": "number",
+        "default": 1.0
+      },
+      "opacity": {
+        "type": "number",
+        "default": 1.0
+      }
+    },
+    "required": [
+      "angleDegrees",
+      "pivotX",
+      "pivotY"
+    ]
+  },
+  "keyformBlend": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "axes": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "keyforms": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "$ref": "#/$defs/keyform"
+        }
+      }
+    },
+    "required": [
+      "axes",
+      "keyforms"
+    ]
+  },
+  "keyform": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "coordinates": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "number"
+        }
+      },
+      "values": {
+        "type": "array",
+        "items": {
+          "type": "number"
+        }
+      }
+    },
+    "required": [
+      "coordinates",
+      "values"
+    ]
+  },
+  "animationClip": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "name": {
+        "type": "string",
+        "minLength": 1
+      },
+      "boneTimelines": {
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/boneTimeline"
+        },
+        "default": []
+      },
+      "slotTimelines": {
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/slotTimeline"
+        },
+        "default": []
+      },
+      "deformTimelines": {
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/deformTimeline"
+        },
+        "default": []
+      },
+      "eventTimelines": {
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/eventTimeline"
+        },
+        "default": []
+      }
+    },
+    "required": [
+      "name"
+    ]
+  },
+  "boneTimeline": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "bone": {
+        "type": "string",
+        "minLength": 1
+      },
+      "property": {
+        "type": "string",
+        "enum": [
+          "rotate",
+          "translateX",
+          "translateY",
+          "scaleX",
+          "scaleY",
+          "shearX",
+          "shearY",
+          "translate",
+          "scale",
+          "shear",
+          "inherit"
+        ]
+      },
+      "keyframes": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "t": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "t"
+          ]
+        }
+      }
+    },
+    "required": [
+      "bone",
+      "keyframes",
+      "property"
+    ]
+  },
+  "slotTimeline": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "slot": {
+        "type": "string",
+        "minLength": 1
+      },
+      "property": {
+        "type": "string",
+        "enum": [
+          "attachment",
+          "rgba",
+          "rgb",
+          "alpha",
+          "rgba2",
+          "sequence"
+        ]
+      },
+      "keyframes": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "t": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "t"
+          ]
+        }
+      }
+    },
+    "required": [
+      "keyframes",
+      "property",
+      "slot"
+    ]
+  },
+  "deformTimeline": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "skin": {
+        "type": "string",
+        "minLength": 1
+      },
+      "slot": {
+        "type": "string",
+        "minLength": 1
+      },
+      "attachment": {
+        "type": "string",
+        "minLength": 1
+      },
+      "vertexCount": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "keyframes": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "t": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "t"
+          ]
+        }
+      }
+    },
+    "required": [
+      "attachment",
+      "keyframes",
+      "skin",
+      "slot",
+      "vertexCount"
+    ]
+  },
+  "skin": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "name": {
+        "type": "string",
+        "minLength": 1
+      },
+      "bones": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "minLength": 1
+        },
+        "default": []
+      },
+      "ikConstraints": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "minLength": 1
+        },
+        "default": []
+      },
+      "transformConstraints": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "minLength": 1
+        },
+        "default": []
+      },
+      "pathConstraints": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "minLength": 1
+        },
+        "default": []
+      },
+      "physicsConstraints": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "minLength": 1
+        },
+        "default": []
+      },
+      "entries": {
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/skinEntry"
+        },
+        "default": []
+      }
+    },
+    "required": [
+      "name"
+    ]
+  },
+  "skinEntry": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "slot": {
+        "type": "string",
+        "minLength": 1
+      },
+      "attachment": {
+        "type": "string",
+        "minLength": 1
+      },
+      "target": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "required": [
+      "attachment",
+      "slot",
+      "target"
+    ]
+  },
+  "eventTimeline": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "keyframes": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "t": {
+              "type": "number"
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "intValue": {
+              "type": "integer",
+              "default": 0
+            },
+            "floatValue": {
+              "type": "number",
+              "default": 0.0
+            },
+            "stringValue": {
+              "type": "string",
+              "default": ""
+            },
+            "audioPath": {
+              "type": "string",
+              "default": ""
+            },
+            "volume": {
+              "type": "number",
+              "default": 1.0
+            },
+            "balance": {
+              "type": "number",
+              "default": 0.0
+            }
+          },
+          "required": [
+            "name",
+            "t"
+          ]
+        }
+      }
+    },
+    "required": [
+      "keyframes"
+    ]
+  },
+  "stateMachine": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "name": {
+        "type": "string",
+        "minLength": 1
+      },
+      "inputs": {
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/stateMachineInput"
+        },
+        "default": []
+      },
+      "layers": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "$ref": "#/$defs/stateMachineLayer"
+        }
+      },
+      "listeners": {
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/stateMachineListener"
+        },
+        "default": []
+      }
+    },
+    "required": [
+      "layers",
+      "name"
+    ]
+  },
+  "stateMachineInput": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "name": {
+        "type": "string",
+        "minLength": 1
+      },
+      "kind": {
+        "type": "string",
+        "enum": [
+          "bool",
+          "number",
+          "trigger"
+        ]
+      },
+      "default": {
+        "type": [
+          "boolean",
+          "number"
+        ]
+      }
+    },
+    "required": [
+      "kind",
+      "name"
+    ]
+  },
+  "stateMachineLayer": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "name": {
+        "type": "string",
+        "minLength": 1
+      },
+      "initialState": {
+        "type": "string",
+        "minLength": 1
+      },
+      "states": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "$ref": "#/$defs/stateMachineState"
+        }
+      },
+      "transitions": {
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/stateMachineTransition"
+        },
+        "default": []
+      }
+    },
+    "required": [
+      "name",
+      "states"
+    ]
+  },
+  "stateMachineState": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "name": {
+        "type": "string",
+        "minLength": 1
+      },
+      "kind": {
+        "type": "string",
+        "enum": [
+          "clip",
+          "blend1d"
+        ]
+      },
+      "clip": {
+        "type": "string",
+        "minLength": 1
+      },
+      "loop": {
+        "type": "boolean",
+        "default": false
+      },
+      "blendInput": {
+        "type": "string",
+        "minLength": 1
+      },
+      "blendClips": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "$ref": "#/$defs/stateMachineBlendClip"
+        }
+      }
+    },
+    "required": [
+      "kind",
+      "name"
+    ]
+  },
+  "stateMachineBlendClip": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "clip": {
+        "type": "string",
+        "minLength": 1
+      },
+      "value": {
+        "type": "number"
+      },
+      "loop": {
+        "type": "boolean",
+        "default": false
+      }
+    },
+    "required": [
+      "clip",
+      "value"
+    ]
+  },
+  "stateMachineTransition": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "fromState": {
+        "type": "string",
+        "minLength": 1
+      },
+      "toState": {
+        "type": "string",
+        "minLength": 1
+      },
+      "conditions": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "$ref": "#/$defs/stateMachineCondition"
+        }
+      }
+    },
+    "required": [
+      "conditions",
+      "fromState",
+      "toState"
+    ]
+  },
+  "stateMachineCondition": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "input": {
+        "type": "string",
+        "minLength": 1
+      },
+      "kind": {
+        "type": "string",
+        "enum": [
+          "boolEquals",
+          "numberEquals",
+          "numberGreater",
+          "numberGreaterOrEqual",
+          "numberLess",
+          "numberLessOrEqual",
+          "triggerSet"
+        ]
+      },
+      "value": {
+        "type": [
+          "boolean",
+          "number"
+        ]
+      }
+    },
+    "required": [
+      "input",
+      "kind"
+    ]
+  },
+  "stateMachineListener": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "name": {
+        "type": "string",
+        "minLength": 1
+      },
+      "kind": {
+        "type": "string",
+        "enum": [
+          "stateEnter",
+          "stateExit",
+          "transition",
+          "pointerDown",
+          "pointerUp",
+          "pointerEnter",
+          "pointerExit",
+          "pointerMove"
+        ]
+      },
+      "layer": {
+        "type": "string",
+        "minLength": 1
+      },
+      "fromState": {
+        "type": "string",
+        "minLength": 1
+      },
+      "toState": {
+        "type": "string",
+        "minLength": 1
+      },
+      "slot": {
+        "type": "string",
+        "minLength": 1
+      },
+      "targetKind": {
+        "type": "string",
+        "enum": [
+          "point",
+          "boundingBox"
+        ]
+      },
+      "target": {
+        "type": "string",
+        "minLength": 1
+      },
+      "hitRadius": {
+        "type": "number"
+      },
+      "input": {
+        "type": "string",
+        "minLength": 1
+      },
+      "value": {
+        "type": [
+          "boolean",
+          "number"
+        ]
+      }
+    },
+    "required": [
+      "kind",
+      "name"
+    ]
+  }
+}

@@ -1,12 +1,13 @@
 ## M6/M7 semantic .bnb encoder/decoder for the current SkeletonData model.
 
-import std/[algorithm, json, sequtils, sets, strutils, tables]
+import std/[algorithm, sequtils, sets, tables]
 
 import bony/anim/timelines
 import bony/asset
 import bony/binary/framing
 import bony/generated/wire
 import bony/model
+import bony/wiremeta
 import bony/mesh/attachments
 import bony/deform/deformers
 import bony/deform/keyforms
@@ -182,35 +183,6 @@ const
   blendCoordinatesKey = 6042'u64
   blendValuesKey = 6043'u64
 
-
-proc defaultString(objectId, propertyId: string): string =
-  for entry in bonyPropertyDefaults:
-    if entry.objectId == objectId and entry.propertyId == propertyId:
-      return parseJson(entry.value).getStr()
-  raise newBonyLoadError(schemaViolation, "missing generated default for " & objectId & "." & propertyId)
-
-
-proc defaultFloat(objectId, propertyId: string): float64 =
-  for entry in bonyPropertyDefaults:
-    if entry.objectId == objectId and entry.propertyId == propertyId:
-      return parseJson(entry.value).getFloat()
-  raise newBonyLoadError(schemaViolation, "missing generated default for " & objectId & "." & propertyId)
-
-
-proc defaultBool(objectId, propertyId: string): bool =
-  for entry in bonyPropertyDefaults:
-    if entry.objectId == objectId and entry.propertyId == propertyId:
-      return parseJson(entry.value).getBool()
-  raise newBonyLoadError(schemaViolation, "missing generated default for " & objectId & "." & propertyId)
-
-
-proc defaultInt(objectId, propertyId: string): int =
-  for entry in bonyPropertyDefaults:
-    if entry.objectId == objectId and entry.propertyId == propertyId:
-      return entry.value.parseInt()
-  raise newBonyLoadError(schemaViolation, "missing generated default for " & objectId & "." & propertyId)
-
-
 proc transformModeName(mode: TransformMode): string =
   case mode
   of normal: "normal"
@@ -330,6 +302,82 @@ proc addProperty(
   toc[propertyKey] = propertyBackingTypeCode(propertyKey)
 
 
+func bnbScalarString(propertyKey: uint64; value: string): BonyBnbScalarProperty =
+  BonyBnbScalarProperty(propertyKey: propertyKey, value: bonyStringValue(value))
+
+
+func bnbScalarFloat(propertyKey: uint64; value: float64): BonyBnbScalarProperty =
+  BonyBnbScalarProperty(propertyKey: propertyKey, value: bonyF32Value(value))
+
+
+func bnbScalarF64(propertyKey: uint64; value: float64): BonyBnbScalarProperty =
+  BonyBnbScalarProperty(propertyKey: propertyKey, value: bonyF64Value(value))
+
+
+func bnbScalarBool(propertyKey: uint64; value: bool): BonyBnbScalarProperty =
+  BonyBnbScalarProperty(propertyKey: propertyKey, value: bonyBoolValue(value))
+
+
+func bnbScalarInt(propertyKey: uint64; value: int): BonyBnbScalarProperty =
+  BonyBnbScalarProperty(propertyKey: propertyKey, value: bonyIntValue(value.int64))
+
+
+func bnbScalarUint(propertyKey: uint64; value: uint64): BonyBnbScalarProperty =
+  BonyBnbScalarProperty(propertyKey: propertyKey, value: bonyUintValue(value))
+
+
+proc addBnbScalarProperty(
+  properties: var seq[BnbPropertyRecord];
+  toc: var Table[uint64, uint8];
+  table: var BnbStringTable;
+  property: BonyBnbScalarProperty;
+) =
+  case property.value.kind
+  of bskString:
+    properties.addProperty(toc, property.propertyKey, writeStringPayloadBytes(table, property.value.stringValue))
+  of bskF32:
+    properties.addProperty(toc, property.propertyKey, writeF32Payload(property.value.floatValue))
+  of bskF64:
+    properties.addProperty(toc, property.propertyKey, writeF64Payload(property.value.floatValue, "scalar." & $property.propertyKey))
+  of bskBool:
+    properties.addProperty(toc, property.propertyKey, writeBoolPayload(property.value.boolValue))
+  of bskVarint:
+    if property.value.intValue < int64(low(int)) or property.value.intValue > int64(high(int)):
+      raise newBonyLoadError(numericOutOfRange, ".bnb scalar varint is out of range: " & $property.propertyKey)
+    properties.addProperty(toc, property.propertyKey, writeVarintPayload(property.value.intValue.int))
+  of bskVaruint:
+    properties.addProperty(toc, property.propertyKey, writeVaruintPayload(property.value.uintValue))
+
+
+proc addBnbScalarProperties(
+  properties: var seq[BnbPropertyRecord];
+  toc: var Table[uint64, uint8];
+  table: var BnbStringTable;
+  scalars: openArray[BonyBnbScalarProperty];
+) =
+  for scalar in scalars:
+    properties.addBnbScalarProperty(toc, table, scalar)
+
+
+proc bnbScalarIndex(properties: openArray[BonyBnbScalarProperty]; propertyKey: uint64): int =
+  for index, property in properties:
+    if property.propertyKey == propertyKey:
+      return index
+  -1
+
+
+proc addBnbScalarPropertyIfPresent(
+  properties: var seq[BnbPropertyRecord];
+  toc: var Table[uint64, uint8];
+  table: var BnbStringTable;
+  scalars: openArray[BonyBnbScalarProperty];
+  propertyKey: uint64;
+) =
+  let index = bnbScalarIndex(scalars, propertyKey)
+  if index >= 0:
+    properties.addBnbScalarProperty(toc, table, scalars[index])
+
+
 proc propertyMap(record: BnbObjectRecord; allowedKnownKeys: openArray[uint64]): Table[uint64, seq[byte]] =
   for property in record.properties:
     var allowed = false
@@ -343,84 +391,102 @@ proc propertyMap(record: BnbObjectRecord; allowedKnownKeys: openArray[uint64]): 
       result[property.propertyKey] = property.payload
 
 
-proc readStringProperty(
-  properties: Table[uint64, seq[byte]];
+proc bnbScalarValueFromPayload(
+  payload: openArray[byte];
+  spec: BonyScalarPropertySpec;
   table: BnbStringTable;
-  propertyKey: uint64;
   context: string;
-): string =
-  if propertyKey notin properties:
-    raise newBonyLoadError(schemaViolation, ".bnb " & context & " is required")
-  readStringPayload(properties[propertyKey], table)
+): BonyScalarValue =
+  case spec.kind
+  of bskString:
+    bonyStringValue(readStringPayload(payload, table))
+  of bskF32:
+    bonyF32Value(readF32Payload(payload, context))
+  of bskF64:
+    bonyF64Value(readF64Payload(payload, context))
+  of bskBool:
+    bonyBoolValue(readBoolPayload(payload, context))
+  of bskVarint:
+    bonyIntValue(readVarintPayload(payload, context).int64)
+  of bskVaruint:
+    bonyUintValue(readVaruintPayload(payload, context))
 
 
-proc readOptionalStringProperty(
+proc bnbScalarsFromProperties(
   properties: Table[uint64, seq[byte]];
+  specs: openArray[BonyScalarPropertySpec];
   table: BnbStringTable;
-  propertyKey: uint64;
-  defaultValue: string;
-): string =
-  if propertyKey notin properties:
-    return defaultValue
-  readStringPayload(properties[propertyKey], table)
-
-
-proc readFloatProperty(properties: Table[uint64, seq[byte]]; propertyKey: uint64; context: string): float64 =
-  if propertyKey notin properties:
-    raise newBonyLoadError(schemaViolation, ".bnb " & context & " is required")
-  readF32Payload(properties[propertyKey], context)
-
-
-proc readF64Property(properties: Table[uint64, seq[byte]]; propertyKey: uint64; context: string): float64 =
-  if propertyKey notin properties:
-    raise newBonyLoadError(schemaViolation, ".bnb " & context & " is required")
-  readF64Payload(properties[propertyKey], context)
-
-
-proc readOptionalFloatProperty(
-  properties: Table[uint64, seq[byte]];
-  propertyKey: uint64;
-  defaultValue: float64;
   context: string;
-): float64 =
-  if propertyKey notin properties:
-    return quantizeF32(defaultValue, context)
-  readF32Payload(properties[propertyKey], context)
+): seq[BonyBnbScalarProperty] =
+  for spec in specs:
+    if spec.propertyKey in properties:
+      result.add BonyBnbScalarProperty(
+        propertyKey: spec.propertyKey,
+        value: bnbScalarValueFromPayload(properties[spec.propertyKey], spec, table, context & "." & spec.propertyId),
+      )
 
 
-proc readOptionalBoolProperty(
-  properties: Table[uint64, seq[byte]];
-  propertyKey: uint64;
-  defaultValue: bool;
+type BonyBnbScalarDecoder = proc(
+  properties: openArray[BonyBnbScalarProperty]
+): seq[BonyBnbScalarProperty]
+
+
+proc decodeBnbScalarsForLoad(
+  decoder: BonyBnbScalarDecoder;
+  properties: openArray[BonyBnbScalarProperty];
   context: string;
-): bool =
-  if propertyKey notin properties:
-    return defaultValue
-  readBoolPayload(properties[propertyKey], context)
+): seq[BonyBnbScalarProperty] =
+  try:
+    decoder(properties)
+  except ValueError as exc:
+    raise newBonyLoadError(schemaViolation, ".bnb " & context & ": " & exc.msg)
 
 
-proc readOptionalIntProperty(
+proc decodeBnbScalarsFromProperties(
+  decoder: BonyBnbScalarDecoder;
   properties: Table[uint64, seq[byte]];
-  propertyKey: uint64;
-  defaultValue: int;
+  specs: openArray[BonyScalarPropertySpec];
+  table: BnbStringTable;
   context: string;
-): int =
-  if propertyKey notin properties:
-    return defaultValue
-  readVarintPayload(properties[propertyKey], context)
+): seq[BonyBnbScalarProperty] =
+  decodeBnbScalarsForLoad(decoder, bnbScalarsFromProperties(properties, specs, table, context), context)
 
 
-proc addStringIfNeeded(
-  properties: var seq[BnbPropertyRecord];
-  toc: var Table[uint64, uint8];
-  table: var BnbStringTable;
-  propertyKey: uint64;
-  value: string;
-  defaultValue: string;
-  required = false;
-) =
-  if required or value != defaultValue:
-    properties.addProperty(toc, propertyKey, writeStringPayloadBytes(table, value))
+proc bnbScalarValue(properties: openArray[BonyBnbScalarProperty]; propertyKey: uint64; context: string): BonyScalarValue =
+  for property in properties:
+    if property.propertyKey == propertyKey:
+      return property.value
+  raise newBonyLoadError(schemaViolation, ".bnb " & context & " is required")
+
+
+proc bnbScalarString(properties: openArray[BonyBnbScalarProperty]; propertyKey: uint64; context: string): string =
+  bnbScalarValue(properties, propertyKey, context).stringValue
+
+
+proc bnbScalarFloat(properties: openArray[BonyBnbScalarProperty]; propertyKey: uint64; context: string): float64 =
+  bnbScalarValue(properties, propertyKey, context).floatValue
+
+
+proc bnbScalarBool(properties: openArray[BonyBnbScalarProperty]; propertyKey: uint64; context: string): bool =
+  bnbScalarValue(properties, propertyKey, context).boolValue
+
+
+proc bnbScalarInt(properties: openArray[BonyBnbScalarProperty]; propertyKey: uint64; context: string): int =
+  let value = bnbScalarValue(properties, propertyKey, context).intValue
+  if value < int64(low(int)) or value > int64(high(int)):
+    raise newBonyLoadError(numericOutOfRange, ".bnb " & context & " is out of range")
+  value.int
+
+
+proc bnbScalarUint(properties: openArray[BonyBnbScalarProperty]; propertyKey: uint64; context: string): uint64 =
+  bnbScalarValue(properties, propertyKey, context).uintValue
+
+
+proc bnbScalarUint32(properties: openArray[BonyBnbScalarProperty]; propertyKey: uint64; context: string): uint32 =
+  let value = properties.bnbScalarUint(propertyKey, context)
+  if value > uint64(high(uint32)):
+    raise newBonyLoadError(numericOutOfRange, ".bnb " & context & " varuint is out of uint32 range")
+  uint32(value)
 
 
 proc addFloatIfNeeded(
@@ -433,39 +499,6 @@ proc addFloatIfNeeded(
 ) =
   if required or quantizeF32(value) != quantizeF32(defaultValue):
     properties.addProperty(toc, propertyKey, writeF32Payload(value))
-
-
-proc addF64Required(
-  properties: var seq[BnbPropertyRecord];
-  toc: var Table[uint64, uint8];
-  propertyKey: uint64;
-  value: float64;
-  context: string;
-) =
-  properties.addProperty(toc, propertyKey, writeF64Payload(value, context))
-
-
-proc addBoolIfNeeded(
-  properties: var seq[BnbPropertyRecord];
-  toc: var Table[uint64, uint8];
-  propertyKey: uint64;
-  value: bool;
-  defaultValue: bool;
-) =
-  if value != defaultValue:
-    properties.addProperty(toc, propertyKey, writeBoolPayload(value))
-
-
-proc addIntIfNeeded(
-  properties: var seq[BnbPropertyRecord];
-  toc: var Table[uint64, uint8];
-  propertyKey: uint64;
-  value: int;
-  defaultValue: int;
-  required = false;
-) =
-  if required or value != defaultValue:
-    properties.addProperty(toc, propertyKey, writeVarintPayload(value))
 
 
 proc writeControlPointsPayload(points: openArray[DeformerPoint]): seq[byte] =
@@ -689,45 +722,6 @@ proc readBlendF32sPayload(payload: openArray[byte]; count: int; context: string)
   for _ in 0 ..< count:
     result.add readF32Payload(payload[index ..< index + 4], context)
     index += 4
-
-
-proc readOptionalUintProperty(
-  properties: Table[uint64, seq[byte]];
-  propertyKey: uint64;
-  defaultValue: uint32;
-  context: string;
-): uint32 =
-  if propertyKey notin properties:
-    return defaultValue
-  let val = readVaruintPayload(properties[propertyKey], context)
-  if val > uint64(high(uint32)):
-    raise newBonyLoadError(numericOutOfRange, ".bnb " & context & " varuint is out of uint32 range")
-  uint32(val)
-
-
-proc readRequiredUintProperty(
-  properties: Table[uint64, seq[byte]];
-  propertyKey: uint64;
-  context: string;
-): uint32 =
-  if propertyKey notin properties:
-    raise newBonyLoadError(schemaViolation, ".bnb " & context & " is required")
-  let val = readVaruintPayload(properties[propertyKey], context)
-  if val > uint64(high(uint32)):
-    raise newBonyLoadError(numericOutOfRange, ".bnb " & context & " varuint is out of uint32 range")
-  uint32(val)
-
-
-proc addUintIfNeeded(
-  properties: var seq[BnbPropertyRecord];
-  toc: var Table[uint64, uint8];
-  propertyKey: uint64;
-  value: uint64;
-  defaultValue = 0'u64;
-  required = false;
-) =
-  if required or value != defaultValue:
-    properties.addProperty(toc, propertyKey, writeVaruintPayload(value))
 
 
 proc writeF32To(result: var seq[byte]; value: float64) =
@@ -1015,7 +1009,7 @@ proc readBoneTimelineKeys(kind: BoneTimelineKind; payload: openArray[byte]; cont
         payload.readBoolFrom(index, context & ".inheritReflection"),
         payload.readVaruint(index).transformModeFromTag,
       )
-    result = boneInheritTimeline("__pending__", keys)
+    result = boneTimeline("__pending__", inheritTimeline, keys)
   of translateTimeline, scaleTimeline, shearTimeline:
     var keys: seq[Vector2Keyframe]
     for _ in 0'u64 ..< count:
@@ -1026,7 +1020,7 @@ proc readBoneTimelineKeys(kind: BoneTimelineKind; payload: openArray[byte]; cont
         payload.readCurve(index, context & ".curveX"),
         payload.readCurve(index, context & ".curveY"),
       )
-    result = boneVectorTimeline("__pending__", kind, keys)
+    result = boneTimeline("__pending__", kind, keys)
   else:
     var keys: seq[ScalarKeyframe]
     for _ in 0'u64 ..< count:
@@ -1035,7 +1029,7 @@ proc readBoneTimelineKeys(kind: BoneTimelineKind; payload: openArray[byte]; cont
         payload.readF32From(index, context & ".value"),
         payload.readCurve(index, context & ".curve"),
       )
-    result = boneScalarTimeline("__pending__", kind, keys)
+    result = boneTimeline("__pending__", kind, keys)
   if index != payload.len:
     raise newBonyLoadError(schemaViolation, ".bnb " & context & " has trailing bytes")
 
@@ -1062,7 +1056,7 @@ proc readSlotTimelineKeys(
         if tag - 1 >= uint64(regions.len):
           raise newBonyLoadError(unknownRequiredReference, ".bnb " & context & " attachment index is out of range")
         keys.add attachmentKeyframe(time, regions[int(tag - 1)].name)
-    result = slotAttachmentTimeline("__pending__", keys)
+    result = slotTimeline("__pending__", attachmentTimeline, keys)
   of rgbaTimeline, rgbTimeline, alphaTimeline:
     var keys: seq[ColorKeyframe]
     for _ in 0'u64 ..< count:
@@ -1076,7 +1070,7 @@ proc readSlotTimelineKeys(
         ),
         payload.readCurve(index, context & ".curve"),
       )
-    result = slotColorTimeline("__pending__", kind, keys)
+    result = slotTimeline("__pending__", kind, keys)
   of rgba2Timeline:
     var keys: seq[Color2Keyframe]
     for _ in 0'u64 ..< count:
@@ -1097,7 +1091,7 @@ proc readSlotTimelineKeys(
         ),
         payload.readCurve(index, context & ".curve"),
       )
-    result = slotColor2Timeline("__pending__", keys)
+    result = slotTimeline("__pending__", rgba2Timeline, keys)
   of sequenceTimeline:
     var keys: seq[SequenceKeyframe]
     for _ in 0'u64 ..< count:
@@ -1107,7 +1101,7 @@ proc readSlotTimelineKeys(
         payload.readF32From(index, context & ".delay"),
         payload.readVaruint(index).sequenceModeFromTag,
       )
-    result = slotSequenceTimeline("__pending__", keys)
+    result = slotTimeline("__pending__", sequenceTimeline, keys)
   if index != payload.len:
     raise newBonyLoadError(schemaViolation, ".bnb " & context & " has trailing bytes")
 
@@ -1121,91 +1115,88 @@ proc buildObjectRecords(data: SkeletonData; table: var BnbStringTable; toc: var 
   validateSkeletonData(data)
 
   var skeletonProperties: seq[BnbPropertyRecord]
-  skeletonProperties.addStringIfNeeded(toc, table, nameKey, data.header.name, "", required = true)
-  skeletonProperties.addStringIfNeeded(
-    toc,
-    table,
-    versionKey,
-    data.header.version,
-    defaultString("skeleton", "version"),
-  )
+  skeletonProperties.addBnbScalarProperties(toc, table, encodeSkeletonBnbScalars([
+    bnbScalarString(nameKey, data.header.name),
+    bnbScalarString(versionKey, data.header.version),
+  ]))
   result.add BnbObjectRecord(typeKey: skeletonTypeKey, properties: skeletonProperties)
 
   for bone in data.bones:
     let local = bone.local
     var properties: seq[BnbPropertyRecord]
-    properties.addStringIfNeeded(toc, table, nameKey, bone.name, "", required = true)
-    properties.addStringIfNeeded(toc, table, parentKey, bone.parent, defaultString("bone", "parent"))
-    properties.addFloatIfNeeded(toc, xKey, local.x, defaultFloat("bone", "x"))
-    properties.addFloatIfNeeded(toc, yKey, local.y, defaultFloat("bone", "y"))
-    properties.addFloatIfNeeded(toc, rotationKey, local.rotation, defaultFloat("bone", "rotation"))
-    properties.addFloatIfNeeded(toc, scaleXKey, local.scaleX, defaultFloat("bone", "scaleX"))
-    properties.addFloatIfNeeded(toc, scaleYKey, local.scaleY, defaultFloat("bone", "scaleY"))
-    properties.addFloatIfNeeded(toc, shearXKey, local.shearX, defaultFloat("bone", "shearX"))
-    properties.addFloatIfNeeded(toc, shearYKey, local.shearY, defaultFloat("bone", "shearY"))
-    properties.addBoolIfNeeded(toc, inheritRotationKey, local.inheritRotation, defaultBool("bone", "inheritRotation"))
-    properties.addBoolIfNeeded(toc, inheritScaleKey, local.inheritScale, defaultBool("bone", "inheritScale"))
-    properties.addBoolIfNeeded(
-      toc,
-      inheritReflectionKey,
-      local.inheritReflection,
-      defaultBool("bone", "inheritReflection"),
-    )
-    properties.addStringIfNeeded(
-      toc,
-      table,
-      transformModeKey,
-      transformModeName(local.transformMode),
-      defaultString("bone", "transformMode"),
-    )
-    properties.addBoolIfNeeded(toc, skinRequiredKey, bone.skinRequired, defaultBool("bone", "skinRequired"))
+    properties.addBnbScalarProperties(toc, table, encodeBoneBnbScalars([
+      bnbScalarString(nameKey, bone.name),
+      bnbScalarString(parentKey, bone.parent),
+      bnbScalarFloat(xKey, local.x),
+      bnbScalarFloat(yKey, local.y),
+      bnbScalarFloat(rotationKey, local.rotation),
+      bnbScalarFloat(scaleXKey, local.scaleX),
+      bnbScalarFloat(scaleYKey, local.scaleY),
+      bnbScalarFloat(shearXKey, local.shearX),
+      bnbScalarFloat(shearYKey, local.shearY),
+      bnbScalarBool(inheritRotationKey, local.inheritRotation),
+      bnbScalarBool(inheritScaleKey, local.inheritScale),
+      bnbScalarBool(inheritReflectionKey, local.inheritReflection),
+      bnbScalarString(transformModeKey, transformModeName(local.transformMode)),
+      bnbScalarBool(skinRequiredKey, bone.skinRequired),
+    ]))
     result.add BnbObjectRecord(typeKey: boneTypeKey, properties: properties)
 
   for slot in data.slots:
     var properties: seq[BnbPropertyRecord]
-    properties.addStringIfNeeded(toc, table, nameKey, slot.name, "", required = true)
-    properties.addStringIfNeeded(toc, table, boneKey, slot.bone, "", required = true)
-    properties.addStringIfNeeded(toc, table, attachmentKey, slot.attachment, defaultString("slot", "attachment"))
+    properties.addBnbScalarProperties(toc, table, encodeSlotBnbScalars([
+      bnbScalarString(nameKey, slot.name),
+      bnbScalarString(boneKey, slot.bone),
+      bnbScalarString(attachmentKey, slot.attachment),
+    ]))
     result.add BnbObjectRecord(typeKey: slotTypeKey, properties: properties)
 
   for region in data.regions:
     var properties: seq[BnbPropertyRecord]
-    properties.addStringIfNeeded(toc, table, nameKey, region.name, "", required = true)
-    properties.addFloatIfNeeded(toc, widthKey, region.width, 0.0, required = true)
-    properties.addFloatIfNeeded(toc, heightKey, region.height, 0.0, required = true)
-    properties.addStringIfNeeded(toc, table, texturePageKey, region.texturePage, defaultString("region", "texturePage"))
-    properties.addFloatIfNeeded(toc, u0Key, region.u0, defaultFloat("region", "u0"))
-    properties.addFloatIfNeeded(toc, v0Key, region.v0, defaultFloat("region", "v0"))
-    properties.addFloatIfNeeded(toc, u1Key, region.u1, defaultFloat("region", "u1"))
-    properties.addFloatIfNeeded(toc, v1Key, region.v1, defaultFloat("region", "v1"))
-    properties.addStringIfNeeded(toc, table, alphaModeKey, region.alphaMode, defaultString("region", "alphaMode"))
+    properties.addBnbScalarProperties(toc, table, encodeRegionBnbScalars([
+      bnbScalarString(nameKey, region.name),
+      bnbScalarFloat(widthKey, region.width),
+      bnbScalarFloat(heightKey, region.height),
+      bnbScalarString(texturePageKey, region.texturePage),
+      bnbScalarFloat(u0Key, region.u0),
+      bnbScalarFloat(v0Key, region.v0),
+      bnbScalarFloat(u1Key, region.u1),
+      bnbScalarFloat(v1Key, region.v1),
+      bnbScalarString(alphaModeKey, region.alphaMode),
+    ]))
     result.add BnbObjectRecord(typeKey: regionTypeKey, properties: properties)
 
   for point in data.pointAttachments:
     var properties: seq[BnbPropertyRecord]
-    properties.addStringIfNeeded(toc, table, nameKey, point.name, "", required = true)
-    properties.addFloatIfNeeded(toc, xKey, point.x, 0.0, required = true)
-    properties.addFloatIfNeeded(toc, yKey, point.y, 0.0, required = true)
-    properties.addFloatIfNeeded(toc, rotationKey, point.rotation, 0.0, required = true)
+    properties.addBnbScalarProperties(toc, table, encodePointAttachmentBnbScalars([
+      bnbScalarString(nameKey, point.name),
+      bnbScalarFloat(xKey, point.x),
+      bnbScalarFloat(yKey, point.y),
+      bnbScalarFloat(rotationKey, point.rotation),
+    ]))
     result.add BnbObjectRecord(typeKey: pointAttachmentTypeKey, properties: properties)
 
   for box in data.boundingBoxAttachments:
     var properties: seq[BnbPropertyRecord]
-    properties.addStringIfNeeded(toc, table, nameKey, box.name, "", required = true)
+    properties.addBnbScalarProperties(toc, table, encodeBoundingBoxAttachmentBnbScalars([
+      bnbScalarString(nameKey, box.name),
+    ]))
     properties.addProperty(toc, verticesKey, writePolygonVerticesPayload(box.vertices))
     result.add BnbObjectRecord(typeKey: boundingBoxAttachmentTypeKey, properties: properties)
 
   for pathAttachment in data.pathAttachments:
     var properties: seq[BnbPropertyRecord]
-    properties.addStringIfNeeded(toc, table, nameKey, pathAttachment.name, "", required = true)
-    properties.addF64Required(toc, p0xKey, pathAttachment.p0x, "pathAttachment.p0x")
-    properties.addF64Required(toc, p0yKey, pathAttachment.p0y, "pathAttachment.p0y")
-    properties.addF64Required(toc, p1xKey, pathAttachment.p1x, "pathAttachment.p1x")
-    properties.addF64Required(toc, p1yKey, pathAttachment.p1y, "pathAttachment.p1y")
-    properties.addF64Required(toc, p2xKey, pathAttachment.p2x, "pathAttachment.p2x")
-    properties.addF64Required(toc, p2yKey, pathAttachment.p2y, "pathAttachment.p2y")
-    properties.addF64Required(toc, p3xKey, pathAttachment.p3x, "pathAttachment.p3x")
-    properties.addF64Required(toc, p3yKey, pathAttachment.p3y, "pathAttachment.p3y")
+    properties.addBnbScalarProperties(toc, table, encodePathAttachmentBnbScalars([
+      bnbScalarString(nameKey, pathAttachment.name),
+      bnbScalarF64(p0xKey, pathAttachment.p0x),
+      bnbScalarF64(p0yKey, pathAttachment.p0y),
+      bnbScalarF64(p1xKey, pathAttachment.p1x),
+      bnbScalarF64(p1yKey, pathAttachment.p1y),
+      bnbScalarF64(p2xKey, pathAttachment.p2x),
+      bnbScalarF64(p2yKey, pathAttachment.p2y),
+      bnbScalarF64(p3xKey, pathAttachment.p3x),
+      bnbScalarF64(p3yKey, pathAttachment.p3y),
+    ]))
     result.add BnbObjectRecord(typeKey: pathAttachmentTypeKey, properties: properties)
 
   # Clipping attachments: slot-bound convex-polygon masks. Emitted after helper
@@ -1213,9 +1204,13 @@ proc buildObjectRecords(data: SkeletonData; table: var BnbStringTable; toc: var 
   # untilSlot is value-gated (applyOnLoad:true, default "").
   for clip in data.clippingAttachments:
     var properties: seq[BnbPropertyRecord]
-    properties.addStringIfNeeded(toc, table, nameKey, clip.name, "", required = true)
+    let clipScalars = encodeClippingAttachmentBnbScalars([
+      bnbScalarString(nameKey, clip.name),
+      bnbScalarString(untilSlotKey, clip.untilSlot),
+    ])
+    properties.addBnbScalarPropertyIfPresent(toc, table, clipScalars, nameKey)
     properties.addProperty(toc, verticesKey, writePolygonVerticesPayload(clip.vertices))
-    properties.addStringIfNeeded(toc, table, untilSlotKey, clip.untilSlot, defaultString("clippingAttachment", "untilSlot"))
+    properties.addBnbScalarPropertyIfPresent(toc, table, clipScalars, untilSlotKey)
     result.add BnbObjectRecord(typeKey: clippingAttachmentTypeKey, properties: properties)
 
   # Mesh attachments: slot-bound deformable meshes. Emitted after clipping
@@ -1225,8 +1220,10 @@ proc buildObjectRecords(data: SkeletonData; table: var BnbStringTable; toc: var 
   # the same string-table packing as ikConstraint bones.
   for mesh in data.meshAttachments:
     var properties: seq[BnbPropertyRecord]
-    properties.addStringIfNeeded(toc, table, nameKey, mesh.name, "", required = true)
-    properties.addBoolIfNeeded(toc, meshWeightedKey, mesh.weighted, defaultBool("meshAttachment", "meshWeighted"))
+    properties.addBnbScalarProperties(toc, table, encodeMeshAttachmentBnbScalars([
+      bnbScalarString(nameKey, mesh.name),
+      bnbScalarBool(meshWeightedKey, mesh.weighted),
+    ]))
     properties.addProperty(toc, meshVerticesKey, writeMeshVerticesPayload(mesh.vertices, mesh.weighted, table))
     properties.addProperty(toc, meshUvsKey, writeMeshUvsPayload(mesh.uvs))
     properties.addProperty(toc, meshTrianglesKey, writeMeshTrianglesPayload(mesh.triangles))
@@ -1234,22 +1231,12 @@ proc buildObjectRecords(data: SkeletonData; table: var BnbStringTable; toc: var 
 
   for nested in data.nestedRigAttachments:
     var properties: seq[BnbPropertyRecord]
-    properties.addStringIfNeeded(toc, table, nameKey, nested.name, "", required = true)
-    properties.addStringIfNeeded(toc, table, nestedSkeletonKey, nested.skeleton, "", required = true)
-    properties.addStringIfNeeded(
-      toc,
-      table,
-      nestedSkinKey,
-      nested.skin,
-      defaultString("nestedRigAttachment", "nestedSkin"),
-    )
-    properties.addStringIfNeeded(
-      toc,
-      table,
-      nestedAnimationKey,
-      nested.animation,
-      defaultString("nestedRigAttachment", "nestedAnimation"),
-    )
+    properties.addBnbScalarProperties(toc, table, encodeNestedRigAttachmentBnbScalars([
+      bnbScalarString(nameKey, nested.name),
+      bnbScalarString(nestedSkeletonKey, nested.skeleton),
+      bnbScalarString(nestedSkinKey, nested.skin),
+      bnbScalarString(nestedAnimationKey, nested.animation),
+    ]))
     result.add BnbObjectRecord(typeKey: nestedRigAttachmentTypeKey, properties: properties)
 
   # IK section: canonical object-stream position is after attachments and before
@@ -1259,11 +1246,17 @@ proc buildObjectRecords(data: SkeletonData; table: var BnbStringTable; toc: var 
   # order is value-gated (applyOnLoad:true).
   for ik in data.ikConstraints:
     var properties: seq[BnbPropertyRecord]
-    properties.addStringIfNeeded(toc, table, nameKey, ik.name, "", required = true)
+    let ikScalars = encodeIkConstraintBnbScalars([
+      bnbScalarString(nameKey, ik.name),
+      bnbScalarString(targetKey, ik.target),
+      bnbScalarInt(orderKey, ik.order),
+      bnbScalarBool(skinRequiredKey, ik.skinRequired),
+    ])
+    properties.addBnbScalarPropertyIfPresent(toc, table, ikScalars, nameKey)
     properties.addProperty(toc, bonesKey, writeBonesPayload(ik.bones, table))
-    properties.addStringIfNeeded(toc, table, targetKey, ik.target, "", required = true)
-    properties.addIntIfNeeded(toc, orderKey, ik.order, defaultInt("ikConstraint", "order"))
-    properties.addBoolIfNeeded(toc, skinRequiredKey, ik.skinRequired, defaultBool("ikConstraint", "skinRequired"))
+    properties.addBnbScalarPropertyIfPresent(toc, table, ikScalars, targetKey)
+    properties.addBnbScalarPropertyIfPresent(toc, table, ikScalars, orderKey)
+    properties.addBnbScalarPropertyIfPresent(toc, table, ikScalars, skinRequiredKey)
     properties.addFloatIfNeeded(toc, mixKey, ik.mix, defaultFloat("ikConstraint", "mix"), required = ik.hasMix)
     if ik.hasBendPositive:
       properties.addProperty(toc, bendPositiveKey, writeBoolPayload(ik.bendPositive))
@@ -1276,11 +1269,13 @@ proc buildObjectRecords(data: SkeletonData; table: var BnbStringTable; toc: var 
   # the JSON emitter; order is value-gated (applyOnLoad:true).
   for tc in data.transformConstraints:
     var properties: seq[BnbPropertyRecord]
-    properties.addStringIfNeeded(toc, table, nameKey, tc.name, "", required = true)
-    properties.addStringIfNeeded(toc, table, boneKey, tc.bone, "", required = true)
-    properties.addStringIfNeeded(toc, table, targetKey, tc.target, "", required = true)
-    properties.addIntIfNeeded(toc, orderKey, tc.order, defaultInt("transformConstraint", "order"))
-    properties.addBoolIfNeeded(toc, skinRequiredKey, tc.skinRequired, defaultBool("transformConstraint", "skinRequired"))
+    properties.addBnbScalarProperties(toc, table, encodeTransformConstraintBnbScalars([
+      bnbScalarString(nameKey, tc.name),
+      bnbScalarString(boneKey, tc.bone),
+      bnbScalarString(targetKey, tc.target),
+      bnbScalarInt(orderKey, tc.order),
+      bnbScalarBool(skinRequiredKey, tc.skinRequired),
+    ]))
     properties.addFloatIfNeeded(toc, translateMixKey, tc.translateMix, defaultFloat("transformConstraint", "translateMix"), required = tc.hasTranslateMix)
     properties.addFloatIfNeeded(toc, rotateMixKey, tc.rotateMix, defaultFloat("transformConstraint", "rotateMix"), required = tc.hasRotateMix)
     properties.addFloatIfNeeded(toc, scaleMixKey, tc.scaleMix, defaultFloat("transformConstraint", "scaleMix"), required = tc.hasScaleMix)
@@ -1289,12 +1284,14 @@ proc buildObjectRecords(data: SkeletonData; table: var BnbStringTable; toc: var 
 
   for path in data.paths:
     var properties: seq[BnbPropertyRecord]
-    properties.addStringIfNeeded(toc, table, nameKey, path.name, "", required = true)
-    properties.addStringIfNeeded(toc, table, boneKey, path.bone, "", required = true)
-    properties.addStringIfNeeded(toc, table, targetKey, path.target, "", required = true)
-    properties.addStringIfNeeded(toc, table, pathKey, path.path, "", required = true)
-    properties.addIntIfNeeded(toc, orderKey, path.order, defaultInt("path", "order"))
-    properties.addBoolIfNeeded(toc, skinRequiredKey, path.skinRequired, defaultBool("path", "skinRequired"))
+    properties.addBnbScalarProperties(toc, table, encodePathBnbScalars([
+      bnbScalarString(nameKey, path.name),
+      bnbScalarString(boneKey, path.bone),
+      bnbScalarString(targetKey, path.target),
+      bnbScalarString(pathKey, path.path),
+      bnbScalarInt(orderKey, path.order),
+      bnbScalarBool(skinRequiredKey, path.skinRequired),
+    ]))
     properties.addFloatIfNeeded(toc, positionKey, path.position, defaultFloat("path", "position"), required = path.hasPosition)
     properties.addFloatIfNeeded(toc, translateMixKey, path.translateMix, defaultFloat("path", "translateMix"), required = path.hasTranslateMix)
     properties.addFloatIfNeeded(toc, rotateMixKey, path.rotateMix, defaultFloat("path", "rotateMix"), required = path.hasRotateMix)
@@ -1307,11 +1304,13 @@ proc buildObjectRecords(data: SkeletonData; table: var BnbStringTable; toc: var 
   # is value-gated; channels is a required varuint bitmask always emitted.
   for pc in data.physicsConstraints:
     var properties: seq[BnbPropertyRecord]
-    properties.addStringIfNeeded(toc, table, nameKey, pc.name, "", required = true)
-    properties.addStringIfNeeded(toc, table, boneKey, pc.bone, "", required = true)
-    properties.addIntIfNeeded(toc, orderKey, pc.order, defaultInt("physicsConstraint", "order"))
-    properties.addBoolIfNeeded(toc, skinRequiredKey, pc.skinRequired, defaultBool("physicsConstraint", "skinRequired"))
-    properties.addProperty(toc, channelsKey, writeVaruintPayload(physicsChannelsToMask(pc.channels)))
+    properties.addBnbScalarProperties(toc, table, encodePhysicsConstraintBnbScalars([
+      bnbScalarString(nameKey, pc.name),
+      bnbScalarString(boneKey, pc.bone),
+      bnbScalarInt(orderKey, pc.order),
+      bnbScalarBool(skinRequiredKey, pc.skinRequired),
+      bnbScalarUint(channelsKey, physicsChannelsToMask(pc.channels)),
+    ]))
     properties.addFloatIfNeeded(toc, inertiaKey, pc.inertia, defaultFloat("physicsConstraint", "inertia"), required = pc.hasInertia)
     properties.addFloatIfNeeded(toc, strengthKey, pc.strength, defaultFloat("physicsConstraint", "strength"), required = pc.hasStrength)
     properties.addFloatIfNeeded(toc, dampingKey, pc.damping, defaultFloat("physicsConstraint", "damping"), required = pc.hasDamping)
@@ -1359,7 +1358,9 @@ proc buildObjectRecords(data: SkeletonData; table: var BnbStringTable; toc: var 
 
   for skin in orderedSkins():
     var properties: seq[BnbPropertyRecord]
-    properties.addStringIfNeeded(toc, table, nameKey, skin.name, "", required = true)
+    properties.addBnbScalarProperties(toc, table, encodeSkinBnbScalars([
+      bnbScalarString(nameKey, skin.name),
+    ]))
     let skinBones = orderedRefs(skin.bones, boneNameIndex)
     if skinBones.len > 0:
       properties.addProperty(toc, skinBonesKey, writeIndexListPayload(skinBones, boneNameIndex, "skin.bones"))
@@ -1378,67 +1379,71 @@ proc buildObjectRecords(data: SkeletonData; table: var BnbStringTable; toc: var 
     result.add BnbObjectRecord(typeKey: skinTypeKey, properties: properties)
     for entry in sortedSkinEntries(skin):
       var entryProperties: seq[BnbPropertyRecord]
-      entryProperties.addStringIfNeeded(toc, table, slotKey, entry.slot, "", required = true)
-      entryProperties.addStringIfNeeded(toc, table, skinAttachmentKey, entry.attachment, "", required = true)
-      entryProperties.addStringIfNeeded(toc, table, skinTargetKey, entry.target, "", required = true)
+      entryProperties.addBnbScalarProperties(toc, table, encodeSkinEntryBnbScalars([
+        bnbScalarString(slotKey, entry.slot),
+        bnbScalarString(skinAttachmentKey, entry.attachment),
+        bnbScalarString(skinTargetKey, entry.target),
+      ]))
       result.add BnbObjectRecord(typeKey: skinEntryTypeKey, properties: entryProperties)
 
   for param in data.parameters:
     var properties: seq[BnbPropertyRecord]
-    properties.addStringIfNeeded(toc, table, nameKey, param.name, "", required = true)
-    properties.addProperty(toc, parameterMinKey, writeF32Payload(param.minValue))
-    properties.addProperty(toc, parameterMaxKey, writeF32Payload(param.maxValue))
-    if quantizeF32(param.defaultValue) != 0.0:
-      properties.addProperty(toc, parameterDefaultKey, writeF32Payload(param.defaultValue))
+    properties.addBnbScalarProperties(toc, table, encodeParameterBnbScalars([
+      bnbScalarString(nameKey, param.name),
+      bnbScalarFloat(parameterMinKey, param.minValue),
+      bnbScalarFloat(parameterMaxKey, param.maxValue),
+      bnbScalarFloat(parameterDefaultKey, param.defaultValue),
+    ]))
     result.add BnbObjectRecord(typeKey: parameterTypeKey, properties: properties)
 
   for rec in data.deformers:
     let def = rec.deformer
     var defProperties: seq[BnbPropertyRecord]
-    defProperties.addProperty(toc, deformerIdKey, writeStringPayloadBytes(table, def.id))
-    if def.parent.len > 0:
-      defProperties.addStringIfNeeded(toc, table, parentKey, def.parent, "")
-    if def.order != 0'u32:
-      defProperties.addProperty(toc, deformerOrderKey, writeVaruintPayload(uint64(def.order)))
-    case def.kind
-    of warpDeformerKind:
-      defProperties.addProperty(toc, deformerKindKey, writeStringPayloadBytes(table, "warp"))
-    of rotationDeformerKind:
-      defProperties.addProperty(toc, deformerKindKey, writeStringPayloadBytes(table, "rotation"))
+    let defKind =
+      case def.kind
+      of warpDeformerKind: "warp"
+      of rotationDeformerKind: "rotation"
+    defProperties.addBnbScalarProperties(toc, table, encodeDeformerBnbScalars([
+      bnbScalarString(deformerIdKey, def.id),
+      bnbScalarString(parentKey, def.parent),
+      bnbScalarUint(deformerOrderKey, uint64(def.order)),
+      bnbScalarString(deformerKindKey, defKind),
+    ]))
     result.add BnbObjectRecord(typeKey: deformerTypeKey, properties: defProperties)
 
     case def.kind
     of warpDeformerKind:
       let warp = def.warp
       var wProperties: seq[BnbPropertyRecord]
-      if warp.rows != 2'u32:
-        wProperties.addProperty(toc, warpRowsKey, writeVaruintPayload(uint64(warp.rows)))
-      if warp.cols != 2'u32:
-        wProperties.addProperty(toc, warpColsKey, writeVaruintPayload(uint64(warp.cols)))
-      wProperties.addProperty(toc, warpMinXKey, writeF32Payload(warp.minX))
-      wProperties.addProperty(toc, warpMinYKey, writeF32Payload(warp.minY))
-      wProperties.addProperty(toc, warpMaxXKey, writeF32Payload(warp.maxX))
-      wProperties.addProperty(toc, warpMaxYKey, writeF32Payload(warp.maxY))
+      wProperties.addBnbScalarProperties(toc, table, encodeWarpLatticeBnbScalars([
+        bnbScalarUint(warpRowsKey, uint64(warp.rows)),
+        bnbScalarUint(warpColsKey, uint64(warp.cols)),
+        bnbScalarFloat(warpMinXKey, warp.minX),
+        bnbScalarFloat(warpMinYKey, warp.minY),
+        bnbScalarFloat(warpMaxXKey, warp.maxX),
+        bnbScalarFloat(warpMaxYKey, warp.maxY),
+      ]))
       wProperties.addProperty(toc, warpControlPointsKey, writeControlPointsPayload(warp.controlPoints))
       result.add BnbObjectRecord(typeKey: warpLatticeTypeKey, properties: wProperties)
     of rotationDeformerKind:
       let rot = def.rotation
       var rProperties: seq[BnbPropertyRecord]
-      rProperties.addProperty(toc, rotationPivotXKey, writeF32Payload(rot.pivotX))
-      rProperties.addProperty(toc, rotationPivotYKey, writeF32Payload(rot.pivotY))
-      rProperties.addProperty(toc, rotationAngleDegreesKey, writeF32Payload(rot.angleDegrees))
-      if quantizeF32(rot.scaleX) != 1.0:
-        rProperties.addProperty(toc, rotationScaleXKey, writeF32Payload(rot.scaleX))
-      if quantizeF32(rot.scaleY) != 1.0:
-        rProperties.addProperty(toc, rotationScaleYKey, writeF32Payload(rot.scaleY))
-      if quantizeF32(rot.opacity) != 1.0:
-        rProperties.addProperty(toc, rotationOpacityKey, writeF32Payload(rot.opacity))
+      rProperties.addBnbScalarProperties(toc, table, encodeRotationDeformerBnbScalars([
+        bnbScalarFloat(rotationPivotXKey, rot.pivotX),
+        bnbScalarFloat(rotationPivotYKey, rot.pivotY),
+        bnbScalarFloat(rotationAngleDegreesKey, rot.angleDegrees),
+        bnbScalarFloat(rotationScaleXKey, rot.scaleX),
+        bnbScalarFloat(rotationScaleYKey, rot.scaleY),
+        bnbScalarFloat(rotationOpacityKey, rot.opacity),
+      ]))
       result.add BnbObjectRecord(typeKey: rotationDeformerTypeKey, properties: rProperties)
 
     let blend = rec.keyformBlend
     if blend.axes.len > 0 and blend.keyforms.len > 0:
       var bProperties: seq[BnbPropertyRecord]
-      bProperties.addProperty(toc, blendValueCountKey, writeVaruintPayload(uint64(blend.valueCount)))
+      bProperties.addBnbScalarProperties(toc, table, encodeKeyformBlendBnbScalars([
+        bnbScalarUint(blendValueCountKey, uint64(blend.valueCount)),
+      ]))
       bProperties.addProperty(toc, blendAxesKey, writeBlendAxesPayload(blend.axes, table))
       result.add BnbObjectRecord(typeKey: keyformBlendTypeKey, properties: bProperties)
       for kf in blend.keyforms:
@@ -1501,32 +1506,40 @@ proc buildObjectRecords(asset: BonyAsset; table: var BnbStringTable; toc: var Ta
 
   for clip in asset.animations:
     var clipProperties: seq[BnbPropertyRecord]
-    clipProperties.addStringIfNeeded(toc, table, nameKey, clip.name, "", required = true)
+    clipProperties.addBnbScalarProperties(toc, table, encodeAnimationClipBnbScalars([
+      bnbScalarString(nameKey, clip.name),
+    ]))
     result.add BnbObjectRecord(typeKey: animationClipTypeKey, properties: clipProperties)
     for timeline in clip.boneTimelines:
       if timeline.target notin boneIndexes:
         raise newBonyLoadError(unknownRequiredReference, ".bnb bone timeline references unknown bone: " & timeline.target)
       var properties: seq[BnbPropertyRecord]
-      properties.addUintIfNeeded(toc, boneIndexKey, uint64(boneIndexes[timeline.target]), required = true)
-      properties.addUintIfNeeded(toc, boneTimelineKindKey, timeline.kind.boneTimelineKindTag, required = true)
+      properties.addBnbScalarProperties(toc, table, encodeBoneTimelineBnbScalars([
+        bnbScalarUint(boneIndexKey, uint64(boneIndexes[timeline.target])),
+        bnbScalarUint(boneTimelineKindKey, timeline.kind.boneTimelineKindTag),
+      ]))
       properties.addProperty(toc, timelineKeysKey, timeline.writeTimelineKeys())
       result.add BnbObjectRecord(typeKey: boneTimelineTypeKey, properties: properties)
     for timeline in clip.slotTimelines:
       if timeline.target notin slotIndexes:
         raise newBonyLoadError(unknownRequiredReference, ".bnb slot timeline references unknown slot: " & timeline.target)
       var properties: seq[BnbPropertyRecord]
-      properties.addUintIfNeeded(toc, slotIndexKey, uint64(slotIndexes[timeline.target]), required = true)
-      properties.addUintIfNeeded(toc, slotTimelineKindKey, timeline.kind.slotTimelineKindTag, required = true)
+      properties.addBnbScalarProperties(toc, table, encodeSlotTimelineBnbScalars([
+        bnbScalarUint(slotIndexKey, uint64(slotIndexes[timeline.target])),
+        bnbScalarUint(slotTimelineKindKey, timeline.kind.slotTimelineKindTag),
+      ]))
       properties.addProperty(toc, timelineKeysKey, timeline.writeTimelineKeys(regionIndexes))
       result.add BnbObjectRecord(typeKey: slotTimelineTypeKey, properties: properties)
     for timeline in clip.deformTimelines:
       if timeline.slot notin slotIndexes:
         raise newBonyLoadError(unknownRequiredReference, ".bnb deform timeline references unknown slot: " & timeline.slot)
       var properties: seq[BnbPropertyRecord]
-      properties.addStringIfNeeded(toc, table, deformSkinKey, timeline.skin, "", required = true)
-      properties.addStringIfNeeded(toc, table, slotKey, timeline.slot, "", required = true)
-      properties.addStringIfNeeded(toc, table, deformAttachmentKey, timeline.attachment, "", required = true)
-      properties.addUintIfNeeded(toc, deformVertexCountKey, uint64(timeline.vertexCount), required = true)
+      properties.addBnbScalarProperties(toc, table, encodeDeformTimelineBnbScalars([
+        bnbScalarString(deformSkinKey, timeline.skin),
+        bnbScalarString(slotKey, timeline.slot),
+        bnbScalarString(deformAttachmentKey, timeline.attachment),
+        bnbScalarUint(deformVertexCountKey, uint64(timeline.vertexCount)),
+      ]))
       properties.addProperty(toc, deformKeysKey, writeDeformKeys(timeline))
       result.add BnbObjectRecord(typeKey: deformTimelineTypeKey, properties: properties)
     for timeline in clip.eventTimelines:
@@ -1536,99 +1549,133 @@ proc buildObjectRecords(asset: BonyAsset; table: var BnbStringTable; toc: var Ta
 
   for machine in asset.stateMachines:
     var machineProperties: seq[BnbPropertyRecord]
-    machineProperties.addStringIfNeeded(toc, table, nameKey, machine.name, "", required = true)
+    machineProperties.addBnbScalarProperties(toc, table, encodeStateMachineBnbScalars([
+      bnbScalarString(nameKey, machine.name),
+    ]))
     result.add BnbObjectRecord(typeKey: stateMachineTypeKey, properties: machineProperties)
     let inputIndexes = machine.inputs.indexByInputName()
     let layerIndexes = machine.layers.indexByLayerName()
     for input in machine.inputs:
       var properties: seq[BnbPropertyRecord]
-      properties.addStringIfNeeded(toc, table, nameKey, input.name, "", required = true)
-      properties.addUintIfNeeded(toc, stateMachineInputKindKey, input.kind.inputKindTag, required = true)
+      var inputScalars = @[
+        bnbScalarString(nameKey, input.name),
+        bnbScalarUint(stateMachineInputKindKey, input.kind.inputKindTag),
+      ]
       case input.kind
       of boolInput:
-        properties.addBoolIfNeeded(toc, inputDefaultBoolKey, input.defaultBool, defaultBool("stateMachineInput", "inputDefaultBool"))
+        inputScalars.add bnbScalarBool(inputDefaultBoolKey, input.defaultBool)
       of numberInput:
-        properties.addFloatIfNeeded(toc, inputDefaultNumberKey, input.defaultNumber, defaultFloat("stateMachineInput", "inputDefaultNumber"))
+        inputScalars.add bnbScalarFloat(inputDefaultNumberKey, input.defaultNumber)
       of triggerInput:
         discard
+      properties.addBnbScalarProperties(toc, table, encodeStateMachineInputBnbScalars(inputScalars))
       result.add BnbObjectRecord(typeKey: stateMachineInputTypeKey, properties: properties)
 
     for layer in machine.layers:
       let stateIndexes = layer.states.indexByStateName()
       var layerProperties: seq[BnbPropertyRecord]
-      layerProperties.addStringIfNeeded(toc, table, nameKey, layer.name, "", required = true)
-      layerProperties.addUintIfNeeded(toc, initialStateIndexKey, uint64(stateIndexes.requiredIndex(layer.initialState, "stateMachineLayer.initialState")), uint64(defaultInt("stateMachineLayer", "initialStateIndex")))
+      layerProperties.addBnbScalarProperties(toc, table, encodeStateMachineLayerBnbScalars([
+        bnbScalarString(nameKey, layer.name),
+        bnbScalarUint(initialStateIndexKey, uint64(stateIndexes.requiredIndex(layer.initialState, "stateMachineLayer.initialState"))),
+      ]))
       result.add BnbObjectRecord(typeKey: stateMachineLayerTypeKey, properties: layerProperties)
 
       for state in layer.states:
         var stateProperties: seq[BnbPropertyRecord]
-        stateProperties.addStringIfNeeded(toc, table, nameKey, state.name, "", required = true)
-        stateProperties.addUintIfNeeded(toc, stateMachineStateKindKey, state.kind.stateKindTag, required = true)
+        var stateScalars = encodeStateMachineStateBnbScalars([
+          bnbScalarString(nameKey, state.name),
+          bnbScalarUint(stateMachineStateKindKey, state.kind.stateKindTag),
+          bnbScalarBool(stateLoopKey, state.loop),
+        ])
+        stateProperties.addBnbScalarPropertyIfPresent(toc, table, stateScalars, nameKey)
+        stateProperties.addBnbScalarPropertyIfPresent(toc, table, stateScalars, stateMachineStateKindKey)
         case state.kind
         of clipState:
-          stateProperties.addUintIfNeeded(toc, stateClipIndexKey, uint64(animationIndexes.requiredIndex(state.clip.name, "stateMachineState.clip")), required = true)
-          stateProperties.addBoolIfNeeded(toc, stateLoopKey, state.loop, defaultBool("stateMachineState", "stateLoop"))
+          stateProperties.addBnbScalarProperty(toc, table,
+            bnbScalarUint(stateClipIndexKey, uint64(animationIndexes.requiredIndex(state.clip.name, "stateMachineState.clip"))))
+          stateProperties.addBnbScalarPropertyIfPresent(toc, table, stateScalars, stateLoopKey)
         of blend1DState:
-          stateProperties.addUintIfNeeded(toc, stateBlendInputIndexKey, uint64(inputIndexes.requiredIndex(state.blendInput, "stateMachineState.blendInput")), required = true)
+          stateProperties.addBnbScalarProperty(toc, table,
+            bnbScalarUint(stateBlendInputIndexKey, uint64(inputIndexes.requiredIndex(state.blendInput, "stateMachineState.blendInput"))))
         result.add BnbObjectRecord(typeKey: stateMachineStateTypeKey, properties: stateProperties)
         if state.kind == blend1DState:
           for blendClip in state.blendClips:
             var properties: seq[BnbPropertyRecord]
-            properties.addUintIfNeeded(toc, blendClipAnimationIndexKey, uint64(animationIndexes.requiredIndex(blendClip.clip.name, "stateMachineBlendClip.animation")), required = true)
-            properties.addFloatIfNeeded(toc, blendClipValueKey, blendClip.value, 0.0, required = true)
-            properties.addBoolIfNeeded(toc, blendClipLoopKey, blendClip.loop, defaultBool("stateMachineBlendClip", "blendClipLoop"))
+            properties.addBnbScalarProperties(toc, table, encodeStateMachineBlendClipBnbScalars([
+              bnbScalarUint(blendClipAnimationIndexKey, uint64(animationIndexes.requiredIndex(blendClip.clip.name, "stateMachineBlendClip.animation"))),
+              bnbScalarFloat(blendClipValueKey, blendClip.value),
+              bnbScalarBool(blendClipLoopKey, blendClip.loop),
+            ]))
             result.add BnbObjectRecord(typeKey: stateMachineBlendClipTypeKey, properties: properties)
 
       for transition in layer.transitions:
         var transitionProperties: seq[BnbPropertyRecord]
-        transitionProperties.addUintIfNeeded(toc, transitionFromStateIndexKey, uint64(stateIndexes.requiredIndex(transition.fromState, "stateMachineTransition.from")), required = true)
-        transitionProperties.addUintIfNeeded(toc, transitionToStateIndexKey, uint64(stateIndexes.requiredIndex(transition.toState, "stateMachineTransition.to")), required = true)
+        transitionProperties.addBnbScalarProperties(toc, table, encodeStateMachineTransitionBnbScalars([
+          bnbScalarUint(transitionFromStateIndexKey, uint64(stateIndexes.requiredIndex(transition.fromState, "stateMachineTransition.from"))),
+          bnbScalarUint(transitionToStateIndexKey, uint64(stateIndexes.requiredIndex(transition.toState, "stateMachineTransition.to"))),
+        ]))
         result.add BnbObjectRecord(typeKey: stateMachineTransitionTypeKey, properties: transitionProperties)
         for condition in transition.conditions:
           var properties: seq[BnbPropertyRecord]
-          properties.addUintIfNeeded(toc, conditionInputIndexKey, uint64(inputIndexes.requiredIndex(condition.input, "stateMachineCondition.input")), required = true)
-          properties.addUintIfNeeded(toc, stateMachineConditionKindKey, condition.kind.conditionKindTag, required = true)
+          var conditionScalars = encodeStateMachineConditionBnbScalars([
+            bnbScalarUint(conditionInputIndexKey, uint64(inputIndexes.requiredIndex(condition.input, "stateMachineCondition.input"))),
+            bnbScalarUint(stateMachineConditionKindKey, condition.kind.conditionKindTag),
+            bnbScalarBool(conditionBoolValueKey, condition.boolValue),
+          ])
+          properties.addBnbScalarPropertyIfPresent(toc, table, conditionScalars, conditionInputIndexKey)
+          properties.addBnbScalarPropertyIfPresent(toc, table, conditionScalars, stateMachineConditionKindKey)
           case condition.kind
           of boolEqualsCondition:
-            properties.addBoolIfNeeded(toc, conditionBoolValueKey, condition.boolValue, defaultBool("stateMachineCondition", "conditionBoolValue"))
+            properties.addBnbScalarPropertyIfPresent(toc, table, conditionScalars, conditionBoolValueKey)
           of numberEqualsCondition, numberGreaterCondition, numberGreaterOrEqualCondition, numberLessCondition, numberLessOrEqualCondition:
-            properties.addFloatIfNeeded(toc, conditionNumberValueKey, condition.numberValue, defaultFloat("stateMachineCondition", "conditionNumberValue"), required = true)
+            properties.addBnbScalarProperty(toc, table, bnbScalarFloat(conditionNumberValueKey, condition.numberValue))
           of triggerSetCondition:
             discard
           result.add BnbObjectRecord(typeKey: stateMachineConditionTypeKey, properties: properties)
 
     for listener in machine.listeners:
       var properties: seq[BnbPropertyRecord]
-      properties.addStringIfNeeded(toc, table, nameKey, listener.name, "", required = true)
-      properties.addUintIfNeeded(toc, stateMachineListenerKindKey, listener.kind.listenerKindTag, required = true)
+      let listenerScalars = encodeStateMachineListenerBnbScalars([
+        bnbScalarString(nameKey, listener.name),
+        bnbScalarUint(stateMachineListenerKindKey, listener.kind.listenerKindTag),
+      ])
+      properties.addBnbScalarProperties(toc, table, listenerScalars)
       case listener.kind
       of stateEnterListener:
         let listenerLayerIndex = layerIndexes.requiredIndex(listener.layer, "stateMachineListener.layer")
-        properties.addUintIfNeeded(toc, listenerLayerIndexKey, uint64(listenerLayerIndex), required = true)
+        properties.addBnbScalarProperty(toc, table, bnbScalarUint(listenerLayerIndexKey, uint64(listenerLayerIndex)))
         let stateIndexes = machine.layers[listenerLayerIndex].states.indexByStateName()
-        properties.addUintIfNeeded(toc, listenerToStateIndexKey, uint64(stateIndexes.requiredIndex(listener.toState, "stateMachineListener.to")), required = true)
+        properties.addBnbScalarProperty(toc, table,
+          bnbScalarUint(listenerToStateIndexKey, uint64(stateIndexes.requiredIndex(listener.toState, "stateMachineListener.to"))))
       of stateExitListener:
         let listenerLayerIndex = layerIndexes.requiredIndex(listener.layer, "stateMachineListener.layer")
-        properties.addUintIfNeeded(toc, listenerLayerIndexKey, uint64(listenerLayerIndex), required = true)
+        properties.addBnbScalarProperty(toc, table, bnbScalarUint(listenerLayerIndexKey, uint64(listenerLayerIndex)))
         let stateIndexes = machine.layers[listenerLayerIndex].states.indexByStateName()
-        properties.addUintIfNeeded(toc, listenerFromStateIndexKey, uint64(stateIndexes.requiredIndex(listener.fromState, "stateMachineListener.from")), required = true)
+        properties.addBnbScalarProperty(toc, table,
+          bnbScalarUint(listenerFromStateIndexKey, uint64(stateIndexes.requiredIndex(listener.fromState, "stateMachineListener.from"))))
       of transitionListener:
         let listenerLayerIndex = layerIndexes.requiredIndex(listener.layer, "stateMachineListener.layer")
-        properties.addUintIfNeeded(toc, listenerLayerIndexKey, uint64(listenerLayerIndex), required = true)
+        properties.addBnbScalarProperty(toc, table, bnbScalarUint(listenerLayerIndexKey, uint64(listenerLayerIndex)))
         let stateIndexes = machine.layers[listenerLayerIndex].states.indexByStateName()
-        properties.addUintIfNeeded(toc, listenerFromStateIndexKey, uint64(stateIndexes.requiredIndex(listener.fromState, "stateMachineListener.from")), required = true)
-        properties.addUintIfNeeded(toc, listenerToStateIndexKey, uint64(stateIndexes.requiredIndex(listener.toState, "stateMachineListener.to")), required = true)
+        properties.addBnbScalarProperty(toc, table,
+          bnbScalarUint(listenerFromStateIndexKey, uint64(stateIndexes.requiredIndex(listener.fromState, "stateMachineListener.from"))))
+        properties.addBnbScalarProperty(toc, table,
+          bnbScalarUint(listenerToStateIndexKey, uint64(stateIndexes.requiredIndex(listener.toState, "stateMachineListener.to"))))
       of pointerDownListener, pointerUpListener, pointerEnterListener, pointerExitListener, pointerMoveListener:
-        properties.addUintIfNeeded(toc, listenerSlotIndexKey, uint64(slotIndexes.requiredIndex(listener.slot, "stateMachineListener.slot")), required = true)
-        properties.addUintIfNeeded(toc, listenerHelperKindKey, listener.targetKind.helperKindTag, required = true)
-        properties.addStringIfNeeded(toc, table, listenerHelperTargetKey, listener.target, "", required = true)
-        properties.addUintIfNeeded(toc, listenerInputIndexKey, uint64(inputIndexes.requiredIndex(listener.input, "stateMachineListener.input")), required = true)
-        if listener.hasBoolValue:
-          properties.addProperty(toc, listenerBoolValueKey, writeBoolPayload(listener.boolValue))
-        if listener.hasNumberValue:
-          properties.addFloatIfNeeded(toc, listenerNumberValueKey, listener.numberValue, 0.0, required = true)
-        if listener.hasHitRadius:
-          properties.addFloatIfNeeded(toc, listenerHitRadiusKey, listener.hitRadius, 0.0, required = true)
+        properties.addBnbScalarProperty(toc, table,
+          bnbScalarUint(listenerSlotIndexKey, uint64(slotIndexes.requiredIndex(listener.slot, "stateMachineListener.slot"))))
+        properties.addBnbScalarProperty(toc, table,
+          bnbScalarUint(listenerHelperKindKey, listener.targetKind.helperKindTag))
+        properties.addBnbScalarProperty(toc, table,
+          bnbScalarString(listenerHelperTargetKey, listener.target))
+        properties.addBnbScalarProperty(toc, table,
+          bnbScalarUint(listenerInputIndexKey, uint64(inputIndexes.requiredIndex(listener.input, "stateMachineListener.input"))))
+        if listener.inputKind == boolInput:
+          properties.addBnbScalarProperty(toc, table, bnbScalarBool(listenerBoolValueKey, listener.boolValue))
+        if listener.inputKind == numberInput:
+          properties.addBnbScalarProperty(toc, table, bnbScalarFloat(listenerNumberValueKey, listener.numberValue))
+        if listener.targetKind == pointHelperTarget:
+          properties.addBnbScalarProperty(toc, table, bnbScalarFloat(listenerHitRadiusKey, listener.hitRadius))
       result.add BnbObjectRecord(typeKey: stateMachineListenerTypeKey, properties: properties)
 
 
@@ -1676,883 +1723,9 @@ proc toBonyBnb*(asset: BonyAsset; embeddedAtlas: openArray[byte] = []): seq[byte
   result.writeBonyBnb(asset, embeddedAtlas)
 
 
-proc emitPendingDeformer(
-  loadedDeformers: var seq[DeformerRecord];
-  pendingId: string;
-  pendingParent: string;
-  pendingOrder: uint32;
-  pendingKind: DeformerKind;
-  pendingWarp: WarpLattice;
-  pendingRotation: RotationDeformer;
-  pendingBlendAxes: seq[ParameterAxis];
-  pendingKeyforms: seq[Keyform];
-  hasBlend: bool;
-) =
-  var deformerObj: Deformer
-  case pendingKind
-  of warpDeformerKind:
-    deformerObj = Deformer(id: pendingId, parent: pendingParent, order: pendingOrder, kind: warpDeformerKind, warp: pendingWarp)
-    validateWarpLattice(pendingWarp)
-  of rotationDeformerKind:
-    deformerObj = Deformer(id: pendingId, parent: pendingParent, order: pendingOrder, kind: rotationDeformerKind, rotation: pendingRotation)
-    validateRotationDeformer(pendingRotation)
-  if hasBlend:
-    let blend = keyformBlend(pendingBlendAxes, pendingKeyforms)
-    loadedDeformers.add DeformerRecord(deformer: deformerObj, keyformBlend: blend)
-  else:
-    loadedDeformers.add DeformerRecord(deformer: deformerObj, keyformBlend: KeyformBlend())
-
-
-proc decodeSkeletonObjects(objects: openArray[BnbObjectRecord]; strings: BnbStringTable): SkeletonData =
-  var hasSkeleton = false
-  var headerValue: SkeletonHeader
-  var bones: seq[BoneData]
-  var slots: seq[SlotData]
-  var regions: seq[RegionAttachment]
-  var pointAttachments: seq[PointAttachmentData]
-  var boundingBoxAttachments: seq[BoundingBoxAttachmentData]
-  var nestedRigAttachments: seq[NestedRigAttachmentData]
-  var pathAttachments: seq[PathAttachmentData]
-  var clips: seq[ClipAttachmentData]
-  var meshes: seq[MeshAttachment]
-  var paths: seq[PathConstraintData]
-  var ikConstraints: seq[IkConstraintData]
-  var transformConstraints: seq[TransformConstraintData]
-  var physicsConstraints: seq[PhysicsConstraintData]
-  var skins: seq[SkinData]
-  var loadedParameters: seq[ParameterAxis]
-  var loadedDeformers: seq[DeformerRecord]
-
-  var deformerPending = false
-  var pendingId = ""
-  var pendingParent = ""
-  var pendingOrder = 0'u32
-  var pendingKind = warpDeformerKind
-  var pendingWarp = WarpLattice()
-  var pendingRotation = RotationDeformer()
-  var geometryReady = false
-  var blendPending = false
-  var pendingBlendValueCount = 0
-  var pendingBlendAxes: seq[ParameterAxis] = @[]
-  var pendingKeyforms: seq[Keyform] = @[]
-  var currentSkinName = ""
-  var currentSkinEntries: seq[SkinEntryData] = @[]
-  var currentSkinBones: seq[string] = @[]
-  var currentSkinIkConstraints: seq[string] = @[]
-  var currentSkinTransformConstraints: seq[string] = @[]
-  var currentSkinPathConstraints: seq[string] = @[]
-  var currentSkinPhysicsConstraints: seq[string] = @[]
-
-  template flushPendingIfAny() =
-    if deformerPending and geometryReady:
-      emitPendingDeformer(loadedDeformers, pendingId, pendingParent, pendingOrder,
-        pendingKind, pendingWarp, pendingRotation, pendingBlendAxes, pendingKeyforms, blendPending)
-      deformerPending = false
-      geometryReady = false
-      blendPending = false
-      pendingBlendAxes = @[]
-      pendingKeyforms = @[]
-    elif deformerPending:
-      raise newBonyLoadError(schemaViolation, ".bnb deformer header has no following geometry record")
-
-  template flushSkinIfAny() =
-    if currentSkinName.len > 0:
-      skins.add skinData(
-        currentSkinName,
-        currentSkinEntries,
-        bones = currentSkinBones,
-        ikConstraints = currentSkinIkConstraints,
-        transformConstraints = currentSkinTransformConstraints,
-        pathConstraints = currentSkinPathConstraints,
-        physicsConstraints = currentSkinPhysicsConstraints,
-      )
-      currentSkinName = ""
-      currentSkinEntries = @[]
-      currentSkinBones = @[]
-      currentSkinIkConstraints = @[]
-      currentSkinTransformConstraints = @[]
-      currentSkinPathConstraints = @[]
-      currentSkinPhysicsConstraints = @[]
-
-  proc boneNames(): seq[string] =
-    for bone in bones:
-      result.add bone.name
-
-  proc ikNames(): seq[string] =
-    for ik in ikConstraints:
-      result.add ik.name
-
-  proc transformNames(): seq[string] =
-    for tc in transformConstraints:
-      result.add tc.name
-
-  proc pathNames(): seq[string] =
-    for path in paths:
-      result.add path.name
-
-  proc physicsNames(): seq[string] =
-    for pc in physicsConstraints:
-      result.add pc.name
-
-  for record in objects:
-    case record.typeKey
-    of skeletonTypeKey:
-      if hasSkeleton:
-        raise newBonyLoadError(duplicateKey, ".bnb contains multiple skeleton objects")
-      let properties = record.propertyMap([nameKey, versionKey])
-      headerValue = skeletonHeader(
-        properties.readStringProperty(strings, nameKey, "skeleton.name"),
-        properties.readOptionalStringProperty(strings, versionKey, defaultString("skeleton", "version")),
-      )
-      hasSkeleton = true
-    of boneTypeKey:
-      let properties = record.propertyMap([
-        nameKey,
-        parentKey,
-        xKey,
-        yKey,
-        rotationKey,
-        scaleXKey,
-        scaleYKey,
-        shearXKey,
-        shearYKey,
-        inheritRotationKey,
-        inheritScaleKey,
-        inheritReflectionKey,
-        transformModeKey,
-        skinRequiredKey,
-      ])
-      let inheritRotation = properties.readOptionalBoolProperty(
-        inheritRotationKey,
-        defaultBool("bone", "inheritRotation"),
-        "bone.inheritRotation",
-      )
-      let inheritScale = properties.readOptionalBoolProperty(
-        inheritScaleKey,
-        defaultBool("bone", "inheritScale"),
-        "bone.inheritScale",
-      )
-      let inheritReflection = properties.readOptionalBoolProperty(
-        inheritReflectionKey,
-        defaultBool("bone", "inheritReflection"),
-        "bone.inheritReflection",
-      )
-      bones.add boneData(
-        properties.readStringProperty(strings, nameKey, "bone.name"),
-        properties.readOptionalStringProperty(strings, parentKey, defaultString("bone", "parent")),
-        localTransform(
-          x = properties.readOptionalFloatProperty(xKey, defaultFloat("bone", "x"), "bone.x"),
-          y = properties.readOptionalFloatProperty(yKey, defaultFloat("bone", "y"), "bone.y"),
-          rotation = properties.readOptionalFloatProperty(rotationKey, defaultFloat("bone", "rotation"), "bone.rotation"),
-          scaleX = properties.readOptionalFloatProperty(scaleXKey, defaultFloat("bone", "scaleX"), "bone.scaleX"),
-          scaleY = properties.readOptionalFloatProperty(scaleYKey, defaultFloat("bone", "scaleY"), "bone.scaleY"),
-          shearX = properties.readOptionalFloatProperty(shearXKey, defaultFloat("bone", "shearX"), "bone.shearX"),
-          shearY = properties.readOptionalFloatProperty(shearYKey, defaultFloat("bone", "shearY"), "bone.shearY"),
-          inheritRotation = inheritRotation,
-          inheritScale = inheritScale,
-          inheritReflection = inheritReflection,
-          transformMode = parseTransformMode(
-            properties.readOptionalStringProperty(strings, transformModeKey, defaultString("bone", "transformMode")),
-          ),
-        ),
-        skinRequired = properties.readOptionalBoolProperty(
-          skinRequiredKey,
-          defaultBool("bone", "skinRequired"),
-          "bone.skinRequired",
-        ),
-      )
-    of slotTypeKey:
-      let properties = record.propertyMap([nameKey, boneKey, attachmentKey])
-      slots.add slotData(
-        properties.readStringProperty(strings, nameKey, "slot.name"),
-        properties.readStringProperty(strings, boneKey, "slot.bone"),
-        properties.readOptionalStringProperty(strings, attachmentKey, defaultString("slot", "attachment")),
-      )
-    of regionTypeKey:
-      let properties = record.propertyMap([nameKey, widthKey, heightKey, texturePageKey, u0Key, v0Key, u1Key, v1Key, alphaModeKey])
-      regions.add regionAttachment(
-        properties.readStringProperty(strings, nameKey, "region.name"),
-        properties.readFloatProperty(widthKey, "region.width"),
-        properties.readFloatProperty(heightKey, "region.height"),
-        texturePage = properties.readOptionalStringProperty(strings, texturePageKey, defaultString("region", "texturePage")),
-        u0 = properties.readOptionalFloatProperty(u0Key, defaultFloat("region", "u0"), "region.u0"),
-        v0 = properties.readOptionalFloatProperty(v0Key, defaultFloat("region", "v0"), "region.v0"),
-        u1 = properties.readOptionalFloatProperty(u1Key, defaultFloat("region", "u1"), "region.u1"),
-        v1 = properties.readOptionalFloatProperty(v1Key, defaultFloat("region", "v1"), "region.v1"),
-        alphaMode = properties.readOptionalStringProperty(strings, alphaModeKey, defaultString("region", "alphaMode")),
-      )
-    of pointAttachmentTypeKey:
-      let properties = record.propertyMap([nameKey, xKey, yKey, rotationKey])
-      pointAttachments.add pointAttachmentData(
-        properties.readStringProperty(strings, nameKey, "pointAttachment.name"),
-        properties.readFloatProperty(xKey, "pointAttachment.x"),
-        properties.readFloatProperty(yKey, "pointAttachment.y"),
-        properties.readFloatProperty(rotationKey, "pointAttachment.rotation"),
-      )
-    of boundingBoxAttachmentTypeKey:
-      let properties = record.propertyMap([nameKey, verticesKey])
-      if verticesKey notin properties:
-        raise newBonyLoadError(schemaViolation, ".bnb boundingBoxAttachment.vertices is required")
-      boundingBoxAttachments.add boundingBoxAttachmentData(
-        properties.readStringProperty(strings, nameKey, "boundingBoxAttachment.name"),
-        readPolygonVerticesPayload(properties[verticesKey], "boundingBoxAttachment"),
-      )
-    of pathAttachmentTypeKey:
-      let properties = record.propertyMap([nameKey, p0xKey, p0yKey, p1xKey, p1yKey, p2xKey, p2yKey, p3xKey, p3yKey])
-      pathAttachments.add pathAttachmentData(
-        properties.readStringProperty(strings, nameKey, "pathAttachment.name"),
-        properties.readF64Property(p0xKey, "pathAttachment.p0x"),
-        properties.readF64Property(p0yKey, "pathAttachment.p0y"),
-        properties.readF64Property(p1xKey, "pathAttachment.p1x"),
-        properties.readF64Property(p1yKey, "pathAttachment.p1y"),
-        properties.readF64Property(p2xKey, "pathAttachment.p2x"),
-        properties.readF64Property(p2yKey, "pathAttachment.p2y"),
-        properties.readF64Property(p3xKey, "pathAttachment.p3x"),
-        properties.readF64Property(p3yKey, "pathAttachment.p3y"),
-      )
-    of clippingAttachmentTypeKey:
-      let properties = record.propertyMap([nameKey, verticesKey, untilSlotKey])
-      if verticesKey notin properties:
-        raise newBonyLoadError(schemaViolation, ".bnb clippingAttachment.vertices is required")
-      clips.add clipAttachmentData(
-        properties.readStringProperty(strings, nameKey, "clippingAttachment.name"),
-        readPolygonVerticesPayload(properties[verticesKey], "clippingAttachment"),
-        properties.readOptionalStringProperty(strings, untilSlotKey, defaultString("clippingAttachment", "untilSlot")),
-      )
-    of meshAttachmentTypeKey:
-      let properties = record.propertyMap([nameKey, meshWeightedKey, meshVerticesKey, meshUvsKey, meshTrianglesKey])
-      if meshVerticesKey notin properties:
-        raise newBonyLoadError(schemaViolation, ".bnb meshAttachment.meshVertices is required")
-      if meshUvsKey notin properties:
-        raise newBonyLoadError(schemaViolation, ".bnb meshAttachment.meshUvs is required")
-      if meshTrianglesKey notin properties:
-        raise newBonyLoadError(schemaViolation, ".bnb meshAttachment.meshTriangles is required")
-      # meshWeighted selects the vertices payload branch; it defaults to false and
-      # is only present when non-default. The (a)-(g) whole-skeleton checks run
-      # later in validateSkeletonData via skeletonData().
-      let weighted = properties.readOptionalBoolProperty(
-        meshWeightedKey, defaultBool("meshAttachment", "meshWeighted"), "meshAttachment.meshWeighted")
-      meshes.add meshAttachmentData(
-        properties.readStringProperty(strings, nameKey, "meshAttachment.name"),
-        readMeshUvsPayload(properties[meshUvsKey]),
-        readMeshTrianglesPayload(properties[meshTrianglesKey]),
-        readMeshVerticesPayload(properties[meshVerticesKey], weighted, strings),
-        weighted,
-      )
-    of nestedRigAttachmentTypeKey:
-      let properties = record.propertyMap([nameKey, nestedSkeletonKey, nestedSkinKey, nestedAnimationKey])
-      nestedRigAttachments.add nestedRigAttachmentData(
-        properties.readStringProperty(strings, nameKey, "nestedRigAttachment.name"),
-        properties.readStringProperty(strings, nestedSkeletonKey, "nestedRigAttachment.nestedSkeleton"),
-        properties.readOptionalStringProperty(strings, nestedSkinKey, defaultString("nestedRigAttachment", "nestedSkin")),
-        properties.readOptionalStringProperty(strings, nestedAnimationKey, defaultString("nestedRigAttachment", "nestedAnimation")),
-      )
-    of pathTypeKey:
-      flushPendingIfAny()
-      let properties = record.propertyMap([nameKey, boneKey, targetKey, pathKey, orderKey, skinRequiredKey, positionKey, translateMixKey, rotateMixKey])
-      paths.add pathConstraintData(
-        properties.readStringProperty(strings, nameKey, "path.name"),
-        properties.readStringProperty(strings, boneKey, "path.bone"),
-        properties.readStringProperty(strings, targetKey, "path.target"),
-        properties.readStringProperty(strings, pathKey, "path.path"),
-        properties.readOptionalIntProperty(orderKey, defaultInt("path", "order"), "path.order"),
-        skinRequired = properties.readOptionalBoolProperty(
-          skinRequiredKey,
-          defaultBool("path", "skinRequired"),
-          "path.skinRequired",
-        ),
-        hasPosition = positionKey in properties,
-        position = properties.readOptionalFloatProperty(positionKey, defaultFloat("path", "position"), "path.position"),
-        hasTranslateMix = translateMixKey in properties,
-        translateMix = properties.readOptionalFloatProperty(translateMixKey, defaultFloat("path", "translateMix"), "path.translateMix"),
-        hasRotateMix = rotateMixKey in properties,
-        rotateMix = properties.readOptionalFloatProperty(rotateMixKey, defaultFloat("path", "rotateMix"), "path.rotateMix"),
-      )
-    of ikConstraintTypeKey:
-      flushPendingIfAny()
-      let properties = record.propertyMap([nameKey, bonesKey, targetKey, orderKey, skinRequiredKey, mixKey, bendPositiveKey])
-      if bonesKey notin properties:
-        raise newBonyLoadError(schemaViolation, ".bnb ikConstraint.bones is required")
-      ikConstraints.add ikConstraintData(
-        properties.readStringProperty(strings, nameKey, "ikConstraint.name"),
-        properties.readStringProperty(strings, targetKey, "ikConstraint.target"),
-        readBonesPayload(properties[bonesKey], strings),
-        order = properties.readOptionalIntProperty(orderKey, defaultInt("ikConstraint", "order"), "ikConstraint.order"),
-        skinRequired = properties.readOptionalBoolProperty(
-          skinRequiredKey,
-          defaultBool("ikConstraint", "skinRequired"),
-          "ikConstraint.skinRequired",
-        ),
-        hasMix = mixKey in properties,
-        mix = properties.readOptionalFloatProperty(mixKey, defaultFloat("ikConstraint", "mix"), "ikConstraint.mix"),
-        hasBendPositive = bendPositiveKey in properties,
-        bendPositive = properties.readOptionalBoolProperty(bendPositiveKey, defaultBool("ikConstraint", "bendPositive"), "ikConstraint.bendPositive"),
-      )
-    of transformConstraintTypeKey:
-      flushPendingIfAny()
-      let properties = record.propertyMap([nameKey, boneKey, targetKey, orderKey, skinRequiredKey, translateMixKey, rotateMixKey, scaleMixKey, shearMixKey])
-      transformConstraints.add transformConstraintData(
-        properties.readStringProperty(strings, nameKey, "transformConstraint.name"),
-        properties.readStringProperty(strings, boneKey, "transformConstraint.bone"),
-        properties.readStringProperty(strings, targetKey, "transformConstraint.target"),
-        order = properties.readOptionalIntProperty(orderKey, defaultInt("transformConstraint", "order"), "transformConstraint.order"),
-        skinRequired = properties.readOptionalBoolProperty(
-          skinRequiredKey,
-          defaultBool("transformConstraint", "skinRequired"),
-          "transformConstraint.skinRequired",
-        ),
-        hasTranslateMix = translateMixKey in properties,
-        translateMix = properties.readOptionalFloatProperty(translateMixKey, defaultFloat("transformConstraint", "translateMix"), "transformConstraint.translateMix"),
-        hasRotateMix = rotateMixKey in properties,
-        rotateMix = properties.readOptionalFloatProperty(rotateMixKey, defaultFloat("transformConstraint", "rotateMix"), "transformConstraint.rotateMix"),
-        hasScaleMix = scaleMixKey in properties,
-        scaleMix = properties.readOptionalFloatProperty(scaleMixKey, defaultFloat("transformConstraint", "scaleMix"), "transformConstraint.scaleMix"),
-        hasShearMix = shearMixKey in properties,
-        shearMix = properties.readOptionalFloatProperty(shearMixKey, defaultFloat("transformConstraint", "shearMix"), "transformConstraint.shearMix"),
-      )
-    of physicsConstraintTypeKey:
-      flushPendingIfAny()
-      let properties = record.propertyMap([nameKey, boneKey, orderKey, skinRequiredKey, channelsKey, inertiaKey, strengthKey, dampingKey, massKey, gravityKey, windKey, physicsMixKey])
-      if channelsKey notin properties:
-        raise newBonyLoadError(schemaViolation, ".bnb physicsConstraint.channels is required")
-      let channelMask = readVaruintPayload(properties[channelsKey], "physicsConstraint.channels")
-      physicsConstraints.add physicsConstraintData(
-        properties.readStringProperty(strings, nameKey, "physicsConstraint.name"),
-        properties.readStringProperty(strings, boneKey, "physicsConstraint.bone"),
-        physicsChannelsFromMask(channelMask, "physicsConstraint.channels"),
-        order = properties.readOptionalIntProperty(orderKey, defaultInt("physicsConstraint", "order"), "physicsConstraint.order"),
-        skinRequired = properties.readOptionalBoolProperty(
-          skinRequiredKey,
-          defaultBool("physicsConstraint", "skinRequired"),
-          "physicsConstraint.skinRequired",
-        ),
-        hasInertia = inertiaKey in properties,
-        inertia = properties.readOptionalFloatProperty(inertiaKey, defaultFloat("physicsConstraint", "inertia"), "physicsConstraint.inertia"),
-        hasStrength = strengthKey in properties,
-        strength = properties.readOptionalFloatProperty(strengthKey, defaultFloat("physicsConstraint", "strength"), "physicsConstraint.strength"),
-        hasDamping = dampingKey in properties,
-        damping = properties.readOptionalFloatProperty(dampingKey, defaultFloat("physicsConstraint", "damping"), "physicsConstraint.damping"),
-        hasMass = massKey in properties,
-        mass = properties.readOptionalFloatProperty(massKey, defaultFloat("physicsConstraint", "mass"), "physicsConstraint.mass"),
-        hasGravity = gravityKey in properties,
-        gravity = properties.readOptionalFloatProperty(gravityKey, defaultFloat("physicsConstraint", "gravity"), "physicsConstraint.gravity"),
-        hasWind = windKey in properties,
-        wind = properties.readOptionalFloatProperty(windKey, defaultFloat("physicsConstraint", "wind"), "physicsConstraint.wind"),
-        hasMix = physicsMixKey in properties,
-        mix = properties.readOptionalFloatProperty(physicsMixKey, defaultFloat("physicsConstraint", "physicsMix"), "physicsConstraint.physicsMix"),
-      )
-    of parameterTypeKey:
-      flushSkinIfAny()
-      flushPendingIfAny()
-      let properties = record.propertyMap([nameKey, parameterMinKey, parameterMaxKey, parameterDefaultKey])
-      let paramName = properties.readStringProperty(strings, nameKey, "parameter.name")
-      let paramMin = properties.readFloatProperty(parameterMinKey, "parameter.min")
-      let paramMax = properties.readFloatProperty(parameterMaxKey, "parameter.max")
-      let paramDefault =
-        if parameterDefaultKey in properties:
-          readF32Payload(properties[parameterDefaultKey], "parameter.default")
-        else:
-          0.0
-      loadedParameters.add ParameterAxis(
-        name: paramName,
-        minValue: paramMin,
-        maxValue: paramMax,
-        defaultValue: paramDefault,
-      )
-    of skinTypeKey:
-      flushPendingIfAny()
-      flushSkinIfAny()
-      let properties = record.propertyMap([
-        nameKey,
-        skinBonesKey,
-        skinIkConstraintsKey,
-        skinTransformConstraintsKey,
-        skinPathConstraintsKey,
-        skinPhysicsConstraintsKey,
-      ])
-      currentSkinName = properties.readStringProperty(strings, nameKey, "skin.name")
-      currentSkinEntries = @[]
-      currentSkinBones =
-        if skinBonesKey in properties: readIndexListPayload(properties[skinBonesKey], boneNames(), "skin.bones")
-        else: @[]
-      currentSkinIkConstraints =
-        if skinIkConstraintsKey in properties: readIndexListPayload(properties[skinIkConstraintsKey], ikNames(), "skin.ikConstraints")
-        else: @[]
-      currentSkinTransformConstraints =
-        if skinTransformConstraintsKey in properties: readIndexListPayload(properties[skinTransformConstraintsKey], transformNames(), "skin.transformConstraints")
-        else: @[]
-      currentSkinPathConstraints =
-        if skinPathConstraintsKey in properties: readIndexListPayload(properties[skinPathConstraintsKey], pathNames(), "skin.pathConstraints")
-        else: @[]
-      currentSkinPhysicsConstraints =
-        if skinPhysicsConstraintsKey in properties: readIndexListPayload(properties[skinPhysicsConstraintsKey], physicsNames(), "skin.physicsConstraints")
-        else: @[]
-    of skinEntryTypeKey:
-      flushPendingIfAny()
-      if currentSkinName.len == 0:
-        raise newBonyLoadError(schemaViolation, ".bnb skinEntry record without preceding skin")
-      let properties = record.propertyMap([slotKey, skinAttachmentKey, skinTargetKey])
-      currentSkinEntries.add skinEntryData(
-        properties.readStringProperty(strings, slotKey, "skinEntry.slot"),
-        properties.readStringProperty(strings, skinAttachmentKey, "skinEntry.skinAttachment"),
-        properties.readStringProperty(strings, skinTargetKey, "skinEntry.skinTarget"),
-      )
-    of deformerTypeKey:
-      flushSkinIfAny()
-      flushPendingIfAny()
-      let properties = record.propertyMap([deformerIdKey, parentKey, deformerOrderKey, deformerKindKey])
-      pendingId = readStringPayload(
-        (if deformerIdKey in properties: properties[deformerIdKey] else: raise newBonyLoadError(schemaViolation, ".bnb deformer.id is required")),
-        strings,
-      )
-      pendingParent = properties.readOptionalStringProperty(strings, parentKey, "")
-      pendingOrder = properties.readOptionalUintProperty(deformerOrderKey, 0'u32, "deformer.order")
-      let kindStr = readStringPayload(
-        (if deformerKindKey in properties: properties[deformerKindKey] else: raise newBonyLoadError(schemaViolation, ".bnb deformer.kind is required")),
-        strings,
-      )
-      case kindStr
-      of "warp": pendingKind = warpDeformerKind
-      of "rotation": pendingKind = rotationDeformerKind
-      else: raise newBonyLoadError(schemaViolation, ".bnb deformer.kind must be 'warp' or 'rotation'")
-      deformerPending = true
-      geometryReady = false
-      blendPending = false
-      pendingBlendAxes = @[]
-      pendingKeyforms = @[]
-    of warpLatticeTypeKey:
-      if not deformerPending or pendingKind != warpDeformerKind:
-        raise newBonyLoadError(schemaViolation, ".bnb warpLattice record without preceding warp deformer")
-      let properties = record.propertyMap([warpRowsKey, warpColsKey, warpMinXKey, warpMinYKey, warpMaxXKey, warpMaxYKey, warpControlPointsKey])
-      let rows = properties.readOptionalUintProperty(warpRowsKey, 2'u32, "warpLattice.rows")
-      let cols = properties.readOptionalUintProperty(warpColsKey, 2'u32, "warpLattice.cols")
-      let minX = readF32Payload((if warpMinXKey in properties: properties[warpMinXKey] else: raise newBonyLoadError(schemaViolation, ".bnb warpLattice.minX is required")), "warpLattice.minX")
-      let minY = readF32Payload((if warpMinYKey in properties: properties[warpMinYKey] else: raise newBonyLoadError(schemaViolation, ".bnb warpLattice.minY is required")), "warpLattice.minY")
-      let maxX = readF32Payload((if warpMaxXKey in properties: properties[warpMaxXKey] else: raise newBonyLoadError(schemaViolation, ".bnb warpLattice.maxX is required")), "warpLattice.maxX")
-      let maxY = readF32Payload((if warpMaxYKey in properties: properties[warpMaxYKey] else: raise newBonyLoadError(schemaViolation, ".bnb warpLattice.maxY is required")), "warpLattice.maxY")
-      if warpControlPointsKey notin properties:
-        raise newBonyLoadError(schemaViolation, ".bnb warpLattice.controlPoints is required")
-      let controlPoints = readControlPointsPayload(properties[warpControlPointsKey])
-      pendingWarp = WarpLattice(rows: rows, cols: cols, minX: minX, minY: minY, maxX: maxX, maxY: maxY, controlPoints: controlPoints)
-      geometryReady = true
-    of rotationDeformerTypeKey:
-      if not deformerPending or pendingKind != rotationDeformerKind:
-        raise newBonyLoadError(schemaViolation, ".bnb rotationDeformer record without preceding rotation deformer")
-      let properties = record.propertyMap([rotationPivotXKey, rotationPivotYKey, rotationAngleDegreesKey, rotationScaleXKey, rotationScaleYKey, rotationOpacityKey])
-      let pivotX = readF32Payload((if rotationPivotXKey in properties: properties[rotationPivotXKey] else: raise newBonyLoadError(schemaViolation, ".bnb rotationDeformer.pivotX is required")), "rotationDeformer.pivotX")
-      let pivotY = readF32Payload((if rotationPivotYKey in properties: properties[rotationPivotYKey] else: raise newBonyLoadError(schemaViolation, ".bnb rotationDeformer.pivotY is required")), "rotationDeformer.pivotY")
-      let angleDeg = readF32Payload((if rotationAngleDegreesKey in properties: properties[rotationAngleDegreesKey] else: raise newBonyLoadError(schemaViolation, ".bnb rotationDeformer.angleDegrees is required")), "rotationDeformer.angleDegrees")
-      let scaleX = readF32Payload(properties.getOrDefault(rotationScaleXKey, writeF32Payload(1.0)), "rotationDeformer.scaleX")
-      let scaleY = readF32Payload(properties.getOrDefault(rotationScaleYKey, writeF32Payload(1.0)), "rotationDeformer.scaleY")
-      let opacity = readF32Payload(properties.getOrDefault(rotationOpacityKey, writeF32Payload(1.0)), "rotationDeformer.opacity")
-      pendingRotation = RotationDeformer(pivotX: pivotX, pivotY: pivotY, angleDegrees: angleDeg, scaleX: scaleX, scaleY: scaleY, opacity: opacity)
-      geometryReady = true
-    of keyformBlendTypeKey:
-      if not deformerPending or not geometryReady:
-        raise newBonyLoadError(schemaViolation, ".bnb keyformBlend record without preceding deformer geometry")
-      let properties = record.propertyMap([blendValueCountKey, blendAxesKey])
-      let valueCount = properties.readRequiredUintProperty(blendValueCountKey, "keyformBlend.valueCount")
-      if blendAxesKey notin properties:
-        raise newBonyLoadError(schemaViolation, ".bnb keyformBlend.axes is required")
-      var paramMap = initTable[string, ParameterAxis]()
-      for p in loadedParameters:
-        paramMap[p.name] = p
-      pendingBlendAxes = readBlendAxesPayload(properties[blendAxesKey], strings, paramMap)
-      pendingBlendValueCount = int(valueCount)
-      pendingKeyforms = @[]
-      blendPending = true
-    of keyformTypeKey:
-      if not blendPending:
-        raise newBonyLoadError(schemaViolation, ".bnb keyform record without preceding keyformBlend")
-      let properties = record.propertyMap([blendCoordinatesKey, blendValuesKey])
-      if blendCoordinatesKey notin properties:
-        raise newBonyLoadError(schemaViolation, ".bnb keyform.coordinates is required")
-      if blendValuesKey notin properties:
-        raise newBonyLoadError(schemaViolation, ".bnb keyform.values is required")
-      let coordFs = readBlendF32sPayload(properties[blendCoordinatesKey], pendingBlendAxes.len, "keyform.coordinates")
-      let valueFs = readBlendF32sPayload(properties[blendValuesKey], pendingBlendValueCount, "keyform.values")
-      var coordinates: seq[ParameterSample]
-      for axisIndex, axis in pendingBlendAxes:
-        coordinates.add ParameterSample(name: axis.name, value: coordFs[axisIndex])
-      pendingKeyforms.add Keyform(coordinates: coordinates, values: valueFs)
-    else:
-      flushSkinIfAny()
-      flushPendingIfAny()
-      discard
-
-  flushSkinIfAny()
-  flushPendingIfAny()
-
-  if not hasSkeleton:
-    raise newBonyLoadError(schemaViolation, ".bnb skeleton object is required")
-  skeletonData(
-    headerValue, bones, slots, regions, pathAttachments, paths, loadedParameters, loadedDeformers,
-    ikConstraints, transformConstraints, physicsConstraints, clips, meshes, skins,
-    pointAttachments, boundingBoxAttachments, nestedRigAttachments,
-  )
-
-
-proc withTarget(timeline: BoneTimeline; target: string): BoneTimeline =
-  case timeline.kind
-  of inheritTimeline:
-    boneInheritTimeline(target, timeline.inheritKeys)
-  of translateTimeline, scaleTimeline, shearTimeline:
-    boneVectorTimeline(target, timeline.kind, timeline.vectorKeys)
-  else:
-    boneScalarTimeline(target, timeline.kind, timeline.scalarKeys)
-
-
-proc withTarget(timeline: SlotTimeline; target: string): SlotTimeline =
-  case timeline.kind
-  of attachmentTimeline:
-    slotAttachmentTimeline(target, timeline.attachmentKeys)
-  of rgbaTimeline, rgbTimeline, alphaTimeline:
-    slotColorTimeline(target, timeline.kind, timeline.colorKeys)
-  of rgba2Timeline:
-    slotColor2Timeline(target, timeline.color2Keys)
-  of sequenceTimeline:
-    slotSequenceTimeline(target, timeline.sequenceKeys)
-
-
-proc decodeAnimationObjects(
-  objects: openArray[BnbObjectRecord];
-  strings: BnbStringTable;
-  skeleton: SkeletonData;
-): seq[AnimationClip] =
-  var currentName = ""
-  var currentBoneTimelines: seq[BoneTimeline]
-  var currentSlotTimelines: seq[SlotTimeline]
-  var currentEventTimelines: seq[EventTimeline]
-  var currentDeformTimelines: seq[DeformTimeline]
-  var seen = initHashSet[string]()
-  var meshesByName = initTable[string, MeshAttachment]()
-  for mesh in skeleton.meshAttachments:
-    meshesByName[mesh.name] = mesh
-
-  template flushAnimation() =
-    if currentName.len > 0:
-      if currentName in seen:
-        raise newBonyLoadError(duplicateKey, "duplicate animation name: " & currentName)
-      seen.incl(currentName)
-      result.add animationClip(
-        skeleton, currentName, currentBoneTimelines, currentSlotTimelines,
-        eventTimelines = currentEventTimelines,
-        deformTimelines = currentDeformTimelines)
-      currentName = ""
-      currentBoneTimelines = @[]
-      currentSlotTimelines = @[]
-      currentEventTimelines = @[]
-      currentDeformTimelines = @[]
-
-  for record in objects:
-    case record.typeKey
-    of animationClipTypeKey:
-      flushAnimation()
-      let properties = record.propertyMap([nameKey])
-      currentName = properties.readStringProperty(strings, nameKey, "animationClip.name")
-    of boneTimelineTypeKey:
-      if currentName.len == 0:
-        raise newBonyLoadError(schemaViolation, ".bnb boneTimeline record without animationClip")
-      let properties = record.propertyMap([boneIndexKey, boneTimelineKindKey, timelineKeysKey])
-      let boneIndex = int(properties.readRequiredUintProperty(boneIndexKey, "boneTimeline.boneIndex"))
-      if boneIndex < 0 or boneIndex >= skeleton.bones.len:
-        raise newBonyLoadError(unknownRequiredReference, ".bnb boneTimeline boneIndex is out of range")
-      if timelineKeysKey notin properties:
-        raise newBonyLoadError(schemaViolation, ".bnb boneTimeline.timelineKeys is required")
-      let kind = boneTimelineKindFromTag(properties.readRequiredUintProperty(boneTimelineKindKey, "boneTimeline.kind"))
-      currentBoneTimelines.add readBoneTimelineKeys(kind, properties[timelineKeysKey], "boneTimeline.timelineKeys").withTarget(skeleton.bones[boneIndex].name)
-    of slotTimelineTypeKey:
-      if currentName.len == 0:
-        raise newBonyLoadError(schemaViolation, ".bnb slotTimeline record without animationClip")
-      let properties = record.propertyMap([slotIndexKey, slotTimelineKindKey, timelineKeysKey])
-      let slotIndex = int(properties.readRequiredUintProperty(slotIndexKey, "slotTimeline.slotIndex"))
-      if slotIndex < 0 or slotIndex >= skeleton.slots.len:
-        raise newBonyLoadError(unknownRequiredReference, ".bnb slotTimeline slotIndex is out of range")
-      if timelineKeysKey notin properties:
-        raise newBonyLoadError(schemaViolation, ".bnb slotTimeline.timelineKeys is required")
-      let kind = slotTimelineKindFromTag(properties.readRequiredUintProperty(slotTimelineKindKey, "slotTimeline.kind"))
-      currentSlotTimelines.add readSlotTimelineKeys(kind, properties[timelineKeysKey], skeleton.regions, "slotTimeline.timelineKeys").withTarget(skeleton.slots[slotIndex].name)
-    of eventTimelineTypeKey:
-      if currentName.len == 0:
-        raise newBonyLoadError(schemaViolation, ".bnb eventTimeline record without animationClip")
-      let properties = record.propertyMap([eventKeysKey])
-      if eventKeysKey notin properties:
-        raise newBonyLoadError(schemaViolation, ".bnb eventTimeline.eventKeys is required")
-      let keys = readEventKeys(properties[eventKeysKey], strings, "eventTimeline.eventKeys")
-      currentEventTimelines.add eventTimeline(keys)
-    of deformTimelineTypeKey:
-      if currentName.len == 0:
-        raise newBonyLoadError(schemaViolation, ".bnb deformTimeline record without animationClip")
-      let properties = record.propertyMap([deformSkinKey, slotKey, deformAttachmentKey, deformVertexCountKey, deformKeysKey])
-      let skin = properties.readStringProperty(strings, deformSkinKey, "deformTimeline.skin")
-      let slot = properties.readStringProperty(strings, slotKey, "deformTimeline.slot")
-      let attachment = properties.readStringProperty(strings, deformAttachmentKey, "deformTimeline.attachment")
-      let vertexCount = int(properties.readRequiredUintProperty(deformVertexCountKey, "deformTimeline.vertexCount"))
-      if deformKeysKey notin properties:
-        raise newBonyLoadError(schemaViolation, ".bnb deformTimeline.deformKeys is required")
-      if not skeleton.hasSkin(skin):
-        raise newBonyLoadError(unknownRequiredReference, ".bnb deformTimeline references unknown skin: " & skin)
-      let resolvedAttachment = skeleton.resolveSkinAttachmentTarget(skin, slot, attachment)
-      if resolvedAttachment.len == 0:
-        raise newBonyLoadError(unknownRequiredReference,
-          ".bnb deformTimeline does not resolve through skin lookup: " & skin & "/" & slot & "/" & attachment)
-      if resolvedAttachment notin meshesByName:
-        raise newBonyLoadError(unknownRequiredReference,
-          ".bnb deformTimeline references non-mesh or unknown target: " & resolvedAttachment)
-      let mesh = meshesByName[resolvedAttachment]
-      if vertexCount != mesh.vertices.len:
-        raise newBonyLoadError(schemaViolation, ".bnb deformTimeline vertex count does not match mesh: " & resolvedAttachment)
-      let keys = readDeformKeys(properties[deformKeysKey], "deformTimeline.deformKeys")
-      currentDeformTimelines.add deformTimeline(skin, slot, attachment, mesh, keys)
-    of stateMachineTypeKey:
-      flushAnimation()
-    else:
-      discard
-  flushAnimation()
-
-
-proc animationByIndex(animations: openArray[AnimationClip]; index: uint32; context: string): AnimationClip =
-  if int(index) >= animations.len:
-    raise newBonyLoadError(unknownRequiredReference, ".bnb " & context & " animation index is out of range")
-  animations[int(index)]
-
-
-proc inputByIndex(inputs: openArray[StateMachineInput]; index: uint32; context: string): StateMachineInput =
-  if int(index) >= inputs.len:
-    raise newBonyLoadError(unknownRequiredReference, ".bnb " & context & " input index is out of range")
-  inputs[int(index)]
-
-
-proc stateNameByIndex(states: openArray[StateMachineState]; index: uint32; context: string): string =
-  if int(index) >= states.len:
-    raise newBonyLoadError(unknownRequiredReference, ".bnb " & context & " state index is out of range")
-  states[int(index)].name
-
-
-proc decodeStateMachineObjects(
-  objects: openArray[BnbObjectRecord];
-  strings: BnbStringTable;
-  animations: openArray[AnimationClip];
-  skeleton: SkeletonData;
-): seq[StateMachine] =
-  var machineName = ""
-  var inputs: seq[StateMachineInput]
-  var layers: seq[StateMachineLayer]
-  var listeners: seq[StateMachineListener]
-  var layerName = ""
-  var layerInitialIndex = 0'u32
-  var layerStates: seq[StateMachineState]
-  var layerTransitions: seq[StateMachineTransition]
-  var pendingTransitionFrom = ""
-  var pendingTransitionTo = ""
-  var pendingConditions: seq[StateMachineCondition]
-  var seenMachines = initHashSet[string]()
-
-  template flushTransition() =
-    if pendingTransitionFrom.len > 0:
-      layerTransitions.add stateMachineTransition(pendingTransitionFrom, pendingTransitionTo, pendingConditions)
-      pendingTransitionFrom = ""
-      pendingTransitionTo = ""
-      pendingConditions = @[]
-
-  template flushLayer() =
-    if layerName.len > 0:
-      flushTransition()
-      layers.add stateMachineLayer(layerName, layerStates, stateNameByIndex(layerStates, layerInitialIndex, "stateMachineLayer.initialStateIndex"), layerTransitions)
-      layerName = ""
-      layerInitialIndex = 0'u32
-      layerStates = @[]
-      layerTransitions = @[]
-
-  template flushMachine() =
-    if machineName.len > 0:
-      flushLayer()
-      if machineName in seenMachines:
-        raise newBonyLoadError(duplicateKey, "duplicate state machine name: " & machineName)
-      seenMachines.incl(machineName)
-      result.add stateMachine(machineName, layers, inputs, listeners)
-      machineName = ""
-      inputs = @[]
-      layers = @[]
-      listeners = @[]
-
-  for record in objects:
-    case record.typeKey
-    of stateMachineTypeKey:
-      flushMachine()
-      let properties = record.propertyMap([nameKey])
-      machineName = properties.readStringProperty(strings, nameKey, "stateMachine.name")
-    of stateMachineInputTypeKey:
-      if machineName.len == 0:
-        raise newBonyLoadError(schemaViolation, ".bnb stateMachineInput record without stateMachine")
-      flushLayer()
-      let properties = record.propertyMap([nameKey, stateMachineInputKindKey, inputDefaultBoolKey, inputDefaultNumberKey])
-      let name = properties.readStringProperty(strings, nameKey, "stateMachineInput.name")
-      let kind = inputKindFromTag(properties.readRequiredUintProperty(stateMachineInputKindKey, "stateMachineInput.kind"))
-      case kind
-      of boolInput:
-        if inputDefaultNumberKey in properties:
-          raise newBonyLoadError(schemaViolation, ".bnb bool input must not contain number default")
-        inputs.add stateMachineBoolInput(name, properties.readOptionalBoolProperty(inputDefaultBoolKey, defaultBool("stateMachineInput", "inputDefaultBool"), "stateMachineInput.defaultBool"))
-      of numberInput:
-        if inputDefaultBoolKey in properties:
-          raise newBonyLoadError(schemaViolation, ".bnb number input must not contain bool default")
-        inputs.add stateMachineNumberInput(name, properties.readOptionalFloatProperty(inputDefaultNumberKey, defaultFloat("stateMachineInput", "inputDefaultNumber"), "stateMachineInput.defaultNumber"))
-      of triggerInput:
-        if inputDefaultBoolKey in properties or inputDefaultNumberKey in properties:
-          raise newBonyLoadError(schemaViolation, ".bnb trigger input must not contain defaults")
-        inputs.add stateMachineTriggerInput(name)
-    of stateMachineLayerTypeKey:
-      if machineName.len == 0:
-        raise newBonyLoadError(schemaViolation, ".bnb stateMachineLayer record without stateMachine")
-      flushLayer()
-      let properties = record.propertyMap([nameKey, initialStateIndexKey])
-      layerName = properties.readStringProperty(strings, nameKey, "stateMachineLayer.name")
-      layerInitialIndex = properties.readOptionalUintProperty(initialStateIndexKey, uint32(defaultInt("stateMachineLayer", "initialStateIndex")), "stateMachineLayer.initialStateIndex")
-    of stateMachineStateTypeKey:
-      if layerName.len == 0:
-        raise newBonyLoadError(schemaViolation, ".bnb stateMachineState record without stateMachineLayer")
-      flushTransition()
-      let properties = record.propertyMap([nameKey, stateMachineStateKindKey, stateClipIndexKey, stateLoopKey, stateBlendInputIndexKey])
-      let name = properties.readStringProperty(strings, nameKey, "stateMachineState.name")
-      let kind = stateKindFromTag(properties.readRequiredUintProperty(stateMachineStateKindKey, "stateMachineState.kind"))
-      case kind
-      of clipState:
-        if stateBlendInputIndexKey in properties:
-          raise newBonyLoadError(schemaViolation, ".bnb clip state must not contain blend input")
-        let clip = animationByIndex(animations, properties.readRequiredUintProperty(stateClipIndexKey, "stateMachineState.clip"), "stateMachineState.clip")
-        layerStates.add stateMachineState(name, clip, properties.readOptionalBoolProperty(stateLoopKey, defaultBool("stateMachineState", "stateLoop"), "stateMachineState.loop"))
-      of blend1DState:
-        if stateClipIndexKey in properties or stateLoopKey in properties:
-          raise newBonyLoadError(schemaViolation, ".bnb blend1d state must not contain direct clip fields")
-        let input = inputByIndex(inputs, properties.readRequiredUintProperty(stateBlendInputIndexKey, "stateMachineState.blendInput"), "stateMachineState.blendInput")
-        layerStates.add StateMachineState(name: name, kind: blend1DState, blendInput: input.name)
-    of stateMachineBlendClipTypeKey:
-      if layerStates.len == 0 or layerStates[^1].kind != blend1DState:
-        raise newBonyLoadError(schemaViolation, ".bnb stateMachineBlendClip record without blend1d state")
-      let properties = record.propertyMap([blendClipAnimationIndexKey, blendClipValueKey, blendClipLoopKey])
-      let clip = animationByIndex(animations, properties.readRequiredUintProperty(blendClipAnimationIndexKey, "stateMachineBlendClip.animation"), "stateMachineBlendClip.animation")
-      let value = properties.readFloatProperty(blendClipValueKey, "stateMachineBlendClip.value")
-      let loop = properties.readOptionalBoolProperty(blendClipLoopKey, defaultBool("stateMachineBlendClip", "blendClipLoop"), "stateMachineBlendClip.loop")
-      layerStates[^1].blendClips.add stateMachineBlendClip(clip, value, loop)
-    of stateMachineTransitionTypeKey:
-      if layerName.len == 0:
-        raise newBonyLoadError(schemaViolation, ".bnb stateMachineTransition record without stateMachineLayer")
-      flushTransition()
-      let properties = record.propertyMap([transitionFromStateIndexKey, transitionToStateIndexKey])
-      pendingTransitionFrom = stateNameByIndex(layerStates, properties.readRequiredUintProperty(transitionFromStateIndexKey, "stateMachineTransition.from"), "stateMachineTransition.from")
-      pendingTransitionTo = stateNameByIndex(layerStates, properties.readRequiredUintProperty(transitionToStateIndexKey, "stateMachineTransition.to"), "stateMachineTransition.to")
-    of stateMachineConditionTypeKey:
-      if pendingTransitionFrom.len == 0:
-        raise newBonyLoadError(schemaViolation, ".bnb stateMachineCondition record without stateMachineTransition")
-      let properties = record.propertyMap([conditionInputIndexKey, stateMachineConditionKindKey, conditionBoolValueKey, conditionNumberValueKey])
-      let input = inputByIndex(inputs, properties.readRequiredUintProperty(conditionInputIndexKey, "stateMachineCondition.input"), "stateMachineCondition.input")
-      let kind = conditionKindFromTag(properties.readRequiredUintProperty(stateMachineConditionKindKey, "stateMachineCondition.kind"))
-      case kind
-      of boolEqualsCondition:
-        if conditionNumberValueKey in properties:
-          raise newBonyLoadError(schemaViolation, ".bnb bool condition must not contain number value")
-        pendingConditions.add stateMachineBoolCondition(input.name, properties.readOptionalBoolProperty(conditionBoolValueKey, defaultBool("stateMachineCondition", "conditionBoolValue"), "stateMachineCondition.bool"))
-      of numberEqualsCondition, numberGreaterCondition, numberGreaterOrEqualCondition, numberLessCondition, numberLessOrEqualCondition:
-        if conditionBoolValueKey in properties:
-          raise newBonyLoadError(schemaViolation, ".bnb number condition must not contain bool value")
-        pendingConditions.add stateMachineNumberCondition(input.name, kind, properties.readFloatProperty(conditionNumberValueKey, "stateMachineCondition.number"))
-      of triggerSetCondition:
-        if conditionBoolValueKey in properties or conditionNumberValueKey in properties:
-          raise newBonyLoadError(schemaViolation, ".bnb trigger condition must not contain values")
-        pendingConditions.add stateMachineTriggerCondition(input.name)
-    of stateMachineListenerTypeKey:
-      if machineName.len == 0:
-        raise newBonyLoadError(schemaViolation, ".bnb stateMachineListener record without stateMachine")
-      flushLayer()
-      let properties = record.propertyMap([
-        nameKey, stateMachineListenerKindKey, listenerLayerIndexKey, listenerFromStateIndexKey, listenerToStateIndexKey,
-        listenerSlotIndexKey, listenerHelperKindKey, listenerHelperTargetKey, listenerInputIndexKey,
-        listenerBoolValueKey, listenerNumberValueKey, listenerHitRadiusKey,
-      ])
-      let name = properties.readStringProperty(strings, nameKey, "stateMachineListener.name")
-      let kind = listenerKindFromTag(properties.readRequiredUintProperty(stateMachineListenerKindKey, "stateMachineListener.kind"))
-      case kind
-      of stateEnterListener:
-        let layerIndex = int(properties.readRequiredUintProperty(listenerLayerIndexKey, "stateMachineListener.layer"))
-        if layerIndex >= layers.len:
-          raise newBonyLoadError(unknownRequiredReference, ".bnb stateMachineListener.layer is out of range")
-        let layer = layers[layerIndex]
-        if listenerFromStateIndexKey in properties:
-          raise newBonyLoadError(schemaViolation, ".bnb enter listener must not contain from state")
-        listeners.add stateMachineStateEnterListener(name, layer.name, stateNameByIndex(layer.states, properties.readRequiredUintProperty(listenerToStateIndexKey, "stateMachineListener.to"), "stateMachineListener.to"))
-      of stateExitListener:
-        let layerIndex = int(properties.readRequiredUintProperty(listenerLayerIndexKey, "stateMachineListener.layer"))
-        if layerIndex >= layers.len:
-          raise newBonyLoadError(unknownRequiredReference, ".bnb stateMachineListener.layer is out of range")
-        let layer = layers[layerIndex]
-        if listenerToStateIndexKey in properties:
-          raise newBonyLoadError(schemaViolation, ".bnb exit listener must not contain to state")
-        listeners.add stateMachineStateExitListener(name, layer.name, stateNameByIndex(layer.states, properties.readRequiredUintProperty(listenerFromStateIndexKey, "stateMachineListener.from"), "stateMachineListener.from"))
-      of transitionListener:
-        let layerIndex = int(properties.readRequiredUintProperty(listenerLayerIndexKey, "stateMachineListener.layer"))
-        if layerIndex >= layers.len:
-          raise newBonyLoadError(unknownRequiredReference, ".bnb stateMachineListener.layer is out of range")
-        let layer = layers[layerIndex]
-        listeners.add stateMachineTransitionListener(
-          name,
-          layer.name,
-          stateNameByIndex(layer.states, properties.readRequiredUintProperty(listenerFromStateIndexKey, "stateMachineListener.from"), "stateMachineListener.from"),
-          stateNameByIndex(layer.states, properties.readRequiredUintProperty(listenerToStateIndexKey, "stateMachineListener.to"), "stateMachineListener.to"),
-        )
-      of pointerDownListener, pointerUpListener, pointerEnterListener, pointerExitListener, pointerMoveListener:
-        if listenerLayerIndexKey in properties or listenerFromStateIndexKey in properties or listenerToStateIndexKey in properties:
-          raise newBonyLoadError(schemaViolation, ".bnb pointer listener must not contain lifecycle fields")
-        let slotIndex = int(properties.readRequiredUintProperty(listenerSlotIndexKey, "stateMachineListener.slot"))
-        if slotIndex >= skeleton.slots.len:
-          raise newBonyLoadError(unknownRequiredReference, ".bnb stateMachineListener.slot is out of range")
-        let inputIndex = int(properties.readRequiredUintProperty(listenerInputIndexKey, "stateMachineListener.input"))
-        if inputIndex >= inputs.len:
-          raise newBonyLoadError(unknownRequiredReference, ".bnb stateMachineListener.input is out of range")
-        let targetKind = helperKindFromTag(uint64(properties.readRequiredUintProperty(listenerHelperKindKey, "stateMachineListener.helperKind")))
-        let target = properties.readStringProperty(strings, listenerHelperTargetKey, "stateMachineListener.target")
-        let input = inputs[inputIndex]
-        var boolValue = false
-        var hasBoolValue = false
-        var numberValue = 0.0
-        var hasNumberValue = false
-        case input.kind
-        of boolInput:
-          if listenerBoolValueKey notin properties:
-            raise newBonyLoadError(schemaViolation, ".bnb pointer bool listener value is required")
-          if listenerNumberValueKey in properties:
-            raise newBonyLoadError(schemaViolation, ".bnb pointer bool listener must not contain number value")
-          boolValue = properties.readOptionalBoolProperty(listenerBoolValueKey, false, "stateMachineListener.boolValue")
-          hasBoolValue = true
-        of numberInput:
-          if listenerBoolValueKey in properties:
-            raise newBonyLoadError(schemaViolation, ".bnb pointer number listener must not contain bool value")
-          numberValue = properties.readFloatProperty(listenerNumberValueKey, "stateMachineListener.numberValue")
-          hasNumberValue = true
-        of triggerInput:
-          if listenerBoolValueKey in properties or listenerNumberValueKey in properties:
-            raise newBonyLoadError(schemaViolation, ".bnb pointer trigger listener must not contain values")
-        var hitRadius = 0.0
-        var hasHitRadius = false
-        case targetKind
-        of pointHelperTarget:
-          hitRadius = properties.readFloatProperty(listenerHitRadiusKey, "stateMachineListener.hitRadius")
-          hasHitRadius = true
-        of boundingBoxHelperTarget:
-          if listenerHitRadiusKey in properties:
-            raise newBonyLoadError(schemaViolation, ".bnb pointer bounding-box listener must not contain hitRadius")
-        listeners.add stateMachinePointerListener(
-          name, kind, skeleton.slots[slotIndex].name, targetKind, target, input.name,
-          hitRadius = hitRadius,
-          hasHitRadius = hasHitRadius,
-          boolValue = boolValue,
-          hasBoolValue = hasBoolValue,
-          numberValue = numberValue,
-          hasNumberValue = hasNumberValue,
-        )
-    else:
-      discard
-  flushMachine()
+include semantic/skeleton
+include semantic/animation
+include semantic/statemachine
 
 
 proc decodeAssetObjects(objects: openArray[BnbObjectRecord]; strings: BnbStringTable): BonyAsset =

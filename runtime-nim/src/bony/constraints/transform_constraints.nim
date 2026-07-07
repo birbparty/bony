@@ -2,6 +2,7 @@
 
 import std/math
 
+import bony/constraints/common
 import bony/model
 
 type
@@ -25,24 +26,12 @@ proc transformConstraintMix*(translate = 1.0; rotate = 1.0; scale = 1.0; shear =
   TransformConstraintMix(translate: translate, rotate: rotate, scale: scale, shear: shear)
 
 
-proc requireFinite(value: float64; context: string): float64 =
-  if classify(value) in {fcNan, fcInf, fcNegInf}:
-    raise newBonyLoadError(numericOutOfRange, context & " must be finite")
-  value
-
-
-proc requireMix(value: float64; context: string): float64 =
-  result = requireFinite(value, context)
-  if result < 0.0 or result > 1.0:
-    raise newBonyLoadError(schemaViolation, context & " must be in [0, 1]")
-
-
 proc safeMix(mix: TransformConstraintMix): TransformConstraintMix =
   TransformConstraintMix(
-    translate: requireMix(mix.translate, "transformConstraint.translateMix"),
-    rotate: requireMix(mix.rotate, "transformConstraint.rotateMix"),
-    scale: requireMix(mix.scale, "transformConstraint.scaleMix"),
-    shear: requireMix(mix.shear, "transformConstraint.shearMix"),
+    translate: requireUnit(mix.translate, "transformConstraint.translateMix"),
+    rotate: requireUnit(mix.rotate, "transformConstraint.rotateMix"),
+    scale: requireUnit(mix.scale, "transformConstraint.scaleMix"),
+    shear: requireUnit(mix.shear, "transformConstraint.shearMix"),
   )
 
 
@@ -55,10 +44,6 @@ proc safeAffine(world: Affine2; context: string): Affine2 =
     tx: requireFinite(world.tx, context & ".tx"),
     ty: requireFinite(world.ty, context & ".ty"),
   )
-
-
-proc lerp(a, b, mix: float64): float64 =
-  a + (b - a) * mix
 
 
 proc normalizeDegrees(value: float64): float64 =

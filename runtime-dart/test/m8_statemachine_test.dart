@@ -959,7 +959,7 @@ void main() {
   });
 
   group('M8 blend1d deform channel (bony-353d parity)', () {
-    // Regression: the blend1d path (_blendPoses) silently dropped the deforms
+    // Regression: the blend1d path (blendPoses) silently dropped the deforms
     // channel, so a blend state playing a deform-timeline clip rendered the
     // static mesh — the same bug fixed on the Nim side. Deforms resolve
     // winner-take-by-track-weight (docs/deform-timeline-contract.md): the
@@ -1019,7 +1019,7 @@ void main() {
 
   group('M8 blend asymmetric-clip setup fallback (bony-6dkk)', () {
     // The low and high blend clips drive DIFFERENT bones, so each numeric channel
-    // is present in only one clip. _blendPoses must union the channels and fall
+    // is present in only one clip. blendPoses must union the channels and fall
     // back to the SETUP pose for the side that lacks a key (setupScalar/
     // setupVector). Mirrors the Nim guard; pins Nim<->Dart parity on this path.
     const fixture = '{"skeleton":{"name":"allasym"},'
@@ -1078,10 +1078,81 @@ void main() {
     });
   });
 
+  group('MixedPose public combinators', () {
+    test('overlayPose replaces duplicate keys and returns deterministic order',
+        () {
+      const base = MixedPose(
+        scalars: [
+          (bone: 'b', kind: BoneTimelineKind.rotate, value: 10.0),
+          (bone: 'a', kind: BoneTimelineKind.rotate, value: 20.0),
+        ],
+        vectors: [],
+        attachments: [(slot: 'body', attachment: 'base')],
+        inherits: [],
+        colors: [],
+        colors2: [],
+        sequences: [],
+        deforms: [],
+      );
+      const overlay = MixedPose(
+        scalars: [(bone: 'b', kind: BoneTimelineKind.rotate, value: 30.0)],
+        vectors: [],
+        attachments: [(slot: 'body', attachment: 'overlay')],
+        inherits: [],
+        colors: [],
+        colors2: [],
+        sequences: [],
+        deforms: [],
+      );
+
+      final combined = overlayPose(base, overlay);
+
+      expect(combined.scalars.map((s) => s.bone).toList(), ['a', 'b']);
+      expect(combined.scalars.map((s) => s.value).toList(), [20.0, 30.0]);
+      expect(combined.attachments.single.attachment, 'overlay');
+    });
+
+    test('blendPoses uses setup fallback and snaps stepped channels at 0.5',
+        () {
+      final data = loadBonyJson('{"skeleton":{"name":"blend"},'
+          '"bones":[{"name":"root","rotation":30}],'
+          '"slots":[{"name":"body","bone":"root","attachment":""}]}');
+      const lo = MixedPose(
+        scalars: [(bone: 'root', kind: BoneTimelineKind.rotate, value: 50.0)],
+        vectors: [],
+        attachments: [(slot: 'body', attachment: 'low')],
+        inherits: [],
+        colors: [],
+        colors2: [],
+        sequences: [],
+        deforms: [],
+      );
+      const hi = MixedPose(
+        scalars: [],
+        vectors: [],
+        attachments: [(slot: 'body', attachment: 'high')],
+        inherits: [],
+        colors: [],
+        colors2: [],
+        sequences: [],
+        deforms: [],
+      );
+
+      final beforeSnap = blendPoses(data, lo, hi, 0.49);
+      final atSnap = blendPoses(data, lo, hi, 0.5);
+
+      expect((beforeSnap.scalars.single.value - 40.2).abs(),
+          lessThanOrEqualTo(1e-6));
+      expect(beforeSnap.attachments.single.attachment, 'low');
+      expect(atSnap.scalars.single.value, 40.0);
+      expect(atSnap.attachments.single.attachment, 'high');
+    });
+  });
+
   group('M8 MixedPose channel completeness guard (bony-bna8)', () {
     // Mirrors the Nim completeness guard: a fixture whose clip drives ALL eight
-    // MixedPose channels, pushed through the blend1D (_blendPoses/_addWeighted)
-    // and multi-layer overlay (_overlayPose) aggregators. If a channel is dropped
+    // MixedPose channels, pushed through the blend1D (blendPoses) and
+    // multi-layer overlay (overlayPose) aggregators. If a channel is dropped
     // by any aggregator (as deforms was in blend1D), it shows up empty here.
     // Dart lacks cheap field reflection, so the enumeration is explicit — adding
     // a channel #9 means adding it to droppedChannels and to the fixture (the
@@ -1171,6 +1242,7 @@ void main() {
         colors: [],
         colors2: [],
         sequences: [],
+        deforms: [],
       );
       expect(droppedChannels(empty), hasLength(8));
     });

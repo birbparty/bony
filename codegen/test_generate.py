@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import sys
 import json
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -87,6 +88,202 @@ M4_SKIN_PROPERTY_KEYS = {
     "skinTarget": 3011,
 }
 
+SCALAR_BACKINGS = set(generate.NIM_SCALAR_BACKINGS)
+
+HAND_ENFORCED_NON_SCALAR_REQUIRED_PROPERTIES = {
+    ("boundingBoxAttachment", "vertices"): {
+        "runtime-nim/src/bony/jsonio.nim": [
+            'validateKnownKeys(boxObject, ["name", "vertices"], context)',
+            'context & ".vertices is required"',
+        ],
+        "runtime-dart/lib/src/loader_json_core_parsers.dart": [
+            "_required<List<dynamic>>(j['vertices'], 'boundingBoxAttachment.vertices')",
+        ],
+        "runtime-dart/lib/src/bnb_decoder.dart": ["_bPolygonVertices(obj, 'boundingBoxAttachment')"],
+        "runtime-dart/lib/src/bnb_reader.dart": [
+            "wire.bonyPropertyKeyVertices",
+            "'.bnb $ctx.vertices is required'",
+        ],
+    },
+    ("clippingAttachment", "vertices"): {
+        "runtime-nim/src/bony/jsonio.nim": [
+            'validateKnownKeys(clipObject, ["name", "vertices", "untilSlot"], context)',
+            'context & ".vertices is required"',
+        ],
+        "runtime-dart/lib/src/loader_json_core_parsers.dart": [
+            "_required<List<dynamic>>(j['vertices'], 'clippingAttachment.vertices')",
+        ],
+        "runtime-dart/lib/src/bnb_decoder.dart": ["_bPolygonVertices(obj, 'clippingAttachment')"],
+        "runtime-dart/lib/src/bnb_reader.dart": [
+            "wire.bonyPropertyKeyVertices",
+            "'.bnb $ctx.vertices is required'",
+        ],
+    },
+    ("meshAttachment", "meshVertices"): {
+        "runtime-nim/src/bony/jsonio.nim": [
+            'validateKnownKeys(meshObject, ["name", "weighted", "vertices", "uvs", "triangles"], context)',
+            'context & ".vertices is required"',
+        ],
+        "runtime-dart/lib/src/loader_json_core_parsers.dart": [
+            "_required<List<dynamic>>(j['vertices'], 'meshAttachment.vertices')",
+        ],
+        "runtime-dart/lib/src/bnb_reader.dart": [
+            "wire.bonyPropertyKeyMeshVertices",
+            "'.bnb meshAttachment.vertices is required'",
+        ],
+    },
+    ("meshAttachment", "meshUvs"): {
+        "runtime-nim/src/bony/jsonio.nim": [
+            'validateKnownKeys(meshObject, ["name", "weighted", "vertices", "uvs", "triangles"], context)',
+            'context & ".uvs is required"',
+        ],
+        "runtime-dart/lib/src/loader_json_core_parsers.dart": [
+            "_required<List<dynamic>>(j['uvs'], 'meshAttachment.uvs')",
+        ],
+        "runtime-dart/lib/src/bnb_reader.dart": [
+            "wire.bonyPropertyKeyMeshUvs",
+            "'.bnb meshAttachment.uvs is required'",
+        ],
+    },
+    ("meshAttachment", "meshTriangles"): {
+        "runtime-nim/src/bony/jsonio.nim": [
+            'validateKnownKeys(meshObject, ["name", "weighted", "vertices", "uvs", "triangles"], context)',
+            'context & ".triangles is required"',
+        ],
+        "runtime-dart/lib/src/loader_json_core_parsers.dart": [
+            "_required<List<dynamic>>(j['triangles'], 'meshAttachment.triangles')",
+        ],
+        "runtime-dart/lib/src/bnb_reader.dart": [
+            "wire.bonyPropertyKeyMeshTriangles",
+            "'.bnb meshAttachment.triangles is required'",
+        ],
+    },
+    ("ikConstraint", "bones"): {
+        "runtime-nim/src/bony/jsonio.nim": [
+            'validateKnownKeys(ikObject, ["name", "bones", "target", "order", "skinRequired", "mix", "bendPositive"], context)',
+            'context & ".bones is required"',
+        ],
+        "runtime-dart/lib/src/loader_json_core_parsers.dart": [
+            "missing required field: ikConstraint.bones",
+        ],
+        "runtime-dart/lib/src/bnb_reader.dart": [
+            "wire.bonyPropertyKeyBones",
+            "'.bnb ikConstraint.bones is required'",
+        ],
+    },
+    ("warpLattice", "warpControlPoints"): {
+        "runtime-nim/src/bony/binary/semantic/skeleton.nim": [
+            "warpControlPointsKey notin properties",
+            '".bnb warpLattice.controlPoints is required"',
+        ],
+        "runtime-dart/lib/src/loader_deformer_parsers.dart": [
+            "_required<List<dynamic>>(wj['controlPoints'], 'warp.controlPoints')",
+        ],
+        "runtime-dart/lib/src/bnb_reader.dart": [
+            "wire.bonyPropertyKeyWarpControlPoints",
+            "'.bnb warpLattice.controlPoints is required'",
+        ],
+    },
+    ("keyformBlend", "blendAxes"): {
+        "runtime-nim/src/bony/jsonio.nim": [
+            'validateKnownKeys(blendObject, ["axes", "keyforms"], context & ".keyformBlend")',
+            'context & ".keyformBlend.axes is required"',
+        ],
+        "runtime-dart/lib/src/loader_deformer_parsers.dart": [
+            "_required<List<dynamic>>(kbj['axes'], 'keyformBlend.axes')",
+        ],
+        "runtime-dart/lib/src/bnb_reader.dart": [
+            "wire.bonyPropertyKeyBlendAxes",
+            "'.bnb keyformBlend.axes is required'",
+        ],
+    },
+    ("keyform", "blendCoordinates"): {
+        "runtime-nim/src/bony/jsonio.nim": [
+            'validateKnownKeys(kfObject, ["coordinates", "values"], kfContext)',
+            'kfContext & ".coordinates is required"',
+        ],
+        "runtime-dart/lib/src/loader_deformer_parsers.dart": [
+            "_required<Map<String, dynamic>>(",
+            "kfm['coordinates'], 'keyform.coordinates'",
+        ],
+        "runtime-dart/lib/src/bnb_decoder.dart": [
+            "wire.bonyPropertyKeyBlendCoordinates",
+            "'keyform.coordinates'",
+        ],
+        "runtime-dart/lib/src/bnb_reader.dart": [
+            "'.bnb required property missing: $ctx'",
+        ],
+    },
+    ("keyform", "blendValues"): {
+        "runtime-nim/src/bony/jsonio.nim": [
+            'validateKnownKeys(kfObject, ["coordinates", "values"], kfContext)',
+            'kfContext & ".values is required"',
+        ],
+        "runtime-dart/lib/src/loader_deformer_parsers.dart": [
+            "_required<List<dynamic>>(kfm['values'], 'keyform.values')",
+        ],
+        "runtime-dart/lib/src/bnb_decoder.dart": [
+            "wire.bonyPropertyKeyBlendValues",
+            "'keyform.values'",
+        ],
+        "runtime-dart/lib/src/bnb_reader.dart": [
+            "'.bnb required property missing: $ctx'",
+        ],
+    },
+    ("boneTimeline", "timelineKeys"): {
+        "runtime-nim/src/bony/binary/semantic/animation.nim": [
+            "timelineKeysKey notin properties",
+            '".bnb boneTimeline.timelineKeys is required"',
+        ],
+        "runtime-dart/lib/src/loader_animation_parsers.dart": [
+            "_required<List<dynamic>>(bt['keyframes'], '$btCtx.keyframes')",
+        ],
+        "runtime-dart/lib/src/bnb_decoder.dart": [
+            "wire.bonyPropertyKeyTimelineKeys",
+            "'.bnb boneTimeline.timelineKeys is required'",
+        ],
+    },
+    ("slotTimeline", "timelineKeys"): {
+        "runtime-nim/src/bony/binary/semantic/animation.nim": [
+            "timelineKeysKey notin properties",
+            '".bnb slotTimeline.timelineKeys is required"',
+        ],
+        "runtime-dart/lib/src/loader_animation_parsers.dart": [
+            "_required<List<dynamic>>(st['keyframes'], '$stCtx.keyframes')",
+        ],
+        "runtime-dart/lib/src/bnb_decoder.dart": [
+            "wire.bonyPropertyKeyTimelineKeys",
+            "'.bnb slotTimeline.timelineKeys is required'",
+        ],
+    },
+    ("deformTimeline", "deformKeys"): {
+        "runtime-nim/src/bony/binary/semantic/animation.nim": [
+            "deformKeysKey notin properties",
+            '".bnb deformTimeline.deformKeys is required"',
+        ],
+        "runtime-dart/lib/src/loader_animation_parsers.dart": [
+            "_required<List<dynamic>>(dt['keyframes'], '$dtCtx.keyframes')",
+        ],
+        "runtime-dart/lib/src/bnb_decoder.dart": [
+            "wire.bonyPropertyKeyDeformKeys",
+            "'.bnb deformTimeline.deformKeys is required'",
+        ],
+    },
+    ("eventTimeline", "eventKeys"): {
+        "runtime-nim/src/bony/binary/semantic/animation.nim": [
+            "eventKeysKey notin properties",
+            '".bnb eventTimeline.eventKeys is required"',
+        ],
+        "runtime-dart/lib/src/loader_animation_parsers.dart": [
+            "_required<List<dynamic>>(et['keyframes'], '$etCtx.keyframes')",
+        ],
+        "runtime-dart/lib/src/bnb_decoder.dart": [
+            "wire.bonyPropertyKeyEventKeys",
+            "'.bnb eventTimeline.eventKeys is required'",
+        ],
+    },
+}
+
 
 def sample_registry() -> dict:
     return {
@@ -128,6 +325,9 @@ def sample_registry() -> dict:
             },
         ],
         "objects": [{"type": "bone", "properties": ["name", "visible"]}],
+        "ordinalEnums": [
+            {"id": "testMode", "values": ["first", "second"]},
+        ],
     }
 
 
@@ -172,6 +372,17 @@ class GeneratorValidationTests(unittest.TestCase):
         defaults = generate.load_yaml_subset(generate.ROOT / "spec" / "defaults.yml")
         return registry, defaults
 
+    def test_generate_module_entrypoint_is_package_import_compatible(self) -> None:
+        result = subprocess.run(
+            [sys.executable, "-m", "codegen.generate", "--check"],
+            cwd=generate.ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_valid_non_empty_sources_generate_runtime_metadata(self) -> None:
         registry = sample_registry()
         defaults = sample_defaults()
@@ -180,6 +391,14 @@ class GeneratorValidationTests(unittest.TestCase):
 
         self.assertIn("BonyObjectSpec", generate.generate_nim(registry, defaults))
         self.assertIn("BonyObjectSpec", generate.generate_dart(registry, defaults))
+        self.assertIn(
+            'BonyOrdinalEnum(id: "testMode", values: @["first", "second"])',
+            generate.generate_nim(registry, defaults),
+        )
+        self.assertIn(
+            "BonyOrdinalEnum(id: 'testMode', values: [\"first\", \"second\"])",
+            generate.generate_dart(registry, defaults),
+        )
         schema_text = generate.generate_schema(registry, defaults)
         schema = json.loads(schema_text)
         self.assertEqual(schema["$id"], "https://bony.local/spec/bony.schema.json")
@@ -222,6 +441,21 @@ class GeneratorValidationTests(unittest.TestCase):
         self.assertIn("warp", schema["$defs"]["deformer"]["properties"])
         self.assertIn("boneTimelines", schema["$defs"]["animationClip"]["properties"])
         self.assertIn("layers", schema["$defs"]["stateMachine"]["properties"])
+
+    def test_schema_for_property_returns_mutation_safe_overrides(self) -> None:
+        transform_mode = generate.schema_for_property("transformMode", "string")
+        transform_mode["enum"].append("badMode")
+
+        self.assertEqual(
+            generate.schema_for_property("transformMode", "string")["enum"],
+            [
+                "normal",
+                "onlyTranslation",
+                "noRotationOrReflection",
+                "noScale",
+                "noScaleOrReflection",
+            ],
+        )
 
     def test_project_m3_m8_keys_are_in_reserved_bands(self) -> None:
         registry, defaults = self.project_sources()
@@ -290,11 +524,15 @@ class GeneratorValidationTests(unittest.TestCase):
         dart = generate.generate_dart(registry, defaults)
 
         for object_id, key in M3_M8_TYPE_KEYS.items():
+            dart_const = f"bonyTypeKey{generate.dart_const_suffix(object_id)}"
             self.assertIn(f'id: "{object_id}", key: {key}.uint64', nim)
-            self.assertIn(f"id: '{object_id}', key: {key}", dart)
+            self.assertIn(f"const int {dart_const} = {key};", dart)
+            self.assertIn(f"id: '{object_id}', key: {dart_const}", dart)
         for property_id, key in M3_M8_PROPERTY_KEYS.items():
+            dart_const = f"bonyPropertyKey{generate.dart_const_suffix(property_id)}"
             self.assertIn(f'id: "{property_id}", key: {key}.uint64', nim)
-            self.assertIn(f"id: '{property_id}', key: {key}", dart)
+            self.assertIn(f"const int {dart_const} = {key};", dart)
+            self.assertIn(f"id: '{property_id}', key: {dart_const}", dart)
         self.assertIn(
             'BonyObjectSpec(typeId: "boneTimeline", properties: @["boneIndex", "boneTimelineKind", "timelineKeys"])',
             nim,
@@ -319,6 +557,111 @@ class GeneratorValidationTests(unittest.TestCase):
             'BonyObjectSpec(typeId: \'stateMachineListener\', properties: ["name", "stateMachineListenerKind", "listenerLayerIndex", "listenerFromStateIndex", "listenerToStateIndex", "listenerSlotIndex", "listenerHelperKind", "listenerHelperTarget", "listenerInputIndex", "listenerBoolValue", "listenerNumberValue", "listenerHitRadius"])',
             dart,
         )
+
+    def test_project_generated_runtime_metadata_exposes_ordinal_enums(self) -> None:
+        registry, defaults = self.project_sources()
+
+        generate.validate_sources(registry, defaults)
+        nim = generate.generate_nim(registry, defaults)
+        dart = generate.generate_dart(registry, defaults)
+
+        ordinal_enums = {entry["id"]: entry["values"] for entry in registry["ordinalEnums"]}
+        self.assertEqual(ordinal_enums["physicsChannel"], ["x", "y", "rotate", "scaleX", "shearX"])
+        self.assertEqual(ordinal_enums["deformerKind"], ["warp", "rotation"])
+        self.assertIn(
+            'BonyOrdinalEnum(id: "physicsChannel", values: @["x", "y", "rotate", "scaleX", "shearX"])',
+            nim,
+        )
+        self.assertIn(
+            'BonyOrdinalEnum(id: "deformerKind", values: @["warp", "rotation"])',
+            nim,
+        )
+        self.assertIn(
+            'BonyOrdinalEnum(id: \'physicsChannel\', values: ["x", "y", "rotate", "scaleX", "shearX"])',
+            dart,
+        )
+        self.assertIn(
+            'BonyOrdinalEnum(id: \'deformerKind\', values: ["warp", "rotation"])',
+            dart,
+        )
+
+    def test_project_generated_nim_emits_scalar_codec_helpers(self) -> None:
+        registry, defaults = self.project_sources()
+        nim = generate.generate_nim(registry, defaults)
+
+        self.assertIn("type\n  BonyScalarKind* = enum", nim)
+        self.assertIn("proc bonyScalarIsRequired(spec: BonyScalarPropertySpec): bool =", nim)
+        self.assertIn("if spec.bonyScalarIsRequired():", nim)
+        helper_section = nim.split(
+            "proc bonyScalarIsRequired(spec: BonyScalarPropertySpec): bool =", 1
+        )[1].split("proc bonyScalarEquals", 1)[0]
+        self.assertIn("for property in bonyRequiredProperties:", helper_section)
+        self.assertIn("property.objectId == spec.objectId", helper_section)
+        self.assertIn("property.propertyId == spec.propertyId", helper_section)
+        self.assertNotIn("spec.required", helper_section)
+        self.assertIn("const bonyBoneScalarSpecs* = [", nim)
+        self.assertIn("proc encodeBoneJsonScalars*", nim)
+        self.assertIn("proc decodeBoneBnbScalars*", nim)
+        self.assertIn("proc encodeBonyObjectJsonScalars*", nim)
+        self.assertIn('propertyId: "x", propertyKey: 1000.uint64, kind: bskF32', nim)
+        self.assertIn("defaultValue: bonyF32Value(0.0)", nim)
+
+        mesh_section = nim.split("const bonyMeshAttachmentScalarSpecs* = [", 1)[1].split("]", 1)[0]
+        self.assertIn('propertyId: "meshWeighted"', mesh_section)
+        self.assertNotIn("meshVertices", mesh_section)
+
+    def test_project_generated_dart_exposes_required_property_lookup(self) -> None:
+        registry, defaults = self.project_sources()
+        dart = generate.generate_dart(registry, defaults)
+
+        self.assertIn("bool bonyIsRequiredProperty(String objectId, String propertyId) {", dart)
+        helper_section = dart.split(
+            "bool bonyIsRequiredProperty(String objectId, String propertyId) {", 1
+        )[1].split("Never encodeBonyObject", 1)[0]
+        self.assertIn("return bonyRequiredProperties.any(", helper_section)
+        self.assertIn("property.objectId == objectId", helper_section)
+        self.assertIn("property.propertyId == propertyId", helper_section)
+
+    def test_project_required_properties_are_covered_by_generated_or_hand_enforced_paths(self) -> None:
+        registry, defaults = self.project_sources()
+        generate.validate_sources(registry, defaults)
+        nim = generate.generate_nim(registry, defaults)
+        dart = generate.generate_dart(registry, defaults)
+
+        backing_by_property = {entry["id"]: entry["backingType"] for entry in registry["propertyKeys"]}
+        scalar_required: set[tuple[str, str]] = set()
+        non_scalar_required: set[tuple[str, str]] = set()
+        for entry in defaults["requiredProperties"]:
+            key = (entry["object"], entry["property"])
+            if backing_by_property[entry["property"]] in SCALAR_BACKINGS:
+                scalar_required.add(key)
+            else:
+                non_scalar_required.add(key)
+
+        self.assertEqual(non_scalar_required, set(HAND_ENFORCED_NON_SCALAR_REQUIRED_PROPERTIES))
+        nim_required_table = nim.split("const bonyRequiredProperties* = [", 1)[1].split("]", 1)[0]
+        dart_required_table = dart.split("const List<BonyRequiredProperty> bonyRequiredProperties = [", 1)[1].split("];", 1)[0]
+        for object_id, property_id in sorted(scalar_required):
+            with self.subTest(object=object_id, property=property_id):
+                self.assertIn(
+                    f'BonyScalarPropertySpec(objectId: "{object_id}", propertyId: "{property_id}",',
+                    nim,
+                )
+                self.assertIn(
+                    f'BonyRequiredProperty(objectId: "{object_id}", propertyId: "{property_id}",',
+                    nim_required_table,
+                )
+                self.assertIn(
+                    f"BonyRequiredProperty(objectId: '{object_id}', propertyId: '{property_id}',",
+                    dart_required_table,
+                )
+
+        for key, expected_sites in HAND_ENFORCED_NON_SCALAR_REQUIRED_PROPERTIES.items():
+            with self.subTest(object=key[0], property=key[1]):
+                for relative_path, tokens in expected_sites.items():
+                    text = (generate.ROOT / relative_path).read_text(encoding="utf-8")
+                    for token in tokens:
+                        self.assertIn(token, text)
 
     def test_project_schema_root_orders_animations_before_state_machines(self) -> None:
         registry, defaults = self.project_sources()
@@ -411,6 +754,26 @@ class GeneratorValidationTests(unittest.TestCase):
         self.assertNotIn("timelineKeys", schema["$defs"]["boneTimeline"]["properties"])
         self.assertIn("keyframes", schema["$defs"]["boneTimeline"]["properties"])
 
+    def test_build_root_properties_applies_hidden_ids_and_collection_overrides(self) -> None:
+        type_keys = [
+            {"id": "skeleton"},
+            {"id": "bone"},
+            {"id": "animationClip"},
+            {"id": "stateMachineInput"},
+        ]
+
+        properties, required = generate.build_root_properties(
+            type_keys,
+            hidden={"stateMachineInput"},
+            collection_overrides={"animationClip": "animations"},
+        )
+
+        self.assertEqual(required, ["skeleton", "bones"])
+        self.assertEqual(properties["skeleton"], {"$ref": "#/$defs/skeleton"})
+        self.assertEqual(properties["bones"]["items"], {"$ref": "#/$defs/bone"})
+        self.assertEqual(properties["animations"]["items"], {"$ref": "#/$defs/animationClip"})
+        self.assertNotIn("stateMachineInputs", properties)
+
     def test_project_schema_constrains_ik_mix_to_unit_range(self) -> None:
         # Regression guard for the frozen IK format (ik-format-freeze.md §7-C1):
         # ikConstraint.mix must carry [0, 1] in BOTH the canonical schema (via the
@@ -478,6 +841,27 @@ class GeneratorValidationTests(unittest.TestCase):
 
     def test_dart_string_literal_escapes_interpolation(self) -> None:
         self.assertEqual(generate.dart_string_literal("price $name"), '"price \\$name"')
+
+    def test_dart_const_suffix_rejects_invalid_identifier_sources(self) -> None:
+        with self.assertRaisesRegex(generate.SourceError, "cannot form a Dart const suffix"):
+            generate.dart_const_suffix("1bad")
+
+    def test_dart_const_names_reject_generated_name_collisions(self) -> None:
+        entries = [
+            {"id": "foo", "key": 1},
+            {"id": "Foo", "key": 2},
+        ]
+
+        with self.assertRaisesRegex(generate.SourceError, "duplicate generated Dart const name"):
+            generate.dart_const_names(entries, "bonyTypeKey", "type key")
+
+    def test_duplicate_ordinal_enum_values_are_rejected(self) -> None:
+        registry = sample_registry()
+        defaults = sample_defaults()
+        registry["ordinalEnums"][0]["values"] = ["first", "first"]
+
+        with self.assertRaisesRegex(generate.SourceError, "duplicate value first"):
+            generate.validate_sources(registry, defaults)
 
 
 if __name__ == "__main__":

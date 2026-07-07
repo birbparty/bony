@@ -2,6 +2,7 @@
 
 import std/math
 
+import bony/constraints/common
 import bony/model
 
 const
@@ -49,24 +50,6 @@ type
     accumulator*: float64
 
 
-proc requireFinite(value: float64; context: string): float64 =
-  if classify(value) in {fcNan, fcInf, fcNegInf}:
-    raise newBonyLoadError(numericOutOfRange, context & " must be finite")
-  value
-
-
-proc requireNonNegative(value: float64; context: string): float64 =
-  result = requireFinite(value, context)
-  if result < 0.0:
-    raise newBonyLoadError(schemaViolation, context & " must be non-negative")
-
-
-proc requireMix(value: float64): float64 =
-  result = requireFinite(value, "physics.mix")
-  if result < 0.0 or result > 1.0:
-    raise newBonyLoadError(schemaViolation, "physics.mix must be in [0, 1]")
-
-
 proc physicsParams*(
   inertia = 0.0;
   strength = 0.0;
@@ -83,7 +66,7 @@ proc physicsParams*(
     mass: requireNonNegative(mass, "physics.mass"),
     gravity: requireFinite(gravity, "physics.gravity"),
     wind: requireFinite(wind, "physics.wind"),
-    mix: requireMix(mix),
+    mix: requireUnit(mix, "physics.mix"),
   )
 
 

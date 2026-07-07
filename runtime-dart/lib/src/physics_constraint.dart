@@ -9,6 +9,8 @@
 /// rewritten. Not derived from any third-party runtime.
 import 'dart:math' as math;
 
+import 'numeric_guards.dart' show requireFinite, requireMix, requireNonNegative;
+
 /// Fixed simulation step (60 Hz). Never varies by runtime/frame-rate/host.
 const double physicsFixedDt = 1.0 / 60.0;
 
@@ -99,29 +101,6 @@ class PhysicsUpdateResult {
   double accumulator = 0.0;
 }
 
-double _requireFinite(double value, String context) {
-  if (value.isNaN || value.isInfinite) {
-    throw FormatException('$context must be finite');
-  }
-  return value;
-}
-
-double _requireNonNegative(double value, String context) {
-  final result = _requireFinite(value, context);
-  if (result < 0.0) {
-    throw FormatException('$context must be non-negative');
-  }
-  return result;
-}
-
-double _requireMix(double value) {
-  final result = _requireFinite(value, 'physics.mix');
-  if (result < 0.0 || result > 1.0) {
-    throw FormatException('physics.mix must be in [0, 1]');
-  }
-  return result;
-}
-
 /// Build validated integrator params. Defaults mirror the Nim `physicsParams`
 /// proc (mass=1.0, mix=1.0, everything else 0.0), including the bounds checks.
 PhysicsParams physicsParams({
@@ -134,30 +113,31 @@ PhysicsParams physicsParams({
   double mix = 1.0,
 }) {
   return PhysicsParams(
-    inertia: _requireFinite(inertia, 'physics.inertia'),
-    strength: _requireFinite(strength, 'physics.strength'),
-    damping: _requireFinite(damping, 'physics.damping'),
-    mass: _requireNonNegative(mass, 'physics.mass'),
-    gravity: _requireFinite(gravity, 'physics.gravity'),
-    wind: _requireFinite(wind, 'physics.wind'),
-    mix: _requireMix(mix),
+    inertia: requireFinite(inertia, 'physics.inertia'),
+    strength: requireFinite(strength, 'physics.strength'),
+    damping: requireFinite(damping, 'physics.damping'),
+    mass: requireNonNegative(mass, 'physics.mass'),
+    gravity: requireFinite(gravity, 'physics.gravity'),
+    wind: requireFinite(wind, 'physics.wind'),
+    mix: requireMix(mix, 'physics.mix'),
   );
 }
 
-PhysicsChannelInput physicsChannelInput(PhysicsChannel channel, double target) =>
-    PhysicsChannelInput(channel, _requireFinite(target, 'physics.target'));
+PhysicsChannelInput physicsChannelInput(
+        PhysicsChannel channel, double target) =>
+    PhysicsChannelInput(channel, requireFinite(target, 'physics.target'));
 
 /// Seed a channel to rest at the given target (offset/velocity zero), matching
 /// the Nim `seedPhysicsChannel`.
 void seedPhysicsChannel(PhysicsChannelState state, double target) {
   state.offset = 0.0;
   state.velocity = 0.0;
-  state.previousTarget = _requireFinite(target, 'physics.target');
+  state.previousTarget = requireFinite(target, 'physics.target');
   state.initialized = true;
 }
 
-PhysicsChannelOutput _outputFor(
-    PhysicsChannel channel, PhysicsChannelState state, double target, double mix) {
+PhysicsChannelOutput _outputFor(PhysicsChannel channel,
+    PhysicsChannelState state, double target, double mix) {
   return PhysicsChannelOutput(
     channel: channel,
     value: target + state.offset * mix,
@@ -172,7 +152,7 @@ void _validateInputs(List<PhysicsChannelInput> inputs) {
     if (!seen.add(input.channel)) {
       throw const FormatException('physics channel input must be unique');
     }
-    _requireFinite(input.target, 'physics.target');
+    requireFinite(input.target, 'physics.target');
   }
 }
 
@@ -222,7 +202,7 @@ PhysicsUpdateResult updatePhysicsConstraint(
   );
   _validateInputs(inputs);
   final safeDt =
-      math.min(_requireNonNegative(dt, 'physics.dt'), physicsMaxFrameDt);
+      math.min(requireNonNegative(dt, 'physics.dt'), physicsMaxFrameDt);
 
   if (!active) {
     state.active = false;
@@ -259,8 +239,8 @@ PhysicsUpdateResult updatePhysicsConstraint(
       state.accumulator >= physicsFixedDt) {
     final firstSubstep = result.substeps == 0;
     for (final input in inputs) {
-      integrateChannel(
-          state.channels[input.channel]!, safeParams, input.target, firstSubstep);
+      integrateChannel(state.channels[input.channel]!, safeParams, input.target,
+          firstSubstep);
     }
     state.accumulator -= physicsFixedDt;
     if (state.accumulator.abs() <= physicsStepEpsilon) {
@@ -283,8 +263,8 @@ PhysicsUpdateResult updatePhysicsConstraint(
 
   for (final input in inputs) {
     final channelState = state.channels[input.channel]!;
-    result.outputs
-        .add(_outputFor(input.channel, channelState, input.target, safeParams.mix));
+    result.outputs.add(
+        _outputFor(input.channel, channelState, input.target, safeParams.mix));
   }
   result.accumulator = state.accumulator;
   return result;

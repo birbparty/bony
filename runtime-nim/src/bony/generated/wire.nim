@@ -25,6 +25,9 @@ type
     objectId*: string
     propertyId*: string
     reason*: string
+  BonyOrdinalEnum* = object
+    id*: string
+    values*: seq[string]
 
 const bonyRegistryVersion* = 1
 const bonyBackingTypes* = [
@@ -419,12 +422,1032 @@ const bonyRequiredProperties* = [
   BonyRequiredProperty(objectId: "skinEntry", propertyId: "skinAttachment", reason: "A skin entry must identify the slot-visible attachment name it binds."),
   BonyRequiredProperty(objectId: "skinEntry", propertyId: "skinTarget", reason: "A skin entry must identify the concrete attachment definition it resolves to."),
 ]
+let bonyOrdinalEnums*: seq[BonyOrdinalEnum] = @[
+  BonyOrdinalEnum(id: "physicsChannel", values: @["x", "y", "rotate", "scaleX", "shearX"]),
+  BonyOrdinalEnum(id: "deformerKind", values: @["warp", "rotation"]),
+]
 
 proc bonyObjectSpec*(typeId: string): BonyObjectSpec =
   for spec in bonyObjectSpecs:
     if spec.typeId == typeId:
       return spec
   raise newException(ValueError, "unknown bony object type: " & typeId)
+
+type
+  BonyScalarKind* = enum
+    bskString, bskF32, bskF64, bskBool, bskVarint, bskVaruint
+  BonyScalarValue* = object
+    case kind*: BonyScalarKind
+    of bskString:
+      stringValue*: string
+    of bskF32, bskF64:
+      floatValue*: float64
+    of bskBool:
+      boolValue*: bool
+    of bskVarint:
+      intValue*: int64
+    of bskVaruint:
+      uintValue*: uint64
+  BonyJsonScalarProperty* = object
+    propertyId*: string
+    value*: BonyScalarValue
+  BonyBnbScalarProperty* = object
+    propertyKey*: uint64
+    value*: BonyScalarValue
+  BonyScalarPropertySpec* = object
+    objectId*: string
+    propertyId*: string
+    propertyKey*: uint64
+    kind*: BonyScalarKind
+    required*: bool
+    hasDefault*: bool
+    defaultValue*: BonyScalarValue
+    equality*: string
+    omitWhenDefault*: bool
+    applyOnLoad*: bool
+
+func bonyStringValue*(value: string): BonyScalarValue =
+  BonyScalarValue(kind: bskString, stringValue: value)
+
+func bonyF32Value*(value: float64): BonyScalarValue =
+  BonyScalarValue(kind: bskF32, floatValue: value)
+
+func bonyF64Value*(value: float64): BonyScalarValue =
+  BonyScalarValue(kind: bskF64, floatValue: value)
+
+func bonyBoolValue*(value: bool): BonyScalarValue =
+  BonyScalarValue(kind: bskBool, boolValue: value)
+
+func bonyIntValue*(value: int64): BonyScalarValue =
+  BonyScalarValue(kind: bskVarint, intValue: value)
+
+func bonyUintValue*(value: uint64): BonyScalarValue =
+  BonyScalarValue(kind: bskVaruint, uintValue: value)
+
+proc bonyScalarMatchesKind(value: BonyScalarValue; kind: BonyScalarKind): bool =
+  if kind == bskF32:
+    return value.kind in {bskF32, bskF64}
+  value.kind == kind
+
+proc bonyScalarIsRequired(spec: BonyScalarPropertySpec): bool =
+  for property in bonyRequiredProperties:
+    if property.objectId == spec.objectId and property.propertyId == spec.propertyId:
+      return true
+  false
+
+proc bonyScalarEquals(value, defaultValue: BonyScalarValue; equality: string): bool =
+  if equality == "storedF32":
+    return value.kind in {bskF32, bskF64} and defaultValue.kind in {bskF32, bskF64} and
+      float32(value.floatValue) == float32(defaultValue.floatValue)
+  if not value.bonyScalarMatchesKind(defaultValue.kind):
+    return false
+  case defaultValue.kind
+  of bskString:
+    value.stringValue == defaultValue.stringValue
+  of bskF32:
+    value.floatValue == defaultValue.floatValue
+  of bskF64:
+    value.floatValue == defaultValue.floatValue
+  of bskBool:
+    value.boolValue == defaultValue.boolValue
+  of bskVarint:
+    value.intValue == defaultValue.intValue
+  of bskVaruint:
+    value.uintValue == defaultValue.uintValue
+
+proc bonyFindJsonScalar(properties: openArray[BonyJsonScalarProperty]; propertyId: string): int =
+  for index, property in properties:
+    if property.propertyId == propertyId:
+      return index
+  -1
+
+proc bonyFindBnbScalar(properties: openArray[BonyBnbScalarProperty]; propertyKey: uint64): int =
+  for index, property in properties:
+    if property.propertyKey == propertyKey:
+      return index
+  -1
+
+proc bonyValidateJsonScalar(specs: openArray[BonyScalarPropertySpec]; property: BonyJsonScalarProperty) =
+  for spec in specs:
+    if spec.propertyId == property.propertyId:
+      if not property.value.bonyScalarMatchesKind(spec.kind):
+        raise newException(ValueError, "wrong scalar kind for " & spec.objectId & "." & spec.propertyId)
+      return
+  raise newException(ValueError, "unknown scalar property id: " & property.propertyId)
+
+proc bonyValidateBnbScalar(specs: openArray[BonyScalarPropertySpec]; property: BonyBnbScalarProperty) =
+  for spec in specs:
+    if spec.propertyKey == property.propertyKey:
+      if not property.value.bonyScalarMatchesKind(spec.kind):
+        raise newException(ValueError, "wrong scalar kind for " & spec.objectId & "." & spec.propertyId)
+      return
+  raise newException(ValueError, "unknown scalar property key: " & $property.propertyKey)
+
+proc bonyValidateJsonScalarProperties(specs: openArray[BonyScalarPropertySpec]; properties: openArray[BonyJsonScalarProperty]) =
+  var seen: seq[string]
+  for property in properties:
+    if property.propertyId in seen:
+      raise newException(ValueError, "duplicate scalar property id: " & property.propertyId)
+    seen.add property.propertyId
+    bonyValidateJsonScalar(specs, property)
+
+proc bonyValidateBnbScalarProperties(specs: openArray[BonyScalarPropertySpec]; properties: openArray[BonyBnbScalarProperty]) =
+  var seen: seq[uint64]
+  for property in properties:
+    if property.propertyKey in seen:
+      raise newException(ValueError, "duplicate scalar property key: " & $property.propertyKey)
+    seen.add property.propertyKey
+    bonyValidateBnbScalar(specs, property)
+
+proc bonyEncodeJsonScalars*(specs: openArray[BonyScalarPropertySpec]; properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyValidateJsonScalarProperties(specs, properties)
+  for spec in specs:
+    let index = properties.bonyFindJsonScalar(spec.propertyId)
+    if index < 0:
+      if spec.bonyScalarIsRequired():
+        raise newException(ValueError, "missing required scalar property: " & spec.objectId & "." & spec.propertyId)
+      continue
+    let value = properties[index].value
+    if spec.omitWhenDefault and spec.hasDefault and bonyScalarEquals(value, spec.defaultValue, spec.equality):
+      continue
+    result.add BonyJsonScalarProperty(propertyId: spec.propertyId, value: value)
+
+proc bonyDecodeJsonScalars*(specs: openArray[BonyScalarPropertySpec]; properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyValidateJsonScalarProperties(specs, properties)
+  for spec in specs:
+    let index = properties.bonyFindJsonScalar(spec.propertyId)
+    if index >= 0:
+      result.add BonyJsonScalarProperty(propertyId: spec.propertyId, value: properties[index].value)
+    elif spec.hasDefault and spec.applyOnLoad:
+      result.add BonyJsonScalarProperty(propertyId: spec.propertyId, value: spec.defaultValue)
+    elif spec.bonyScalarIsRequired():
+      raise newException(ValueError, "missing required scalar property: " & spec.objectId & "." & spec.propertyId)
+
+proc bonyEncodeBnbScalars*(specs: openArray[BonyScalarPropertySpec]; properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyValidateBnbScalarProperties(specs, properties)
+  for spec in specs:
+    let index = properties.bonyFindBnbScalar(spec.propertyKey)
+    if index < 0:
+      if spec.bonyScalarIsRequired():
+        raise newException(ValueError, "missing required scalar property: " & spec.objectId & "." & spec.propertyId)
+      continue
+    let value = properties[index].value
+    if spec.omitWhenDefault and spec.hasDefault and bonyScalarEquals(value, spec.defaultValue, spec.equality):
+      continue
+    result.add BonyBnbScalarProperty(propertyKey: spec.propertyKey, value: value)
+
+proc bonyDecodeBnbScalars*(specs: openArray[BonyScalarPropertySpec]; properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyValidateBnbScalarProperties(specs, properties)
+  for spec in specs:
+    let index = properties.bonyFindBnbScalar(spec.propertyKey)
+    if index >= 0:
+      result.add BonyBnbScalarProperty(propertyKey: spec.propertyKey, value: properties[index].value)
+    elif spec.hasDefault and spec.applyOnLoad:
+      result.add BonyBnbScalarProperty(propertyKey: spec.propertyKey, value: spec.defaultValue)
+    elif spec.bonyScalarIsRequired():
+      raise newException(ValueError, "missing required scalar property: " & spec.objectId & "." & spec.propertyId)
+
+const bonySkeletonScalarSpecs* = [
+  BonyScalarPropertySpec(objectId: "skeleton", propertyId: "name", propertyKey: 1.uint64, kind: bskString, required: true, hasDefault: false, defaultValue: bonyStringValue(""), equality: "exactString", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "skeleton", propertyId: "version", propertyKey: 2.uint64, kind: bskString, required: false, hasDefault: true, defaultValue: bonyStringValue("0.1.0"), equality: "exactString", omitWhenDefault: true, applyOnLoad: true),
+]
+
+proc encodeSkeletonJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyEncodeJsonScalars(bonySkeletonScalarSpecs, properties)
+
+proc decodeSkeletonJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyDecodeJsonScalars(bonySkeletonScalarSpecs, properties)
+
+proc encodeSkeletonBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyEncodeBnbScalars(bonySkeletonScalarSpecs, properties)
+
+proc decodeSkeletonBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyDecodeBnbScalars(bonySkeletonScalarSpecs, properties)
+
+const bonyBoneScalarSpecs* = [
+  BonyScalarPropertySpec(objectId: "bone", propertyId: "name", propertyKey: 1.uint64, kind: bskString, required: true, hasDefault: false, defaultValue: bonyStringValue(""), equality: "exactString", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "bone", propertyId: "parent", propertyKey: 3.uint64, kind: bskString, required: false, hasDefault: true, defaultValue: bonyStringValue(""), equality: "exactString", omitWhenDefault: true, applyOnLoad: true),
+  BonyScalarPropertySpec(objectId: "bone", propertyId: "x", propertyKey: 1000.uint64, kind: bskF32, required: false, hasDefault: true, defaultValue: bonyF32Value(0.0), equality: "storedF32", omitWhenDefault: true, applyOnLoad: true),
+  BonyScalarPropertySpec(objectId: "bone", propertyId: "y", propertyKey: 1001.uint64, kind: bskF32, required: false, hasDefault: true, defaultValue: bonyF32Value(0.0), equality: "storedF32", omitWhenDefault: true, applyOnLoad: true),
+  BonyScalarPropertySpec(objectId: "bone", propertyId: "rotation", propertyKey: 1002.uint64, kind: bskF32, required: false, hasDefault: true, defaultValue: bonyF32Value(0.0), equality: "storedF32", omitWhenDefault: true, applyOnLoad: true),
+  BonyScalarPropertySpec(objectId: "bone", propertyId: "scaleX", propertyKey: 1003.uint64, kind: bskF32, required: false, hasDefault: true, defaultValue: bonyF32Value(1.0), equality: "storedF32", omitWhenDefault: true, applyOnLoad: true),
+  BonyScalarPropertySpec(objectId: "bone", propertyId: "scaleY", propertyKey: 1004.uint64, kind: bskF32, required: false, hasDefault: true, defaultValue: bonyF32Value(1.0), equality: "storedF32", omitWhenDefault: true, applyOnLoad: true),
+  BonyScalarPropertySpec(objectId: "bone", propertyId: "shearX", propertyKey: 1005.uint64, kind: bskF32, required: false, hasDefault: true, defaultValue: bonyF32Value(0.0), equality: "storedF32", omitWhenDefault: true, applyOnLoad: true),
+  BonyScalarPropertySpec(objectId: "bone", propertyId: "shearY", propertyKey: 1006.uint64, kind: bskF32, required: false, hasDefault: true, defaultValue: bonyF32Value(0.0), equality: "storedF32", omitWhenDefault: true, applyOnLoad: true),
+  BonyScalarPropertySpec(objectId: "bone", propertyId: "inheritRotation", propertyKey: 1007.uint64, kind: bskBool, required: false, hasDefault: true, defaultValue: bonyBoolValue(true), equality: "exactBool", omitWhenDefault: true, applyOnLoad: true),
+  BonyScalarPropertySpec(objectId: "bone", propertyId: "inheritScale", propertyKey: 1008.uint64, kind: bskBool, required: false, hasDefault: true, defaultValue: bonyBoolValue(true), equality: "exactBool", omitWhenDefault: true, applyOnLoad: true),
+  BonyScalarPropertySpec(objectId: "bone", propertyId: "inheritReflection", propertyKey: 1009.uint64, kind: bskBool, required: false, hasDefault: true, defaultValue: bonyBoolValue(true), equality: "exactBool", omitWhenDefault: true, applyOnLoad: true),
+  BonyScalarPropertySpec(objectId: "bone", propertyId: "transformMode", propertyKey: 1010.uint64, kind: bskString, required: false, hasDefault: true, defaultValue: bonyStringValue("normal"), equality: "exactString", omitWhenDefault: true, applyOnLoad: true),
+  BonyScalarPropertySpec(objectId: "bone", propertyId: "skinRequired", propertyKey: 4027.uint64, kind: bskBool, required: false, hasDefault: true, defaultValue: bonyBoolValue(false), equality: "exactBool", omitWhenDefault: true, applyOnLoad: true),
+]
+
+proc encodeBoneJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyEncodeJsonScalars(bonyBoneScalarSpecs, properties)
+
+proc decodeBoneJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyDecodeJsonScalars(bonyBoneScalarSpecs, properties)
+
+proc encodeBoneBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyEncodeBnbScalars(bonyBoneScalarSpecs, properties)
+
+proc decodeBoneBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyDecodeBnbScalars(bonyBoneScalarSpecs, properties)
+
+const bonySlotScalarSpecs* = [
+  BonyScalarPropertySpec(objectId: "slot", propertyId: "name", propertyKey: 1.uint64, kind: bskString, required: true, hasDefault: false, defaultValue: bonyStringValue(""), equality: "exactString", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "slot", propertyId: "bone", propertyKey: 1012.uint64, kind: bskString, required: true, hasDefault: false, defaultValue: bonyStringValue(""), equality: "exactString", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "slot", propertyId: "attachment", propertyKey: 1013.uint64, kind: bskString, required: false, hasDefault: true, defaultValue: bonyStringValue(""), equality: "exactString", omitWhenDefault: true, applyOnLoad: true),
+]
+
+proc encodeSlotJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyEncodeJsonScalars(bonySlotScalarSpecs, properties)
+
+proc decodeSlotJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyDecodeJsonScalars(bonySlotScalarSpecs, properties)
+
+proc encodeSlotBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyEncodeBnbScalars(bonySlotScalarSpecs, properties)
+
+proc decodeSlotBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyDecodeBnbScalars(bonySlotScalarSpecs, properties)
+
+const bonyRegionScalarSpecs* = [
+  BonyScalarPropertySpec(objectId: "region", propertyId: "name", propertyKey: 1.uint64, kind: bskString, required: true, hasDefault: false, defaultValue: bonyStringValue(""), equality: "exactString", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "region", propertyId: "width", propertyKey: 1014.uint64, kind: bskF32, required: true, hasDefault: false, defaultValue: bonyF32Value(0.0), equality: "storedF32", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "region", propertyId: "height", propertyKey: 1015.uint64, kind: bskF32, required: true, hasDefault: false, defaultValue: bonyF32Value(0.0), equality: "storedF32", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "region", propertyId: "texturePage", propertyKey: 8000.uint64, kind: bskString, required: false, hasDefault: true, defaultValue: bonyStringValue(""), equality: "exactString", omitWhenDefault: true, applyOnLoad: true),
+  BonyScalarPropertySpec(objectId: "region", propertyId: "u0", propertyKey: 8001.uint64, kind: bskF32, required: false, hasDefault: true, defaultValue: bonyF32Value(0.0), equality: "storedF32", omitWhenDefault: true, applyOnLoad: true),
+  BonyScalarPropertySpec(objectId: "region", propertyId: "v0", propertyKey: 8002.uint64, kind: bskF32, required: false, hasDefault: true, defaultValue: bonyF32Value(0.0), equality: "storedF32", omitWhenDefault: true, applyOnLoad: true),
+  BonyScalarPropertySpec(objectId: "region", propertyId: "u1", propertyKey: 8003.uint64, kind: bskF32, required: false, hasDefault: true, defaultValue: bonyF32Value(1.0), equality: "storedF32", omitWhenDefault: true, applyOnLoad: true),
+  BonyScalarPropertySpec(objectId: "region", propertyId: "v1", propertyKey: 8004.uint64, kind: bskF32, required: false, hasDefault: true, defaultValue: bonyF32Value(1.0), equality: "storedF32", omitWhenDefault: true, applyOnLoad: true),
+  BonyScalarPropertySpec(objectId: "region", propertyId: "alphaMode", propertyKey: 8005.uint64, kind: bskString, required: false, hasDefault: true, defaultValue: bonyStringValue("straight"), equality: "exactString", omitWhenDefault: true, applyOnLoad: true),
+]
+
+proc encodeRegionJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyEncodeJsonScalars(bonyRegionScalarSpecs, properties)
+
+proc decodeRegionJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyDecodeJsonScalars(bonyRegionScalarSpecs, properties)
+
+proc encodeRegionBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyEncodeBnbScalars(bonyRegionScalarSpecs, properties)
+
+proc decodeRegionBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyDecodeBnbScalars(bonyRegionScalarSpecs, properties)
+
+const bonyPointAttachmentScalarSpecs* = [
+  BonyScalarPropertySpec(objectId: "pointAttachment", propertyId: "name", propertyKey: 1.uint64, kind: bskString, required: true, hasDefault: false, defaultValue: bonyStringValue(""), equality: "exactString", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "pointAttachment", propertyId: "x", propertyKey: 1000.uint64, kind: bskF32, required: true, hasDefault: false, defaultValue: bonyF32Value(0.0), equality: "storedF32", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "pointAttachment", propertyId: "y", propertyKey: 1001.uint64, kind: bskF32, required: true, hasDefault: false, defaultValue: bonyF32Value(0.0), equality: "storedF32", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "pointAttachment", propertyId: "rotation", propertyKey: 1002.uint64, kind: bskF32, required: true, hasDefault: false, defaultValue: bonyF32Value(0.0), equality: "storedF32", omitWhenDefault: false, applyOnLoad: false),
+]
+
+proc encodePointAttachmentJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyEncodeJsonScalars(bonyPointAttachmentScalarSpecs, properties)
+
+proc decodePointAttachmentJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyDecodeJsonScalars(bonyPointAttachmentScalarSpecs, properties)
+
+proc encodePointAttachmentBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyEncodeBnbScalars(bonyPointAttachmentScalarSpecs, properties)
+
+proc decodePointAttachmentBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyDecodeBnbScalars(bonyPointAttachmentScalarSpecs, properties)
+
+const bonyBoundingBoxAttachmentScalarSpecs* = [
+  BonyScalarPropertySpec(objectId: "boundingBoxAttachment", propertyId: "name", propertyKey: 1.uint64, kind: bskString, required: true, hasDefault: false, defaultValue: bonyStringValue(""), equality: "exactString", omitWhenDefault: false, applyOnLoad: false),
+]
+
+proc encodeBoundingBoxAttachmentJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyEncodeJsonScalars(bonyBoundingBoxAttachmentScalarSpecs, properties)
+
+proc decodeBoundingBoxAttachmentJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyDecodeJsonScalars(bonyBoundingBoxAttachmentScalarSpecs, properties)
+
+proc encodeBoundingBoxAttachmentBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyEncodeBnbScalars(bonyBoundingBoxAttachmentScalarSpecs, properties)
+
+proc decodeBoundingBoxAttachmentBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyDecodeBnbScalars(bonyBoundingBoxAttachmentScalarSpecs, properties)
+
+const bonyClippingAttachmentScalarSpecs* = [
+  BonyScalarPropertySpec(objectId: "clippingAttachment", propertyId: "name", propertyKey: 1.uint64, kind: bskString, required: true, hasDefault: false, defaultValue: bonyStringValue(""), equality: "exactString", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "clippingAttachment", propertyId: "untilSlot", propertyKey: 3001.uint64, kind: bskString, required: false, hasDefault: true, defaultValue: bonyStringValue(""), equality: "exactString", omitWhenDefault: true, applyOnLoad: true),
+]
+
+proc encodeClippingAttachmentJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyEncodeJsonScalars(bonyClippingAttachmentScalarSpecs, properties)
+
+proc decodeClippingAttachmentJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyDecodeJsonScalars(bonyClippingAttachmentScalarSpecs, properties)
+
+proc encodeClippingAttachmentBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyEncodeBnbScalars(bonyClippingAttachmentScalarSpecs, properties)
+
+proc decodeClippingAttachmentBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyDecodeBnbScalars(bonyClippingAttachmentScalarSpecs, properties)
+
+const bonyMeshAttachmentScalarSpecs* = [
+  BonyScalarPropertySpec(objectId: "meshAttachment", propertyId: "name", propertyKey: 1.uint64, kind: bskString, required: true, hasDefault: false, defaultValue: bonyStringValue(""), equality: "exactString", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "meshAttachment", propertyId: "meshWeighted", propertyKey: 3002.uint64, kind: bskBool, required: false, hasDefault: true, defaultValue: bonyBoolValue(false), equality: "exactBool", omitWhenDefault: true, applyOnLoad: true),
+]
+
+proc encodeMeshAttachmentJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyEncodeJsonScalars(bonyMeshAttachmentScalarSpecs, properties)
+
+proc decodeMeshAttachmentJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyDecodeJsonScalars(bonyMeshAttachmentScalarSpecs, properties)
+
+proc encodeMeshAttachmentBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyEncodeBnbScalars(bonyMeshAttachmentScalarSpecs, properties)
+
+proc decodeMeshAttachmentBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyDecodeBnbScalars(bonyMeshAttachmentScalarSpecs, properties)
+
+const bonyNestedRigAttachmentScalarSpecs* = [
+  BonyScalarPropertySpec(objectId: "nestedRigAttachment", propertyId: "name", propertyKey: 1.uint64, kind: bskString, required: true, hasDefault: false, defaultValue: bonyStringValue(""), equality: "exactString", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "nestedRigAttachment", propertyId: "nestedSkeleton", propertyKey: 3012.uint64, kind: bskString, required: true, hasDefault: false, defaultValue: bonyStringValue(""), equality: "exactString", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "nestedRigAttachment", propertyId: "nestedSkin", propertyKey: 3013.uint64, kind: bskString, required: false, hasDefault: true, defaultValue: bonyStringValue(""), equality: "exactString", omitWhenDefault: true, applyOnLoad: true),
+  BonyScalarPropertySpec(objectId: "nestedRigAttachment", propertyId: "nestedAnimation", propertyKey: 3014.uint64, kind: bskString, required: false, hasDefault: true, defaultValue: bonyStringValue(""), equality: "exactString", omitWhenDefault: true, applyOnLoad: true),
+]
+
+proc encodeNestedRigAttachmentJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyEncodeJsonScalars(bonyNestedRigAttachmentScalarSpecs, properties)
+
+proc decodeNestedRigAttachmentJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyDecodeJsonScalars(bonyNestedRigAttachmentScalarSpecs, properties)
+
+proc encodeNestedRigAttachmentBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyEncodeBnbScalars(bonyNestedRigAttachmentScalarSpecs, properties)
+
+proc decodeNestedRigAttachmentBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyDecodeBnbScalars(bonyNestedRigAttachmentScalarSpecs, properties)
+
+const bonyPathScalarSpecs* = [
+  BonyScalarPropertySpec(objectId: "path", propertyId: "name", propertyKey: 1.uint64, kind: bskString, required: true, hasDefault: false, defaultValue: bonyStringValue(""), equality: "exactString", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "path", propertyId: "bone", propertyKey: 1012.uint64, kind: bskString, required: true, hasDefault: false, defaultValue: bonyStringValue(""), equality: "exactString", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "path", propertyId: "target", propertyKey: 4000.uint64, kind: bskString, required: true, hasDefault: false, defaultValue: bonyStringValue(""), equality: "exactString", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "path", propertyId: "path", propertyKey: 4001.uint64, kind: bskString, required: true, hasDefault: false, defaultValue: bonyStringValue(""), equality: "exactString", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "path", propertyId: "order", propertyKey: 4002.uint64, kind: bskVarint, required: false, hasDefault: true, defaultValue: bonyIntValue(0.int64), equality: "exactInteger", omitWhenDefault: true, applyOnLoad: true),
+  BonyScalarPropertySpec(objectId: "path", propertyId: "skinRequired", propertyKey: 4027.uint64, kind: bskBool, required: false, hasDefault: true, defaultValue: bonyBoolValue(false), equality: "exactBool", omitWhenDefault: true, applyOnLoad: true),
+  BonyScalarPropertySpec(objectId: "path", propertyId: "position", propertyKey: 4011.uint64, kind: bskF32, required: false, hasDefault: true, defaultValue: bonyF32Value(0.0), equality: "storedF32", omitWhenDefault: true, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "path", propertyId: "translateMix", propertyKey: 4012.uint64, kind: bskF32, required: false, hasDefault: true, defaultValue: bonyF32Value(1.0), equality: "storedF32", omitWhenDefault: true, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "path", propertyId: "rotateMix", propertyKey: 4013.uint64, kind: bskF32, required: false, hasDefault: true, defaultValue: bonyF32Value(0.0), equality: "storedF32", omitWhenDefault: true, applyOnLoad: false),
+]
+
+proc encodePathJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyEncodeJsonScalars(bonyPathScalarSpecs, properties)
+
+proc decodePathJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyDecodeJsonScalars(bonyPathScalarSpecs, properties)
+
+proc encodePathBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyEncodeBnbScalars(bonyPathScalarSpecs, properties)
+
+proc decodePathBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyDecodeBnbScalars(bonyPathScalarSpecs, properties)
+
+const bonyIkConstraintScalarSpecs* = [
+  BonyScalarPropertySpec(objectId: "ikConstraint", propertyId: "name", propertyKey: 1.uint64, kind: bskString, required: true, hasDefault: false, defaultValue: bonyStringValue(""), equality: "exactString", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "ikConstraint", propertyId: "target", propertyKey: 4000.uint64, kind: bskString, required: true, hasDefault: false, defaultValue: bonyStringValue(""), equality: "exactString", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "ikConstraint", propertyId: "order", propertyKey: 4002.uint64, kind: bskVarint, required: false, hasDefault: true, defaultValue: bonyIntValue(0.int64), equality: "exactInteger", omitWhenDefault: true, applyOnLoad: true),
+  BonyScalarPropertySpec(objectId: "ikConstraint", propertyId: "skinRequired", propertyKey: 4027.uint64, kind: bskBool, required: false, hasDefault: true, defaultValue: bonyBoolValue(false), equality: "exactBool", omitWhenDefault: true, applyOnLoad: true),
+  BonyScalarPropertySpec(objectId: "ikConstraint", propertyId: "mix", propertyKey: 4015.uint64, kind: bskF32, required: false, hasDefault: true, defaultValue: bonyF32Value(1.0), equality: "storedF32", omitWhenDefault: true, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "ikConstraint", propertyId: "bendPositive", propertyKey: 4016.uint64, kind: bskBool, required: false, hasDefault: true, defaultValue: bonyBoolValue(true), equality: "exactBool", omitWhenDefault: true, applyOnLoad: false),
+]
+
+proc encodeIkConstraintJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyEncodeJsonScalars(bonyIkConstraintScalarSpecs, properties)
+
+proc decodeIkConstraintJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyDecodeJsonScalars(bonyIkConstraintScalarSpecs, properties)
+
+proc encodeIkConstraintBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyEncodeBnbScalars(bonyIkConstraintScalarSpecs, properties)
+
+proc decodeIkConstraintBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyDecodeBnbScalars(bonyIkConstraintScalarSpecs, properties)
+
+const bonyTransformConstraintScalarSpecs* = [
+  BonyScalarPropertySpec(objectId: "transformConstraint", propertyId: "name", propertyKey: 1.uint64, kind: bskString, required: true, hasDefault: false, defaultValue: bonyStringValue(""), equality: "exactString", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "transformConstraint", propertyId: "bone", propertyKey: 1012.uint64, kind: bskString, required: true, hasDefault: false, defaultValue: bonyStringValue(""), equality: "exactString", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "transformConstraint", propertyId: "target", propertyKey: 4000.uint64, kind: bskString, required: true, hasDefault: false, defaultValue: bonyStringValue(""), equality: "exactString", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "transformConstraint", propertyId: "order", propertyKey: 4002.uint64, kind: bskVarint, required: false, hasDefault: true, defaultValue: bonyIntValue(0.int64), equality: "exactInteger", omitWhenDefault: true, applyOnLoad: true),
+  BonyScalarPropertySpec(objectId: "transformConstraint", propertyId: "skinRequired", propertyKey: 4027.uint64, kind: bskBool, required: false, hasDefault: true, defaultValue: bonyBoolValue(false), equality: "exactBool", omitWhenDefault: true, applyOnLoad: true),
+  BonyScalarPropertySpec(objectId: "transformConstraint", propertyId: "translateMix", propertyKey: 4012.uint64, kind: bskF32, required: false, hasDefault: true, defaultValue: bonyF32Value(1.0), equality: "storedF32", omitWhenDefault: true, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "transformConstraint", propertyId: "rotateMix", propertyKey: 4013.uint64, kind: bskF32, required: false, hasDefault: true, defaultValue: bonyF32Value(1.0), equality: "storedF32", omitWhenDefault: true, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "transformConstraint", propertyId: "scaleMix", propertyKey: 4017.uint64, kind: bskF32, required: false, hasDefault: true, defaultValue: bonyF32Value(1.0), equality: "storedF32", omitWhenDefault: true, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "transformConstraint", propertyId: "shearMix", propertyKey: 4018.uint64, kind: bskF32, required: false, hasDefault: true, defaultValue: bonyF32Value(1.0), equality: "storedF32", omitWhenDefault: true, applyOnLoad: false),
+]
+
+proc encodeTransformConstraintJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyEncodeJsonScalars(bonyTransformConstraintScalarSpecs, properties)
+
+proc decodeTransformConstraintJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyDecodeJsonScalars(bonyTransformConstraintScalarSpecs, properties)
+
+proc encodeTransformConstraintBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyEncodeBnbScalars(bonyTransformConstraintScalarSpecs, properties)
+
+proc decodeTransformConstraintBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyDecodeBnbScalars(bonyTransformConstraintScalarSpecs, properties)
+
+const bonyPhysicsConstraintScalarSpecs* = [
+  BonyScalarPropertySpec(objectId: "physicsConstraint", propertyId: "name", propertyKey: 1.uint64, kind: bskString, required: true, hasDefault: false, defaultValue: bonyStringValue(""), equality: "exactString", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "physicsConstraint", propertyId: "bone", propertyKey: 1012.uint64, kind: bskString, required: true, hasDefault: false, defaultValue: bonyStringValue(""), equality: "exactString", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "physicsConstraint", propertyId: "order", propertyKey: 4002.uint64, kind: bskVarint, required: false, hasDefault: true, defaultValue: bonyIntValue(0.int64), equality: "exactInteger", omitWhenDefault: true, applyOnLoad: true),
+  BonyScalarPropertySpec(objectId: "physicsConstraint", propertyId: "skinRequired", propertyKey: 4027.uint64, kind: bskBool, required: false, hasDefault: true, defaultValue: bonyBoolValue(false), equality: "exactBool", omitWhenDefault: true, applyOnLoad: true),
+  BonyScalarPropertySpec(objectId: "physicsConstraint", propertyId: "channels", propertyKey: 4026.uint64, kind: bskVaruint, required: true, hasDefault: false, defaultValue: bonyUintValue(0.uint64), equality: "exactInteger", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "physicsConstraint", propertyId: "inertia", propertyKey: 4019.uint64, kind: bskF32, required: false, hasDefault: true, defaultValue: bonyF32Value(0.0), equality: "storedF32", omitWhenDefault: true, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "physicsConstraint", propertyId: "strength", propertyKey: 4020.uint64, kind: bskF32, required: false, hasDefault: true, defaultValue: bonyF32Value(0.0), equality: "storedF32", omitWhenDefault: true, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "physicsConstraint", propertyId: "damping", propertyKey: 4021.uint64, kind: bskF32, required: false, hasDefault: true, defaultValue: bonyF32Value(0.0), equality: "storedF32", omitWhenDefault: true, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "physicsConstraint", propertyId: "mass", propertyKey: 4022.uint64, kind: bskF32, required: false, hasDefault: true, defaultValue: bonyF32Value(1.0), equality: "storedF32", omitWhenDefault: true, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "physicsConstraint", propertyId: "gravity", propertyKey: 4023.uint64, kind: bskF32, required: false, hasDefault: true, defaultValue: bonyF32Value(0.0), equality: "storedF32", omitWhenDefault: true, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "physicsConstraint", propertyId: "wind", propertyKey: 4024.uint64, kind: bskF32, required: false, hasDefault: true, defaultValue: bonyF32Value(0.0), equality: "storedF32", omitWhenDefault: true, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "physicsConstraint", propertyId: "physicsMix", propertyKey: 4025.uint64, kind: bskF32, required: false, hasDefault: true, defaultValue: bonyF32Value(1.0), equality: "storedF32", omitWhenDefault: true, applyOnLoad: false),
+]
+
+proc encodePhysicsConstraintJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyEncodeJsonScalars(bonyPhysicsConstraintScalarSpecs, properties)
+
+proc decodePhysicsConstraintJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyDecodeJsonScalars(bonyPhysicsConstraintScalarSpecs, properties)
+
+proc encodePhysicsConstraintBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyEncodeBnbScalars(bonyPhysicsConstraintScalarSpecs, properties)
+
+proc decodePhysicsConstraintBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyDecodeBnbScalars(bonyPhysicsConstraintScalarSpecs, properties)
+
+const bonyPathAttachmentScalarSpecs* = [
+  BonyScalarPropertySpec(objectId: "pathAttachment", propertyId: "name", propertyKey: 1.uint64, kind: bskString, required: true, hasDefault: false, defaultValue: bonyStringValue(""), equality: "exactString", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "pathAttachment", propertyId: "p0x", propertyKey: 4003.uint64, kind: bskF64, required: true, hasDefault: false, defaultValue: bonyF64Value(0.0), equality: "exactFloat", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "pathAttachment", propertyId: "p0y", propertyKey: 4004.uint64, kind: bskF64, required: true, hasDefault: false, defaultValue: bonyF64Value(0.0), equality: "exactFloat", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "pathAttachment", propertyId: "p1x", propertyKey: 4005.uint64, kind: bskF64, required: true, hasDefault: false, defaultValue: bonyF64Value(0.0), equality: "exactFloat", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "pathAttachment", propertyId: "p1y", propertyKey: 4006.uint64, kind: bskF64, required: true, hasDefault: false, defaultValue: bonyF64Value(0.0), equality: "exactFloat", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "pathAttachment", propertyId: "p2x", propertyKey: 4007.uint64, kind: bskF64, required: true, hasDefault: false, defaultValue: bonyF64Value(0.0), equality: "exactFloat", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "pathAttachment", propertyId: "p2y", propertyKey: 4008.uint64, kind: bskF64, required: true, hasDefault: false, defaultValue: bonyF64Value(0.0), equality: "exactFloat", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "pathAttachment", propertyId: "p3x", propertyKey: 4009.uint64, kind: bskF64, required: true, hasDefault: false, defaultValue: bonyF64Value(0.0), equality: "exactFloat", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "pathAttachment", propertyId: "p3y", propertyKey: 4010.uint64, kind: bskF64, required: true, hasDefault: false, defaultValue: bonyF64Value(0.0), equality: "exactFloat", omitWhenDefault: false, applyOnLoad: false),
+]
+
+proc encodePathAttachmentJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyEncodeJsonScalars(bonyPathAttachmentScalarSpecs, properties)
+
+proc decodePathAttachmentJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyDecodeJsonScalars(bonyPathAttachmentScalarSpecs, properties)
+
+proc encodePathAttachmentBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyEncodeBnbScalars(bonyPathAttachmentScalarSpecs, properties)
+
+proc decodePathAttachmentBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyDecodeBnbScalars(bonyPathAttachmentScalarSpecs, properties)
+
+const bonyParameterScalarSpecs* = [
+  BonyScalarPropertySpec(objectId: "parameter", propertyId: "name", propertyKey: 1.uint64, kind: bskString, required: true, hasDefault: false, defaultValue: bonyStringValue(""), equality: "exactString", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "parameter", propertyId: "parameterMin", propertyKey: 6000.uint64, kind: bskF32, required: true, hasDefault: false, defaultValue: bonyF32Value(0.0), equality: "storedF32", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "parameter", propertyId: "parameterMax", propertyKey: 6001.uint64, kind: bskF32, required: true, hasDefault: false, defaultValue: bonyF32Value(0.0), equality: "storedF32", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "parameter", propertyId: "parameterDefault", propertyKey: 6002.uint64, kind: bskF32, required: false, hasDefault: true, defaultValue: bonyF32Value(0.0), equality: "storedF32", omitWhenDefault: true, applyOnLoad: true),
+]
+
+proc encodeParameterJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyEncodeJsonScalars(bonyParameterScalarSpecs, properties)
+
+proc decodeParameterJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyDecodeJsonScalars(bonyParameterScalarSpecs, properties)
+
+proc encodeParameterBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyEncodeBnbScalars(bonyParameterScalarSpecs, properties)
+
+proc decodeParameterBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyDecodeBnbScalars(bonyParameterScalarSpecs, properties)
+
+const bonyDeformerScalarSpecs* = [
+  BonyScalarPropertySpec(objectId: "deformer", propertyId: "deformerId", propertyKey: 6010.uint64, kind: bskString, required: true, hasDefault: false, defaultValue: bonyStringValue(""), equality: "exactString", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "deformer", propertyId: "parent", propertyKey: 3.uint64, kind: bskString, required: false, hasDefault: true, defaultValue: bonyStringValue(""), equality: "exactString", omitWhenDefault: true, applyOnLoad: true),
+  BonyScalarPropertySpec(objectId: "deformer", propertyId: "deformerOrder", propertyKey: 6011.uint64, kind: bskVaruint, required: false, hasDefault: true, defaultValue: bonyUintValue(0.uint64), equality: "exactInteger", omitWhenDefault: true, applyOnLoad: true),
+  BonyScalarPropertySpec(objectId: "deformer", propertyId: "deformerKind", propertyKey: 6012.uint64, kind: bskString, required: true, hasDefault: false, defaultValue: bonyStringValue(""), equality: "exactString", omitWhenDefault: false, applyOnLoad: false),
+]
+
+proc encodeDeformerJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyEncodeJsonScalars(bonyDeformerScalarSpecs, properties)
+
+proc decodeDeformerJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyDecodeJsonScalars(bonyDeformerScalarSpecs, properties)
+
+proc encodeDeformerBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyEncodeBnbScalars(bonyDeformerScalarSpecs, properties)
+
+proc decodeDeformerBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyDecodeBnbScalars(bonyDeformerScalarSpecs, properties)
+
+const bonyWarpLatticeScalarSpecs* = [
+  BonyScalarPropertySpec(objectId: "warpLattice", propertyId: "warpRows", propertyKey: 6020.uint64, kind: bskVaruint, required: false, hasDefault: true, defaultValue: bonyUintValue(2.uint64), equality: "exactInteger", omitWhenDefault: true, applyOnLoad: true),
+  BonyScalarPropertySpec(objectId: "warpLattice", propertyId: "warpCols", propertyKey: 6021.uint64, kind: bskVaruint, required: false, hasDefault: true, defaultValue: bonyUintValue(2.uint64), equality: "exactInteger", omitWhenDefault: true, applyOnLoad: true),
+  BonyScalarPropertySpec(objectId: "warpLattice", propertyId: "warpMinX", propertyKey: 6022.uint64, kind: bskF32, required: true, hasDefault: false, defaultValue: bonyF32Value(0.0), equality: "storedF32", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "warpLattice", propertyId: "warpMinY", propertyKey: 6023.uint64, kind: bskF32, required: true, hasDefault: false, defaultValue: bonyF32Value(0.0), equality: "storedF32", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "warpLattice", propertyId: "warpMaxX", propertyKey: 6024.uint64, kind: bskF32, required: true, hasDefault: false, defaultValue: bonyF32Value(0.0), equality: "storedF32", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "warpLattice", propertyId: "warpMaxY", propertyKey: 6025.uint64, kind: bskF32, required: true, hasDefault: false, defaultValue: bonyF32Value(0.0), equality: "storedF32", omitWhenDefault: false, applyOnLoad: false),
+]
+
+proc encodeWarpLatticeJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyEncodeJsonScalars(bonyWarpLatticeScalarSpecs, properties)
+
+proc decodeWarpLatticeJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyDecodeJsonScalars(bonyWarpLatticeScalarSpecs, properties)
+
+proc encodeWarpLatticeBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyEncodeBnbScalars(bonyWarpLatticeScalarSpecs, properties)
+
+proc decodeWarpLatticeBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyDecodeBnbScalars(bonyWarpLatticeScalarSpecs, properties)
+
+const bonyRotationDeformerScalarSpecs* = [
+  BonyScalarPropertySpec(objectId: "rotationDeformer", propertyId: "rotationPivotX", propertyKey: 6030.uint64, kind: bskF32, required: true, hasDefault: false, defaultValue: bonyF32Value(0.0), equality: "storedF32", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "rotationDeformer", propertyId: "rotationPivotY", propertyKey: 6031.uint64, kind: bskF32, required: true, hasDefault: false, defaultValue: bonyF32Value(0.0), equality: "storedF32", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "rotationDeformer", propertyId: "rotationAngleDegrees", propertyKey: 6032.uint64, kind: bskF32, required: true, hasDefault: false, defaultValue: bonyF32Value(0.0), equality: "storedF32", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "rotationDeformer", propertyId: "rotationScaleX", propertyKey: 6033.uint64, kind: bskF32, required: false, hasDefault: true, defaultValue: bonyF32Value(1.0), equality: "storedF32", omitWhenDefault: true, applyOnLoad: true),
+  BonyScalarPropertySpec(objectId: "rotationDeformer", propertyId: "rotationScaleY", propertyKey: 6034.uint64, kind: bskF32, required: false, hasDefault: true, defaultValue: bonyF32Value(1.0), equality: "storedF32", omitWhenDefault: true, applyOnLoad: true),
+  BonyScalarPropertySpec(objectId: "rotationDeformer", propertyId: "rotationOpacity", propertyKey: 6035.uint64, kind: bskF32, required: false, hasDefault: true, defaultValue: bonyF32Value(1.0), equality: "storedF32", omitWhenDefault: true, applyOnLoad: true),
+]
+
+proc encodeRotationDeformerJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyEncodeJsonScalars(bonyRotationDeformerScalarSpecs, properties)
+
+proc decodeRotationDeformerJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyDecodeJsonScalars(bonyRotationDeformerScalarSpecs, properties)
+
+proc encodeRotationDeformerBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyEncodeBnbScalars(bonyRotationDeformerScalarSpecs, properties)
+
+proc decodeRotationDeformerBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyDecodeBnbScalars(bonyRotationDeformerScalarSpecs, properties)
+
+const bonyKeyformBlendScalarSpecs* = [
+  BonyScalarPropertySpec(objectId: "keyformBlend", propertyId: "blendValueCount", propertyKey: 6040.uint64, kind: bskVaruint, required: true, hasDefault: false, defaultValue: bonyUintValue(0.uint64), equality: "exactInteger", omitWhenDefault: false, applyOnLoad: false),
+]
+
+proc encodeKeyformBlendJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyEncodeJsonScalars(bonyKeyformBlendScalarSpecs, properties)
+
+proc decodeKeyformBlendJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyDecodeJsonScalars(bonyKeyformBlendScalarSpecs, properties)
+
+proc encodeKeyformBlendBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyEncodeBnbScalars(bonyKeyformBlendScalarSpecs, properties)
+
+proc decodeKeyformBlendBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyDecodeBnbScalars(bonyKeyformBlendScalarSpecs, properties)
+
+const bonyKeyformScalarSpecs*: array[0, BonyScalarPropertySpec] = []
+
+proc encodeKeyformJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyEncodeJsonScalars(bonyKeyformScalarSpecs, properties)
+
+proc decodeKeyformJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyDecodeJsonScalars(bonyKeyformScalarSpecs, properties)
+
+proc encodeKeyformBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyEncodeBnbScalars(bonyKeyformScalarSpecs, properties)
+
+proc decodeKeyformBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyDecodeBnbScalars(bonyKeyformScalarSpecs, properties)
+
+const bonyAnimationClipScalarSpecs* = [
+  BonyScalarPropertySpec(objectId: "animationClip", propertyId: "name", propertyKey: 1.uint64, kind: bskString, required: true, hasDefault: false, defaultValue: bonyStringValue(""), equality: "exactString", omitWhenDefault: false, applyOnLoad: false),
+]
+
+proc encodeAnimationClipJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyEncodeJsonScalars(bonyAnimationClipScalarSpecs, properties)
+
+proc decodeAnimationClipJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyDecodeJsonScalars(bonyAnimationClipScalarSpecs, properties)
+
+proc encodeAnimationClipBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyEncodeBnbScalars(bonyAnimationClipScalarSpecs, properties)
+
+proc decodeAnimationClipBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyDecodeBnbScalars(bonyAnimationClipScalarSpecs, properties)
+
+const bonyBoneTimelineScalarSpecs* = [
+  BonyScalarPropertySpec(objectId: "boneTimeline", propertyId: "boneIndex", propertyKey: 2000.uint64, kind: bskVaruint, required: true, hasDefault: false, defaultValue: bonyUintValue(0.uint64), equality: "exactInteger", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "boneTimeline", propertyId: "boneTimelineKind", propertyKey: 2001.uint64, kind: bskVaruint, required: true, hasDefault: false, defaultValue: bonyUintValue(0.uint64), equality: "exactInteger", omitWhenDefault: false, applyOnLoad: false),
+]
+
+proc encodeBoneTimelineJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyEncodeJsonScalars(bonyBoneTimelineScalarSpecs, properties)
+
+proc decodeBoneTimelineJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyDecodeJsonScalars(bonyBoneTimelineScalarSpecs, properties)
+
+proc encodeBoneTimelineBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyEncodeBnbScalars(bonyBoneTimelineScalarSpecs, properties)
+
+proc decodeBoneTimelineBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyDecodeBnbScalars(bonyBoneTimelineScalarSpecs, properties)
+
+const bonySlotTimelineScalarSpecs* = [
+  BonyScalarPropertySpec(objectId: "slotTimeline", propertyId: "slotIndex", propertyKey: 2002.uint64, kind: bskVaruint, required: true, hasDefault: false, defaultValue: bonyUintValue(0.uint64), equality: "exactInteger", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "slotTimeline", propertyId: "slotTimelineKind", propertyKey: 2003.uint64, kind: bskVaruint, required: true, hasDefault: false, defaultValue: bonyUintValue(0.uint64), equality: "exactInteger", omitWhenDefault: false, applyOnLoad: false),
+]
+
+proc encodeSlotTimelineJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyEncodeJsonScalars(bonySlotTimelineScalarSpecs, properties)
+
+proc decodeSlotTimelineJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyDecodeJsonScalars(bonySlotTimelineScalarSpecs, properties)
+
+proc encodeSlotTimelineBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyEncodeBnbScalars(bonySlotTimelineScalarSpecs, properties)
+
+proc decodeSlotTimelineBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyDecodeBnbScalars(bonySlotTimelineScalarSpecs, properties)
+
+const bonyDeformTimelineScalarSpecs* = [
+  BonyScalarPropertySpec(objectId: "deformTimeline", propertyId: "deformSkin", propertyKey: 3006.uint64, kind: bskString, required: true, hasDefault: false, defaultValue: bonyStringValue(""), equality: "exactString", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "deformTimeline", propertyId: "slot", propertyKey: 1011.uint64, kind: bskString, required: true, hasDefault: false, defaultValue: bonyStringValue(""), equality: "exactString", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "deformTimeline", propertyId: "deformAttachment", propertyKey: 3007.uint64, kind: bskString, required: true, hasDefault: false, defaultValue: bonyStringValue(""), equality: "exactString", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "deformTimeline", propertyId: "deformVertexCount", propertyKey: 3008.uint64, kind: bskVaruint, required: true, hasDefault: false, defaultValue: bonyUintValue(0.uint64), equality: "exactInteger", omitWhenDefault: false, applyOnLoad: false),
+]
+
+proc encodeDeformTimelineJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyEncodeJsonScalars(bonyDeformTimelineScalarSpecs, properties)
+
+proc decodeDeformTimelineJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyDecodeJsonScalars(bonyDeformTimelineScalarSpecs, properties)
+
+proc encodeDeformTimelineBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyEncodeBnbScalars(bonyDeformTimelineScalarSpecs, properties)
+
+proc decodeDeformTimelineBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyDecodeBnbScalars(bonyDeformTimelineScalarSpecs, properties)
+
+const bonyEventTimelineScalarSpecs*: array[0, BonyScalarPropertySpec] = []
+
+proc encodeEventTimelineJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyEncodeJsonScalars(bonyEventTimelineScalarSpecs, properties)
+
+proc decodeEventTimelineJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyDecodeJsonScalars(bonyEventTimelineScalarSpecs, properties)
+
+proc encodeEventTimelineBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyEncodeBnbScalars(bonyEventTimelineScalarSpecs, properties)
+
+proc decodeEventTimelineBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyDecodeBnbScalars(bonyEventTimelineScalarSpecs, properties)
+
+const bonyStateMachineScalarSpecs* = [
+  BonyScalarPropertySpec(objectId: "stateMachine", propertyId: "name", propertyKey: 1.uint64, kind: bskString, required: true, hasDefault: false, defaultValue: bonyStringValue(""), equality: "exactString", omitWhenDefault: false, applyOnLoad: false),
+]
+
+proc encodeStateMachineJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyEncodeJsonScalars(bonyStateMachineScalarSpecs, properties)
+
+proc decodeStateMachineJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyDecodeJsonScalars(bonyStateMachineScalarSpecs, properties)
+
+proc encodeStateMachineBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyEncodeBnbScalars(bonyStateMachineScalarSpecs, properties)
+
+proc decodeStateMachineBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyDecodeBnbScalars(bonyStateMachineScalarSpecs, properties)
+
+const bonyStateMachineInputScalarSpecs* = [
+  BonyScalarPropertySpec(objectId: "stateMachineInput", propertyId: "name", propertyKey: 1.uint64, kind: bskString, required: true, hasDefault: false, defaultValue: bonyStringValue(""), equality: "exactString", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "stateMachineInput", propertyId: "stateMachineInputKind", propertyKey: 7000.uint64, kind: bskVaruint, required: true, hasDefault: false, defaultValue: bonyUintValue(0.uint64), equality: "exactInteger", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "stateMachineInput", propertyId: "inputDefaultBool", propertyKey: 7001.uint64, kind: bskBool, required: false, hasDefault: true, defaultValue: bonyBoolValue(false), equality: "exactBool", omitWhenDefault: true, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "stateMachineInput", propertyId: "inputDefaultNumber", propertyKey: 7002.uint64, kind: bskF32, required: false, hasDefault: true, defaultValue: bonyF32Value(0.0), equality: "storedF32", omitWhenDefault: true, applyOnLoad: false),
+]
+
+proc encodeStateMachineInputJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyEncodeJsonScalars(bonyStateMachineInputScalarSpecs, properties)
+
+proc decodeStateMachineInputJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyDecodeJsonScalars(bonyStateMachineInputScalarSpecs, properties)
+
+proc encodeStateMachineInputBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyEncodeBnbScalars(bonyStateMachineInputScalarSpecs, properties)
+
+proc decodeStateMachineInputBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyDecodeBnbScalars(bonyStateMachineInputScalarSpecs, properties)
+
+const bonyStateMachineLayerScalarSpecs* = [
+  BonyScalarPropertySpec(objectId: "stateMachineLayer", propertyId: "name", propertyKey: 1.uint64, kind: bskString, required: true, hasDefault: false, defaultValue: bonyStringValue(""), equality: "exactString", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "stateMachineLayer", propertyId: "initialStateIndex", propertyKey: 7010.uint64, kind: bskVaruint, required: false, hasDefault: true, defaultValue: bonyUintValue(0.uint64), equality: "exactInteger", omitWhenDefault: true, applyOnLoad: true),
+]
+
+proc encodeStateMachineLayerJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyEncodeJsonScalars(bonyStateMachineLayerScalarSpecs, properties)
+
+proc decodeStateMachineLayerJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyDecodeJsonScalars(bonyStateMachineLayerScalarSpecs, properties)
+
+proc encodeStateMachineLayerBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyEncodeBnbScalars(bonyStateMachineLayerScalarSpecs, properties)
+
+proc decodeStateMachineLayerBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyDecodeBnbScalars(bonyStateMachineLayerScalarSpecs, properties)
+
+const bonyStateMachineStateScalarSpecs* = [
+  BonyScalarPropertySpec(objectId: "stateMachineState", propertyId: "name", propertyKey: 1.uint64, kind: bskString, required: true, hasDefault: false, defaultValue: bonyStringValue(""), equality: "exactString", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "stateMachineState", propertyId: "stateMachineStateKind", propertyKey: 7020.uint64, kind: bskVaruint, required: true, hasDefault: false, defaultValue: bonyUintValue(0.uint64), equality: "exactInteger", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "stateMachineState", propertyId: "stateClipIndex", propertyKey: 7021.uint64, kind: bskVaruint, required: false, hasDefault: true, defaultValue: bonyUintValue(0.uint64), equality: "exactInteger", omitWhenDefault: true, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "stateMachineState", propertyId: "stateLoop", propertyKey: 7022.uint64, kind: bskBool, required: false, hasDefault: true, defaultValue: bonyBoolValue(false), equality: "exactBool", omitWhenDefault: true, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "stateMachineState", propertyId: "stateBlendInputIndex", propertyKey: 7023.uint64, kind: bskVaruint, required: false, hasDefault: true, defaultValue: bonyUintValue(0.uint64), equality: "exactInteger", omitWhenDefault: true, applyOnLoad: false),
+]
+
+proc encodeStateMachineStateJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyEncodeJsonScalars(bonyStateMachineStateScalarSpecs, properties)
+
+proc decodeStateMachineStateJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyDecodeJsonScalars(bonyStateMachineStateScalarSpecs, properties)
+
+proc encodeStateMachineStateBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyEncodeBnbScalars(bonyStateMachineStateScalarSpecs, properties)
+
+proc decodeStateMachineStateBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyDecodeBnbScalars(bonyStateMachineStateScalarSpecs, properties)
+
+const bonyStateMachineBlendClipScalarSpecs* = [
+  BonyScalarPropertySpec(objectId: "stateMachineBlendClip", propertyId: "blendClipAnimationIndex", propertyKey: 7030.uint64, kind: bskVaruint, required: true, hasDefault: false, defaultValue: bonyUintValue(0.uint64), equality: "exactInteger", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "stateMachineBlendClip", propertyId: "blendClipValue", propertyKey: 7031.uint64, kind: bskF32, required: true, hasDefault: false, defaultValue: bonyF32Value(0.0), equality: "storedF32", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "stateMachineBlendClip", propertyId: "blendClipLoop", propertyKey: 7032.uint64, kind: bskBool, required: false, hasDefault: true, defaultValue: bonyBoolValue(false), equality: "exactBool", omitWhenDefault: true, applyOnLoad: true),
+]
+
+proc encodeStateMachineBlendClipJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyEncodeJsonScalars(bonyStateMachineBlendClipScalarSpecs, properties)
+
+proc decodeStateMachineBlendClipJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyDecodeJsonScalars(bonyStateMachineBlendClipScalarSpecs, properties)
+
+proc encodeStateMachineBlendClipBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyEncodeBnbScalars(bonyStateMachineBlendClipScalarSpecs, properties)
+
+proc decodeStateMachineBlendClipBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyDecodeBnbScalars(bonyStateMachineBlendClipScalarSpecs, properties)
+
+const bonyStateMachineTransitionScalarSpecs* = [
+  BonyScalarPropertySpec(objectId: "stateMachineTransition", propertyId: "transitionFromStateIndex", propertyKey: 7040.uint64, kind: bskVaruint, required: true, hasDefault: false, defaultValue: bonyUintValue(0.uint64), equality: "exactInteger", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "stateMachineTransition", propertyId: "transitionToStateIndex", propertyKey: 7041.uint64, kind: bskVaruint, required: true, hasDefault: false, defaultValue: bonyUintValue(0.uint64), equality: "exactInteger", omitWhenDefault: false, applyOnLoad: false),
+]
+
+proc encodeStateMachineTransitionJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyEncodeJsonScalars(bonyStateMachineTransitionScalarSpecs, properties)
+
+proc decodeStateMachineTransitionJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyDecodeJsonScalars(bonyStateMachineTransitionScalarSpecs, properties)
+
+proc encodeStateMachineTransitionBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyEncodeBnbScalars(bonyStateMachineTransitionScalarSpecs, properties)
+
+proc decodeStateMachineTransitionBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyDecodeBnbScalars(bonyStateMachineTransitionScalarSpecs, properties)
+
+const bonyStateMachineConditionScalarSpecs* = [
+  BonyScalarPropertySpec(objectId: "stateMachineCondition", propertyId: "conditionInputIndex", propertyKey: 7050.uint64, kind: bskVaruint, required: true, hasDefault: false, defaultValue: bonyUintValue(0.uint64), equality: "exactInteger", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "stateMachineCondition", propertyId: "stateMachineConditionKind", propertyKey: 7051.uint64, kind: bskVaruint, required: true, hasDefault: false, defaultValue: bonyUintValue(0.uint64), equality: "exactInteger", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "stateMachineCondition", propertyId: "conditionBoolValue", propertyKey: 7052.uint64, kind: bskBool, required: false, hasDefault: true, defaultValue: bonyBoolValue(true), equality: "exactBool", omitWhenDefault: true, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "stateMachineCondition", propertyId: "conditionNumberValue", propertyKey: 7053.uint64, kind: bskF32, required: false, hasDefault: true, defaultValue: bonyF32Value(0.0), equality: "storedF32", omitWhenDefault: true, applyOnLoad: false),
+]
+
+proc encodeStateMachineConditionJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyEncodeJsonScalars(bonyStateMachineConditionScalarSpecs, properties)
+
+proc decodeStateMachineConditionJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyDecodeJsonScalars(bonyStateMachineConditionScalarSpecs, properties)
+
+proc encodeStateMachineConditionBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyEncodeBnbScalars(bonyStateMachineConditionScalarSpecs, properties)
+
+proc decodeStateMachineConditionBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyDecodeBnbScalars(bonyStateMachineConditionScalarSpecs, properties)
+
+const bonyStateMachineListenerScalarSpecs* = [
+  BonyScalarPropertySpec(objectId: "stateMachineListener", propertyId: "name", propertyKey: 1.uint64, kind: bskString, required: true, hasDefault: false, defaultValue: bonyStringValue(""), equality: "exactString", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "stateMachineListener", propertyId: "stateMachineListenerKind", propertyKey: 7060.uint64, kind: bskVaruint, required: true, hasDefault: false, defaultValue: bonyUintValue(0.uint64), equality: "exactInteger", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "stateMachineListener", propertyId: "listenerLayerIndex", propertyKey: 7061.uint64, kind: bskVaruint, required: false, hasDefault: true, defaultValue: bonyUintValue(0.uint64), equality: "exactInteger", omitWhenDefault: true, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "stateMachineListener", propertyId: "listenerFromStateIndex", propertyKey: 7062.uint64, kind: bskVaruint, required: false, hasDefault: true, defaultValue: bonyUintValue(0.uint64), equality: "exactInteger", omitWhenDefault: true, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "stateMachineListener", propertyId: "listenerToStateIndex", propertyKey: 7063.uint64, kind: bskVaruint, required: false, hasDefault: true, defaultValue: bonyUintValue(0.uint64), equality: "exactInteger", omitWhenDefault: true, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "stateMachineListener", propertyId: "listenerSlotIndex", propertyKey: 7064.uint64, kind: bskVaruint, required: false, hasDefault: true, defaultValue: bonyUintValue(0.uint64), equality: "exactInteger", omitWhenDefault: true, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "stateMachineListener", propertyId: "listenerHelperKind", propertyKey: 7065.uint64, kind: bskVaruint, required: false, hasDefault: true, defaultValue: bonyUintValue(0.uint64), equality: "exactInteger", omitWhenDefault: true, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "stateMachineListener", propertyId: "listenerHelperTarget", propertyKey: 7066.uint64, kind: bskString, required: false, hasDefault: true, defaultValue: bonyStringValue(""), equality: "exactString", omitWhenDefault: true, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "stateMachineListener", propertyId: "listenerInputIndex", propertyKey: 7067.uint64, kind: bskVaruint, required: false, hasDefault: true, defaultValue: bonyUintValue(0.uint64), equality: "exactInteger", omitWhenDefault: true, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "stateMachineListener", propertyId: "listenerBoolValue", propertyKey: 7068.uint64, kind: bskBool, required: false, hasDefault: true, defaultValue: bonyBoolValue(false), equality: "exactBool", omitWhenDefault: true, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "stateMachineListener", propertyId: "listenerNumberValue", propertyKey: 7069.uint64, kind: bskF32, required: false, hasDefault: true, defaultValue: bonyF32Value(0.0), equality: "storedF32", omitWhenDefault: true, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "stateMachineListener", propertyId: "listenerHitRadius", propertyKey: 7070.uint64, kind: bskF32, required: false, hasDefault: true, defaultValue: bonyF32Value(0.0), equality: "storedF32", omitWhenDefault: true, applyOnLoad: false),
+]
+
+proc encodeStateMachineListenerJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyEncodeJsonScalars(bonyStateMachineListenerScalarSpecs, properties)
+
+proc decodeStateMachineListenerJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyDecodeJsonScalars(bonyStateMachineListenerScalarSpecs, properties)
+
+proc encodeStateMachineListenerBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyEncodeBnbScalars(bonyStateMachineListenerScalarSpecs, properties)
+
+proc decodeStateMachineListenerBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyDecodeBnbScalars(bonyStateMachineListenerScalarSpecs, properties)
+
+const bonySkinScalarSpecs* = [
+  BonyScalarPropertySpec(objectId: "skin", propertyId: "name", propertyKey: 1.uint64, kind: bskString, required: true, hasDefault: false, defaultValue: bonyStringValue(""), equality: "exactString", omitWhenDefault: false, applyOnLoad: false),
+]
+
+proc encodeSkinJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyEncodeJsonScalars(bonySkinScalarSpecs, properties)
+
+proc decodeSkinJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyDecodeJsonScalars(bonySkinScalarSpecs, properties)
+
+proc encodeSkinBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyEncodeBnbScalars(bonySkinScalarSpecs, properties)
+
+proc decodeSkinBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyDecodeBnbScalars(bonySkinScalarSpecs, properties)
+
+const bonySkinEntryScalarSpecs* = [
+  BonyScalarPropertySpec(objectId: "skinEntry", propertyId: "slot", propertyKey: 1011.uint64, kind: bskString, required: true, hasDefault: false, defaultValue: bonyStringValue(""), equality: "exactString", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "skinEntry", propertyId: "skinAttachment", propertyKey: 3010.uint64, kind: bskString, required: true, hasDefault: false, defaultValue: bonyStringValue(""), equality: "exactString", omitWhenDefault: false, applyOnLoad: false),
+  BonyScalarPropertySpec(objectId: "skinEntry", propertyId: "skinTarget", propertyKey: 3011.uint64, kind: bskString, required: true, hasDefault: false, defaultValue: bonyStringValue(""), equality: "exactString", omitWhenDefault: false, applyOnLoad: false),
+]
+
+proc encodeSkinEntryJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyEncodeJsonScalars(bonySkinEntryScalarSpecs, properties)
+
+proc decodeSkinEntryJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyDecodeJsonScalars(bonySkinEntryScalarSpecs, properties)
+
+proc encodeSkinEntryBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyEncodeBnbScalars(bonySkinEntryScalarSpecs, properties)
+
+proc decodeSkinEntryBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyDecodeBnbScalars(bonySkinEntryScalarSpecs, properties)
+
+proc encodeBonyObjectJsonScalars*(typeId: string; properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  discard bonyObjectSpec(typeId)
+  case typeId
+  of "skeleton": encodeSkeletonJsonScalars(properties)
+  of "bone": encodeBoneJsonScalars(properties)
+  of "slot": encodeSlotJsonScalars(properties)
+  of "region": encodeRegionJsonScalars(properties)
+  of "pointAttachment": encodePointAttachmentJsonScalars(properties)
+  of "boundingBoxAttachment": encodeBoundingBoxAttachmentJsonScalars(properties)
+  of "clippingAttachment": encodeClippingAttachmentJsonScalars(properties)
+  of "meshAttachment": encodeMeshAttachmentJsonScalars(properties)
+  of "nestedRigAttachment": encodeNestedRigAttachmentJsonScalars(properties)
+  of "path": encodePathJsonScalars(properties)
+  of "ikConstraint": encodeIkConstraintJsonScalars(properties)
+  of "transformConstraint": encodeTransformConstraintJsonScalars(properties)
+  of "physicsConstraint": encodePhysicsConstraintJsonScalars(properties)
+  of "pathAttachment": encodePathAttachmentJsonScalars(properties)
+  of "parameter": encodeParameterJsonScalars(properties)
+  of "deformer": encodeDeformerJsonScalars(properties)
+  of "warpLattice": encodeWarpLatticeJsonScalars(properties)
+  of "rotationDeformer": encodeRotationDeformerJsonScalars(properties)
+  of "keyformBlend": encodeKeyformBlendJsonScalars(properties)
+  of "keyform": encodeKeyformJsonScalars(properties)
+  of "animationClip": encodeAnimationClipJsonScalars(properties)
+  of "boneTimeline": encodeBoneTimelineJsonScalars(properties)
+  of "slotTimeline": encodeSlotTimelineJsonScalars(properties)
+  of "deformTimeline": encodeDeformTimelineJsonScalars(properties)
+  of "eventTimeline": encodeEventTimelineJsonScalars(properties)
+  of "stateMachine": encodeStateMachineJsonScalars(properties)
+  of "stateMachineInput": encodeStateMachineInputJsonScalars(properties)
+  of "stateMachineLayer": encodeStateMachineLayerJsonScalars(properties)
+  of "stateMachineState": encodeStateMachineStateJsonScalars(properties)
+  of "stateMachineBlendClip": encodeStateMachineBlendClipJsonScalars(properties)
+  of "stateMachineTransition": encodeStateMachineTransitionJsonScalars(properties)
+  of "stateMachineCondition": encodeStateMachineConditionJsonScalars(properties)
+  of "stateMachineListener": encodeStateMachineListenerJsonScalars(properties)
+  of "skin": encodeSkinJsonScalars(properties)
+  of "skinEntry": encodeSkinEntryJsonScalars(properties)
+  else: @[]
+
+proc decodeBonyObjectJsonScalars*(typeId: string; properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  discard bonyObjectSpec(typeId)
+  case typeId
+  of "skeleton": decodeSkeletonJsonScalars(properties)
+  of "bone": decodeBoneJsonScalars(properties)
+  of "slot": decodeSlotJsonScalars(properties)
+  of "region": decodeRegionJsonScalars(properties)
+  of "pointAttachment": decodePointAttachmentJsonScalars(properties)
+  of "boundingBoxAttachment": decodeBoundingBoxAttachmentJsonScalars(properties)
+  of "clippingAttachment": decodeClippingAttachmentJsonScalars(properties)
+  of "meshAttachment": decodeMeshAttachmentJsonScalars(properties)
+  of "nestedRigAttachment": decodeNestedRigAttachmentJsonScalars(properties)
+  of "path": decodePathJsonScalars(properties)
+  of "ikConstraint": decodeIkConstraintJsonScalars(properties)
+  of "transformConstraint": decodeTransformConstraintJsonScalars(properties)
+  of "physicsConstraint": decodePhysicsConstraintJsonScalars(properties)
+  of "pathAttachment": decodePathAttachmentJsonScalars(properties)
+  of "parameter": decodeParameterJsonScalars(properties)
+  of "deformer": decodeDeformerJsonScalars(properties)
+  of "warpLattice": decodeWarpLatticeJsonScalars(properties)
+  of "rotationDeformer": decodeRotationDeformerJsonScalars(properties)
+  of "keyformBlend": decodeKeyformBlendJsonScalars(properties)
+  of "keyform": decodeKeyformJsonScalars(properties)
+  of "animationClip": decodeAnimationClipJsonScalars(properties)
+  of "boneTimeline": decodeBoneTimelineJsonScalars(properties)
+  of "slotTimeline": decodeSlotTimelineJsonScalars(properties)
+  of "deformTimeline": decodeDeformTimelineJsonScalars(properties)
+  of "eventTimeline": decodeEventTimelineJsonScalars(properties)
+  of "stateMachine": decodeStateMachineJsonScalars(properties)
+  of "stateMachineInput": decodeStateMachineInputJsonScalars(properties)
+  of "stateMachineLayer": decodeStateMachineLayerJsonScalars(properties)
+  of "stateMachineState": decodeStateMachineStateJsonScalars(properties)
+  of "stateMachineBlendClip": decodeStateMachineBlendClipJsonScalars(properties)
+  of "stateMachineTransition": decodeStateMachineTransitionJsonScalars(properties)
+  of "stateMachineCondition": decodeStateMachineConditionJsonScalars(properties)
+  of "stateMachineListener": decodeStateMachineListenerJsonScalars(properties)
+  of "skin": decodeSkinJsonScalars(properties)
+  of "skinEntry": decodeSkinEntryJsonScalars(properties)
+  else: @[]
+
+proc encodeBonyObjectBnbScalars*(typeKey: uint64; properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  case typeKey
+  of 1.uint64: encodeSkeletonBnbScalars(properties)
+  of 2.uint64: encodeBoneBnbScalars(properties)
+  of 1000.uint64: encodeSlotBnbScalars(properties)
+  of 1001.uint64: encodeRegionBnbScalars(properties)
+  of 1002.uint64: encodePointAttachmentBnbScalars(properties)
+  of 1003.uint64: encodeBoundingBoxAttachmentBnbScalars(properties)
+  of 3000.uint64: encodeClippingAttachmentBnbScalars(properties)
+  of 3001.uint64: encodeMeshAttachmentBnbScalars(properties)
+  of 3005.uint64: encodeNestedRigAttachmentBnbScalars(properties)
+  of 4000.uint64: encodePathBnbScalars(properties)
+  of 4002.uint64: encodeIkConstraintBnbScalars(properties)
+  of 4003.uint64: encodeTransformConstraintBnbScalars(properties)
+  of 4004.uint64: encodePhysicsConstraintBnbScalars(properties)
+  of 4001.uint64: encodePathAttachmentBnbScalars(properties)
+  of 6000.uint64: encodeParameterBnbScalars(properties)
+  of 6001.uint64: encodeDeformerBnbScalars(properties)
+  of 6002.uint64: encodeWarpLatticeBnbScalars(properties)
+  of 6003.uint64: encodeRotationDeformerBnbScalars(properties)
+  of 6004.uint64: encodeKeyformBlendBnbScalars(properties)
+  of 6005.uint64: encodeKeyformBnbScalars(properties)
+  of 2000.uint64: encodeAnimationClipBnbScalars(properties)
+  of 2001.uint64: encodeBoneTimelineBnbScalars(properties)
+  of 2002.uint64: encodeSlotTimelineBnbScalars(properties)
+  of 3002.uint64: encodeDeformTimelineBnbScalars(properties)
+  of 2003.uint64: encodeEventTimelineBnbScalars(properties)
+  of 7000.uint64: encodeStateMachineBnbScalars(properties)
+  of 7001.uint64: encodeStateMachineInputBnbScalars(properties)
+  of 7002.uint64: encodeStateMachineLayerBnbScalars(properties)
+  of 7003.uint64: encodeStateMachineStateBnbScalars(properties)
+  of 7004.uint64: encodeStateMachineBlendClipBnbScalars(properties)
+  of 7005.uint64: encodeStateMachineTransitionBnbScalars(properties)
+  of 7006.uint64: encodeStateMachineConditionBnbScalars(properties)
+  of 7007.uint64: encodeStateMachineListenerBnbScalars(properties)
+  of 3003.uint64: encodeSkinBnbScalars(properties)
+  of 3004.uint64: encodeSkinEntryBnbScalars(properties)
+  else:
+    for item in bonyTypeKeys:
+      if item.key == typeKey:
+        return @[]
+    raise newException(ValueError, "unknown bony object type key: " & $typeKey)
+
+proc decodeBonyObjectBnbScalars*(typeKey: uint64; properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  case typeKey
+  of 1.uint64: decodeSkeletonBnbScalars(properties)
+  of 2.uint64: decodeBoneBnbScalars(properties)
+  of 1000.uint64: decodeSlotBnbScalars(properties)
+  of 1001.uint64: decodeRegionBnbScalars(properties)
+  of 1002.uint64: decodePointAttachmentBnbScalars(properties)
+  of 1003.uint64: decodeBoundingBoxAttachmentBnbScalars(properties)
+  of 3000.uint64: decodeClippingAttachmentBnbScalars(properties)
+  of 3001.uint64: decodeMeshAttachmentBnbScalars(properties)
+  of 3005.uint64: decodeNestedRigAttachmentBnbScalars(properties)
+  of 4000.uint64: decodePathBnbScalars(properties)
+  of 4002.uint64: decodeIkConstraintBnbScalars(properties)
+  of 4003.uint64: decodeTransformConstraintBnbScalars(properties)
+  of 4004.uint64: decodePhysicsConstraintBnbScalars(properties)
+  of 4001.uint64: decodePathAttachmentBnbScalars(properties)
+  of 6000.uint64: decodeParameterBnbScalars(properties)
+  of 6001.uint64: decodeDeformerBnbScalars(properties)
+  of 6002.uint64: decodeWarpLatticeBnbScalars(properties)
+  of 6003.uint64: decodeRotationDeformerBnbScalars(properties)
+  of 6004.uint64: decodeKeyformBlendBnbScalars(properties)
+  of 6005.uint64: decodeKeyformBnbScalars(properties)
+  of 2000.uint64: decodeAnimationClipBnbScalars(properties)
+  of 2001.uint64: decodeBoneTimelineBnbScalars(properties)
+  of 2002.uint64: decodeSlotTimelineBnbScalars(properties)
+  of 3002.uint64: decodeDeformTimelineBnbScalars(properties)
+  of 2003.uint64: decodeEventTimelineBnbScalars(properties)
+  of 7000.uint64: decodeStateMachineBnbScalars(properties)
+  of 7001.uint64: decodeStateMachineInputBnbScalars(properties)
+  of 7002.uint64: decodeStateMachineLayerBnbScalars(properties)
+  of 7003.uint64: decodeStateMachineStateBnbScalars(properties)
+  of 7004.uint64: decodeStateMachineBlendClipBnbScalars(properties)
+  of 7005.uint64: decodeStateMachineTransitionBnbScalars(properties)
+  of 7006.uint64: decodeStateMachineConditionBnbScalars(properties)
+  of 7007.uint64: decodeStateMachineListenerBnbScalars(properties)
+  of 3003.uint64: decodeSkinBnbScalars(properties)
+  of 3004.uint64: decodeSkinEntryBnbScalars(properties)
+  else:
+    for item in bonyTypeKeys:
+      if item.key == typeKey:
+        return @[]
+    raise newException(ValueError, "unknown bony object type key: " & $typeKey)
 
 proc encodeBonyObject*(typeId: string) =
   discard bonyObjectSpec(typeId)

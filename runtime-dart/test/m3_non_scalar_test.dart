@@ -12,7 +12,8 @@ void _expectClose(double actual, double expected, String label) {
   expect(
     (actual - expected).abs(),
     lessThanOrEqualTo(_tol),
-    reason: '$label: actual=$actual expected=$expected diff=${(actual - expected).abs()}',
+    reason:
+        '$label: actual=$actual expected=$expected diff=${(actual - expected).abs()}',
   );
 }
 
@@ -27,9 +28,16 @@ SkeletonData _skelData({
       const BoneData(
         name: 'root',
         parent: '',
-        x: 0.0, y: 0.0, rotation: 0.0,
-        scaleX: 1.0, scaleY: 1.0, shearX: 0.0, shearY: 0.0,
-        inheritRotation: true, inheritScale: true, inheritReflection: true,
+        x: 0.0,
+        y: 0.0,
+        rotation: 0.0,
+        scaleX: 1.0,
+        scaleY: 1.0,
+        shearX: 0.0,
+        shearY: 0.0,
+        inheritRotation: true,
+        inheritScale: true,
+        inheritReflection: true,
         transformMode: 'normal',
       ),
       ...bones,
@@ -96,7 +104,7 @@ void main() {
         ],
       );
       final (x, y) = sampleBoneVectorTimeline(tl, 0.5);
-      _expectClose(x, 0.0, 'stepped x at 0.5');  // stepped: holds first
+      _expectClose(x, 0.0, 'stepped x at 0.5'); // stepped: holds first
       _expectClose(y, 5.0, 'linear y at 0.5');
     });
   });
@@ -154,8 +162,10 @@ void main() {
         slot: 'slot1',
         kind: SlotTimelineKind.rgba,
         colorKeys: [
-          const ColorKeyframe(time: 0.0, color: ColorRgba(r: 1.0, g: 0.0, b: 0.0, a: 1.0)),
-          const ColorKeyframe(time: 1.0, color: ColorRgba(r: 0.0, g: 1.0, b: 0.0, a: 0.5)),
+          const ColorKeyframe(
+              time: 0.0, color: ColorRgba(r: 1.0, g: 0.0, b: 0.0, a: 1.0)),
+          const ColorKeyframe(
+              time: 1.0, color: ColorRgba(r: 0.0, g: 1.0, b: 0.0, a: 0.5)),
         ],
       );
       final c = sampleSlotColor(tl, 0.5);
@@ -170,7 +180,8 @@ void main() {
         slot: 'slot1',
         kind: SlotTimelineKind.alpha,
         colorKeys: [
-          const ColorKeyframe(time: 0.0, color: ColorRgba(r: 1.0, g: 1.0, b: 1.0, a: 0.5)),
+          const ColorKeyframe(
+              time: 0.0, color: ColorRgba(r: 1.0, g: 1.0, b: 1.0, a: 0.5)),
         ],
       );
       final c = sampleSlotColor(tl, 5.0);
@@ -188,14 +199,18 @@ void main() {
             time: 0.0,
             color: ColorRgba2(
               light: ColorRgba(r: 0.0, g: 0.0, b: 0.0, a: 0.0),
-              darkR: 0.0, darkG: 0.0, darkB: 0.0,
+              darkR: 0.0,
+              darkG: 0.0,
+              darkB: 0.0,
             ),
           ),
           const Color2Keyframe(
             time: 1.0,
             color: ColorRgba2(
               light: ColorRgba(r: 1.0, g: 1.0, b: 1.0, a: 1.0),
-              darkR: 1.0, darkG: 1.0, darkB: 1.0,
+              darkR: 1.0,
+              darkG: 1.0,
+              darkB: 1.0,
             ),
           ),
         ],
@@ -213,8 +228,10 @@ void main() {
         slot: 'slot1',
         kind: SlotTimelineKind.sequence,
         sequenceKeys: [
-          const SequenceKeyframe(time: 0.0, index: 0, delay: 0.1, mode: SequenceMode.loop),
-          const SequenceKeyframe(time: 1.0, index: 4, delay: 0.1, mode: SequenceMode.hold),
+          const SequenceKeyframe(
+              time: 0.0, index: 0, delay: 0.1, mode: SequenceMode.loop),
+          const SequenceKeyframe(
+              time: 1.0, index: 4, delay: 0.1, mode: SequenceMode.hold),
         ],
       );
       expect(sampleSlotSequence(tl, 0.5).index, 0);
@@ -278,8 +295,10 @@ void main() {
             slot: 'slot1',
             kind: SlotTimelineKind.rgba,
             colorKeys: [
-              const ColorKeyframe(time: 0.0, color: ColorRgba(r: 1.0, g: 1.0, b: 1.0, a: 1.0)),
-              const ColorKeyframe(time: 1.0, color: ColorRgba(r: 0.0, g: 0.0, b: 0.0, a: 0.5)),
+              const ColorKeyframe(
+                  time: 0.0, color: ColorRgba(r: 1.0, g: 1.0, b: 1.0, a: 1.0)),
+              const ColorKeyframe(
+                  time: 1.0, color: ColorRgba(r: 0.0, g: 0.0, b: 0.0, a: 0.5)),
             ],
           ),
         ],
@@ -345,7 +364,15 @@ void main() {
       final data = _skelData();
       final pose = MixedPose(
         scalars: const [],
-        vectors: [(bone: 'root', kind: BoneTimelineKind.translate, x: 5.0, y: 8.0)],
+        vectors: [
+          (bone: 'root', kind: BoneTimelineKind.translate, x: 5.0, y: 8.0)
+        ],
+        attachments: const [],
+        inherits: const [],
+        colors: const [],
+        colors2: const [],
+        sequences: const [],
+        deforms: const [],
       );
       final result = applyPose(data, pose);
       _expectClose(result.bones.first.x, 5.0, 'bone.x');
@@ -356,16 +383,24 @@ void main() {
       final data = _skelData();
       final pose = MixedPose(
         scalars: const [],
-        inherits: [(
-          bone: 'root',
-          value: const InheritKeyframe(
-            time: 0.0,
-            inheritRotation: false,
-            inheritScale: false,
-            inheritReflection: false,
-            transformMode: 'noScale',
-          ),
-        )],
+        vectors: const [],
+        attachments: const [],
+        inherits: [
+          (
+            bone: 'root',
+            value: const InheritKeyframe(
+              time: 0.0,
+              inheritRotation: false,
+              inheritScale: false,
+              inheritReflection: false,
+              transformMode: 'noScale',
+            ),
+          )
+        ],
+        colors: const [],
+        colors2: const [],
+        sequences: const [],
+        deforms: const [],
       );
       final result = applyPose(data, pose);
       expect(result.bones.first.inheritRotation, isFalse);
@@ -376,7 +411,13 @@ void main() {
       final data = _skelData();
       final pose = MixedPose(
         scalars: const [],
+        vectors: const [],
         attachments: [(slot: 'slot1', attachment: 'r2')],
+        inherits: const [],
+        colors: const [],
+        colors2: const [],
+        sequences: const [],
+        deforms: const [],
       );
       final result = applyPose(data, pose);
       expect(result.slots.first.attachment, 'r2');
@@ -386,8 +427,18 @@ void main() {
       final data = _skelData();
       // Both a vector AND a scalar for the same bone — vector wins.
       final pose = MixedPose(
-        scalars: [(bone: 'root', kind: BoneTimelineKind.translateX, value: 99.0)],
-        vectors: [(bone: 'root', kind: BoneTimelineKind.translate, x: 7.0, y: 3.0)],
+        scalars: [
+          (bone: 'root', kind: BoneTimelineKind.translateX, value: 99.0)
+        ],
+        vectors: [
+          (bone: 'root', kind: BoneTimelineKind.translate, x: 7.0, y: 3.0)
+        ],
+        attachments: const [],
+        inherits: const [],
+        colors: const [],
+        colors2: const [],
+        sequences: const [],
+        deforms: const [],
       );
       final result = applyPose(data, pose);
       // Vector takes precedence for x/y.
@@ -399,8 +450,7 @@ void main() {
   // --------------------------------------------------------- JSON loader
 
   group('Loader non-scalar timelines', () {
-    const String _skelBase =
-        '{"skeleton":{"name":"ns"},'
+    const String _skelBase = '{"skeleton":{"name":"ns"},'
         '"bones":[{"name":"root"}],'
         '"slots":[{"name":"s1","bone":"root"}],'
         '"regions":[{"name":"r1","width":10,"height":10},'
@@ -409,8 +459,8 @@ void main() {
     test('translate (vector) bone timeline loads and samples correctly', () {
       final json = _skelBase +
           '"animations":[{"name":"a","boneTimelines":[{'
-          '"bone":"root","property":"translate",'
-          '"keyframes":[{"t":0.0,"x":0.0,"y":0.0},{"t":1.0,"x":10.0,"y":5.0}]}]}]}';
+              '"bone":"root","property":"translate",'
+              '"keyframes":[{"t":0.0,"x":0.0,"y":0.0},{"t":1.0,"x":10.0,"y":5.0}]}]}]}';
       final data = loadBonyJson(json);
       final clip = data.animations[0];
       expect(clip.boneTimelines[0].kind, BoneTimelineKind.translate);
@@ -423,11 +473,11 @@ void main() {
     test('inherit bone timeline loads and samples correctly', () {
       final json = _skelBase +
           '"animations":[{"name":"a","boneTimelines":[{'
-          '"bone":"root","property":"inherit",'
-          '"keyframes":[{"t":0.0,"inheritRotation":true,"inheritScale":true,'
-          '"inheritReflection":true,"transformMode":"normal"},'
-          '{"t":1.0,"inheritRotation":false,"inheritScale":false,'
-          '"inheritReflection":false,"transformMode":"noScale"}]}]}]}';
+              '"bone":"root","property":"inherit",'
+              '"keyframes":[{"t":0.0,"inheritRotation":true,"inheritScale":true,'
+              '"inheritReflection":true,"transformMode":"normal"},'
+              '{"t":1.0,"inheritRotation":false,"inheritScale":false,'
+              '"inheritReflection":false,"transformMode":"noScale"}]}]}]}';
       final data = loadBonyJson(json);
       final clip = data.animations[0];
       expect(clip.boneTimelines[0].kind, BoneTimelineKind.inherit);
@@ -440,8 +490,8 @@ void main() {
     test('attachment slot timeline loads and samples correctly', () {
       final json = _skelBase +
           '"animations":[{"name":"a","slotTimelines":[{'
-          '"slot":"s1","property":"attachment",'
-          '"keyframes":[{"t":0.0,"attachment":"r1"},{"t":1.0,"attachment":"r2"}]}]}]}';
+              '"slot":"s1","property":"attachment",'
+              '"keyframes":[{"t":0.0,"attachment":"r1"},{"t":1.0,"attachment":"r2"}]}]}]}';
       final data = loadBonyJson(json);
       final clip = data.animations[0];
       expect(clip.slotTimelines[0].kind, SlotTimelineKind.attachment);
@@ -452,9 +502,9 @@ void main() {
     test('rgba slot timeline loads and samples correctly', () {
       final json = _skelBase +
           '"animations":[{"name":"a","slotTimelines":[{'
-          '"slot":"s1","property":"rgba",'
-          '"keyframes":[{"t":0.0,"r":1.0,"g":0.0,"b":0.0,"a":1.0},'
-          '{"t":1.0,"r":0.0,"g":1.0,"b":0.0,"a":0.5}]}]}]}';
+              '"slot":"s1","property":"rgba",'
+              '"keyframes":[{"t":0.0,"r":1.0,"g":0.0,"b":0.0,"a":1.0},'
+              '{"t":1.0,"r":0.0,"g":1.0,"b":0.0,"a":0.5}]}]}]}';
       final data = loadBonyJson(json);
       final clip = data.animations[0];
       final c = sampleSlotColor(clip.slotTimelines[0], 0.5);
@@ -466,9 +516,9 @@ void main() {
     test('rgba2 slot timeline loads and samples correctly', () {
       final json = _skelBase +
           '"animations":[{"name":"a","slotTimelines":[{'
-          '"slot":"s1","property":"rgba2",'
-          '"keyframes":[{"t":0.0,"r":0.0,"g":0.0,"b":0.0,"a":0.0,"dr":0.0,"dg":0.0,"db":0.0},'
-          '{"t":1.0,"r":1.0,"g":1.0,"b":1.0,"a":1.0,"dr":1.0,"dg":1.0,"db":1.0}]}]}]}';
+              '"slot":"s1","property":"rgba2",'
+              '"keyframes":[{"t":0.0,"r":0.0,"g":0.0,"b":0.0,"a":0.0,"dr":0.0,"dg":0.0,"db":0.0},'
+              '{"t":1.0,"r":1.0,"g":1.0,"b":1.0,"a":1.0,"dr":1.0,"dg":1.0,"db":1.0}]}]}]}';
       final data = loadBonyJson(json);
       final clip = data.animations[0];
       final c = sampleSlotColor2(clip.slotTimelines[0], 0.5);
@@ -479,9 +529,9 @@ void main() {
     test('sequence slot timeline loads and samples correctly', () {
       final json = _skelBase +
           '"animations":[{"name":"a","slotTimelines":[{'
-          '"slot":"s1","property":"sequence",'
-          '"keyframes":[{"t":0.0,"index":2,"delay":0.1,"mode":"loop"},'
-          '{"t":1.0,"index":5,"delay":0.05,"mode":"hold"}]}]}]}';
+              '"slot":"s1","property":"sequence",'
+              '"keyframes":[{"t":0.0,"index":2,"delay":0.1,"mode":"loop"},'
+              '{"t":1.0,"index":5,"delay":0.05,"mode":"hold"}]}]}]}';
       final data = loadBonyJson(json);
       final clip = data.animations[0];
       final k0 = sampleSlotSequence(clip.slotTimelines[0], 0.5);
@@ -495,16 +545,16 @@ void main() {
     test('loader rejects unknown slot in slot timeline', () {
       final json = _skelBase +
           '"animations":[{"name":"a","slotTimelines":[{'
-          '"slot":"nonexistent","property":"attachment",'
-          '"keyframes":[{"t":0.0,"attachment":""}]}]}]}';
+              '"slot":"nonexistent","property":"attachment",'
+              '"keyframes":[{"t":0.0,"attachment":""}]}]}]}';
       expect(() => loadBonyJson(json), throwsA(isA<FormatException>()));
     });
 
     test('loader rejects unknown slot timeline property', () {
       final json = _skelBase +
           '"animations":[{"name":"a","slotTimelines":[{'
-          '"slot":"s1","property":"unknown",'
-          '"keyframes":[{"t":0.0}]}]}]}';
+              '"slot":"s1","property":"unknown",'
+              '"keyframes":[{"t":0.0}]}]}]}';
       expect(() => loadBonyJson(json), throwsA(isA<FormatException>()));
     });
   });
@@ -516,10 +566,18 @@ void main() {
       final data = _skelData(
         bones: [
           const BoneData(
-            name: 'arm', parent: 'root',
-            x: 0, y: 0, rotation: 0,
-            scaleX: 1, scaleY: 1, shearX: 0, shearY: 0,
-            inheritRotation: true, inheritScale: true, inheritReflection: true,
+            name: 'arm',
+            parent: 'root',
+            x: 0,
+            y: 0,
+            rotation: 0,
+            scaleX: 1,
+            scaleY: 1,
+            shearX: 0,
+            shearY: 0,
+            inheritRotation: true,
+            inheritScale: true,
+            inheritReflection: true,
             transformMode: 'normal',
           ),
         ],
@@ -555,7 +613,8 @@ void main() {
     late SkeletonData data;
 
     setUpAll(() {
-      final text = File('../conformance/assets/m9_non_scalar_rig.bony').readAsStringSync();
+      final text = File('../conformance/assets/m9_non_scalar_rig.bony')
+          .readAsStringSync();
       data = loadBonyJson(text);
     });
 
@@ -595,7 +654,8 @@ void main() {
     });
 
     test('inherit_switch — inherit timeline stepped', () {
-      final clip = data.animations.firstWhere((a) => a.name == 'inherit_switch');
+      final clip =
+          data.animations.firstWhere((a) => a.name == 'inherit_switch');
       expect(clip.boneTimelines[0].kind, BoneTimelineKind.inherit);
       final k0 = sampleBoneInheritTimeline(clip.boneTimelines[0], 0.5);
       expect(k0.transformMode, 'normal');
@@ -689,8 +749,7 @@ void main() {
   // --------------------------------------------------------- Review fix regressions
 
   group('Review fix regressions', () {
-    const String _skelBase =
-        '{"skeleton":{"name":"ns"},'
+    const String _skelBase = '{"skeleton":{"name":"ns"},'
         '"bones":[{"name":"root"}],'
         '"slots":[{"name":"s1","bone":"root"}],'
         '"regions":[{"name":"r1","width":10,"height":10}],';
@@ -699,10 +758,10 @@ void main() {
       // If j has both "curve":"linear" and "curveX":"stepped", curveX must win.
       final json = _skelBase +
           '"animations":[{"name":"a","boneTimelines":[{'
-          '"bone":"root","property":"translate",'
-          '"keyframes":['
-          '{"t":0.0,"x":0.0,"y":0.0,"curve":"linear","curveX":"stepped"},'
-          '{"t":1.0,"x":10.0,"y":10.0}]}]}]}';
+              '"bone":"root","property":"translate",'
+              '"keyframes":['
+              '{"t":0.0,"x":0.0,"y":0.0,"curve":"linear","curveX":"stepped"},'
+              '{"t":1.0,"x":10.0,"y":10.0}]}]}]}';
       final data = loadBonyJson(json);
       final tl = data.animations[0].boneTimelines[0];
       // curveX should be stepped (overrides "curve":"linear")
@@ -721,7 +780,7 @@ void main() {
       final data = loadBonyJson(text);
       expect(data.stateMachines, isNotEmpty);
 
-      final pose = const MixedPose(scalars: []);
+      final pose = const MixedPose.empty();
       final result = applyPose(data, pose);
       // Empty pose returns data unchanged — but also test a non-empty pose.
       expect(result.stateMachines, hasLength(data.stateMachines.length));
@@ -729,6 +788,13 @@ void main() {
       // Non-empty pose (rotate bone) — stateMachines must survive.
       final pose2 = MixedPose(
         scalars: [(bone: 'root', kind: BoneTimelineKind.rotate, value: 45.0)],
+        vectors: const [],
+        attachments: const [],
+        inherits: const [],
+        colors: const [],
+        colors2: const [],
+        sequences: const [],
+        deforms: const [],
       );
       final result2 = applyPose(data, pose2);
       expect(result2.stateMachines, hasLength(data.stateMachines.length));

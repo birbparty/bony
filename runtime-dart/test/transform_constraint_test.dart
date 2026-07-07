@@ -83,8 +83,8 @@ void _expectClose(double actual, double expected, String label,
 
 void main() {
   group('transform constraint solver', () {
-    final constrained = const Affine2(
-        a: 1.0, b: 0.0, c: 0.0, d: 1.0, tx: 40.0, ty: 0.0);
+    final constrained =
+        const Affine2(a: 1.0, b: 0.0, c: 0.0, d: 1.0, tx: 40.0, ty: 0.0);
     // target: rotation 45, scaleX 2, shearY 30, translation (80, 60).
     final target = transformPoseToAffine(const TransformConstraintPose(
       x: 80.0,
@@ -98,7 +98,9 @@ void main() {
 
     test('mix 0 on every channel is the identity (keeps the constrained pose)',
         () {
-      final out = applyTransformConstraint(constrained, target,
+      final out = applyTransformConstraint(
+          constrained,
+          target,
           const TransformConstraintMix(
               translate: 0, rotate: 0, scale: 0, shear: 0));
       _expectClose(out.tx, 40.0, 'tx');
@@ -110,8 +112,8 @@ void main() {
     });
 
     test('mix 1 on every channel snaps fully to the target', () {
-      final out = applyTransformConstraint(constrained, target,
-          const TransformConstraintMix());
+      final out = applyTransformConstraint(
+          constrained, target, const TransformConstraintMix());
       _expectClose(out.a, target.a, 'a', tol: 1e-6);
       _expectClose(out.b, target.b, 'b', tol: 1e-6);
       _expectClose(out.c, target.c, 'c', tol: 1e-6);
@@ -121,7 +123,9 @@ void main() {
     });
 
     test('mix 0.5 blends every channel to the midpoint', () {
-      final out = applyTransformConstraint(constrained, target,
+      final out = applyTransformConstraint(
+          constrained,
+          target,
           const TransformConstraintMix(
               translate: 0.5, rotate: 0.5, scale: 0.5, shear: 0.5));
       _expectClose(out.tx, 60.0, 'tx', tol: 1e-4);
@@ -134,14 +138,13 @@ void main() {
 
     test('rejects an out-of-range mix', () {
       expect(
-          () => applyTransformConstraint(constrained, target,
-              const TransformConstraintMix(scale: 1.5)),
+          () => applyTransformConstraint(
+              constrained, target, const TransformConstraintMix(scale: 1.5)),
           throwsFormatException);
     });
 
     test('rejects a non-finite target affine', () {
-      final bad = Affine2(
-          a: double.nan, b: 0, c: 0, d: 1, tx: 0, ty: 0);
+      final bad = Affine2(a: double.nan, b: 0, c: 0, d: 1, tx: 0, ty: 0);
       expect(() => affineToTransformPose(bad), throwsFormatException);
     });
   });
@@ -182,7 +185,8 @@ void main() {
     test('at equal order, dispatch is ckIk < ckTransform < ckPath', () {
       final order = debugRuntimeConstraintDispatchOrder(rig());
       expect(order.map((e) => e.kind).toList(), ['ik', 'transform', 'path'],
-          reason: 'constraintKindRank tie-break: ik(0) < transform(1) < path(2)');
+          reason:
+              'constraintKindRank tie-break: ik(0) < transform(1) < path(2)');
     });
   });
 
@@ -216,9 +220,15 @@ void main() {
         bones: [
           _bone('root'),
           _bone('mid',
-              parent: 'root', x: 3, y: -2, rotation: 40, scaleX: 1.7, scaleY: 0.8),
+              parent: 'root',
+              x: 3,
+              y: -2,
+              rotation: 40,
+              scaleX: 1.7,
+              scaleY: 0.8),
           _bone('constrained', parent: 'mid', x: 4, y: 1, rotation: 15),
-          _bone('goal', parent: 'root', x: 10, y: 10, rotation: 30, scaleX: 1.3),
+          _bone('goal',
+              parent: 'root', x: 10, y: 10, rotation: 30, scaleX: 1.3),
         ],
         slots: const [],
         regions: const [],
@@ -244,14 +254,14 @@ void main() {
     // Exercises the .bnb transformConstraint decode branch (the JSON path is
     // covered by the m10 M5-Transform group). Both loaders must agree with the
     // committed golden.
-    final bytes =
-        File('../conformance/assets/bnb/m5_transform_rig.bnb').readAsBytesSync();
+    final bytes = File('../conformance/assets/bnb/m5_transform_rig.bnb')
+        .readAsBytesSync();
     final data = loadBonyBnb(Uint8List.fromList(bytes));
     expect(data.transformConstraints.length, 1);
     final worlds = computeWorldTransforms(data);
     final golden = jsonDecode(
-            File('../conformance/goldens/m5_transform_rig_t0.json')
-                .readAsStringSync()) as Map<String, dynamic>;
+        File('../conformance/goldens/m5_transform_rig_t0.json')
+            .readAsStringSync()) as Map<String, dynamic>;
     final gByName = {
       for (final b in (golden['bones'] as List).cast<Map<String, dynamic>>())
         b['name'] as String: b['world'] as Map<String, dynamic>
@@ -284,7 +294,7 @@ void main() {
         _tc('tc', 'constrained', 'goal', translateMix: 0.5),
       ],
     );
-    final posed = applyPose(data, const MixedPose(scalars: []));
+    final posed = applyPose(data, const MixedPose.empty());
     expect(posed.transformConstraints.length, 1,
         reason: 'applyPose must not drop transformConstraints');
     expect(posed.transformConstraints.first.name, 'tc');

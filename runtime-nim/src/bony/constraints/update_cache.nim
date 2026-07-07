@@ -50,11 +50,6 @@ proc parentIndexes(bones: openArray[BoneData]): seq[int] =
     indexes[bone.name] = index
 
 
-proc boneIndexByName(bones: openArray[BoneData]): Table[string, int] =
-  for index, bone in bones:
-    result[bone.name] = index
-
-
 proc writeBoneIndexes(byName: Table[string, int]; writes: openArray[string]): seq[int] =
   for boneName in writes:
     if boneName notin byName:
