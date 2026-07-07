@@ -100,6 +100,53 @@ class SkeletonData {
     yield* clippingAttachments;
     yield* meshAttachments;
   }
+
+  SkeletonData copyWith({
+    SkeletonHeader? header,
+    List<BoneData>? bones,
+    List<SlotData>? slots,
+    List<RegionAttachment>? regions,
+    List<PathConstraintData>? paths,
+    List<PathAttachment>? pathAttachments,
+    List<PointAttachment>? pointAttachments,
+    List<BoundingBoxAttachment>? boundingBoxAttachments,
+    List<NestedRigAttachment>? nestedRigAttachments,
+    List<ClippingAttachment>? clippingAttachments,
+    List<MeshAttachment>? meshAttachments,
+    List<IkConstraintData>? ikConstraints,
+    List<TransformConstraintData>? transformConstraints,
+    List<PhysicsConstraintData>? physicsConstraints,
+    List<SkinData>? skins,
+    List<AnimationClip>? animations,
+    List<ParameterAxis>? parameters,
+    List<DeformerRecord>? deformers,
+    List<StateMachineData>? stateMachines,
+    List<DeformOverride>? deformOverrides,
+  }) {
+    return SkeletonData(
+      header: header ?? this.header,
+      bones: bones ?? this.bones,
+      slots: slots ?? this.slots,
+      regions: regions ?? this.regions,
+      paths: paths ?? this.paths,
+      pathAttachments: pathAttachments ?? this.pathAttachments,
+      pointAttachments: pointAttachments ?? this.pointAttachments,
+      boundingBoxAttachments:
+          boundingBoxAttachments ?? this.boundingBoxAttachments,
+      nestedRigAttachments: nestedRigAttachments ?? this.nestedRigAttachments,
+      clippingAttachments: clippingAttachments ?? this.clippingAttachments,
+      meshAttachments: meshAttachments ?? this.meshAttachments,
+      ikConstraints: ikConstraints ?? this.ikConstraints,
+      transformConstraints: transformConstraints ?? this.transformConstraints,
+      physicsConstraints: physicsConstraints ?? this.physicsConstraints,
+      skins: skins ?? this.skins,
+      animations: animations ?? this.animations,
+      parameters: parameters ?? this.parameters,
+      deformers: deformers ?? this.deformers,
+      stateMachines: stateMachines ?? this.stateMachines,
+      deformOverrides: deformOverrides ?? this.deformOverrides,
+    );
+  }
 }
 
 class ActiveSkinMembership {

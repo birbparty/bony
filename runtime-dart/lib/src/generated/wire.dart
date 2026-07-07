@@ -639,18 +639,31 @@ BonyObjectSpec bonyObjectSpec(String typeId) {
   );
 }
 
+BonyPropertyKey bonyPropertySpec(String propertyId) {
+  return bonyPropertyKeys.firstWhere(
+    (property) => property.id == propertyId,
+    orElse: () => throw ArgumentError.value(propertyId, 'propertyId', 'unknown bony property'),
+  );
+}
+
+BonyPropertyDefault? bonyPropertyDefault(String objectId, String propertyId) {
+  for (final property in bonyPropertyDefaults) {
+    if (property.objectId == objectId && property.propertyId == propertyId) {
+      return property;
+    }
+  }
+  return null;
+}
+
 bool bonyIsRequiredProperty(String objectId, String propertyId) {
   return bonyRequiredProperties.any(
     (property) => property.objectId == objectId && property.propertyId == propertyId,
   );
 }
 
-Never encodeBonyObject(String typeId) {
-  bonyObjectSpec(typeId);
-  throw UnsupportedError('generated encodeBonyObject has no registered fields yet');
-}
-
-Never decodeBonyObject(String typeId) {
-  bonyObjectSpec(typeId);
-  throw UnsupportedError('generated decodeBonyObject has no registered fields yet');
+BonyOrdinalEnum bonyOrdinalEnum(String enumId) {
+  return bonyOrdinalEnums.firstWhere(
+    (ordinalEnum) => ordinalEnum.id == enumId,
+    orElse: () => throw ArgumentError.value(enumId, 'enumId', 'unknown bony ordinal enum'),
+  );
 }

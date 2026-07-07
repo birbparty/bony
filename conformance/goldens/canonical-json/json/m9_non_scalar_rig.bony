@@ -1,0 +1,513 @@
+{
+  "skeleton": {
+    "name": "m9-non-scalar-rig",
+    "version": "1.0.0"
+  },
+  "bones": [
+    {
+      "name": "root"
+    },
+    {
+      "name": "torso",
+      "parent": "root",
+      "y": -20
+    },
+    {
+      "name": "head",
+      "parent": "torso",
+      "y": -60
+    }
+  ],
+  "slots": [
+    {
+      "name": "body_slot",
+      "bone": "torso",
+      "attachment": "body"
+    },
+    {
+      "name": "head_slot",
+      "bone": "head",
+      "attachment": "head_a"
+    },
+    {
+      "name": "fx_slot",
+      "bone": "root",
+      "attachment": "fx_0"
+    }
+  ],
+  "regions": [
+    {
+      "name": "body",
+      "width": 50,
+      "height": 100
+    },
+    {
+      "name": "head_a",
+      "width": 50,
+      "height": 50
+    },
+    {
+      "name": "head_b",
+      "width": 50,
+      "height": 50
+    },
+    {
+      "name": "fx_0",
+      "width": 32,
+      "height": 32
+    },
+    {
+      "name": "fx_1",
+      "width": 32,
+      "height": 32
+    },
+    {
+      "name": "fx_2",
+      "width": 32,
+      "height": 32
+    }
+  ],
+  "animations": [
+    {
+      "name": "slide",
+      "boneTimelines": [
+        {
+          "bone": "torso",
+          "property": "translate",
+          "keyframes": [
+            {
+              "t": 0,
+              "x": 0,
+              "y": 0,
+              "curveX": "linear",
+              "curveY": "linear"
+            },
+            {
+              "t": 1,
+              "x": 50,
+              "y": 0,
+              "curveX": "linear",
+              "curveY": "linear"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "grow",
+      "boneTimelines": [
+        {
+          "bone": "torso",
+          "property": "scale",
+          "keyframes": [
+            {
+              "t": 0,
+              "x": 1,
+              "y": 1,
+              "curveX": "linear",
+              "curveY": "linear"
+            },
+            {
+              "t": 0.5,
+              "x": 1.5,
+              "y": 1.5,
+              "curveX": "linear",
+              "curveY": "linear"
+            },
+            {
+              "t": 1,
+              "x": 1,
+              "y": 1,
+              "curveX": "linear",
+              "curveY": "linear"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "lean",
+      "boneTimelines": [
+        {
+          "bone": "torso",
+          "property": "shear",
+          "keyframes": [
+            {
+              "t": 0,
+              "x": 0,
+              "y": 0,
+              "curveX": "linear",
+              "curveY": "linear"
+            },
+            {
+              "t": 0.5,
+              "x": 10,
+              "y": 0,
+              "curveX": "linear",
+              "curveY": "linear"
+            },
+            {
+              "t": 1,
+              "x": 0,
+              "y": 0,
+              "curveX": "linear",
+              "curveY": "linear"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "inherit_switch",
+      "boneTimelines": [
+        {
+          "bone": "head",
+          "property": "inherit",
+          "keyframes": [
+            {
+              "t": 0,
+              "inheritRotation": true,
+              "inheritScale": true,
+              "inheritReflection": true,
+              "transformMode": "normal"
+            },
+            {
+              "t": 1,
+              "inheritRotation": true,
+              "inheritScale": false,
+              "inheritReflection": true,
+              "transformMode": "noScale"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "blink",
+      "slotTimelines": [
+        {
+          "slot": "head_slot",
+          "property": "attachment",
+          "keyframes": [
+            {
+              "t": 0,
+              "attachment": "head_a"
+            },
+            {
+              "t": 0.15000000596046448,
+              "attachment": "head_b"
+            },
+            {
+              "t": 0.25,
+              "attachment": "head_a"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "fade",
+      "slotTimelines": [
+        {
+          "slot": "body_slot",
+          "property": "rgba",
+          "keyframes": [
+            {
+              "t": 0,
+              "r": 1,
+              "g": 1,
+              "b": 1,
+              "a": 1,
+              "curve": "linear"
+            },
+            {
+              "t": 1,
+              "r": 1,
+              "g": 1,
+              "b": 1,
+              "a": 0,
+              "curve": "linear"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "tint",
+      "slotTimelines": [
+        {
+          "slot": "body_slot",
+          "property": "rgb",
+          "keyframes": [
+            {
+              "t": 0,
+              "r": 1,
+              "g": 1,
+              "b": 1,
+              "a": 1,
+              "curve": "linear"
+            },
+            {
+              "t": 1,
+              "r": 1,
+              "g": 0,
+              "b": 0,
+              "a": 1,
+              "curve": "linear"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "alpha_pulse",
+      "slotTimelines": [
+        {
+          "slot": "head_slot",
+          "property": "alpha",
+          "keyframes": [
+            {
+              "t": 0,
+              "r": 1,
+              "g": 1,
+              "b": 1,
+              "a": 1,
+              "curve": "linear"
+            },
+            {
+              "t": 0.5,
+              "r": 1,
+              "g": 1,
+              "b": 1,
+              "a": 0.20000000298023224,
+              "curve": "linear"
+            },
+            {
+              "t": 1,
+              "r": 1,
+              "g": 1,
+              "b": 1,
+              "a": 1,
+              "curve": "linear"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "two_color",
+      "slotTimelines": [
+        {
+          "slot": "body_slot",
+          "property": "rgba2",
+          "keyframes": [
+            {
+              "t": 0,
+              "r": 1,
+              "g": 1,
+              "b": 1,
+              "a": 1,
+              "dr": 0,
+              "dg": 0,
+              "db": 0,
+              "curve": "linear"
+            },
+            {
+              "t": 1,
+              "r": 0.800000011920929,
+              "g": 0.6000000238418579,
+              "b": 0.4000000059604645,
+              "a": 1,
+              "dr": 0.10000000149011612,
+              "dg": 0.05000000074505806,
+              "db": 0,
+              "curve": "linear"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "fx_sequence",
+      "slotTimelines": [
+        {
+          "slot": "fx_slot",
+          "property": "sequence",
+          "keyframes": [
+            {
+              "t": 0,
+              "index": 0,
+              "delay": 0.10000000149011612,
+              "mode": "loop"
+            },
+            {
+              "t": 0.30000001192092896,
+              "index": 1,
+              "delay": 0.05000000074505806,
+              "mode": "loop"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "combo",
+      "boneTimelines": [
+        {
+          "bone": "torso",
+          "property": "translate",
+          "keyframes": [
+            {
+              "t": 0,
+              "x": 0,
+              "y": 0,
+              "curveX": "linear",
+              "curveY": "linear"
+            },
+            {
+              "t": 0.5,
+              "x": 25,
+              "y": 10,
+              "curveX": "linear",
+              "curveY": "linear"
+            },
+            {
+              "t": 1,
+              "x": 0,
+              "y": 0,
+              "curveX": "linear",
+              "curveY": "linear"
+            }
+          ]
+        },
+        {
+          "bone": "torso",
+          "property": "scale",
+          "keyframes": [
+            {
+              "t": 0,
+              "x": 1,
+              "y": 1,
+              "curveX": "linear",
+              "curveY": "linear"
+            },
+            {
+              "t": 0.5,
+              "x": 1.2000000476837158,
+              "y": 1.2000000476837158,
+              "curveX": "linear",
+              "curveY": "linear"
+            },
+            {
+              "t": 1,
+              "x": 1,
+              "y": 1,
+              "curveX": "linear",
+              "curveY": "linear"
+            }
+          ]
+        },
+        {
+          "bone": "head",
+          "property": "inherit",
+          "keyframes": [
+            {
+              "t": 0,
+              "inheritRotation": true,
+              "inheritScale": true,
+              "inheritReflection": true,
+              "transformMode": "normal"
+            }
+          ]
+        }
+      ],
+      "slotTimelines": [
+        {
+          "slot": "head_slot",
+          "property": "attachment",
+          "keyframes": [
+            {
+              "t": 0,
+              "attachment": "head_a"
+            },
+            {
+              "t": 0.5,
+              "attachment": "head_b"
+            },
+            {
+              "t": 0.800000011920929,
+              "attachment": "head_a"
+            }
+          ]
+        },
+        {
+          "slot": "body_slot",
+          "property": "rgba",
+          "keyframes": [
+            {
+              "t": 0,
+              "r": 1,
+              "g": 1,
+              "b": 1,
+              "a": 1,
+              "curve": "linear"
+            },
+            {
+              "t": 0.5,
+              "r": 0.5,
+              "g": 0.800000011920929,
+              "b": 1,
+              "a": 0.800000011920929,
+              "curve": "linear"
+            },
+            {
+              "t": 1,
+              "r": 1,
+              "g": 1,
+              "b": 1,
+              "a": 1,
+              "curve": "linear"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "stateMachines": [
+    {
+      "name": "non_scalar",
+      "layers": [
+        {
+          "name": "head",
+          "states": [
+            {
+              "name": "alpha_pulse",
+              "kind": "clip",
+              "clip": "alpha_pulse"
+            }
+          ]
+        },
+        {
+          "name": "light",
+          "states": [
+            {
+              "name": "two_color",
+              "kind": "clip",
+              "clip": "two_color"
+            }
+          ]
+        },
+        {
+          "name": "fx",
+          "states": [
+            {
+              "name": "fx_sequence",
+              "kind": "clip",
+              "clip": "fx_sequence"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

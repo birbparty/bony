@@ -1,0 +1,53 @@
+{
+  "skeleton": {
+    "name": "m23-nested-child-rig",
+    "version": "1.0.0"
+  },
+  "bones": [
+    {
+      "name": "root",
+      "x": 8
+    }
+  ],
+  "slots": [
+    {
+      "name": "face_slot",
+      "bone": "root",
+      "attachment": "face"
+    }
+  ],
+  "regions": [
+    {
+      "name": "default_face",
+      "width": 10,
+      "height": 10
+    },
+    {
+      "name": "wide_face",
+      "width": 32,
+      "height": 16
+    }
+  ],
+  "skins": [
+    {
+      "name": "default",
+      "entries": [
+        {
+          "slot": "face_slot",
+          "attachment": "face",
+          "target": "default_face"
+        }
+      ]
+    },
+    {
+      "name": "wide",
+      "entries": [
+        {
+          "slot": "face_slot",
+          "attachment": "face",
+          "target": "wide_face"
+        }
+      ]
+    }
+  ]
+}

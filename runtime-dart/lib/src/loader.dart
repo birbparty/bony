@@ -65,6 +65,16 @@ SkeletonData loadBonyBnb(Uint8List bytes) {
   return data;
 }
 
+/// Validate an already-constructed [SkeletonData] with the same structural
+/// rules used by [loadBonyJson] and [loadBonyBnb].
+///
+/// Throws [FormatException] on invalid names, duplicate identifiers, malformed
+/// geometry, unknown references, invalid ordering, or invalid animation/state
+/// machine structure.
+void validateBonyData(SkeletonData data) {
+  _validate(data);
+}
+
 // ===========================================================================
 // JSON loader
 // ===========================================================================

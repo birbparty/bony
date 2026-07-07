@@ -1,4 +1,4 @@
-.PHONY: test dart-test
+.PHONY: test dart-test dart-writer-canonical-json-check
 
 # Repo-level gate used by /ralph's per-iteration VERIFY step and by the
 # registry README's format-gate requirement for any registry/** edit.
@@ -23,6 +23,7 @@
 test:
 	python3 codegen/generate.py --check
 	python3 -m unittest discover -s codegen -p 'test_*.py'
+	python3 scripts/ci/check_dart_writer_canonical_json.py
 	nim check --hints:off --path:runtime-nim/src runtime-nim/src/bony.nim
 	cd runtime-nim && nim c -r --hints:off tests/test_smoke.nim
 	cd runtime-nim && nim c -r --hints:off tests/test_bnb_wire.nim
@@ -59,3 +60,6 @@ test:
 
 dart-test:
 	cd runtime-dart && flutter test
+
+dart-writer-canonical-json-check:
+	python3 scripts/ci/check_dart_writer_canonical_json.py

@@ -1448,11 +1448,3 @@ proc decodeBonyObjectBnbScalars*(typeKey: uint64; properties: openArray[BonyBnbS
       if item.key == typeKey:
         return @[]
     raise newException(ValueError, "unknown bony object type key: " & $typeKey)
-
-proc encodeBonyObject*(typeId: string) =
-  discard bonyObjectSpec(typeId)
-  raise newException(CatchableError, "generated encodeBonyObject has no registered fields yet")
-
-proc decodeBonyObject*(typeId: string) =
-  discard bonyObjectSpec(typeId)
-  raise newException(CatchableError, "generated decodeBonyObject has no registered fields yet")

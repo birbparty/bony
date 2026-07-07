@@ -1,0 +1,211 @@
+{
+  "skeleton": {
+    "name": "m22-skin-required-rig",
+    "version": "1.0.0"
+  },
+  "bones": [
+    {
+      "name": "root"
+    },
+    {
+      "name": "shared_helper",
+      "parent": "root",
+      "x": 10,
+      "skinRequired": true
+    },
+    {
+      "name": "variant_extra",
+      "parent": "shared_helper",
+      "y": 20,
+      "skinRequired": true
+    },
+    {
+      "name": "ik_bone",
+      "parent": "root",
+      "x": 30
+    },
+    {
+      "name": "ik_target",
+      "parent": "root",
+      "x": 30,
+      "y": 60
+    },
+    {
+      "name": "copy_bone",
+      "parent": "root",
+      "x": 50
+    },
+    {
+      "name": "copy_target",
+      "parent": "root",
+      "x": 90,
+      "y": 30
+    },
+    {
+      "name": "path_bone",
+      "parent": "root",
+      "x": 70
+    },
+    {
+      "name": "path_target",
+      "parent": "root"
+    },
+    {
+      "name": "later_bone",
+      "parent": "root",
+      "x": 4
+    },
+    {
+      "name": "later_target",
+      "parent": "root",
+      "x": 11
+    },
+    {
+      "name": "phys_bone",
+      "parent": "root",
+      "x": 120
+    }
+  ],
+  "slots": [
+    {
+      "name": "shared_slot",
+      "bone": "shared_helper",
+      "attachment": "shared_badge"
+    },
+    {
+      "name": "variant_slot",
+      "bone": "variant_extra",
+      "attachment": "variant_badge"
+    }
+  ],
+  "regions": [
+    {
+      "name": "shared_region",
+      "width": 12,
+      "height": 12
+    },
+    {
+      "name": "variant_default_region",
+      "width": 10,
+      "height": 10
+    },
+    {
+      "name": "variant_active_region",
+      "width": 26,
+      "height": 14
+    }
+  ],
+  "paths": [
+    {
+      "name": "skin_path",
+      "bone": "path_bone",
+      "target": "path_target",
+      "path": "rail",
+      "skinRequired": true,
+      "position": 1,
+      "translateMix": 1
+    }
+  ],
+  "ikConstraints": [
+    {
+      "name": "skin_aim",
+      "bones": ["ik_bone"],
+      "target": "ik_target",
+      "skinRequired": true
+    }
+  ],
+  "transformConstraints": [
+    {
+      "name": "skin_copy",
+      "bone": "copy_bone",
+      "target": "copy_target",
+      "skinRequired": true,
+      "translateMix": 1
+    },
+    {
+      "name": "later_active",
+      "bone": "later_bone",
+      "target": "later_target",
+      "order": 10,
+      "translateMix": 1
+    }
+  ],
+  "physicsConstraints": [
+    {
+      "name": "skin_spring",
+      "bone": "phys_bone",
+      "skinRequired": true,
+      "channels": 1,
+      "strength": 5,
+      "gravity": 60
+    }
+  ],
+  "pathAttachments": [
+    {
+      "name": "rail",
+      "p0x": 0,
+      "p0y": 0,
+      "p1x": 30,
+      "p1y": 0,
+      "p2x": 70,
+      "p2y": 0,
+      "p3x": 100,
+      "p3y": 0
+    }
+  ],
+  "skins": [
+    {
+      "name": "default",
+      "bones": ["shared_helper"],
+      "entries": [
+        {
+          "slot": "shared_slot",
+          "attachment": "shared_badge",
+          "target": "shared_region"
+        },
+        {
+          "slot": "variant_slot",
+          "attachment": "variant_badge",
+          "target": "variant_default_region"
+        }
+      ]
+    },
+    {
+      "name": "variant",
+      "bones": ["shared_helper", "variant_extra"],
+      "ikConstraints": ["skin_aim"],
+      "transformConstraints": ["skin_copy"],
+      "pathConstraints": ["skin_path"],
+      "physicsConstraints": ["skin_spring"],
+      "entries": [
+        {
+          "slot": "variant_slot",
+          "attachment": "variant_badge",
+          "target": "variant_active_region"
+        }
+      ]
+    }
+  ],
+  "animations": [
+    {
+      "name": "hold"
+    }
+  ],
+  "stateMachines": [
+    {
+      "name": "skin_required_story",
+      "layers": [
+        {
+          "name": "base",
+          "states": [
+            {
+              "name": "hold",
+              "kind": "clip",
+              "clip": "hold"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

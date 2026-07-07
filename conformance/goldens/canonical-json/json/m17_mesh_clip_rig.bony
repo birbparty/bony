@@ -1,0 +1,45 @@
+{
+  "skeleton": {
+    "name": "m17-mesh-clip-rig",
+    "version": "1.0.0"
+  },
+  "bones": [
+    {
+      "name": "root"
+    }
+  ],
+  "slots": [
+    {
+      "name": "clip_slot",
+      "bone": "root",
+      "attachment": "clip_mask"
+    },
+    {
+      "name": "mesh_slot",
+      "bone": "root",
+      "attachment": "mesh"
+    }
+  ],
+  "regions": [],
+  "clippingAttachments": [
+    {
+      "name": "clip_mask",
+      "vertices": [-100, -100, 20, -100, 20, 100, -100, 100],
+      "untilSlot": "mesh_slot"
+    }
+  ],
+  "meshAttachments": [
+    {
+      "name": "mesh",
+      "vertices": [
+        {"x": 0, "y": 0},
+        {"x": 50, "y": 0},
+        {"x": 0, "y": 50},
+        {"x": -50, "y": 0},
+        {"x": 0, "y": -50}
+      ],
+      "uvs": [0.5, 0.5, 1, 0.5, 0.5, 1, 0, 0.5, 0.5, 0],
+      "triangles": [0, 1, 2, 0, 2, 3, 0, 3, 4, 0, 4, 1]
+    }
+  ]
+}

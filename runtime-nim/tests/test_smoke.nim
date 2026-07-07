@@ -121,22 +121,8 @@ spec "bony package":
     except ValueError:
       packedOnlyScalarRejected = true
 
-    var legacyEncodeStubThrows = false
-    try:
-      encodeBonyObject("bone")
-    except CatchableError:
-      legacyEncodeStubThrows = true
-
-    var legacyDecodeStubThrows = false
-    try:
-      decodeBonyObject("bone")
-    except CatchableError:
-      legacyDecodeStubThrows = true
-
     then:
       bonyEventTimelineScalarSpecs.len == 0
       duplicateJsonRejected
       duplicateBnbRejected
       packedOnlyScalarRejected
-      legacyEncodeStubThrows
-      legacyDecodeStubThrows

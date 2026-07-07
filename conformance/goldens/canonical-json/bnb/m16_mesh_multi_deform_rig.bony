@@ -1,0 +1,71 @@
+{
+  "skeleton": {
+    "name": "m16-mesh-multi-deform-rig",
+    "version": "1.0.0"
+  },
+  "bones": [
+    {
+      "name": "root"
+    },
+    {
+      "name": "boneA",
+      "parent": "root",
+      "x": 10
+    },
+    {
+      "name": "boneB",
+      "parent": "root",
+      "y": 10
+    }
+  ],
+  "slots": [
+    {
+      "name": "mesh_slot",
+      "bone": "root",
+      "attachment": "mesh"
+    }
+  ],
+  "regions": [],
+  "meshAttachments": [
+    {
+      "name": "mesh",
+      "weighted": true,
+      "vertices": [
+        {"influences": [{"bone": "boneA", "bindX": 0, "bindY": 0, "weight": 0.5}, {"bone": "boneB", "bindX": 0, "bindY": 0, "weight": 0.5}]},
+        {"influences": [{"bone": "boneA", "bindX": 4, "bindY": 0, "weight": 1}]},
+        {"influences": [{"bone": "boneA", "bindX": 0, "bindY": 4, "weight": 1}]},
+        {"influences": [{"bone": "boneB", "bindX": 4, "bindY": 0, "weight": 1}]},
+        {"influences": [{"bone": "boneB", "bindX": 0, "bindY": 4, "weight": 1}]}
+      ],
+      "uvs": [0.5, 0.5, 1, 0, 1, 1, 0, 0, 0, 1],
+      "triangles": [0, 1, 2, 0, 2, 4, 0, 4, 3]
+    }
+  ],
+  "deformers": [
+    {
+      "id": "mesh_rot",
+      "order": 0,
+      "kind": "rotation",
+      "rotation": {
+        "pivotX": 5,
+        "pivotY": 5,
+        "angleDegrees": 20
+      }
+    },
+    {
+      "id": "mesh_warp",
+      "parent": "mesh_rot",
+      "order": 1,
+      "kind": "warp",
+      "warp": {
+        "rows": 2,
+        "cols": 2,
+        "minX": -1,
+        "minY": -1,
+        "maxX": 15,
+        "maxY": 15,
+        "controlPoints": [{"x": 1, "y": 0}, {"x": 17, "y": 0}, {"x": 1, "y": 16}, {"x": 17, "y": 16}]
+      }
+    }
+  ]
+}

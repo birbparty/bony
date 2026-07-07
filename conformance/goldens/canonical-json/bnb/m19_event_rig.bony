@@ -1,0 +1,73 @@
+{
+  "skeleton": {
+    "name": "m19-event-rig",
+    "version": "1.0.0"
+  },
+  "bones": [
+    {
+      "name": "root"
+    }
+  ],
+  "slots": [
+    {
+      "name": "panel_slot",
+      "bone": "root",
+      "attachment": "panel"
+    }
+  ],
+  "regions": [
+    {
+      "name": "panel",
+      "width": 50,
+      "height": 50
+    }
+  ],
+  "animations": [
+    {
+      "name": "pulse",
+      "eventTimelines": [
+        {
+          "keyframes": [
+            {
+              "t": 0.5,
+              "name": "hit",
+              "intValue": 7,
+              "floatValue": 1.5,
+              "stringValue": "left"
+            },
+            {
+              "t": 0.5,
+              "name": "hit2",
+              "intValue": 11,
+              "floatValue": -2.5,
+              "stringValue": "right"
+            },
+            {
+              "t": 1,
+              "name": "land",
+              "intValue": -3,
+              "floatValue": 0.25
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "stateMachines": [
+    {
+      "name": "event_story",
+      "layers": [
+        {
+          "name": "base",
+          "states": [
+            {
+              "name": "pulse",
+              "kind": "clip",
+              "clip": "pulse"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -617,10 +617,34 @@ class GeneratorValidationTests(unittest.TestCase):
         self.assertIn("bool bonyIsRequiredProperty(String objectId, String propertyId) {", dart)
         helper_section = dart.split(
             "bool bonyIsRequiredProperty(String objectId, String propertyId) {", 1
-        )[1].split("Never encodeBonyObject", 1)[0]
+        )[1].split("BonyOrdinalEnum bonyOrdinalEnum", 1)[0]
         self.assertIn("return bonyRequiredProperties.any(", helper_section)
         self.assertIn("property.objectId == objectId", helper_section)
         self.assertIn("property.propertyId == propertyId", helper_section)
+
+    def test_project_generated_dart_exposes_writer_metadata_helpers(self) -> None:
+        registry, defaults = self.project_sources()
+        dart = generate.generate_dart(registry, defaults)
+
+        self.assertIn("BonyPropertyKey bonyPropertySpec(String propertyId) {", dart)
+        self.assertIn("property.id == propertyId", dart)
+        self.assertIn("BonyPropertyDefault? bonyPropertyDefault(String objectId, String propertyId) {", dart)
+        self.assertIn("property.objectId == objectId && property.propertyId == propertyId", dart)
+        self.assertIn("BonyOrdinalEnum bonyOrdinalEnum(String enumId) {", dart)
+        self.assertIn("ordinalEnum.id == enumId", dart)
+
+    def test_project_generated_aggregate_throw_stubs_are_removed(self) -> None:
+        registry, defaults = self.project_sources()
+        nim = generate.generate_nim(registry, defaults)
+        dart = generate.generate_dart(registry, defaults)
+
+        for generated in (nim, dart):
+            self.assertNotIn("generated encodeBonyObject has no registered fields yet", generated)
+            self.assertNotIn("generated decodeBonyObject has no registered fields yet", generated)
+        self.assertNotIn("Never encodeBonyObject", dart)
+        self.assertNotIn("Never decodeBonyObject", dart)
+        self.assertNotIn("proc encodeBonyObject*", nim)
+        self.assertNotIn("proc decodeBonyObject*", nim)
 
     def test_project_required_properties_are_covered_by_generated_or_hand_enforced_paths(self) -> None:
         registry, defaults = self.project_sources()
