@@ -290,11 +290,15 @@ class GeneratorValidationTests(unittest.TestCase):
         dart = generate.generate_dart(registry, defaults)
 
         for object_id, key in M3_M8_TYPE_KEYS.items():
+            dart_const = f"bonyTypeKey{generate.dart_const_suffix(object_id)}"
             self.assertIn(f'id: "{object_id}", key: {key}.uint64', nim)
-            self.assertIn(f"id: '{object_id}', key: {key}", dart)
+            self.assertIn(f"const int {dart_const} = {key};", dart)
+            self.assertIn(f"id: '{object_id}', key: {dart_const}", dart)
         for property_id, key in M3_M8_PROPERTY_KEYS.items():
+            dart_const = f"bonyPropertyKey{generate.dart_const_suffix(property_id)}"
             self.assertIn(f'id: "{property_id}", key: {key}.uint64', nim)
-            self.assertIn(f"id: '{property_id}', key: {key}", dart)
+            self.assertIn(f"const int {dart_const} = {key};", dart)
+            self.assertIn(f"id: '{property_id}', key: {dart_const}", dart)
         self.assertIn(
             'BonyObjectSpec(typeId: "boneTimeline", properties: @["boneIndex", "boneTimelineKind", "timelineKeys"])',
             nim,

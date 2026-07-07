@@ -1476,13 +1476,23 @@ def generate_dart(registry: dict[str, Any], defaults: dict[str, Any]) -> str:
     ]
     for entry in backing_types:
         lines.append(f"  BonyBackingType(id: '{entry['id']}', code: {entry['code']}),")
-    lines.extend(["];", "const List<BonyTypeKey> bonyTypeKeys = ["])
+    lines.extend(["];", ""])
     for entry in type_keys:
-        lines.append(f"  BonyTypeKey(id: '{entry['id']}', key: {entry['key']}),")
-    lines.extend(["];", "const List<BonyPropertyKey> bonyPropertyKeys = ["])
+        lines.append(f"const int bonyTypeKey{dart_const_suffix(entry['id'])} = {entry['key']};")
+    lines.extend(["", "const List<BonyTypeKey> bonyTypeKeys = ["])
+    for entry in type_keys:
+        lines.append(
+            f"  BonyTypeKey(id: '{entry['id']}', "
+            f"key: bonyTypeKey{dart_const_suffix(entry['id'])}),"
+        )
+    lines.extend(["];", ""])
+    for entry in property_keys:
+        lines.append(f"const int bonyPropertyKey{dart_const_suffix(entry['id'])} = {entry['key']};")
+    lines.extend(["", "const List<BonyPropertyKey> bonyPropertyKeys = ["])
     for entry in property_keys:
         lines.append(
-            f"  BonyPropertyKey(id: '{entry['id']}', key: {entry['key']}, "
+            f"  BonyPropertyKey(id: '{entry['id']}', "
+            f"key: bonyPropertyKey{dart_const_suffix(entry['id'])}, "
             f"backingType: '{entry['backingType']}'),"
         )
     lines.extend(["];", "const List<BonyObjectSpec> bonyObjectSpecs = ["])
@@ -1560,6 +1570,12 @@ def nim_string_literal(value: str) -> str:
 
 def dart_string_literal(value: str) -> str:
     return json.dumps(value).replace("$", r"\$")
+
+
+def dart_const_suffix(identifier: str) -> str:
+    if not identifier:
+        raise SourceError("Dart const identifier suffix must not be empty")
+    return identifier[0].upper() + identifier[1:]
 
 
 def generated_bool(value: bool) -> str:

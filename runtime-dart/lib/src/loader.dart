@@ -5,6 +5,7 @@
 import 'dart:convert';
 import 'dart:typed_data' show Uint8List, ByteData, Endian;
 import 'deform.dart' show quantizeF32;
+import 'generated/wire.dart' as wire;
 import 'model.dart';
 import 'physics_constraint.dart' show physicsChannelsFromMask;
 
@@ -1936,227 +1937,43 @@ void _validate(SkeletonData data) {
 // Binary (.bnb) loader
 // ===========================================================================
 
-// .bnb type keys.
-const int _bnbSkeleton = 1;
-const int _bnbBone = 2;
-const int _bnbSlot = 1000;
-const int _bnbRegion = 1001;
-const int _bnbPointAttachment = 1002;
-const int _bnbBoundingBoxAttachment = 1003;
-const int _bnbClippingAttachment = 3000;
-const int _bnbMeshAttachment = 3001;
-const int _bnbSkin = 3003;
-const int _bnbSkinEntry = 3004;
-const int _bnbNestedRigAttachment = 3005;
-const int _bnbPath = 4000;
-const int _bnbPathAttachment = 4001;
-const int _bnbIkConstraint = 4002;
-const int _bnbTransformConstraint = 4003;
-const int _bnbPhysicsConstraint = 4004;
-const int _bnbAnimationClip = 2000;
-const int _bnbBoneTimeline = 2001;
-const int _bnbSlotTimeline = 2002;
-const int _bnbEventTimeline = 2003;
-const int _bnbStateMachine = 7000;
-const int _bnbStateMachineInput = 7001;
-const int _bnbStateMachineLayer = 7002;
-const int _bnbStateMachineState = 7003;
-const int _bnbStateMachineBlendClip = 7004;
-const int _bnbStateMachineTransition = 7005;
-const int _bnbStateMachineCondition = 7006;
-const int _bnbStateMachineListener = 7007;
-// M7 type keys.
-const int _bnbParameter = 6000;
-const int _bnbDeformer = 6001;
-const int _bnbWarpLattice = 6002;
-const int _bnbRotationDeformer = 6003;
-const int _bnbKeyformBlend = 6004;
-const int _bnbKeyform = 6005;
-// Deform (FFD) timeline type key (M4).
-const int _bnbDeformTimeline = 3002;
-
-// .bnb property keys.
-const int _bkName = 1;
-const int _bkVersion = 2;
-const int _bkParent = 3;
-const int _bkX = 1000;
-const int _bkY = 1001;
-const int _bkRotation = 1002;
-const int _bkScaleX = 1003;
-const int _bkScaleY = 1004;
-const int _bkShearX = 1005;
-const int _bkShearY = 1006;
-const int _bkInheritRotation = 1007;
-const int _bkInheritScale = 1008;
-const int _bkInheritReflection = 1009;
-const int _bkTransformMode = 1010;
-const int _bkBone = 1012;
-const int _bkAttachment = 1013;
-const int _bkWidth = 1014;
-const int _bkHeight = 1015;
-const int _bkTexturePage = 8000;
-const int _bkU0 = 8001;
-const int _bkV0 = 8002;
-const int _bkU1 = 8003;
-const int _bkV1 = 8004;
-const int _bkAlphaMode = 8005;
-// Clipping attachment property keys (M4). vertices is a packed-f32-pairs bytes
-// payload (varuint count + count*(f32 x, f32 y)); untilSlot is a string.
-const int _bkVertices = 3000;
-const int _bkUntilSlot = 3001;
-// Mesh attachment property keys (M4). meshVertices/meshUvs/meshTriangles are
-// packed `bytes` payloads per docs/mesh-attachment-contract.md; meshWeighted is
-// a value-gated bool (default false).
-const int _bkMeshWeighted = 3002;
-const int _bkMeshVertices = 3003;
-const int _bkMeshUvs = 3004;
-const int _bkMeshTriangles = 3005;
-// Deform (FFD) timeline property keys (M4). slot reuses the shared slot-name
-// string key 1011; deformKeys is a packed `bytes` payload
-// (docs/deform-timeline-contract.md#packed-deformtimeline-byte-layout-bnb).
-const int _bkDeformSkin = 3006;
-const int _bkDeformSlot = 1011;
-const int _bkDeformAttachment = 3007;
-const int _bkDeformVertexCount = 3008;
-const int _bkDeformKeys = 3009;
-const int _bkSkinAttachment = 3010;
-const int _bkSkinTarget = 3011;
-const int _bkNestedSkeleton = 3012;
-const int _bkNestedSkin = 3013;
-const int _bkNestedAnimation = 3014;
-const int _bkTarget = 4000;
-const int _bkPath = 4001;
-const int _bkOrder = 4002;
-const int _bkP0x = 4003;
-const int _bkP0y = 4004;
-const int _bkP1x = 4005;
-const int _bkP1y = 4006;
-const int _bkP2x = 4007;
-const int _bkP2y = 4008;
-const int _bkP3x = 4009;
-const int _bkP3y = 4010;
-const int _bkPosition = 4011;
-const int _bkTranslateMix = 4012;
-const int _bkRotateMix = 4013;
-// IK constraint property keys (frozen wire contract; bones is a bytes payload).
-const int _bkBones = 4014;
-const int _bkMix = 4015;
-const int _bkBendPositive = 4016;
-// Transform constraint property keys (translateMix/rotateMix reused from path).
-const int _bkScaleMix = 4017;
-const int _bkShearMix = 4018;
-// Physics constraint property keys (frozen wire contract; channels is a varuint
-// bitmask). Mirrors generated/wire.dart physicsConstraint keys 4019..4026.
-const int _bkInertia = 4019;
-const int _bkStrength = 4020;
-const int _bkDamping = 4021;
-const int _bkMass = 4022;
-const int _bkGravity = 4023;
-const int _bkWind = 4024;
-const int _bkPhysicsMix = 4025;
-const int _bkChannels = 4026;
-const int _bkSkinRequired = 4027;
-const int _bkSkinBones = 4028;
-const int _bkSkinIkConstraints = 4029;
-const int _bkSkinTransformConstraints = 4030;
-const int _bkSkinPathConstraints = 4031;
-const int _bkSkinPhysicsConstraints = 4032;
-const int _bkBoneIndex = 2000;
-const int _bkBoneTimelineKind = 2001;
-const int _bkSlotIndex = 2002;
-const int _bkSlotTimelineKind = 2003;
-const int _bkTimelineKeys = 2004;
-const int _bkEventKeys = 2005;
-const int _bkStateMachineInputKind = 7000;
-const int _bkInputDefaultBool = 7001;
-const int _bkInputDefaultNumber = 7002;
-const int _bkInitialStateIndex = 7010;
-const int _bkStateMachineStateKind = 7020;
-const int _bkStateClipIndex = 7021;
-const int _bkStateLoop = 7022;
-const int _bkStateBlendInputIndex = 7023;
-const int _bkBlendClipAnimationIndex = 7030;
-const int _bkBlendClipValue = 7031;
-const int _bkBlendClipLoop = 7032;
-const int _bkTransitionFromStateIndex = 7040;
-const int _bkTransitionToStateIndex = 7041;
-const int _bkConditionInputIndex = 7050;
-const int _bkStateMachineConditionKind = 7051;
-const int _bkConditionBoolValue = 7052;
-const int _bkConditionNumberValue = 7053;
-const int _bkStateMachineListenerKind = 7060;
-const int _bkListenerLayerIndex = 7061;
-const int _bkListenerFromStateIndex = 7062;
-const int _bkListenerToStateIndex = 7063;
-const int _bkListenerSlotIndex = 7064;
-const int _bkListenerHelperKind = 7065;
-const int _bkListenerHelperTarget = 7066;
-const int _bkListenerInputIndex = 7067;
-const int _bkListenerBoolValue = 7068;
-const int _bkListenerNumberValue = 7069;
-const int _bkListenerHitRadius = 7070;
-// M7 property keys.
-const int _bkParamMin = 6000;
-const int _bkParamMax = 6001;
-const int _bkParamDefault = 6002;
-const int _bkDefId = 6010;
-const int _bkDefOrder = 6011;
-const int _bkDefKind = 6012;
-const int _bkWarpRows = 6020;
-const int _bkWarpCols = 6021;
-const int _bkWarpMinX = 6022;
-const int _bkWarpMinY = 6023;
-const int _bkWarpMaxX = 6024;
-const int _bkWarpMaxY = 6025;
-const int _bkWarpControlPoints = 6026;
-const int _bkRotPivotX = 6030;
-const int _bkRotPivotY = 6031;
-const int _bkRotAngle = 6032;
-const int _bkRotScaleX = 6033;
-const int _bkRotScaleY = 6034;
-const int _bkRotOpacity = 6035;
-const int _bkBlendValueCount = 6040;
-const int _bkBlendAxes = 6041;
-const int _bkBlendCoords = 6042;
-const int _bkBlendValues = 6043;
-
 // Type keys we recognize; everything else is skipped for forward compat.
 const _bnbKnownTypes = {
-  _bnbSkeleton,
-  _bnbBone,
-  _bnbSlot,
-  _bnbRegion,
-  _bnbPointAttachment,
-  _bnbBoundingBoxAttachment,
-  _bnbClippingAttachment,
-  _bnbMeshAttachment,
-  _bnbNestedRigAttachment,
-  _bnbSkin,
-  _bnbSkinEntry,
-  _bnbPath,
-  _bnbPathAttachment,
-  _bnbIkConstraint,
-  _bnbTransformConstraint,
-  _bnbPhysicsConstraint,
-  _bnbAnimationClip,
-  _bnbBoneTimeline,
-  _bnbSlotTimeline,
-  _bnbEventTimeline,
-  _bnbDeformTimeline,
-  _bnbParameter,
-  _bnbDeformer,
-  _bnbWarpLattice,
-  _bnbRotationDeformer,
-  _bnbKeyformBlend,
-  _bnbKeyform,
-  _bnbStateMachine,
-  _bnbStateMachineInput,
-  _bnbStateMachineLayer,
-  _bnbStateMachineState,
-  _bnbStateMachineBlendClip,
-  _bnbStateMachineTransition,
-  _bnbStateMachineCondition,
-  _bnbStateMachineListener,
+  wire.bonyTypeKeySkeleton,
+  wire.bonyTypeKeyBone,
+  wire.bonyTypeKeySlot,
+  wire.bonyTypeKeyRegion,
+  wire.bonyTypeKeyPointAttachment,
+  wire.bonyTypeKeyBoundingBoxAttachment,
+  wire.bonyTypeKeyClippingAttachment,
+  wire.bonyTypeKeyMeshAttachment,
+  wire.bonyTypeKeyNestedRigAttachment,
+  wire.bonyTypeKeySkin,
+  wire.bonyTypeKeySkinEntry,
+  wire.bonyTypeKeyPath,
+  wire.bonyTypeKeyPathAttachment,
+  wire.bonyTypeKeyIkConstraint,
+  wire.bonyTypeKeyTransformConstraint,
+  wire.bonyTypeKeyPhysicsConstraint,
+  wire.bonyTypeKeyAnimationClip,
+  wire.bonyTypeKeyBoneTimeline,
+  wire.bonyTypeKeySlotTimeline,
+  wire.bonyTypeKeyEventTimeline,
+  wire.bonyTypeKeyDeformTimeline,
+  wire.bonyTypeKeyParameter,
+  wire.bonyTypeKeyDeformer,
+  wire.bonyTypeKeyWarpLattice,
+  wire.bonyTypeKeyRotationDeformer,
+  wire.bonyTypeKeyKeyformBlend,
+  wire.bonyTypeKeyKeyform,
+  wire.bonyTypeKeyStateMachine,
+  wire.bonyTypeKeyStateMachineInput,
+  wire.bonyTypeKeyStateMachineLayer,
+  wire.bonyTypeKeyStateMachineState,
+  wire.bonyTypeKeyStateMachineBlendClip,
+  wire.bonyTypeKeyStateMachineTransition,
+  wire.bonyTypeKeyStateMachineCondition,
+  wire.bonyTypeKeyStateMachineListener,
 };
 
 // Mutable cursor over a binary buffer.
@@ -2347,7 +2164,7 @@ bool _bBool(_BnbObj obj, int key, {bool def = false}) {
 /// packing as blendAxes; matches runtime-nim's writeBonesPayload/readBonesPayload
 /// (semantic.nim), including the trailing-bytes check.
 List<String> _bIkBones(_BnbObj obj, List<String> strings) {
-  final payload = obj.props[_bkBones];
+  final payload = obj.props[wire.bonyPropertyKeyBones];
   if (payload == null) {
     throw const FormatException('.bnb ikConstraint.bones is required');
   }
@@ -2384,7 +2201,7 @@ List<String> _bIndexList(_BnbObj obj, int key, List<String> names, String ctx) {
 /// writePolygonVerticesPayload / readPolygonVerticesPayload (semantic.nim),
 /// including the trailing-bytes check.
 List<double> _bPolygonVertices(_BnbObj obj, String ctx) {
-  final payload = obj.props[_bkVertices];
+  final payload = obj.props[wire.bonyPropertyKeyVertices];
   if (payload == null) {
     throw FormatException('.bnb $ctx.vertices is required');
   }
@@ -2408,7 +2225,7 @@ List<double> _bPolygonVertices(_BnbObj obj, String ctx) {
 /// (semantic.nim), including the trailing-bytes check.
 List<MeshVertex> _bMeshVertices(
     _BnbObj obj, bool weighted, List<String> strings) {
-  final payload = obj.props[_bkMeshVertices];
+  final payload = obj.props[wire.bonyPropertyKeyMeshVertices];
   if (payload == null) {
     throw const FormatException('.bnb meshAttachment.vertices is required');
   }
@@ -2442,7 +2259,7 @@ List<MeshVertex> _bMeshVertices(
 /// count * (f32 u, f32 v). Matches runtime-nim's writeMeshUvsPayload /
 /// readMeshUvsPayload (semantic.nim), including the trailing-bytes check.
 List<MeshUv> _bMeshUvs(_BnbObj obj) {
-  final payload = obj.props[_bkMeshUvs];
+  final payload = obj.props[wire.bonyPropertyKeyMeshUvs];
   if (payload == null) {
     throw const FormatException('.bnb meshAttachment.uvs is required');
   }
@@ -2461,7 +2278,7 @@ List<MeshUv> _bMeshUvs(_BnbObj obj) {
 /// writeMeshTrianglesPayload / readMeshTrianglesPayload (semantic.nim),
 /// including the trailing-bytes check.
 List<int> _bMeshTriangles(_BnbObj obj) {
-  final payload = obj.props[_bkMeshTriangles];
+  final payload = obj.props[wire.bonyPropertyKeyMeshTriangles];
   if (payload == null) {
     throw const FormatException('.bnb meshAttachment.triangles is required');
   }
@@ -2506,7 +2323,7 @@ int _bRequiredVaruint(_BnbObj obj, int key, String ctx) {
 
 // Parse warpControlPoints payload: varuint count, then count*(f32 x, f32 y) pairs.
 List<DeformerPoint> _bControlPoints(_BnbObj obj, List<String> strings) {
-  final payload = obj.props[_bkWarpControlPoints];
+  final payload = obj.props[wire.bonyPropertyKeyWarpControlPoints];
   if (payload == null)
     throw const FormatException('.bnb warpLattice.controlPoints is required');
   final c = _BnbCur(payload);
@@ -2527,7 +2344,7 @@ List<ParameterAxis> _bBlendAxes(
   List<String> strings,
   Map<String, ParameterAxis> paramsByName,
 ) {
-  final payload = obj.props[_bkBlendAxes];
+  final payload = obj.props[wire.bonyPropertyKeyBlendAxes];
   if (payload == null)
     throw const FormatException('.bnb keyformBlend.axes is required');
   final c = _BnbCur(payload);
@@ -2911,8 +2728,8 @@ double _animationDuration(
 
 SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
   bool isStateMachineObject(_BnbObj obj) =>
-      obj.typeKey >= _bnbStateMachine &&
-      obj.typeKey <= _bnbStateMachineListener;
+      obj.typeKey >= wire.bonyTypeKeyStateMachine &&
+      obj.typeKey <= wire.bonyTypeKeyStateMachineListener;
   final decodeObjects = [
     ...objects.where((obj) => !isStateMachineObject(obj)),
     ...objects.where(isStateMachineObject),
@@ -3142,266 +2959,266 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
 
   for (final obj in decodeObjects) {
     switch (obj.typeKey) {
-      case _bnbSkeleton:
+      case wire.bonyTypeKeySkeleton:
         flushSkin();
         flushPending();
         if (header != null)
           throw const FormatException('.bnb: multiple skeleton objects');
         header = SkeletonHeader(
-          name: _bStr(obj, _bkName, strings, 'skeleton.name'),
+          name: _bStr(obj, wire.bonyPropertyKeyName, strings, 'skeleton.name'),
           version:
-              _bStr(obj, _bkVersion, strings, 'skeleton.version', def: '0.1.0'),
+              _bStr(obj, wire.bonyPropertyKeyVersion, strings, 'skeleton.version', def: '0.1.0'),
         );
-      case _bnbBone:
+      case wire.bonyTypeKeyBone:
         flushSkin();
         flushPending();
         bones.add(BoneData(
-          name: _bStr(obj, _bkName, strings, 'bone.name'),
-          parent: _bStr(obj, _bkParent, strings, 'bone.parent', def: ''),
-          x: _bF32(obj, _bkX, 'bone.x', def: 0.0),
-          y: _bF32(obj, _bkY, 'bone.y', def: 0.0),
-          rotation: _bF32(obj, _bkRotation, 'bone.rotation', def: 0.0),
-          scaleX: _bF32(obj, _bkScaleX, 'bone.scaleX', def: 1.0),
-          scaleY: _bF32(obj, _bkScaleY, 'bone.scaleY', def: 1.0),
-          shearX: _bF32(obj, _bkShearX, 'bone.shearX', def: 0.0),
-          shearY: _bF32(obj, _bkShearY, 'bone.shearY', def: 0.0),
-          inheritRotation: _bBool(obj, _bkInheritRotation, def: true),
-          inheritScale: _bBool(obj, _bkInheritScale, def: true),
-          inheritReflection: _bBool(obj, _bkInheritReflection, def: true),
+          name: _bStr(obj, wire.bonyPropertyKeyName, strings, 'bone.name'),
+          parent: _bStr(obj, wire.bonyPropertyKeyParent, strings, 'bone.parent', def: ''),
+          x: _bF32(obj, wire.bonyPropertyKeyX, 'bone.x', def: 0.0),
+          y: _bF32(obj, wire.bonyPropertyKeyY, 'bone.y', def: 0.0),
+          rotation: _bF32(obj, wire.bonyPropertyKeyRotation, 'bone.rotation', def: 0.0),
+          scaleX: _bF32(obj, wire.bonyPropertyKeyScaleX, 'bone.scaleX', def: 1.0),
+          scaleY: _bF32(obj, wire.bonyPropertyKeyScaleY, 'bone.scaleY', def: 1.0),
+          shearX: _bF32(obj, wire.bonyPropertyKeyShearX, 'bone.shearX', def: 0.0),
+          shearY: _bF32(obj, wire.bonyPropertyKeyShearY, 'bone.shearY', def: 0.0),
+          inheritRotation: _bBool(obj, wire.bonyPropertyKeyInheritRotation, def: true),
+          inheritScale: _bBool(obj, wire.bonyPropertyKeyInheritScale, def: true),
+          inheritReflection: _bBool(obj, wire.bonyPropertyKeyInheritReflection, def: true),
           transformMode: _bStr(
-              obj, _bkTransformMode, strings, 'bone.transformMode',
+              obj, wire.bonyPropertyKeyTransformMode, strings, 'bone.transformMode',
               def: 'normal'),
-          skinRequired: _bBool(obj, _bkSkinRequired),
+          skinRequired: _bBool(obj, wire.bonyPropertyKeySkinRequired),
         ));
-      case _bnbSlot:
+      case wire.bonyTypeKeySlot:
         flushSkin();
         flushPending();
         slots.add(SlotData(
-          name: _bStr(obj, _bkName, strings, 'slot.name'),
-          bone: _bStr(obj, _bkBone, strings, 'slot.bone'),
+          name: _bStr(obj, wire.bonyPropertyKeyName, strings, 'slot.name'),
+          bone: _bStr(obj, wire.bonyPropertyKeyBone, strings, 'slot.bone'),
           attachment:
-              _bStr(obj, _bkAttachment, strings, 'slot.attachment', def: ''),
+              _bStr(obj, wire.bonyPropertyKeyAttachment, strings, 'slot.attachment', def: ''),
         ));
-      case _bnbRegion:
+      case wire.bonyTypeKeyRegion:
         flushSkin();
         flushPending();
         regions.add(RegionAttachment(
-          name: _bStr(obj, _bkName, strings, 'region.name'),
-          width: _bF32(obj, _bkWidth, 'region.width'),
-          height: _bF32(obj, _bkHeight, 'region.height'),
-          texturePage: _bStr(obj, _bkTexturePage, strings, 'region.texturePage',
+          name: _bStr(obj, wire.bonyPropertyKeyName, strings, 'region.name'),
+          width: _bF32(obj, wire.bonyPropertyKeyWidth, 'region.width'),
+          height: _bF32(obj, wire.bonyPropertyKeyHeight, 'region.height'),
+          texturePage: _bStr(obj, wire.bonyPropertyKeyTexturePage, strings, 'region.texturePage',
               def: ''),
-          u0: _bF32(obj, _bkU0, 'region.u0', def: 0.0),
-          v0: _bF32(obj, _bkV0, 'region.v0', def: 0.0),
-          u1: _bF32(obj, _bkU1, 'region.u1', def: 1.0),
-          v1: _bF32(obj, _bkV1, 'region.v1', def: 1.0),
-          alphaMode: _bStr(obj, _bkAlphaMode, strings, 'region.alphaMode',
+          u0: _bF32(obj, wire.bonyPropertyKeyU0, 'region.u0', def: 0.0),
+          v0: _bF32(obj, wire.bonyPropertyKeyV0, 'region.v0', def: 0.0),
+          u1: _bF32(obj, wire.bonyPropertyKeyU1, 'region.u1', def: 1.0),
+          v1: _bF32(obj, wire.bonyPropertyKeyV1, 'region.v1', def: 1.0),
+          alphaMode: _bStr(obj, wire.bonyPropertyKeyAlphaMode, strings, 'region.alphaMode',
               def: 'straight'),
         ));
-      case _bnbPointAttachment:
+      case wire.bonyTypeKeyPointAttachment:
         flushSkin();
         flushPending();
         pointAttachments.add(PointAttachment(
-          name: _bStr(obj, _bkName, strings, 'pointAttachment.name'),
-          x: _bF32(obj, _bkX, 'pointAttachment.x'),
-          y: _bF32(obj, _bkY, 'pointAttachment.y'),
-          rotation: _bF32(obj, _bkRotation, 'pointAttachment.rotation'),
+          name: _bStr(obj, wire.bonyPropertyKeyName, strings, 'pointAttachment.name'),
+          x: _bF32(obj, wire.bonyPropertyKeyX, 'pointAttachment.x'),
+          y: _bF32(obj, wire.bonyPropertyKeyY, 'pointAttachment.y'),
+          rotation: _bF32(obj, wire.bonyPropertyKeyRotation, 'pointAttachment.rotation'),
         ));
-      case _bnbBoundingBoxAttachment:
+      case wire.bonyTypeKeyBoundingBoxAttachment:
         flushSkin();
         flushPending();
         boundingBoxAttachments.add(BoundingBoxAttachment(
-          name: _bStr(obj, _bkName, strings, 'boundingBoxAttachment.name'),
+          name: _bStr(obj, wire.bonyPropertyKeyName, strings, 'boundingBoxAttachment.name'),
           vertices: _bPolygonVertices(obj, 'boundingBoxAttachment'),
         ));
-      case _bnbClippingAttachment:
+      case wire.bonyTypeKeyClippingAttachment:
         flushSkin();
         flushPending();
         clips.add(ClippingAttachment(
-          name: _bStr(obj, _bkName, strings, 'clippingAttachment.name'),
+          name: _bStr(obj, wire.bonyPropertyKeyName, strings, 'clippingAttachment.name'),
           vertices: _bPolygonVertices(obj, 'clippingAttachment'),
           untilSlot: _bStr(
-              obj, _bkUntilSlot, strings, 'clippingAttachment.untilSlot',
+              obj, wire.bonyPropertyKeyUntilSlot, strings, 'clippingAttachment.untilSlot',
               def: ''),
         ));
-      case _bnbMeshAttachment:
+      case wire.bonyTypeKeyMeshAttachment:
         flushSkin();
         flushPending();
-        final meshWeighted = _bBool(obj, _bkMeshWeighted, def: false);
+        final meshWeighted = _bBool(obj, wire.bonyPropertyKeyMeshWeighted, def: false);
         meshes.add(MeshAttachment(
-          name: _bStr(obj, _bkName, strings, 'meshAttachment.name'),
+          name: _bStr(obj, wire.bonyPropertyKeyName, strings, 'meshAttachment.name'),
           weighted: meshWeighted,
           vertices: _bMeshVertices(obj, meshWeighted, strings),
           uvs: _bMeshUvs(obj),
           triangles: _bMeshTriangles(obj),
         ));
-      case _bnbNestedRigAttachment:
+      case wire.bonyTypeKeyNestedRigAttachment:
         flushSkin();
         flushPending();
         nestedRigAttachments.add(NestedRigAttachment(
-          name: _bStr(obj, _bkName, strings, 'nestedRigAttachment.name'),
+          name: _bStr(obj, wire.bonyPropertyKeyName, strings, 'nestedRigAttachment.name'),
           skeleton: _bStr(
-              obj, _bkNestedSkeleton, strings, 'nestedRigAttachment.skeleton'),
-          skin: _bStr(obj, _bkNestedSkin, strings, 'nestedRigAttachment.skin',
+              obj, wire.bonyPropertyKeyNestedSkeleton, strings, 'nestedRigAttachment.skeleton'),
+          skin: _bStr(obj, wire.bonyPropertyKeyNestedSkin, strings, 'nestedRigAttachment.skin',
               def: ''),
           animation: _bStr(
-              obj, _bkNestedAnimation, strings, 'nestedRigAttachment.animation',
+              obj, wire.bonyPropertyKeyNestedAnimation, strings, 'nestedRigAttachment.animation',
               def: ''),
         ));
-      case _bnbSkin:
+      case wire.bonyTypeKeySkin:
         flushPending();
         flushSkin();
-        currentSkinName = _bStr(obj, _bkName, strings, 'skin.name');
+        currentSkinName = _bStr(obj, wire.bonyPropertyKeyName, strings, 'skin.name');
         currentSkinBones =
-            _bIndexList(obj, _bkSkinBones, boneNames(), 'skin.bones');
+            _bIndexList(obj, wire.bonyPropertyKeySkinBones, boneNames(), 'skin.bones');
         currentSkinIkConstraints = _bIndexList(
-            obj, _bkSkinIkConstraints, ikNames(), 'skin.ikConstraints');
+            obj, wire.bonyPropertyKeySkinIkConstraints, ikNames(), 'skin.ikConstraints');
         currentSkinTransformConstraints = _bIndexList(
             obj,
-            _bkSkinTransformConstraints,
+            wire.bonyPropertyKeySkinTransformConstraints,
             transformNames(),
             'skin.transformConstraints');
         currentSkinPathConstraints = _bIndexList(
-            obj, _bkSkinPathConstraints, pathNames(), 'skin.pathConstraints');
+            obj, wire.bonyPropertyKeySkinPathConstraints, pathNames(), 'skin.pathConstraints');
         currentSkinPhysicsConstraints = _bIndexList(
             obj,
-            _bkSkinPhysicsConstraints,
+            wire.bonyPropertyKeySkinPhysicsConstraints,
             physicsNames(),
             'skin.physicsConstraints');
-      case _bnbSkinEntry:
+      case wire.bonyTypeKeySkinEntry:
         flushPending();
         if (currentSkinName.isEmpty) {
           throw const FormatException(
               '.bnb skinEntry record without preceding skin');
         }
         currentSkinEntries.add(SkinEntryData(
-          slot: _bStr(obj, _bkDeformSlot, strings, 'skinEntry.slot'),
+          slot: _bStr(obj, wire.bonyPropertyKeySlot, strings, 'skinEntry.slot'),
           attachment:
-              _bStr(obj, _bkSkinAttachment, strings, 'skinEntry.attachment'),
-          target: _bStr(obj, _bkSkinTarget, strings, 'skinEntry.target'),
+              _bStr(obj, wire.bonyPropertyKeySkinAttachment, strings, 'skinEntry.attachment'),
+          target: _bStr(obj, wire.bonyPropertyKeySkinTarget, strings, 'skinEntry.target'),
         ));
-      case _bnbPath:
+      case wire.bonyTypeKeyPath:
         flushSkin();
         flushPending();
         paths.add(PathConstraintData(
-          name: _bStr(obj, _bkName, strings, 'path.name'),
-          bone: _bStr(obj, _bkBone, strings, 'path.bone'),
-          target: _bStr(obj, _bkTarget, strings, 'path.target'),
-          path: _bStr(obj, _bkPath, strings, 'path.path'),
-          order: _bVarint(obj, _bkOrder, def: 0),
-          skinRequired: _bBool(obj, _bkSkinRequired),
-          position: obj.props.containsKey(_bkPosition)
-              ? _bF32(obj, _bkPosition, 'path.position')
+          name: _bStr(obj, wire.bonyPropertyKeyName, strings, 'path.name'),
+          bone: _bStr(obj, wire.bonyPropertyKeyBone, strings, 'path.bone'),
+          target: _bStr(obj, wire.bonyPropertyKeyTarget, strings, 'path.target'),
+          path: _bStr(obj, wire.bonyPropertyKeyPath, strings, 'path.path'),
+          order: _bVarint(obj, wire.bonyPropertyKeyOrder, def: 0),
+          skinRequired: _bBool(obj, wire.bonyPropertyKeySkinRequired),
+          position: obj.props.containsKey(wire.bonyPropertyKeyPosition)
+              ? _bF32(obj, wire.bonyPropertyKeyPosition, 'path.position')
               : null,
-          translateMix: obj.props.containsKey(_bkTranslateMix)
-              ? _bF32(obj, _bkTranslateMix, 'path.translateMix')
+          translateMix: obj.props.containsKey(wire.bonyPropertyKeyTranslateMix)
+              ? _bF32(obj, wire.bonyPropertyKeyTranslateMix, 'path.translateMix')
               : null,
-          rotateMix: obj.props.containsKey(_bkRotateMix)
-              ? _bF32(obj, _bkRotateMix, 'path.rotateMix')
+          rotateMix: obj.props.containsKey(wire.bonyPropertyKeyRotateMix)
+              ? _bF32(obj, wire.bonyPropertyKeyRotateMix, 'path.rotateMix')
               : null,
         ));
-      case _bnbIkConstraint:
+      case wire.bonyTypeKeyIkConstraint:
         flushSkin();
         flushPending();
         ikConstraints.add(IkConstraintData(
-          name: _bStr(obj, _bkName, strings, 'ikConstraint.name'),
+          name: _bStr(obj, wire.bonyPropertyKeyName, strings, 'ikConstraint.name'),
           bones: _bIkBones(obj, strings),
-          target: _bStr(obj, _bkTarget, strings, 'ikConstraint.target'),
-          order: _bVarint(obj, _bkOrder, def: 0),
-          skinRequired: _bBool(obj, _bkSkinRequired),
+          target: _bStr(obj, wire.bonyPropertyKeyTarget, strings, 'ikConstraint.target'),
+          order: _bVarint(obj, wire.bonyPropertyKeyOrder, def: 0),
+          skinRequired: _bBool(obj, wire.bonyPropertyKeySkinRequired),
           // Absent => null (mix defaults to 1.0, bendPositive to true).
-          mix: obj.props.containsKey(_bkMix)
-              ? _bF32(obj, _bkMix, 'ikConstraint.mix')
+          mix: obj.props.containsKey(wire.bonyPropertyKeyMix)
+              ? _bF32(obj, wire.bonyPropertyKeyMix, 'ikConstraint.mix')
               : null,
-          bendPositive: obj.props.containsKey(_bkBendPositive)
-              ? _bBool(obj, _bkBendPositive)
+          bendPositive: obj.props.containsKey(wire.bonyPropertyKeyBendPositive)
+              ? _bBool(obj, wire.bonyPropertyKeyBendPositive)
               : null,
         ));
-      case _bnbTransformConstraint:
+      case wire.bonyTypeKeyTransformConstraint:
         flushSkin();
         flushPending();
         transformConstraints.add(TransformConstraintData(
-          name: _bStr(obj, _bkName, strings, 'transformConstraint.name'),
-          bone: _bStr(obj, _bkBone, strings, 'transformConstraint.bone'),
-          target: _bStr(obj, _bkTarget, strings, 'transformConstraint.target'),
-          order: _bVarint(obj, _bkOrder, def: 0),
-          skinRequired: _bBool(obj, _bkSkinRequired),
+          name: _bStr(obj, wire.bonyPropertyKeyName, strings, 'transformConstraint.name'),
+          bone: _bStr(obj, wire.bonyPropertyKeyBone, strings, 'transformConstraint.bone'),
+          target: _bStr(obj, wire.bonyPropertyKeyTarget, strings, 'transformConstraint.target'),
+          order: _bVarint(obj, wire.bonyPropertyKeyOrder, def: 0),
+          skinRequired: _bBool(obj, wire.bonyPropertyKeySkinRequired),
           // Absent => null (each mix defaults to 1.0).
-          translateMix: obj.props.containsKey(_bkTranslateMix)
-              ? _bF32(obj, _bkTranslateMix, 'transformConstraint.translateMix')
+          translateMix: obj.props.containsKey(wire.bonyPropertyKeyTranslateMix)
+              ? _bF32(obj, wire.bonyPropertyKeyTranslateMix, 'transformConstraint.translateMix')
               : null,
-          rotateMix: obj.props.containsKey(_bkRotateMix)
-              ? _bF32(obj, _bkRotateMix, 'transformConstraint.rotateMix')
+          rotateMix: obj.props.containsKey(wire.bonyPropertyKeyRotateMix)
+              ? _bF32(obj, wire.bonyPropertyKeyRotateMix, 'transformConstraint.rotateMix')
               : null,
-          scaleMix: obj.props.containsKey(_bkScaleMix)
-              ? _bF32(obj, _bkScaleMix, 'transformConstraint.scaleMix')
+          scaleMix: obj.props.containsKey(wire.bonyPropertyKeyScaleMix)
+              ? _bF32(obj, wire.bonyPropertyKeyScaleMix, 'transformConstraint.scaleMix')
               : null,
-          shearMix: obj.props.containsKey(_bkShearMix)
-              ? _bF32(obj, _bkShearMix, 'transformConstraint.shearMix')
+          shearMix: obj.props.containsKey(wire.bonyPropertyKeyShearMix)
+              ? _bF32(obj, wire.bonyPropertyKeyShearMix, 'transformConstraint.shearMix')
               : null,
         ));
-      case _bnbPhysicsConstraint:
+      case wire.bonyTypeKeyPhysicsConstraint:
         flushSkin();
         flushPending();
-        if (!obj.props.containsKey(_bkChannels)) {
+        if (!obj.props.containsKey(wire.bonyPropertyKeyChannels)) {
           throw const FormatException(
               '.bnb physicsConstraint.channels is required');
         }
         physicsConstraints.add(PhysicsConstraintData(
-          name: _bStr(obj, _bkName, strings, 'physicsConstraint.name'),
-          bone: _bStr(obj, _bkBone, strings, 'physicsConstraint.bone'),
+          name: _bStr(obj, wire.bonyPropertyKeyName, strings, 'physicsConstraint.name'),
+          bone: _bStr(obj, wire.bonyPropertyKeyBone, strings, 'physicsConstraint.bone'),
           // channels is an unsigned varuint bitmask (NOT the signed/zigzag
           // varint used by `order`), matching generated/wire.dart's varuint
           // backingType and the Nim writeVaruintPayload emission.
-          channels: physicsChannelsFromMask(_bVaruint(obj, _bkChannels)),
-          order: _bVarint(obj, _bkOrder, def: 0),
-          skinRequired: _bBool(obj, _bkSkinRequired),
+          channels: physicsChannelsFromMask(_bVaruint(obj, wire.bonyPropertyKeyChannels)),
+          order: _bVarint(obj, wire.bonyPropertyKeyOrder, def: 0),
+          skinRequired: _bBool(obj, wire.bonyPropertyKeySkinRequired),
           // Absent => null (integrator defaults: mass=1.0/physicsMix=1.0/rest 0.0).
-          inertia: obj.props.containsKey(_bkInertia)
-              ? _bF32(obj, _bkInertia, 'physicsConstraint.inertia')
+          inertia: obj.props.containsKey(wire.bonyPropertyKeyInertia)
+              ? _bF32(obj, wire.bonyPropertyKeyInertia, 'physicsConstraint.inertia')
               : null,
-          strength: obj.props.containsKey(_bkStrength)
-              ? _bF32(obj, _bkStrength, 'physicsConstraint.strength')
+          strength: obj.props.containsKey(wire.bonyPropertyKeyStrength)
+              ? _bF32(obj, wire.bonyPropertyKeyStrength, 'physicsConstraint.strength')
               : null,
-          damping: obj.props.containsKey(_bkDamping)
-              ? _bF32(obj, _bkDamping, 'physicsConstraint.damping')
+          damping: obj.props.containsKey(wire.bonyPropertyKeyDamping)
+              ? _bF32(obj, wire.bonyPropertyKeyDamping, 'physicsConstraint.damping')
               : null,
-          mass: obj.props.containsKey(_bkMass)
-              ? _bF32(obj, _bkMass, 'physicsConstraint.mass')
+          mass: obj.props.containsKey(wire.bonyPropertyKeyMass)
+              ? _bF32(obj, wire.bonyPropertyKeyMass, 'physicsConstraint.mass')
               : null,
-          gravity: obj.props.containsKey(_bkGravity)
-              ? _bF32(obj, _bkGravity, 'physicsConstraint.gravity')
+          gravity: obj.props.containsKey(wire.bonyPropertyKeyGravity)
+              ? _bF32(obj, wire.bonyPropertyKeyGravity, 'physicsConstraint.gravity')
               : null,
-          wind: obj.props.containsKey(_bkWind)
-              ? _bF32(obj, _bkWind, 'physicsConstraint.wind')
+          wind: obj.props.containsKey(wire.bonyPropertyKeyWind)
+              ? _bF32(obj, wire.bonyPropertyKeyWind, 'physicsConstraint.wind')
               : null,
-          physicsMix: obj.props.containsKey(_bkPhysicsMix)
-              ? _bF32(obj, _bkPhysicsMix, 'physicsConstraint.physicsMix')
+          physicsMix: obj.props.containsKey(wire.bonyPropertyKeyPhysicsMix)
+              ? _bF32(obj, wire.bonyPropertyKeyPhysicsMix, 'physicsConstraint.physicsMix')
               : null,
         ));
-      case _bnbPathAttachment:
+      case wire.bonyTypeKeyPathAttachment:
         flushSkin();
         flushPending();
         pathAttachments.add(PathAttachment(
-          name: _bStr(obj, _bkName, strings, 'pathAttachment.name'),
-          p0x: _bF64(obj, _bkP0x, 'pathAttachment.p0x'),
-          p0y: _bF64(obj, _bkP0y, 'pathAttachment.p0y'),
-          p1x: _bF64(obj, _bkP1x, 'pathAttachment.p1x'),
-          p1y: _bF64(obj, _bkP1y, 'pathAttachment.p1y'),
-          p2x: _bF64(obj, _bkP2x, 'pathAttachment.p2x'),
-          p2y: _bF64(obj, _bkP2y, 'pathAttachment.p2y'),
-          p3x: _bF64(obj, _bkP3x, 'pathAttachment.p3x'),
-          p3y: _bF64(obj, _bkP3y, 'pathAttachment.p3y'),
+          name: _bStr(obj, wire.bonyPropertyKeyName, strings, 'pathAttachment.name'),
+          p0x: _bF64(obj, wire.bonyPropertyKeyP0x, 'pathAttachment.p0x'),
+          p0y: _bF64(obj, wire.bonyPropertyKeyP0y, 'pathAttachment.p0y'),
+          p1x: _bF64(obj, wire.bonyPropertyKeyP1x, 'pathAttachment.p1x'),
+          p1y: _bF64(obj, wire.bonyPropertyKeyP1y, 'pathAttachment.p1y'),
+          p2x: _bF64(obj, wire.bonyPropertyKeyP2x, 'pathAttachment.p2x'),
+          p2y: _bF64(obj, wire.bonyPropertyKeyP2y, 'pathAttachment.p2y'),
+          p3x: _bF64(obj, wire.bonyPropertyKeyP3x, 'pathAttachment.p3x'),
+          p3y: _bF64(obj, wire.bonyPropertyKeyP3y, 'pathAttachment.p3y'),
         ));
       // --- M7 objects ---
-      case _bnbParameter:
+      case wire.bonyTypeKeyParameter:
         flushSkin();
         flushPending();
-        final name = _bStr(obj, _bkName, strings, 'parameter.name');
-        final min = _bF32(obj, _bkParamMin, 'parameter.min');
-        final max = _bF32(obj, _bkParamMax, 'parameter.max');
-        final def = obj.props.containsKey(_bkParamDefault)
-            ? _bF32(obj, _bkParamDefault, 'parameter.default')
+        final name = _bStr(obj, wire.bonyPropertyKeyName, strings, 'parameter.name');
+        final min = _bF32(obj, wire.bonyPropertyKeyParameterMin, 'parameter.min');
+        final max = _bF32(obj, wire.bonyPropertyKeyParameterMax, 'parameter.max');
+        final def = obj.props.containsKey(wire.bonyPropertyKeyParameterDefault)
+            ? _bF32(obj, wire.bonyPropertyKeyParameterDefault, 'parameter.default')
             : 0.0;
         final axis = ParameterAxis(
           name: name,
@@ -3411,14 +3228,14 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
         );
         parameters.add(axis);
         paramsByName[name] = axis;
-      case _bnbDeformer:
+      case wire.bonyTypeKeyDeformer:
         flushSkin();
         flushPending();
-        pendingId = _bStr(obj, _bkDefId, strings, 'deformer.id');
+        pendingId = _bStr(obj, wire.bonyPropertyKeyDeformerId, strings, 'deformer.id');
         pendingParent =
-            _bStr(obj, _bkParent, strings, 'deformer.parent', def: '');
-        pendingOrder = _bVaruint(obj, _bkDefOrder, def: 0);
-        final kindStr = _bStr(obj, _bkDefKind, strings, 'deformer.kind');
+            _bStr(obj, wire.bonyPropertyKeyParent, strings, 'deformer.parent', def: '');
+        pendingOrder = _bVaruint(obj, wire.bonyPropertyKeyDeformerOrder, def: 0);
+        final kindStr = _bStr(obj, wire.bonyPropertyKeyDeformerKind, strings, 'deformer.kind');
         if (kindStr == 'warp') {
           pendingKind = DeformerKind.warp;
         } else if (kindStr == 'rotation') {
@@ -3432,119 +3249,119 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
         blendPending = false;
         pendingBlendAxes = [];
         pendingKeyforms = [];
-      case _bnbWarpLattice:
+      case wire.bonyTypeKeyWarpLattice:
         if (!deformerPending || pendingKind != DeformerKind.warp) {
           throw const FormatException(
               '.bnb warpLattice without preceding warp deformer');
         }
         pendingWarp = WarpLattice(
-          rows: _bVaruint(obj, _bkWarpRows, def: 2),
-          cols: _bVaruint(obj, _bkWarpCols, def: 2),
-          minX: _bF32(obj, _bkWarpMinX, 'warpLattice.minX'),
-          minY: _bF32(obj, _bkWarpMinY, 'warpLattice.minY'),
-          maxX: _bF32(obj, _bkWarpMaxX, 'warpLattice.maxX'),
-          maxY: _bF32(obj, _bkWarpMaxY, 'warpLattice.maxY'),
+          rows: _bVaruint(obj, wire.bonyPropertyKeyWarpRows, def: 2),
+          cols: _bVaruint(obj, wire.bonyPropertyKeyWarpCols, def: 2),
+          minX: _bF32(obj, wire.bonyPropertyKeyWarpMinX, 'warpLattice.minX'),
+          minY: _bF32(obj, wire.bonyPropertyKeyWarpMinY, 'warpLattice.minY'),
+          maxX: _bF32(obj, wire.bonyPropertyKeyWarpMaxX, 'warpLattice.maxX'),
+          maxY: _bF32(obj, wire.bonyPropertyKeyWarpMaxY, 'warpLattice.maxY'),
           controlPoints: _bControlPoints(obj, strings),
         );
         geometryReady = true;
-      case _bnbRotationDeformer:
+      case wire.bonyTypeKeyRotationDeformer:
         if (!deformerPending || pendingKind != DeformerKind.rotation) {
           throw const FormatException(
               '.bnb rotationDeformer without preceding rotation deformer');
         }
         pendingRotation = RotationDeformerData(
-          pivotX: _bF32(obj, _bkRotPivotX, 'rotationDeformer.pivotX'),
-          pivotY: _bF32(obj, _bkRotPivotY, 'rotationDeformer.pivotY'),
+          pivotX: _bF32(obj, wire.bonyPropertyKeyRotationPivotX, 'rotationDeformer.pivotX'),
+          pivotY: _bF32(obj, wire.bonyPropertyKeyRotationPivotY, 'rotationDeformer.pivotY'),
           angleDegrees:
-              _bF32(obj, _bkRotAngle, 'rotationDeformer.angleDegrees'),
-          scaleX: _bF32(obj, _bkRotScaleX, 'rotationDeformer.scaleX', def: 1.0),
-          scaleY: _bF32(obj, _bkRotScaleY, 'rotationDeformer.scaleY', def: 1.0),
+              _bF32(obj, wire.bonyPropertyKeyRotationAngleDegrees, 'rotationDeformer.angleDegrees'),
+          scaleX: _bF32(obj, wire.bonyPropertyKeyRotationScaleX, 'rotationDeformer.scaleX', def: 1.0),
+          scaleY: _bF32(obj, wire.bonyPropertyKeyRotationScaleY, 'rotationDeformer.scaleY', def: 1.0),
           opacity:
-              _bF32(obj, _bkRotOpacity, 'rotationDeformer.opacity', def: 1.0),
+              _bF32(obj, wire.bonyPropertyKeyRotationOpacity, 'rotationDeformer.opacity', def: 1.0),
         );
         geometryReady = true;
-      case _bnbKeyformBlend:
+      case wire.bonyTypeKeyKeyformBlend:
         if (!deformerPending || !geometryReady) {
           throw const FormatException(
               '.bnb keyformBlend without preceding deformer geometry');
         }
-        pendingBlendValueCount = _bVaruint(obj, _bkBlendValueCount, def: 0);
+        pendingBlendValueCount = _bVaruint(obj, wire.bonyPropertyKeyBlendValueCount, def: 0);
         pendingBlendAxes = _bBlendAxes(obj, strings, paramsByName);
         pendingKeyforms = [];
         blendPending = true;
-      case _bnbKeyform:
+      case wire.bonyTypeKeyKeyform:
         if (!blendPending) {
           throw const FormatException(
               '.bnb keyform without preceding keyformBlend');
         }
-        final coordVals = _bF32Array(obj, _bkBlendCoords,
+        final coordVals = _bF32Array(obj, wire.bonyPropertyKeyBlendCoordinates,
             pendingBlendAxes.length, 'keyform.coordinates');
         final values = _bF32Array(
-            obj, _bkBlendValues, pendingBlendValueCount, 'keyform.values');
+            obj, wire.bonyPropertyKeyBlendValues, pendingBlendValueCount, 'keyform.values');
         final coordinates = [
           for (var i = 0; i < pendingBlendAxes.length; i++)
             ParameterSample(
                 name: pendingBlendAxes[i].name, value: coordVals[i]),
         ];
         pendingKeyforms.add(Keyform(coordinates: coordinates, values: values));
-      case _bnbAnimationClip:
+      case wire.bonyTypeKeyAnimationClip:
         flushSkin();
         flushPending();
         flushAnimation();
         currentAnimationName =
-            _bStr(obj, _bkName, strings, 'animationClip.name');
-      case _bnbBoneTimeline:
+            _bStr(obj, wire.bonyPropertyKeyName, strings, 'animationClip.name');
+      case wire.bonyTypeKeyBoneTimeline:
         flushSkin();
         flushPending();
         if (currentAnimationName.isEmpty)
           throw const FormatException(
               '.bnb boneTimeline without animationClip');
-        final boneIndex = _bVaruint(obj, _bkBoneIndex);
+        final boneIndex = _bVaruint(obj, wire.bonyPropertyKeyBoneIndex);
         if (boneIndex < 0 || boneIndex >= bones.length) {
           throw const FormatException(
               '.bnb boneTimeline.boneIndex is out of range');
         }
-        final payload = obj.props[_bkTimelineKeys];
+        final payload = obj.props[wire.bonyPropertyKeyTimelineKeys];
         if (payload == null)
           throw const FormatException(
               '.bnb boneTimeline.timelineKeys is required');
         currentBoneTimelines.add(_bBoneTimelineKeys(
           bones[boneIndex].name,
           _bBoneTimelineKind(
-              _bRequiredVaruint(obj, _bkBoneTimelineKind, 'boneTimeline.kind')),
+              _bRequiredVaruint(obj, wire.bonyPropertyKeyBoneTimelineKind, 'boneTimeline.kind')),
           payload,
           'boneTimeline.timelineKeys',
         ));
-      case _bnbSlotTimeline:
+      case wire.bonyTypeKeySlotTimeline:
         flushSkin();
         flushPending();
         if (currentAnimationName.isEmpty)
           throw const FormatException(
               '.bnb slotTimeline without animationClip');
-        final slotIndex = _bVaruint(obj, _bkSlotIndex);
+        final slotIndex = _bVaruint(obj, wire.bonyPropertyKeySlotIndex);
         if (slotIndex < 0 || slotIndex >= slots.length) {
           throw const FormatException(
               '.bnb slotTimeline.slotIndex is out of range');
         }
-        final payload = obj.props[_bkTimelineKeys];
+        final payload = obj.props[wire.bonyPropertyKeyTimelineKeys];
         if (payload == null)
           throw const FormatException(
               '.bnb slotTimeline.timelineKeys is required');
         currentSlotTimelines.add(_bSlotTimelineKeys(
           slots[slotIndex].name,
           _bSlotTimelineKind(
-              _bRequiredVaruint(obj, _bkSlotTimelineKind, 'slotTimeline.kind')),
+              _bRequiredVaruint(obj, wire.bonyPropertyKeySlotTimelineKind, 'slotTimeline.kind')),
           payload,
           regions,
           'slotTimeline.timelineKeys',
         ));
-      case _bnbEventTimeline:
+      case wire.bonyTypeKeyEventTimeline:
         flushSkin();
         flushPending();
         if (currentAnimationName.isEmpty)
           throw const FormatException(
               '.bnb eventTimeline without animationClip');
-        final payload = obj.props[_bkEventKeys];
+        final payload = obj.props[wire.bonyPropertyKeyEventKeys];
         if (payload == null)
           throw const FormatException(
               '.bnb eventTimeline.eventKeys is required');
@@ -3552,7 +3369,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
           keys:
               _bEventTimelineKeys(payload, strings, 'eventTimeline.eventKeys'),
         ));
-      case _bnbDeformTimeline:
+      case wire.bonyTypeKeyDeformTimeline:
         flushSkin();
         // Relies on meshAttachment objects being decoded before deform-timeline
         // objects: the encoder emits meshes (type 3001) before animation clips,
@@ -3562,15 +3379,15 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
         if (currentAnimationName.isEmpty)
           throw const FormatException(
               '.bnb deformTimeline without animationClip');
-        final skin = _bStr(obj, _bkDeformSkin, strings, 'deformTimeline.skin');
+        final skin = _bStr(obj, wire.bonyPropertyKeyDeformSkin, strings, 'deformTimeline.skin');
         final resolutionData = skinResolutionData();
         if (!resolutionData.hasSkin(skin)) {
           throw FormatException(
               '.bnb deformTimeline references unknown skin: $skin');
         }
-        final slot = _bStr(obj, _bkDeformSlot, strings, 'deformTimeline.slot');
+        final slot = _bStr(obj, wire.bonyPropertyKeySlot, strings, 'deformTimeline.slot');
         final attachment = _bStr(
-            obj, _bkDeformAttachment, strings, 'deformTimeline.attachment');
+            obj, wire.bonyPropertyKeyDeformAttachment, strings, 'deformTimeline.attachment');
         final resolvedAttachment =
             resolutionData.resolveSkinAttachmentTarget(skin, slot, attachment);
         if (resolvedAttachment.isEmpty) {
@@ -3579,7 +3396,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
               '$skin/$slot/$attachment');
         }
         final vertexCount = _bRequiredVaruint(
-            obj, _bkDeformVertexCount, 'deformTimeline.vertexCount');
+            obj, wire.bonyPropertyKeyDeformVertexCount, 'deformTimeline.vertexCount');
         MeshAttachment? mesh;
         for (final m in meshes) {
           if (m.name == resolvedAttachment) {
@@ -3597,7 +3414,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
               '.bnb deformTimeline.vertexCount does not match mesh: '
               '$resolvedAttachment');
         }
-        final payload = obj.props[_bkDeformKeys];
+        final payload = obj.props[wire.bonyPropertyKeyDeformKeys];
         if (payload == null)
           throw const FormatException(
               '.bnb deformTimeline.deformKeys is required');
@@ -3609,13 +3426,13 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
           keys: _bDeformTimelineKeys(
               payload, vertexCount, 'deformTimeline.deformKeys'),
         ));
-      case _bnbStateMachine:
+      case wire.bonyTypeKeyStateMachine:
         flushSkin();
         flushPending();
         flushAnimation();
         flushMachine();
-        currentMachineName = _bStr(obj, _bkName, strings, 'stateMachine.name');
-      case _bnbStateMachineInput:
+        currentMachineName = _bStr(obj, wire.bonyPropertyKeyName, strings, 'stateMachine.name');
+      case wire.bonyTypeKeyStateMachineInput:
         flushSkin();
         flushPending();
         flushLayer();
@@ -3623,21 +3440,21 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
           throw const FormatException(
               '.bnb stateMachineInput without stateMachine');
         final kindTag = _bRequiredVaruint(
-            obj, _bkStateMachineInputKind, 'stateMachineInput.kind');
-        final name = _bStr(obj, _bkName, strings, 'stateMachineInput.name');
+            obj, wire.bonyPropertyKeyStateMachineInputKind, 'stateMachineInput.kind');
+        final name = _bStr(obj, wire.bonyPropertyKeyName, strings, 'stateMachineInput.name');
         switch (kindTag) {
           case 0:
-            if (obj.props.containsKey(_bkInputDefaultNumber)) {
+            if (obj.props.containsKey(wire.bonyPropertyKeyInputDefaultNumber)) {
               throw const FormatException(
                   '.bnb bool input must not contain number default');
             }
             machineInputs.add(StateMachineInput(
               name: name,
               kind: StateMachineInputKind.bool_,
-              defaultBool: _bBool(obj, _bkInputDefaultBool),
+              defaultBool: _bBool(obj, wire.bonyPropertyKeyInputDefaultBool),
             ));
           case 1:
-            if (obj.props.containsKey(_bkInputDefaultBool)) {
+            if (obj.props.containsKey(wire.bonyPropertyKeyInputDefaultBool)) {
               throw const FormatException(
                   '.bnb number input must not contain bool default');
             }
@@ -3645,12 +3462,12 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
               name: name,
               kind: StateMachineInputKind.number,
               defaultNumber: _bF32(
-                  obj, _bkInputDefaultNumber, 'stateMachineInput.defaultNumber',
+                  obj, wire.bonyPropertyKeyInputDefaultNumber, 'stateMachineInput.defaultNumber',
                   def: 0.0),
             ));
           case 2:
-            if (obj.props.containsKey(_bkInputDefaultBool) ||
-                obj.props.containsKey(_bkInputDefaultNumber)) {
+            if (obj.props.containsKey(wire.bonyPropertyKeyInputDefaultBool) ||
+                obj.props.containsKey(wire.bonyPropertyKeyInputDefaultNumber)) {
               throw const FormatException(
                   '.bnb trigger input must not contain defaults');
             }
@@ -3660,7 +3477,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
             throw FormatException(
                 '.bnb stateMachineInput.kind is invalid: $kindTag');
         }
-      case _bnbStateMachineLayer:
+      case wire.bonyTypeKeyStateMachineLayer:
         flushSkin();
         flushPending();
         flushLayer();
@@ -3668,26 +3485,26 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
           throw const FormatException(
               '.bnb stateMachineLayer without stateMachine');
         currentLayerName =
-            _bStr(obj, _bkName, strings, 'stateMachineLayer.name');
-        currentLayerInitialIndex = _bVaruint(obj, _bkInitialStateIndex);
-      case _bnbStateMachineState:
+            _bStr(obj, wire.bonyPropertyKeyName, strings, 'stateMachineLayer.name');
+        currentLayerInitialIndex = _bVaruint(obj, wire.bonyPropertyKeyInitialStateIndex);
+      case wire.bonyTypeKeyStateMachineState:
         flushSkin();
         flushPending();
         flushTransition();
         if (currentLayerName.isEmpty)
           throw const FormatException('.bnb stateMachineState without layer');
         final stateName =
-            _bStr(obj, _bkName, strings, 'stateMachineState.name');
+            _bStr(obj, wire.bonyPropertyKeyName, strings, 'stateMachineState.name');
         final kindTag = _bRequiredVaruint(
-            obj, _bkStateMachineStateKind, 'stateMachineState.kind');
+            obj, wire.bonyPropertyKeyStateMachineStateKind, 'stateMachineState.kind');
         switch (kindTag) {
           case 0:
-            if (obj.props.containsKey(_bkStateBlendInputIndex)) {
+            if (obj.props.containsKey(wire.bonyPropertyKeyStateBlendInputIndex)) {
               throw const FormatException(
                   '.bnb clip state must not contain blend input');
             }
             final clipIndex = _bRequiredVaruint(
-                obj, _bkStateClipIndex, 'stateMachineState.clip');
+                obj, wire.bonyPropertyKeyStateClipIndex, 'stateMachineState.clip');
             if (clipIndex < 0 || clipIndex >= animations.length) {
               throw const FormatException(
                   '.bnb stateMachineState.clip index is out of range');
@@ -3696,16 +3513,16 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
               name: stateName,
               kind: StateMachineStateKind.clip,
               clipName: animations[clipIndex].name,
-              loop: _bBool(obj, _bkStateLoop),
+              loop: _bBool(obj, wire.bonyPropertyKeyStateLoop),
             ));
           case 1:
-            if (obj.props.containsKey(_bkStateClipIndex) ||
-                obj.props.containsKey(_bkStateLoop)) {
+            if (obj.props.containsKey(wire.bonyPropertyKeyStateClipIndex) ||
+                obj.props.containsKey(wire.bonyPropertyKeyStateLoop)) {
               throw const FormatException(
                   '.bnb blend1d state must not contain direct clip fields');
             }
             final inputIndex = _bRequiredVaruint(
-                obj, _bkStateBlendInputIndex, 'stateMachineState.blendInput');
+                obj, wire.bonyPropertyKeyStateBlendInputIndex, 'stateMachineState.blendInput');
             if (inputIndex < 0 || inputIndex >= machineInputs.length) {
               throw const FormatException(
                   '.bnb stateMachineState.blendInput index is out of range');
@@ -3720,7 +3537,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
             throw FormatException(
                 '.bnb stateMachineState.kind is invalid: $kindTag');
         }
-      case _bnbStateMachineBlendClip:
+      case wire.bonyTypeKeyStateMachineBlendClip:
         flushSkin();
         flushPending();
         if (currentLayerStates.isEmpty ||
@@ -3729,7 +3546,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
               '.bnb stateMachineBlendClip without blend1d state');
         }
         final clipIndex = _bRequiredVaruint(
-            obj, _bkBlendClipAnimationIndex, 'stateMachineBlendClip.animation');
+            obj, wire.bonyPropertyKeyBlendClipAnimationIndex, 'stateMachineBlendClip.animation');
         if (clipIndex < 0 || clipIndex >= animations.length) {
           throw const FormatException(
               '.bnb stateMachineBlendClip.animation index is out of range');
@@ -3744,12 +3561,12 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
             StateMachineBlendClip(
               clipName: animations[clipIndex].name,
               value:
-                  _bF32(obj, _bkBlendClipValue, 'stateMachineBlendClip.value'),
-              loop: _bBool(obj, _bkBlendClipLoop),
+                  _bF32(obj, wire.bonyPropertyKeyBlendClipValue, 'stateMachineBlendClip.value'),
+              loop: _bBool(obj, wire.bonyPropertyKeyBlendClipLoop),
             ),
           ],
         ));
-      case _bnbStateMachineTransition:
+      case wire.bonyTypeKeyStateMachineTransition:
         flushSkin();
         flushPending();
         flushTransition();
@@ -3758,42 +3575,42 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
               '.bnb stateMachineTransition without layer');
         pendingTransitionFrom = stateNameAt(
             currentLayerStates,
-            _bRequiredVaruint(obj, _bkTransitionFromStateIndex,
+            _bRequiredVaruint(obj, wire.bonyPropertyKeyTransitionFromStateIndex,
                 'stateMachineTransition.from'),
             'stateMachineTransition.from');
         pendingTransitionTo = stateNameAt(
             currentLayerStates,
             _bRequiredVaruint(
-                obj, _bkTransitionToStateIndex, 'stateMachineTransition.to'),
+                obj, wire.bonyPropertyKeyTransitionToStateIndex, 'stateMachineTransition.to'),
             'stateMachineTransition.to');
-      case _bnbStateMachineCondition:
+      case wire.bonyTypeKeyStateMachineCondition:
         flushSkin();
         flushPending();
         if (pendingTransitionFrom.isEmpty)
           throw const FormatException(
               '.bnb stateMachineCondition without transition');
         final inputIndex = _bRequiredVaruint(
-            obj, _bkConditionInputIndex, 'stateMachineCondition.input');
+            obj, wire.bonyPropertyKeyConditionInputIndex, 'stateMachineCondition.input');
         if (inputIndex < 0 || inputIndex >= machineInputs.length) {
           throw const FormatException(
               '.bnb stateMachineCondition.input index is out of range');
         }
         final input = machineInputs[inputIndex];
         final kindTag = _bRequiredVaruint(
-            obj, _bkStateMachineConditionKind, 'stateMachineCondition.kind');
+            obj, wire.bonyPropertyKeyStateMachineConditionKind, 'stateMachineCondition.kind');
         switch (kindTag) {
           case 0:
-            if (obj.props.containsKey(_bkConditionNumberValue)) {
+            if (obj.props.containsKey(wire.bonyPropertyKeyConditionNumberValue)) {
               throw const FormatException(
                   '.bnb bool condition must not contain number value');
             }
             pendingConditions.add(StateMachineCondition(
               input: input.name,
               kind: StateMachineConditionKind.boolEquals,
-              boolValue: _bBool(obj, _bkConditionBoolValue, def: true),
+              boolValue: _bBool(obj, wire.bonyPropertyKeyConditionBoolValue, def: true),
             ));
           case 1:
-            if (obj.props.containsKey(_bkConditionBoolValue)) {
+            if (obj.props.containsKey(wire.bonyPropertyKeyConditionBoolValue)) {
               throw const FormatException(
                   '.bnb number condition must not contain bool value');
             }
@@ -3801,9 +3618,9 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
                 input: input.name,
                 kind: StateMachineConditionKind.numberEquals,
                 numberValue:
-                    _bF32(obj, _bkConditionNumberValue, 'condition.number')));
+                    _bF32(obj, wire.bonyPropertyKeyConditionNumberValue, 'condition.number')));
           case 2:
-            if (obj.props.containsKey(_bkConditionBoolValue)) {
+            if (obj.props.containsKey(wire.bonyPropertyKeyConditionBoolValue)) {
               throw const FormatException(
                   '.bnb number condition must not contain bool value');
             }
@@ -3811,9 +3628,9 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
                 input: input.name,
                 kind: StateMachineConditionKind.numberGreater,
                 numberValue:
-                    _bF32(obj, _bkConditionNumberValue, 'condition.number')));
+                    _bF32(obj, wire.bonyPropertyKeyConditionNumberValue, 'condition.number')));
           case 3:
-            if (obj.props.containsKey(_bkConditionBoolValue)) {
+            if (obj.props.containsKey(wire.bonyPropertyKeyConditionBoolValue)) {
               throw const FormatException(
                   '.bnb number condition must not contain bool value');
             }
@@ -3821,9 +3638,9 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
                 input: input.name,
                 kind: StateMachineConditionKind.numberGreaterOrEqual,
                 numberValue:
-                    _bF32(obj, _bkConditionNumberValue, 'condition.number')));
+                    _bF32(obj, wire.bonyPropertyKeyConditionNumberValue, 'condition.number')));
           case 4:
-            if (obj.props.containsKey(_bkConditionBoolValue)) {
+            if (obj.props.containsKey(wire.bonyPropertyKeyConditionBoolValue)) {
               throw const FormatException(
                   '.bnb number condition must not contain bool value');
             }
@@ -3831,9 +3648,9 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
                 input: input.name,
                 kind: StateMachineConditionKind.numberLess,
                 numberValue:
-                    _bF32(obj, _bkConditionNumberValue, 'condition.number')));
+                    _bF32(obj, wire.bonyPropertyKeyConditionNumberValue, 'condition.number')));
           case 5:
-            if (obj.props.containsKey(_bkConditionBoolValue)) {
+            if (obj.props.containsKey(wire.bonyPropertyKeyConditionBoolValue)) {
               throw const FormatException(
                   '.bnb number condition must not contain bool value');
             }
@@ -3841,10 +3658,10 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
                 input: input.name,
                 kind: StateMachineConditionKind.numberLessOrEqual,
                 numberValue:
-                    _bF32(obj, _bkConditionNumberValue, 'condition.number')));
+                    _bF32(obj, wire.bonyPropertyKeyConditionNumberValue, 'condition.number')));
           case 6:
-            if (obj.props.containsKey(_bkConditionBoolValue) ||
-                obj.props.containsKey(_bkConditionNumberValue)) {
+            if (obj.props.containsKey(wire.bonyPropertyKeyConditionBoolValue) ||
+                obj.props.containsKey(wire.bonyPropertyKeyConditionNumberValue)) {
               throw const FormatException(
                   '.bnb trigger condition must not contain values');
             }
@@ -3854,7 +3671,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
             throw FormatException(
                 '.bnb stateMachineCondition.kind is invalid: $kindTag');
         }
-      case _bnbStateMachineListener:
+      case wire.bonyTypeKeyStateMachineListener:
         flushSkin();
         flushPending();
         flushLayer();
@@ -3862,12 +3679,12 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
           throw const FormatException(
               '.bnb stateMachineListener without stateMachine');
         final listenerName =
-            _bStr(obj, _bkName, strings, 'stateMachineListener.name');
+            _bStr(obj, wire.bonyPropertyKeyName, strings, 'stateMachineListener.name');
         final kindTag = _bRequiredVaruint(
-            obj, _bkStateMachineListenerKind, 'stateMachineListener.kind');
+            obj, wire.bonyPropertyKeyStateMachineListenerKind, 'stateMachineListener.kind');
         StateMachineLayer listenerLayer() {
           final layerIndex = _bRequiredVaruint(
-              obj, _bkListenerLayerIndex, 'stateMachineListener.layer');
+              obj, wire.bonyPropertyKeyListenerLayerIndex, 'stateMachineListener.layer');
           if (layerIndex < 0 || layerIndex >= machineLayers.length) {
             throw const FormatException(
                 '.bnb stateMachineListener.layer index is out of range');
@@ -3875,13 +3692,13 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
           return machineLayers[layerIndex];
         }
         bool hasPointerFields() =>
-            obj.props.containsKey(_bkListenerSlotIndex) ||
-            obj.props.containsKey(_bkListenerHelperKind) ||
-            obj.props.containsKey(_bkListenerHelperTarget) ||
-            obj.props.containsKey(_bkListenerInputIndex) ||
-            obj.props.containsKey(_bkListenerBoolValue) ||
-            obj.props.containsKey(_bkListenerNumberValue) ||
-            obj.props.containsKey(_bkListenerHitRadius);
+            obj.props.containsKey(wire.bonyPropertyKeyListenerSlotIndex) ||
+            obj.props.containsKey(wire.bonyPropertyKeyListenerHelperKind) ||
+            obj.props.containsKey(wire.bonyPropertyKeyListenerHelperTarget) ||
+            obj.props.containsKey(wire.bonyPropertyKeyListenerInputIndex) ||
+            obj.props.containsKey(wire.bonyPropertyKeyListenerBoolValue) ||
+            obj.props.containsKey(wire.bonyPropertyKeyListenerNumberValue) ||
+            obj.props.containsKey(wire.bonyPropertyKeyListenerHitRadius);
 
         switch (kindTag) {
           case 0:
@@ -3890,7 +3707,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
               throw const FormatException(
                   '.bnb lifecycle listener must not contain pointer fields');
             }
-            if (obj.props.containsKey(_bkListenerFromStateIndex)) {
+            if (obj.props.containsKey(wire.bonyPropertyKeyListenerFromStateIndex)) {
               throw const FormatException(
                   '.bnb enter listener must not contain from state');
             }
@@ -3901,7 +3718,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
               toState: stateNameAt(
                   layer.states,
                   _bRequiredVaruint(
-                      obj, _bkListenerToStateIndex, 'stateMachineListener.to'),
+                      obj, wire.bonyPropertyKeyListenerToStateIndex, 'stateMachineListener.to'),
                   'stateMachineListener.to'),
             ));
           case 1:
@@ -3910,7 +3727,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
               throw const FormatException(
                   '.bnb lifecycle listener must not contain pointer fields');
             }
-            if (obj.props.containsKey(_bkListenerToStateIndex)) {
+            if (obj.props.containsKey(wire.bonyPropertyKeyListenerToStateIndex)) {
               throw const FormatException(
                   '.bnb exit listener must not contain to state');
             }
@@ -3920,7 +3737,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
               layer: layer.name,
               fromState: stateNameAt(
                   layer.states,
-                  _bRequiredVaruint(obj, _bkListenerFromStateIndex,
+                  _bRequiredVaruint(obj, wire.bonyPropertyKeyListenerFromStateIndex,
                       'stateMachineListener.from'),
                   'stateMachineListener.from'),
             ));
@@ -3936,13 +3753,13 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
               layer: layer.name,
               fromState: stateNameAt(
                   layer.states,
-                  _bRequiredVaruint(obj, _bkListenerFromStateIndex,
+                  _bRequiredVaruint(obj, wire.bonyPropertyKeyListenerFromStateIndex,
                       'stateMachineListener.from'),
                   'stateMachineListener.from'),
               toState: stateNameAt(
                   layer.states,
                   _bRequiredVaruint(
-                      obj, _bkListenerToStateIndex, 'stateMachineListener.to'),
+                      obj, wire.bonyPropertyKeyListenerToStateIndex, 'stateMachineListener.to'),
                   'stateMachineListener.to'),
             ));
           case 3:
@@ -3950,26 +3767,26 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
           case 5:
           case 6:
           case 7:
-            if (obj.props.containsKey(_bkListenerLayerIndex) ||
-                obj.props.containsKey(_bkListenerFromStateIndex) ||
-                obj.props.containsKey(_bkListenerToStateIndex)) {
+            if (obj.props.containsKey(wire.bonyPropertyKeyListenerLayerIndex) ||
+                obj.props.containsKey(wire.bonyPropertyKeyListenerFromStateIndex) ||
+                obj.props.containsKey(wire.bonyPropertyKeyListenerToStateIndex)) {
               throw const FormatException(
                   '.bnb pointer listener must not contain lifecycle fields');
             }
             final slotIndex = _bRequiredVaruint(
-                obj, _bkListenerSlotIndex, 'stateMachineListener.slot');
+                obj, wire.bonyPropertyKeyListenerSlotIndex, 'stateMachineListener.slot');
             if (slotIndex < 0 || slotIndex >= slots.length) {
               throw const FormatException(
                   '.bnb stateMachineListener.slot index is out of range');
             }
             final inputIndex = _bRequiredVaruint(
-                obj, _bkListenerInputIndex, 'stateMachineListener.input');
+                obj, wire.bonyPropertyKeyListenerInputIndex, 'stateMachineListener.input');
             if (inputIndex < 0 || inputIndex >= machineInputs.length) {
               throw const FormatException(
                   '.bnb stateMachineListener.input index is out of range');
             }
             final helperKindTag = _bRequiredVaruint(
-                obj, _bkListenerHelperKind, 'stateMachineListener.helperKind');
+                obj, wire.bonyPropertyKeyListenerHelperKind, 'stateMachineListener.helperKind');
             final helperKind = switch (helperKindTag) {
               0 => PointerHelperTargetKind.point,
               1 => PointerHelperTargetKind.boundingBox,
@@ -3981,25 +3798,25 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
             double? numberValue;
             switch (input.kind) {
               case StateMachineInputKind.bool_:
-                if (!obj.props.containsKey(_bkListenerBoolValue)) {
+                if (!obj.props.containsKey(wire.bonyPropertyKeyListenerBoolValue)) {
                   throw const FormatException(
                       '.bnb pointer bool listener value is required');
                 }
-                if (obj.props.containsKey(_bkListenerNumberValue)) {
+                if (obj.props.containsKey(wire.bonyPropertyKeyListenerNumberValue)) {
                   throw const FormatException(
                       '.bnb pointer bool listener must not contain number value');
                 }
-                boolValue = _bBool(obj, _bkListenerBoolValue);
+                boolValue = _bBool(obj, wire.bonyPropertyKeyListenerBoolValue);
               case StateMachineInputKind.number:
-                if (obj.props.containsKey(_bkListenerBoolValue)) {
+                if (obj.props.containsKey(wire.bonyPropertyKeyListenerBoolValue)) {
                   throw const FormatException(
                       '.bnb pointer number listener must not contain bool value');
                 }
-                numberValue = _bF32(obj, _bkListenerNumberValue,
+                numberValue = _bF32(obj, wire.bonyPropertyKeyListenerNumberValue,
                     'stateMachineListener.numberValue');
               case StateMachineInputKind.trigger:
-                if (obj.props.containsKey(_bkListenerBoolValue) ||
-                    obj.props.containsKey(_bkListenerNumberValue)) {
+                if (obj.props.containsKey(wire.bonyPropertyKeyListenerBoolValue) ||
+                    obj.props.containsKey(wire.bonyPropertyKeyListenerNumberValue)) {
                   throw const FormatException(
                       '.bnb pointer trigger listener must not contain values');
                 }
@@ -4007,10 +3824,10 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
             double? hitRadius;
             switch (helperKind) {
               case PointerHelperTargetKind.point:
-                hitRadius = _bF32(obj, _bkListenerHitRadius,
+                hitRadius = _bF32(obj, wire.bonyPropertyKeyListenerHitRadius,
                     'stateMachineListener.hitRadius');
               case PointerHelperTargetKind.boundingBox:
-                if (obj.props.containsKey(_bkListenerHitRadius)) {
+                if (obj.props.containsKey(wire.bonyPropertyKeyListenerHitRadius)) {
                   throw const FormatException(
                       '.bnb pointer bounding-box listener must not contain hitRadius');
                 }
@@ -4020,7 +3837,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
               kind: StateMachineListenerKind.values[kindTag],
               slot: slots[slotIndex].name,
               targetKind: helperKind,
-              target: _bStr(obj, _bkListenerHelperTarget, strings,
+              target: _bStr(obj, wire.bonyPropertyKeyListenerHelperTarget, strings,
                   'stateMachineListener.target'),
               hitRadius: hitRadius,
               input: input.name,
