@@ -959,7 +959,7 @@ void main() {
   });
 
   group('M8 blend1d deform channel (bony-353d parity)', () {
-    // Regression: the blend1d path (_blendPoses) silently dropped the deforms
+    // Regression: the blend1d path (blendPoses) silently dropped the deforms
     // channel, so a blend state playing a deform-timeline clip rendered the
     // static mesh — the same bug fixed on the Nim side. Deforms resolve
     // winner-take-by-track-weight (docs/deform-timeline-contract.md): the
@@ -1019,7 +1019,7 @@ void main() {
 
   group('M8 blend asymmetric-clip setup fallback (bony-6dkk)', () {
     // The low and high blend clips drive DIFFERENT bones, so each numeric channel
-    // is present in only one clip. _blendPoses must union the channels and fall
+    // is present in only one clip. blendPoses must union the channels and fall
     // back to the SETUP pose for the side that lacks a key (setupScalar/
     // setupVector). Mirrors the Nim guard; pins Nim<->Dart parity on this path.
     const fixture = '{"skeleton":{"name":"allasym"},'
@@ -1080,8 +1080,8 @@ void main() {
 
   group('M8 MixedPose channel completeness guard (bony-bna8)', () {
     // Mirrors the Nim completeness guard: a fixture whose clip drives ALL eight
-    // MixedPose channels, pushed through the blend1D (_blendPoses/_addWeighted)
-    // and multi-layer overlay (_overlayPose) aggregators. If a channel is dropped
+    // MixedPose channels, pushed through the blend1D (blendPoses) and
+    // multi-layer overlay (overlayPose) aggregators. If a channel is dropped
     // by any aggregator (as deforms was in blend1D), it shows up empty here.
     // Dart lacks cheap field reflection, so the enumeration is explicit — adding
     // a channel #9 means adding it to droppedChannels and to the fixture (the

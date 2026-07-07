@@ -423,6 +423,255 @@ double _setupScalar(SkeletonData data, String boneName, BoneTimelineKind kind) {
   return (0.0, 0.0);
 }
 
+List<T> _overlayChannel<T>(
+  Iterable<T> base,
+  Iterable<T> overlay, {
+  required String Function(T) keyOf,
+  required int Function(T, T) compare,
+}) {
+  final map = <String, T>{};
+  for (final item in base) {
+    map[keyOf(item)] = item;
+  }
+  for (final item in overlay) {
+    map[keyOf(item)] = item;
+  }
+  return map.values.toList()..sort(compare);
+}
+
+List<R> _blendChannel<C, V, R>({
+  required Iterable<R> loItems,
+  required Iterable<R> hiItems,
+  required String Function(R) keyOf,
+  required C Function(R) channelOf,
+  required V Function(R) valueOf,
+  required V Function(C) setupValue,
+  required V Function(V, V, double) lerpValue,
+  required R Function(C, V) build,
+  required int Function(R, R) compare,
+  required double t,
+}) {
+  final channels = <String, C>{};
+  final loValues = <String, V>{};
+  final hiValues = <String, V>{};
+
+  for (final item in loItems) {
+    final key = keyOf(item);
+    channels[key] = channelOf(item);
+    loValues[key] = valueOf(item);
+  }
+  for (final item in hiItems) {
+    final key = keyOf(item);
+    channels[key] = channelOf(item);
+    hiValues[key] = valueOf(item);
+  }
+
+  final out = <R>[];
+  for (final entry in channels.entries) {
+    final setup = setupValue(entry.value);
+    final lo = loValues[entry.key] ?? setup;
+    final hi = hiValues[entry.key] ?? setup;
+    out.add(build(entry.value, lerpValue(lo, hi, t)));
+  }
+  return out..sort(compare);
+}
+
+List<T> _sortedSnapshot<T>(Iterable<T> items, int Function(T, T) compare) =>
+    items.map((item) => item).toList()..sort(compare);
+
+double _lerpDouble(double a, double b, double t) => a + (b - a) * t;
+
+ColorRgba _lerpColor(ColorRgba a, ColorRgba b, double t) => ColorRgba(
+      r: _lerpDouble(a.r, b.r, t),
+      g: _lerpDouble(a.g, b.g, t),
+      b: _lerpDouble(a.b, b.b, t),
+      a: _lerpDouble(a.a, b.a, t),
+    );
+
+int _compareBoneKindValues(
+  String boneA,
+  BoneTimelineKind kindA,
+  String boneB,
+  BoneTimelineKind kindB,
+) {
+  final c = boneA.compareTo(boneB);
+  return c != 0 ? c : kindA.index.compareTo(kindB.index);
+}
+
+int _compareSlotKindValues(
+  String slotA,
+  SlotTimelineKind kindA,
+  String slotB,
+  SlotTimelineKind kindB,
+) {
+  final c = slotA.compareTo(slotB);
+  return c != 0 ? c : kindA.index.compareTo(kindB.index);
+}
+
+int _compareDeformValues(
+  String slotA,
+  String attachmentA,
+  String slotB,
+  String attachmentB,
+) {
+  final c = slotA.compareTo(slotB);
+  return c != 0 ? c : attachmentA.compareTo(attachmentB);
+}
+
+/// Overlay two sampled poses, with [overlay] winning for duplicate channel keys.
+///
+/// This is the multi-layer state-machine composition rule: later layers replace
+/// earlier layers per scalar/vector/slot/deform channel while preserving stable
+/// deterministic output order.
+MixedPose overlayPose(MixedPose base, MixedPose overlay) {
+  return MixedPose(
+    scalars: _overlayChannel(
+      base.scalars,
+      overlay.scalars,
+      keyOf: (s) => _scalarKey(s.bone, s.kind),
+      compare: (a, b) => _compareBoneKindValues(a.bone, a.kind, b.bone, b.kind),
+    ),
+    vectors: _overlayChannel(
+      base.vectors,
+      overlay.vectors,
+      keyOf: (v) => _vectorKey(v.bone, v.kind),
+      compare: (a, b) => _compareBoneKindValues(a.bone, a.kind, b.bone, b.kind),
+    ),
+    attachments: _overlayChannel(
+      base.attachments,
+      overlay.attachments,
+      keyOf: (a) => a.slot,
+      compare: (a, b) => a.slot.compareTo(b.slot),
+    ),
+    inherits: _overlayChannel(
+      base.inherits,
+      overlay.inherits,
+      keyOf: (ih) => ih.bone,
+      compare: (a, b) => a.bone.compareTo(b.bone),
+    ),
+    colors: _overlayChannel(
+      base.colors,
+      overlay.colors,
+      keyOf: (c) => _colorKey(c.slot, c.kind),
+      compare: (a, b) => _compareSlotKindValues(a.slot, a.kind, b.slot, b.kind),
+    ),
+    colors2: _overlayChannel(
+      base.colors2,
+      overlay.colors2,
+      keyOf: (c) => c.slot,
+      compare: (a, b) => a.slot.compareTo(b.slot),
+    ),
+    sequences: _overlayChannel(
+      base.sequences,
+      overlay.sequences,
+      keyOf: (s) => s.slot,
+      compare: (a, b) => a.slot.compareTo(b.slot),
+    ),
+    deforms: _overlayChannel(
+      base.deforms,
+      overlay.deforms,
+      keyOf: (d) => '${d.slot}\x00${d.attachment}',
+      compare: (a, b) =>
+          _compareDeformValues(a.slot, a.attachment, b.slot, b.attachment),
+    ),
+  );
+}
+
+/// Blend two sampled clip poses for a state-machine blend1d state.
+///
+/// Numeric channels interpolate with setup-pose fallback when present in only
+/// one side; stepped channels and deforms snap at `t >= 0.5`.
+MixedPose blendPoses(SkeletonData data, MixedPose lo, MixedPose hi, double t) {
+  const white = ColorRgba(r: 1.0, g: 1.0, b: 1.0, a: 1.0);
+  const defaultColor2 = ColorRgba2(
+    light: white,
+    darkR: 0.0,
+    darkG: 0.0,
+    darkB: 0.0,
+  );
+  final snapPose = t >= 0.5 ? hi : lo;
+
+  return MixedPose(
+    scalars: _blendChannel<({String bone, BoneTimelineKind kind}), double,
+        ({String bone, BoneTimelineKind kind, double value})>(
+      loItems: lo.scalars,
+      hiItems: hi.scalars,
+      keyOf: (s) => _scalarKey(s.bone, s.kind),
+      channelOf: (s) => (bone: s.bone, kind: s.kind),
+      valueOf: (s) => s.value,
+      setupValue: (ch) => _setupScalar(data, ch.bone, ch.kind),
+      lerpValue: _lerpDouble,
+      build: (ch, value) => (bone: ch.bone, kind: ch.kind, value: value),
+      compare: (a, b) => _compareBoneKindValues(a.bone, a.kind, b.bone, b.kind),
+      t: t,
+    ),
+    vectors: _blendChannel<
+        ({String bone, BoneTimelineKind kind}),
+        ({double x, double y}),
+        ({String bone, BoneTimelineKind kind, double x, double y})>(
+      loItems: lo.vectors,
+      hiItems: hi.vectors,
+      keyOf: (v) => _vectorKey(v.bone, v.kind),
+      channelOf: (v) => (bone: v.bone, kind: v.kind),
+      valueOf: (v) => (x: v.x, y: v.y),
+      setupValue: (ch) {
+        final setup = _setupVector(data, ch.bone, ch.kind);
+        return (x: setup.$1, y: setup.$2);
+      },
+      lerpValue: (a, b, t) => (
+        x: _lerpDouble(a.x, b.x, t),
+        y: _lerpDouble(a.y, b.y, t),
+      ),
+      build: (ch, value) =>
+          (bone: ch.bone, kind: ch.kind, x: value.x, y: value.y),
+      compare: (a, b) => _compareBoneKindValues(a.bone, a.kind, b.bone, b.kind),
+      t: t,
+    ),
+    attachments: _sortedSnapshot(
+        snapPose.attachments, (a, b) => a.slot.compareTo(b.slot)),
+    inherits:
+        _sortedSnapshot(snapPose.inherits, (a, b) => a.bone.compareTo(b.bone)),
+    colors: _blendChannel<({String slot, SlotTimelineKind kind}), ColorRgba,
+        ({String slot, SlotTimelineKind kind, ColorRgba color})>(
+      loItems: lo.colors,
+      hiItems: hi.colors,
+      keyOf: (c) => _colorKey(c.slot, c.kind),
+      channelOf: (c) => (slot: c.slot, kind: c.kind),
+      valueOf: (c) => c.color,
+      setupValue: (_) => white,
+      lerpValue: _lerpColor,
+      build: (ch, color) => (slot: ch.slot, kind: ch.kind, color: color),
+      compare: (a, b) => _compareSlotKindValues(a.slot, a.kind, b.slot, b.kind),
+      t: t,
+    ),
+    colors2:
+        _blendChannel<String, ColorRgba2, ({String slot, ColorRgba2 color})>(
+      loItems: lo.colors2,
+      hiItems: hi.colors2,
+      keyOf: (c) => c.slot,
+      channelOf: (c) => c.slot,
+      valueOf: (c) => c.color,
+      setupValue: (_) => defaultColor2,
+      lerpValue: (a, b, t) => ColorRgba2(
+        light: _lerpColor(a.light, b.light, t),
+        darkR: _lerpDouble(a.darkR, b.darkR, t),
+        darkG: _lerpDouble(a.darkG, b.darkG, t),
+        darkB: _lerpDouble(a.darkB, b.darkB, t),
+      ),
+      build: (slot, color) => (slot: slot, color: color),
+      compare: (a, b) => a.slot.compareTo(b.slot),
+      t: t,
+    ),
+    sequences:
+        _sortedSnapshot(snapPose.sequences, (a, b) => a.slot.compareTo(b.slot)),
+    deforms: _sortedSnapshot(
+      snapPose.deforms,
+      (a, b) =>
+          _compareDeformValues(a.slot, a.attachment, b.slot, b.attachment),
+    ),
+  );
+}
+
 void _putScalar(
   Map<String, _MixedScalar> out,
   SkeletonData data,
