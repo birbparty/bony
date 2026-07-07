@@ -17,27 +17,17 @@ Exit 0 if all committed goldens pass; non-zero otherwise.
 
 import argparse
 import glob
-import json
 import os
-import subprocess
 import sys
 import tempfile
 
-from _golden_compare import TOLERANCE, compare_goldens
-
-
-def _object_without_duplicate_keys(pairs):
-    result = {}
-    for key, value in pairs:
-        if key in result:
-            raise ValueError(f"duplicate JSON object key: {key}")
-        result[key] = value
-    return result
-
-
-def _load_json_without_duplicate_keys(path):
-    with open(path) as f:
-        return json.load(f, object_pairs_hook=_object_without_duplicate_keys)
+from _common import (
+    GateTally,
+    load_json_without_duplicate_keys,
+    require_glob,
+    resolve_bony_bin,
+)
+from _golden_compare import run_golden_gen_check
 
 
 def setup_child_scripts(scripts_dir):
@@ -45,70 +35,23 @@ def setup_child_scripts(scripts_dir):
     result = {}
     for script_path in sorted(glob.glob(os.path.join(scripts_dir, "*.json"))):
         try:
-            script = _load_json_without_duplicate_keys(script_path)
+            script = load_json_without_duplicate_keys(script_path)
         except Exception:
             continue
         if script.get("stateMachine") or not script.get("children"):
             continue
         samples = script.get("samples") or []
         if len(samples) != 1:
+            print(
+                f"WARN {os.path.basename(script_path)}: expected exactly one setup sample "
+                f"for conformance child script lookup, found {len(samples)}; ignoring",
+                file=sys.stderr,
+            )
             continue
         sample = samples[0]
         selector = sample.get("name") or "0"
         result[script["asset"]] = (script_path, selector)
     return result
-
-
-def run_golden_check(
-    bony_bin,
-    asset_path,
-    golden_path,
-    actual_path,
-    label,
-    *,
-    input_script=None,
-    sample_selector=None,
-):
-    """Run golden-gen on asset_path and compare against golden_path.
-
-    Returns "pass", "fail", or "skip" (if no committed golden).
-    Prints a PASS/FAIL/SKIP line.
-    """
-    if not os.path.exists(golden_path):
-        print(f"SKIP {label}: no committed golden at {golden_path}")
-        return "skip"
-
-    try:
-        cmd = [bony_bin, "golden-gen", asset_path, actual_path]
-        if input_script:
-            cmd.extend(["--input-script", input_script, "--sample", sample_selector])
-        else:
-            cmd.extend(["--t", "0.0"])
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        if result.returncode != 0:
-            print(f"FAIL {label}: golden-gen exited {result.returncode}")
-            if result.stderr:
-                print(result.stderr.rstrip())
-            return "fail"
-
-        with open(actual_path) as f:
-            actual = json.load(f)
-        with open(golden_path) as f:
-            expected = json.load(f)
-
-        errors = compare_goldens(actual, expected)
-    except Exception as exc:
-        print(f"FAIL {label}: {exc}")
-        return "fail"
-
-    if errors:
-        print(f"FAIL {label}: {len(errors)} mismatch(es) (tolerance={TOLERANCE:.0e})")
-        for e in errors:
-            print(e)
-        return "fail"
-
-    print(f"PASS {label}")
-    return "pass"
 
 
 def main():
@@ -119,19 +62,13 @@ def main():
     parser.add_argument("--scripts-dir", default="conformance/scripts")
     args = parser.parse_args()
 
-    bony_bin = os.path.abspath(args.bony_bin)
-    if not os.path.isfile(bony_bin):
-        print(f"error: bony binary not found: {bony_bin}", file=sys.stderr)
-        sys.exit(2)
+    bony_bin = resolve_bony_bin(args.bony_bin)
+    asset_files = require_glob(
+        os.path.join(args.assets_dir, "*.bony"),
+        f".bony assets in {args.assets_dir}",
+    )
 
-    asset_files = sorted(glob.glob(os.path.join(args.assets_dir, "*.bony")))
-    if not asset_files:
-        print(f"error: no .bony assets found in {args.assets_dir}", file=sys.stderr)
-        sys.exit(2)
-
-    passed = 0
-    failed = 0
-    skipped = 0
+    tally = GateTally()
     child_scripts = setup_child_scripts(args.scripts_dir)
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -148,15 +85,10 @@ def main():
                     "input_script": script_entry[0],
                     "sample_selector": script_entry[1],
                 }
-            outcome = run_golden_check(
+            outcome = run_golden_gen_check(
                 bony_bin, asset_path, golden_path, actual_path, stem, **script_args
             )
-            if outcome == "pass":
-                passed += 1
-            elif outcome == "fail":
-                failed += 1
-            else:
-                skipped += 1
+            tally.record(outcome)
 
         # --- .bnb gate (M6): decoded-from-.bnb poses must match .bony-decoded goldens ---
         bnb_dir = os.path.join(args.assets_dir, "bnb")
@@ -176,24 +108,15 @@ def main():
                         "input_script": script_entry[0],
                         "sample_selector": script_entry[1],
                     }
-                outcome = run_golden_check(
+                outcome = run_golden_gen_check(
                     bony_bin, asset_path, golden_path, actual_path, label, **script_args
                 )
-                if outcome == "pass":
-                    passed += 1
-                elif outcome == "fail":
-                    failed += 1
-                else:
-                    skipped += 1
+                tally.record(outcome)
 
-    print(f"\n{passed} passed, {failed} failed, {skipped} skipped")
+    print(f"\n{tally.summary_line()}")
 
-    if passed == 0 and failed == 0:
-        print("error: no goldens were checked — gate is vacuously green", file=sys.stderr)
-        sys.exit(2)
-
-    if failed:
-        sys.exit(1)
+    tally.assert_not_vacuous("goldens")
+    sys.exit(tally.exit_code())
 
 
 if __name__ == "__main__":
