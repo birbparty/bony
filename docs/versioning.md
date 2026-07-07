@@ -43,6 +43,49 @@ because the wire/schema surface only defines slot sequence timeline keyframes;
 there is no attachment-sequence `count`/`start`/`digits`/`setupIndex` feature to
 preserve.
 
+### Generated registry metadata (`bonyRegistryVersion`)
+
+Both runtimes expose `bonyRegistryVersion`, generated from
+`registry/wire.yml`'s top-level `registryVersion`. This is a compact signal for
+the generated registry/default metadata compiled into a runtime:
+
+- stable type and property keys;
+- object-to-property ordering;
+- backing types;
+- required-property metadata;
+- default and omit-when-default metadata used by loaders and canonical writers;
+- ordinal enum contracts.
+
+Increment `registry/wire.yml:registryVersion` in the same commit as any source
+metadata change that can alter generated runtime metadata or canonical emission,
+including:
+
+- adding, deprecating, or changing a `registry/wire.yml` type key, property key,
+  object property list, backing type, or ordinal enum;
+- changing `spec/defaults.yml` defaults, equality modes, `omitWhenDefault`,
+  `applyOnLoad`, or required-property rows;
+- changing codegen in a way that changes the generated registry metadata
+  contract exposed to consumers.
+
+Do not increment it for changes that leave the generated registry metadata
+contract unchanged, such as:
+
+- runtime algorithm bug fixes;
+- docs, tests, examples, or conformance fixture additions;
+- adding package APIs that only consume existing metadata, such as a canonical
+  JSON writer over the current model;
+- regenerating files with byte-identical generated metadata.
+
+Downstream consumers should treat `bonyRegistryVersion` as a schema/metadata
+compatibility signal, not as a package version. A consumer may record the
+registry version it was built and tested against; if a newly pinned runtime has
+a different value, rerun import/export and persistence compatibility tests
+before adopting it. A higher registry version usually means the consumer may
+need to understand new fields or new default/omission behavior. The same
+registry version does not guarantee identical runtime behavior or API surface:
+use the package version and, for path/git dependencies during the pre-1.0 line,
+the exact commit SHA to track bug fixes and API additions.
+
 ### Spec document version
 
 The spec document version is a human-facing label that tracks the format version.
