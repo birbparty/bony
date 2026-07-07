@@ -1448,7 +1448,8 @@ proc addDbAnimationClip(
       timelines.add dbScaleTimeline(bone, anim.name, animBone.scaleFrames, armature.frameRate)
 
   if timelines.len == 0:
-    return
+    raiseDb("unsupportedFeature", "animation[" & anim.name & "]", "animation",
+      "animation has no supported Tier 1 bone timelines")
   try:
     clips.add animationClip(data, anim.name, timelines)
   except BonyLoadError as exc:
