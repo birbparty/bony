@@ -3200,10 +3200,18 @@ spec "bony package":
     let dbBnbPath = "/tmp/bony_cli_harness_db_out.bnb"
     let dbRoundTripPath = "/tmp/bony_cli_harness_db_roundtrip.bony"
     let dbRejectMeshPath = "/tmp/bony_cli_harness_db_reject_mesh.json"
+    let dbRejectMeshOutPath = "/tmp/bony_cli_harness_db_reject_mesh.bony"
     let dbRejectBadParentPath = "/tmp/bony_cli_harness_db_reject_parent.json"
+    let dbRejectBadParentOutPath = "/tmp/bony_cli_harness_db_reject_parent.bony"
     let dbRejectDisplayXformPath = "/tmp/bony_cli_harness_db_reject_disp_xform.json"
+    let dbRejectDisplayXformOutPath = "/tmp/bony_cli_harness_db_reject_disp_xform.bony"
+    let dbAnimatedPath = "/tmp/bony_cli_harness_db_animated.json"
+    let dbAnimatedOutPath = "/tmp/bony_cli_harness_db_animated.bony"
     for path in [cliPath, skePath, dbOutPath, dbBnbPath, dbRoundTripPath,
-                 dbRejectMeshPath, dbRejectBadParentPath, dbRejectDisplayXformPath]:
+                 dbRejectMeshPath, dbRejectMeshOutPath,
+                 dbRejectBadParentPath, dbRejectBadParentOutPath,
+                 dbRejectDisplayXformPath, dbRejectDisplayXformOutPath,
+                 dbAnimatedPath, dbAnimatedOutPath]:
       if fileExists(path):
         removeFile(path)
 
@@ -3212,8 +3220,8 @@ spec "bony package":
       options = {poStdErrToStdOut},
     )
 
-    # Minimal valid 5.x _ske.json with two bones and one slot (no assets needed
-    # for a setup-only, no-skin import).
+    # Minimal valid 5.x _ske.json with unsorted child-before-parent bones and
+    # one slot (no assets needed for a setup-only, no-skin import).
     writeFile(skePath, """{
   "version": "5.6.300.1",
   "name": "db_test",
@@ -3224,8 +3232,8 @@ spec "bony package":
       "name": "hero",
       "bone": [
         {"name": "root"},
-        {"name": "torso", "parent": "root", "transform": {"x": 0, "y": 10, "skX": 5, "skY": 5, "scX": 1, "scY": 1}},
-        {"name": "arm", "parent": "torso", "transform": {"x": 20, "y": -5, "skX": -15, "skY": -10}}
+        {"name": "arm", "parent": "torso", "transform": {"x": 20, "y": -5, "skX": -15, "skY": -10}},
+        {"name": "torso", "parent": "root", "transform": {"x": 0, "y": 10, "skX": 5, "skY": 5, "scX": 1, "scY": 1}}
       ],
       "slot": [
         {"name": "body_slot", "parent": "torso"}
@@ -3262,8 +3270,9 @@ spec "bony package":
 """)
     let rejectedMesh = runProcess(
       cliPath,
-      ["import-dragonbones", dbRejectMeshPath, "/tmp/bony_cli_harness_db_bad.bony", "--setup-only"],
+      ["import-dragonbones", dbRejectMeshPath, dbRejectMeshOutPath, "--setup-only"],
     )
+    let rejectedMeshLeftPartial = fileExists(dbRejectMeshOutPath)
 
     # Reject: slot parent references non-existent bone (invalidReference).
     writeFile(dbRejectBadParentPath, """{
@@ -3282,8 +3291,9 @@ spec "bony package":
 """)
     let rejectedBadParent = runProcess(
       cliPath,
-      ["import-dragonbones", dbRejectBadParentPath, "/tmp/bony_cli_harness_db_bad.bony", "--setup-only"],
+      ["import-dragonbones", dbRejectBadParentPath, dbRejectBadParentOutPath, "--setup-only"],
     )
+    let rejectedBadParentLeftPartial = fileExists(dbRejectBadParentOutPath)
 
     # Reject: non-identity display transform (unsupportedFeature).
     writeFile(dbRejectDisplayXformPath, """{
@@ -3307,12 +3317,35 @@ spec "bony package":
 """)
     let rejectedDisplayXform = runProcess(
       cliPath,
-      ["import-dragonbones", dbRejectDisplayXformPath, "/tmp/bony_cli_harness_db_bad.bony", "--setup-only"],
+      ["import-dragonbones", dbRejectDisplayXformPath, dbRejectDisplayXformOutPath, "--setup-only"],
+    )
+    let rejectedDisplayXformLeftPartial = fileExists(dbRejectDisplayXformOutPath)
+
+    # Static setup-only imports should be quiet; animated setup-only imports
+    # currently suppress animation with an explicit diagnostic.
+    writeFile(dbAnimatedPath, """{
+  "version": "5.6.300.1",
+  "name": "db_anim",
+  "armature": [
+    {
+      "type": "Armature",
+      "frameRate": 24,
+      "name": "animated_arm",
+      "bone": [{"name": "root"}],
+      "animation": [{"name": "idle", "duration": 0}]
+    }
+  ]
+}
+""")
+    let importedAnimated = runProcess(
+      cliPath,
+      ["import-dragonbones", dbAnimatedPath, dbAnimatedOutPath, "--setup-only"],
     )
 
     then:
       compileResult.exitCode == 0
       importDb.exitCode == 0
+      importDb.output.strip() == ""
       dbJsonToBnb.exitCode == 0
       dbBnbToJson.exitCode == 0
       imported.bones.len == 3
@@ -3331,19 +3364,30 @@ spec "bony package":
       imported.slots[0].bone == "torso"
       rejectedMesh.exitCode != 0
       rejectedMesh.output.contains("unsupportedFeature")
+      rejectedMesh.output.contains("target=skin.slot[slot1].display[0]")
       rejectedMesh.output.contains("capability=mesh")
+      not rejectedMeshLeftPartial
       rejectedBadParent.exitCode != 0
       rejectedBadParent.output.contains("invalidReference")
+      rejectedBadParent.output.contains("target=slot1")
+      rejectedBadParent.output.contains("capability=parent")
+      not rejectedBadParentLeftPartial
       not rejectedMesh.output.contains("Traceback")
       not rejectedBadParent.output.contains("Traceback")
       rejectedDisplayXform.exitCode != 0
       rejectedDisplayXform.output.contains("unsupportedFeature")
+      rejectedDisplayXform.output.contains("target=skin.slot[slot1].display[0]")
       rejectedDisplayXform.output.contains("capability=displayTransform")
       not rejectedDisplayXform.output.contains("Traceback")
+      not rejectedDisplayXformLeftPartial
+      importedAnimated.exitCode == 0
+      importedAnimated.output.contains("--setup-only: animation suppressed")
 
     for path in [cliPath, skePath, dbOutPath, dbBnbPath, dbRoundTripPath,
-                 dbRejectMeshPath, dbRejectBadParentPath, dbRejectDisplayXformPath,
-                 "/tmp/bony_cli_harness_db_bad.bony"]:
+                 dbRejectMeshPath, dbRejectMeshOutPath,
+                 dbRejectBadParentPath, dbRejectBadParentOutPath,
+                 dbRejectDisplayXformPath, dbRejectDisplayXformOutPath,
+                 dbAnimatedPath, dbAnimatedOutPath]:
       if fileExists(path):
         removeFile(path)
 
