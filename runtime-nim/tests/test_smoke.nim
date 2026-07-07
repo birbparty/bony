@@ -3211,6 +3211,7 @@ spec "bony package":
     let dbAnimatedPreserveOutPath = "/tmp/bony_cli_harness_db_animated_preserve.bony"
     let dbAnimatedBnbPath = "/tmp/bony_cli_harness_db_animated.bnb"
     let dbAnimatedRoundTripPath = "/tmp/bony_cli_harness_db_animated_roundtrip.bony"
+    let dbAnimatedGoldenPath = "/tmp/bony_cli_harness_db_animated_golden.json"
     let dbUnsupportedAnimPath = "/tmp/bony_cli_harness_db_unsupported_anim.json"
     let dbUnsupportedAnimOutPath = "/tmp/bony_cli_harness_db_unsupported_anim.bony"
     let dbSetupOnlySkipsAnimPath = "/tmp/bony_cli_harness_db_setup_skips_anim.json"
@@ -3222,7 +3223,7 @@ spec "bony package":
                  dbRejectBadParentPath, dbRejectBadParentOutPath,
                  dbRejectDisplayXformPath, dbRejectDisplayXformOutPath,
                  dbAnimatedPath, dbAnimatedOutPath, dbAnimatedPreserveOutPath,
-                 dbAnimatedBnbPath, dbAnimatedRoundTripPath,
+                 dbAnimatedBnbPath, dbAnimatedRoundTripPath, dbAnimatedGoldenPath,
                  dbUnsupportedAnimPath, dbUnsupportedAnimOutPath,
                  dbSetupOnlySkipsAnimPath, dbSetupOnlySkipsAnimOutPath,
                  dbZeroDurationAnimPath, dbZeroDurationAnimOutPath]:
@@ -3456,6 +3457,17 @@ spec "bony package":
     let roundTrippedAnimatedAsset =
       if fileExists(dbAnimatedRoundTripPath): loadBonyJsonAsset(readFile(dbAnimatedRoundTripPath))
       else: bonyAsset(skeletonData(skeletonHeader("err", "0"), @[boneData("err", "")]))
+    let animatedGolden = runProcess(
+      cliPath,
+      ["golden-gen", dbAnimatedPreserveOutPath, dbAnimatedGoldenPath, "--animation", "all_channels", "--t", "0.5"],
+    )
+    let animatedGoldenWithoutContext = runProcess(
+      cliPath,
+      ["golden-gen", dbAnimatedPreserveOutPath, dbAnimatedGoldenPath, "--t", "0.5"],
+    )
+    let animatedGoldenJson =
+      if fileExists(dbAnimatedGoldenPath): parseJson(readFile(dbAnimatedGoldenPath))
+      else: newJObject()
 
     var allChannelsName = ""
     var allChannelsDuration = -1.0
@@ -3509,6 +3521,15 @@ spec "bony package":
     var rtSlideTimes: seq[float64]
     var rtSlideXs: seq[float64]
     var rtSlideYs: seq[float64]
+    var animatedGoldenBoneCount = -1
+    var animatedGoldenRootTx = -9999.0
+    var animatedGoldenRootTy = -9999.0
+    if animatedGoldenJson.hasKey("bones") and animatedGoldenJson["bones"].kind == JArray:
+      animatedGoldenBoneCount = animatedGoldenJson["bones"].elems.len
+      for bone in animatedGoldenJson["bones"].elems:
+        if bone.hasKey("name") and bone["name"].getStr() == "root":
+          animatedGoldenRootTx = bone["world"]["tx"].getFloat()
+          animatedGoldenRootTy = bone["world"]["ty"].getFloat()
     if preservedAnimatedAsset.animations.len >= 2:
       let allChannels = preservedAnimatedAsset.animations[0]
       allChannelsName = allChannels.name
@@ -3795,6 +3816,12 @@ spec "bony package":
       preservedAnimatedCanonical == preservedAnimatedJson
       dbAnimatedJsonToBnb.exitCode == 0
       dbAnimatedBnbToJson.exitCode == 0
+      animatedGolden.exitCode == 0
+      animatedGoldenWithoutContext.exitCode != 0
+      animatedGoldenWithoutContext.output.contains("--t is reserved")
+      animatedGoldenBoneCount == 2
+      closeTo(animatedGoldenRootTx, 17.0)
+      closeTo(animatedGoldenRootTy, -24.0)
       preservedAnimatedAsset.animations.len == 2
       roundTrippedAnimatedAsset.animations.len == 2
       allChannelsName == "all_channels"
@@ -3904,7 +3931,7 @@ spec "bony package":
                  dbRejectBadParentPath, dbRejectBadParentOutPath,
                  dbRejectDisplayXformPath, dbRejectDisplayXformOutPath,
                  dbAnimatedPath, dbAnimatedOutPath, dbAnimatedPreserveOutPath,
-                 dbAnimatedBnbPath, dbAnimatedRoundTripPath,
+                 dbAnimatedBnbPath, dbAnimatedRoundTripPath, dbAnimatedGoldenPath,
                  dbUnsupportedAnimPath, dbUnsupportedAnimOutPath,
                  dbSetupOnlySkipsAnimPath, dbSetupOnlySkipsAnimOutPath,
                  dbZeroDurationAnimPath, dbZeroDurationAnimOutPath]:
