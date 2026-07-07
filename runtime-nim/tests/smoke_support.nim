@@ -1,5 +1,7 @@
 {.push warning[UnusedImport]: off.}
 
+# Topic split tests `include` this file instead of importing it so they can reuse
+# the original smoke-test private fixture procs without exporting test-only API.
 import std/[json, math, os, osproc, sequtils, strutils, tables]
 
 import bddy
