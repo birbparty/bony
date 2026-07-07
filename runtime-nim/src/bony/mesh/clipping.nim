@@ -1,6 +1,6 @@
 ## M4 convex polygon clipping for skinned mesh triangles.
 
-import bony/mesh/clip_core
+import bony/mesh/private/clip_core
 import bony/mesh/skinning
 import bony/model
 
@@ -14,15 +14,6 @@ type
 
 proc clipVertex*(x, y: float64): ClipVertex =
   ClipVertex(x: quantizeF32(x, "clip.x"), y: quantizeF32(y, "clip.y"))
-
-
-proc clippedVertex(vertex: SkinnedMeshVertex): SkinnedMeshVertex =
-  SkinnedMeshVertex(
-    x: quantizeF32(vertex.x, "clip.vertex.x"),
-    y: quantizeF32(vertex.y, "clip.vertex.y"),
-    u: quantizeF32(vertex.u, "clip.vertex.u"),
-    v: quantizeF32(vertex.v, "clip.vertex.v"),
-  )
 
 
 proc validateClipVertex(vertex: ClipVertex; index: int) =
@@ -54,7 +45,9 @@ proc validateConvexClip*(vertices: openArray[ClipVertex]) =
       raise newBonyLoadError(schemaViolation, "clip polygon must be convex in v1")
 
 
-proc lerpSkinnedVertex(start, finish: SkinnedMeshVertex; t: float64): SkinnedMeshVertex =
+proc lerpSkinnedVertex(start, finish: SkinnedMeshVertex; t: float64; parallel: bool): SkinnedMeshVertex =
+  if parallel:
+    return finish
   SkinnedMeshVertex(
     x: quantizeF32(start.x + (finish.x - start.x) * t, "clip.vertex.x"),
     y: quantizeF32(start.y + (finish.y - start.y) * t, "clip.vertex.y"),

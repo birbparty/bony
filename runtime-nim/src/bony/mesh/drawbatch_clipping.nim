@@ -3,12 +3,13 @@
 ## `clipDrawBatchTriangles` clips a mesh triangle *soup* per-triangle.
 ##
 ## This module shares the Sutherland-Hodgman geometry with `mesh/clipping.nim`
-## through `mesh/clip_core.nim`; only `DrawVertex` interpolation, color-channel
-## quantization, and draw-batch-specific bookkeeping live here. The epsilon,
-## orientation handling, fan re-triangulation (pivot on clipped vertex 0), and
-## output-boundary `quantizeF32` match `docs/clipping-attachment-contract.md`.
+## through `mesh/private/clip_core.nim`; only `DrawVertex` interpolation,
+## color-channel quantization, and draw-batch-specific bookkeeping live here.
+## The epsilon, orientation handling, fan re-triangulation (pivot on clipped
+## vertex 0), and output-boundary `quantizeF32` match
+## `docs/clipping-attachment-contract.md`.
 
-import bony/mesh/clip_core
+import bony/mesh/private/clip_core
 import bony/model
 
 type
@@ -41,7 +42,9 @@ proc quantized(vertex: DrawVertex): DrawVertex =
   )
 
 
-proc lerpDrawVertex(start, finish: DrawVertex; t: float64): DrawVertex =
+proc lerpDrawVertex(start, finish: DrawVertex; t: float64; parallel: bool): DrawVertex =
+  if parallel:
+    return quantized(finish)
   quantized(DrawVertex(
     x: start.x + (finish.x - start.x) * t,
     y: start.y + (finish.y - start.y) * t,
@@ -83,8 +86,9 @@ proc clipDrawBatchTriangles*(subject: openArray[DrawVertex];
   ## Clip a triangle-*soup* `DrawBatch` (an explicit `indices` triangle list —
   ## e.g. a skinned mesh) against a convex clip polygon in the same (world) space.
   ## Unlike `clipDrawBatchPolygon`, which reinterprets `subject` as a single
-  ## convex boundary ring, this clips **each triangle independently** so shared /
-  ## interior vertices and non-boundary index order are preserved.
+  ## convex boundary ring, this clips **each triangle independently** so interior
+  ## vertices and arbitrary mesh index order are handled as triangle-soup input
+  ## rather than as one polygon boundary.
   ##
   ## Every referenced triangle `(indices[i], indices[i+1], indices[i+2])` is
   ## Sutherland-Hodgman clipped against `clip`; each surviving clipped convex

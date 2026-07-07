@@ -8,6 +8,10 @@ type
     x*: float64
     y*: float64
 
+  IntersectionHit = object
+    parallel: bool
+    t: float64
+
 
 proc clipPoint*(x, y: float64): ClipPoint =
   ClipPoint(x: x, y: y)
@@ -50,25 +54,30 @@ proc allInside*[V, P](subject: openArray[V]; clip: openArray[P]; orientation: fl
   true
 
 
-proc intersectionT[V, P](start, finish: V; a, b: P): float64 =
+proc intersectionHit[V, P](start, finish: V; a, b: P): IntersectionHit =
   let rx = finish.x - start.x
   let ry = finish.y - start.y
   let sx = b.x - a.x
   let sy = b.y - a.y
   let denom = crossZ(rx, ry, sx, sy)
   if abs(denom) <= clipEpsilon:
-    return 1.0
-  crossZ(a.x - start.x, a.y - start.y, sx, sy) / denom
+    return IntersectionHit(parallel: true, t: 1.0)
+  IntersectionHit(
+    parallel: false,
+    t: crossZ(a.x - start.x, a.y - start.y, sx, sy) / denom,
+  )
 
 
 proc clipConvex*[V, P](
   subject: openArray[V];
   clip: openArray[P];
   orientation: float64;
-  lerp: proc(start, finish: V; t: float64): V;
+  lerp: proc(start, finish: V; t: float64; parallel: bool): V;
 ): seq[V] =
-  ## Clip `subject` against the convex `clip` polygon. `lerp` owns all
-  ## vertex-format-specific interpolation and output quantization.
+  ## Clip `subject` against a pre-validated convex `clip` polygon. Callers own
+  ## `clip.len >= 3`, non-zero area, convexity validation, and must pass
+  ## `signedArea(clip)` as `orientation`. `lerp` owns vertex-format-specific
+  ## interpolation and output quantization, including near-parallel fallbacks.
   result = @subject
   for edgeIndex in 0 ..< clip.len:
     if result.len == 0:
@@ -83,9 +92,11 @@ proc clipConvex*[V, P](
       let currentInside = inside(current, a, b, orientation)
       if currentInside:
         if not previousInside:
-          result.add lerp(previous, current, intersectionT(previous, current, a, b))
-        result.add lerp(current, current, 1.0)
+          let hit = intersectionHit(previous, current, a, b)
+          result.add lerp(previous, current, hit.t, hit.parallel)
+        result.add lerp(current, current, 1.0, false)
       elif previousInside:
-        result.add lerp(previous, current, intersectionT(previous, current, a, b))
+        let hit = intersectionHit(previous, current, a, b)
+        result.add lerp(previous, current, hit.t, hit.parallel)
       previous = current
       previousInside = currentInside
