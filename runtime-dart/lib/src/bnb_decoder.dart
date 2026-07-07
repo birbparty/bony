@@ -66,13 +66,6 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
     );
   }
 
-  String stateNameAt(List<StateMachineState> states, int index, String ctx) {
-    if (index < 0 || index >= states.length) {
-      throw FormatException('.bnb $ctx state index is out of range');
-    }
-    return states[index].name;
-  }
-
   final handlers = <int, void Function(_BnbObj)>{
     wire.bonyTypeKeySkeleton: (obj) {
       skinBuilder.flush();
@@ -469,7 +462,6 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
     wire.bonyTypeKeyAnimationClip: (obj) {
       skinBuilder.flush();
       deformerBuilder.flush();
-      animationBuilder.flush();
       animationBuilder.start(
           _bStr(obj, wire.bonyPropertyKeyName, strings, 'animationClip.name'));
     },
@@ -591,7 +583,6 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
       skinBuilder.flush();
       deformerBuilder.flush();
       animationBuilder.flush();
-      stateMachineBuilder.flushMachine();
       stateMachineBuilder.start(
           _bStr(obj, wire.bonyPropertyKeyName, strings, 'stateMachine.name'));
     },
@@ -746,12 +737,12 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
       stateMachineBuilder
           .requireOpenLayer('.bnb stateMachineTransition without layer');
       stateMachineBuilder.startTransition(
-        stateNameAt(
+        _stateNameAt(
             stateMachineBuilder.currentLayerStates,
             _bRequiredVaruint(obj, wire.bonyPropertyKeyTransitionFromStateIndex,
                 'stateMachineTransition.from'),
             'stateMachineTransition.from'),
-        stateNameAt(
+        _stateNameAt(
             stateMachineBuilder.currentLayerStates,
             _bRequiredVaruint(obj, wire.bonyPropertyKeyTransitionToStateIndex,
                 'stateMachineTransition.to'),
@@ -761,6 +752,8 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
     wire.bonyTypeKeyStateMachineCondition: (obj) {
       skinBuilder.flush();
       deformerBuilder.flush();
+      stateMachineBuilder.requirePendingTransition(
+          '.bnb stateMachineCondition without transition');
       final inputIndex = _bRequiredVaruint(
           obj,
           wire.bonyPropertyKeyConditionInputIndex,
@@ -898,7 +891,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
             name: listenerName,
             kind: StateMachineListenerKind.stateEnter,
             layer: layer.name,
-            toState: stateNameAt(
+            toState: _stateNameAt(
                 layer.states,
                 _bRequiredVaruint(obj, wire.bonyPropertyKeyListenerToStateIndex,
                     'stateMachineListener.to'),
@@ -918,7 +911,7 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
             name: listenerName,
             kind: StateMachineListenerKind.stateExit,
             layer: layer.name,
-            fromState: stateNameAt(
+            fromState: _stateNameAt(
                 layer.states,
                 _bRequiredVaruint(
                     obj,
@@ -936,14 +929,14 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
             name: listenerName,
             kind: StateMachineListenerKind.transition_,
             layer: layer.name,
-            fromState: stateNameAt(
+            fromState: _stateNameAt(
                 layer.states,
                 _bRequiredVaruint(
                     obj,
                     wire.bonyPropertyKeyListenerFromStateIndex,
                     'stateMachineListener.from'),
                 'stateMachineListener.from'),
-            toState: stateNameAt(
+            toState: _stateNameAt(
                 layer.states,
                 _bRequiredVaruint(obj, wire.bonyPropertyKeyListenerToStateIndex,
                     'stateMachineListener.to'),
@@ -1053,7 +1046,12 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
   };
 
   for (final obj in decodeObjects) {
-    handlers[obj.typeKey]?.call(obj);
+    final handler = handlers[obj.typeKey];
+    if (handler == null) {
+      throw FormatException(
+          '.bnb decoder has no handler for known type ${obj.typeKey}');
+    }
+    handler(obj);
   }
   skinBuilder.flush();
   deformerBuilder.flush();
@@ -1243,9 +1241,20 @@ class _DeformerBuilder {
           )
         : const KeyformBlend();
     _deformers.add(DeformerRecord(deformer: deformerData, keyformBlend: blend));
+    _clearPending();
+  }
+
+  void _clearPending() {
     _pending = false;
+    _id = '';
+    _parent = '';
+    _order = 0;
+    _kind = DeformerKind.warp;
+    _warp = null;
+    _rotation = null;
     _geometryReady = false;
     _blendPending = false;
+    _blendValueCount = 0;
     _blendAxes = [];
     _keyforms = [];
   }
@@ -1257,6 +1266,7 @@ class _DeformerBuilder {
     required DeformerKind kind,
   }) {
     flush();
+    _clearPending();
     _id = id;
     _parent = parent;
     _order = order;
@@ -1389,6 +1399,10 @@ class _StateMachineBuilder {
 
   void requireOpenLayer(String message) {
     if (!hasOpenLayer) throw FormatException(message);
+  }
+
+  void requirePendingTransition(String message) {
+    if (!hasPendingTransition) throw FormatException(message);
   }
 
   void addInput(StateMachineInput input) => _inputs.add(input);
