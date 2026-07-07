@@ -54,6 +54,12 @@ proc canonicalJson*(text: string; asset = false): string =
   else:
     toBonyJson(loadBonyJson(text))
 
+proc canonicalSkeletonJson*(text: string): string =
+  canonicalJson(text)
+
+proc canonicalAssetJson*(text: string): string =
+  canonicalJson(text, asset = true)
+
 proc readBytes*(path: string): seq[byte] =
   let content = readFile(path)
   result = newSeq[byte](content.len)
@@ -65,10 +71,11 @@ proc runProcess*(
   args: openArray[string],
 ): tuple[output: string; exitCode: int] =
   let process = startProcess(binary, args = args, options = {poStdErrToStdOut})
-  let output = process.outputStream.readAll()
-  let exitCode = process.waitForExit()
-  process.close()
-  (output, exitCode)
+  try:
+    result.output = process.outputStream.readAll()
+    result.exitCode = process.waitForExit()
+  finally:
+    process.close()
 
 proc stringPayload*(table: var BnbStringTable; value: string): seq[byte] =
   result.writeStringPayload(table, value)
@@ -85,14 +92,21 @@ template checkGolden*(
 ) =
   mixin writeNumericGolden
   let outPath = getTempDir() / (
-    outPrefix & "_" & sampleName & "_" & extractFilename(assetPath) & ".json"
+    outPrefix & "_" & sampleName & "_" & $getCurrentProcessId() & "_" &
+    extractFilename(assetPath) & ".json"
   )
   try:
     var args = @[assetPath, outPath]
     for arg in argsAfterOutput:
       args.add(arg)
     writeNumericGolden(args)
-    doAssert canonicalText(outPath) == canonicalText(expectedPath)
+    let actual = canonicalText(outPath)
+    let expected = canonicalText(expectedPath)
+    doAssert actual == expected,
+      "golden mismatch for asset=" & assetPath &
+      " sample=" & sampleName &
+      " output=" & outPath &
+      " expected=" & expectedPath
   finally:
     if fileExists(outPath):
       removeFile(outPath)
