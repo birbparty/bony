@@ -13,19 +13,36 @@ import 'package:bony/bony.dart';
 
 const double _tol = 1e-4;
 
+BoneData _bone(String name, {String parent = '', double x = 0.0}) => BoneData(
+      name: name,
+      parent: parent,
+      x: x,
+      y: 0.0,
+      rotation: 0.0,
+      scaleX: 1.0,
+      scaleY: 1.0,
+      shearX: 0.0,
+      shearY: 0.0,
+      inheritRotation: true,
+      inheritScale: true,
+      inheritReflection: true,
+      transformMode: 'normal',
+    );
+
 void _expectClose(double actual, double expected, String label) {
   expect(
     (actual - expected).abs(),
     lessThanOrEqualTo(_tol),
-    reason: '$label: actual=$actual expected=$expected diff=${(actual - expected).abs()}',
+    reason:
+        '$label: actual=$actual expected=$expected diff=${(actual - expected).abs()}',
   );
 }
 
 void _expectAffine(Affine2 actual, Map<String, dynamic> golden, String label) {
-  _expectClose(actual.a,  (golden['a']  as num).toDouble(), '$label.a');
-  _expectClose(actual.b,  (golden['b']  as num).toDouble(), '$label.b');
-  _expectClose(actual.c,  (golden['c']  as num).toDouble(), '$label.c');
-  _expectClose(actual.d,  (golden['d']  as num).toDouble(), '$label.d');
+  _expectClose(actual.a, (golden['a'] as num).toDouble(), '$label.a');
+  _expectClose(actual.b, (golden['b'] as num).toDouble(), '$label.b');
+  _expectClose(actual.c, (golden['c'] as num).toDouble(), '$label.c');
+  _expectClose(actual.d, (golden['d'] as num).toDouble(), '$label.d');
   _expectClose(actual.tx, (golden['tx'] as num).toDouble(), '$label.tx');
   _expectClose(actual.ty, (golden['ty'] as num).toDouble(), '$label.ty');
 }
@@ -62,9 +79,11 @@ void main() {
     });
 
     test('bone world matrices match golden', () {
-      final goldenBones = (golden['bones'] as List<dynamic>)
-          .cast<Map<String, dynamic>>();
-      final goldenByName = {for (final b in goldenBones) b['name'] as String: b};
+      final goldenBones =
+          (golden['bones'] as List<dynamic>).cast<Map<String, dynamic>>();
+      final goldenByName = {
+        for (final b in goldenBones) b['name'] as String: b
+      };
 
       for (var i = 0; i < data.bones.length; i++) {
         final bone = data.bones[i];
@@ -86,23 +105,25 @@ void main() {
     });
 
     test('draw batch slot/bone/attachment/blendMode match golden', () {
-      final goldenBatches = (golden['drawBatches'] as List<dynamic>)
-          .cast<Map<String, dynamic>>();
+      final goldenBatches =
+          (golden['drawBatches'] as List<dynamic>).cast<Map<String, dynamic>>();
       for (var i = 0; i < goldenBatches.length; i++) {
         final gb = goldenBatches[i];
         final b = batches[i];
         expect(b.slot, gb['slot'], reason: 'batches[$i].slot');
         expect(b.bone, gb['bone'], reason: 'batches[$i].bone');
-        expect(b.attachment, gb['attachment'], reason: 'batches[$i].attachment');
+        expect(b.attachment, gb['attachment'],
+            reason: 'batches[$i].attachment');
         expect(b.blendMode, gb['blendMode'], reason: 'batches[$i].blendMode');
-        expect(b.texturePage, gb['texturePage'], reason: 'batches[$i].texturePage');
+        expect(b.texturePage, gb['texturePage'],
+            reason: 'batches[$i].texturePage');
         expect(b.clipId, gb['clipId'], reason: 'batches[$i].clipId');
       }
     });
 
     test('draw batch world matrices match golden', () {
-      final goldenBatches = (golden['drawBatches'] as List<dynamic>)
-          .cast<Map<String, dynamic>>();
+      final goldenBatches =
+          (golden['drawBatches'] as List<dynamic>).cast<Map<String, dynamic>>();
       for (var i = 0; i < goldenBatches.length; i++) {
         _expectAffine(
           batches[i].world,
@@ -113,8 +134,8 @@ void main() {
     });
 
     test('draw batch vertices match golden (abs <= 1e-4)', () {
-      final goldenBatches = (golden['drawBatches'] as List<dynamic>)
-          .cast<Map<String, dynamic>>();
+      final goldenBatches =
+          (golden['drawBatches'] as List<dynamic>).cast<Map<String, dynamic>>();
       for (var i = 0; i < goldenBatches.length; i++) {
         final gverts = (goldenBatches[i]['vertices'] as List<dynamic>)
             .cast<Map<String, dynamic>>();
@@ -137,8 +158,8 @@ void main() {
     });
 
     test('draw batch indices match golden exactly', () {
-      final goldenBatches = (golden['drawBatches'] as List<dynamic>)
-          .cast<Map<String, dynamic>>();
+      final goldenBatches =
+          (golden['drawBatches'] as List<dynamic>).cast<Map<String, dynamic>>();
       for (var i = 0; i < goldenBatches.length; i++) {
         final gidx = (goldenBatches[i]['indices'] as List<dynamic>)
             .map((e) => (e as num).toInt())
@@ -157,12 +178,34 @@ void main() {
       expect(w, hasLength(d.bones.length));
     });
 
-    test('m5 rig (path constraints) world transforms compute without error', () {
+    test('m5 rig (path constraints) world transforms compute without error',
+        () {
       final d = loadBonyJson(
         File('../conformance/assets/m5_rig.bony').readAsStringSync(),
       );
       final w = computeWorldTransforms(d);
       expect(w, hasLength(d.bones.length));
+    });
+
+    test('programmatic child-before-parent data fails before FK composition',
+        () {
+      const header = SkeletonHeader(name: 'bad_order', version: '1.0');
+      final d = SkeletonData(
+        header: header,
+        bones: [
+          _bone('child', parent: 'root', x: 5.0),
+          _bone('root'),
+        ],
+        slots: const [],
+        regions: const [],
+        paths: const [],
+        pathAttachments: const [],
+      );
+
+      expect(
+        () => computeWorldTransforms(d),
+        throwsA(isA<FormatException>()),
+      );
     });
   });
 }
