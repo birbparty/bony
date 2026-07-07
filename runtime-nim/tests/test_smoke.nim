@@ -3210,12 +3210,18 @@ spec "bony package":
     let dbAnimatedPreserveOutPath = "/tmp/bony_cli_harness_db_animated_preserve.bony"
     let dbUnsupportedAnimPath = "/tmp/bony_cli_harness_db_unsupported_anim.json"
     let dbUnsupportedAnimOutPath = "/tmp/bony_cli_harness_db_unsupported_anim.bony"
+    let dbSetupOnlySkipsAnimPath = "/tmp/bony_cli_harness_db_setup_skips_anim.json"
+    let dbSetupOnlySkipsAnimOutPath = "/tmp/bony_cli_harness_db_setup_skips_anim.bony"
+    let dbZeroDurationAnimPath = "/tmp/bony_cli_harness_db_zero_duration_anim.json"
+    let dbZeroDurationAnimOutPath = "/tmp/bony_cli_harness_db_zero_duration_anim.bony"
     for path in [cliPath, skePath, dbOutPath, dbBnbPath, dbRoundTripPath,
                  dbRejectMeshPath, dbRejectMeshOutPath,
                  dbRejectBadParentPath, dbRejectBadParentOutPath,
                  dbRejectDisplayXformPath, dbRejectDisplayXformOutPath,
                  dbAnimatedPath, dbAnimatedOutPath, dbAnimatedPreserveOutPath,
-                 dbUnsupportedAnimPath, dbUnsupportedAnimOutPath]:
+                 dbUnsupportedAnimPath, dbUnsupportedAnimOutPath,
+                 dbSetupOnlySkipsAnimPath, dbSetupOnlySkipsAnimOutPath,
+                 dbZeroDurationAnimPath, dbZeroDurationAnimOutPath]:
       if fileExists(path):
         removeFile(path)
 
@@ -3223,6 +3229,56 @@ spec "bony package":
       "nim c --path:" & repoPath("runtime-nim", "src") & " -o:" & cliPath & " " & repoPath("cli", "bony_cli.nim"),
       options = {poStdErrToStdOut},
     )
+
+    proc dbArmatureJson(
+      animationJson: string;
+      boneJson = """[{"name": "root"}]""";
+      extraArmatureFields = "";
+    ): string =
+      """{
+  "version": "5.6.300.1",
+  "name": "db_anim_reject",
+  "armature": [
+    {
+      "type": "Armature",
+      "frameRate": 24,
+      "name": "reject_arm",
+      "bone": """ & boneJson & extraArmatureFields & """,
+      "animation": [""" & animationJson & """]
+    }
+  ]
+}
+"""
+
+    var dbRejectMatrixFailures: seq[string]
+    proc recordDbReject(
+      name, inputJson, codeFragment, targetFragment, capabilityFragment: string;
+      setupOnly = false;
+    ) =
+      let inputPath = "/tmp/bony_cli_harness_db_matrix_" & name & ".json"
+      let outputPath = "/tmp/bony_cli_harness_db_matrix_" & name & ".bony"
+      if fileExists(inputPath):
+        removeFile(inputPath)
+      if fileExists(outputPath):
+        removeFile(outputPath)
+      writeFile(inputPath, inputJson)
+      writeFile(outputPath, "sentinel output")
+      var args = @["import-dragonbones", inputPath, outputPath]
+      if setupOnly:
+        args.add "--setup-only"
+      let rejected = runProcess(cliPath, args)
+      let outputUnchanged = fileExists(outputPath) and readFile(outputPath) == "sentinel output"
+      if fileExists(inputPath):
+        removeFile(inputPath)
+      if fileExists(outputPath):
+        removeFile(outputPath)
+      if rejected.exitCode == 0 or
+         not rejected.output.contains(codeFragment) or
+         not rejected.output.contains(targetFragment) or
+         not rejected.output.contains(capabilityFragment) or
+         rejected.output.contains("Traceback") or
+         not outputUnchanged:
+        dbRejectMatrixFailures.add name & ": " & rejected.output
 
     # Minimal valid 5.x _ske.json with unsorted child-before-parent bones and
     # one slot (no assets needed for a setup-only, no-skin import).
@@ -3382,6 +3438,135 @@ spec "bony package":
     )
     let rejectedUnsupportedAnimOutput = readFile(dbUnsupportedAnimOutPath)
 
+    # --setup-only must skip animation channel validation while preserving
+    # structural armature validation above.
+    writeFile(dbSetupOnlySkipsAnimPath, dbArmatureJson("""{"name": "invalid_but_suppressed", "duration": 1, "bone": [
+        {"name": "root", "translateFrame": [
+          {"duration": 1, "tweenEasing": 0.5},
+          {"duration": 0}
+        ]}
+      ]}"""))
+    let setupOnlySkippedInvalidAnimation = runProcess(
+      cliPath,
+      ["import-dragonbones", dbSetupOnlySkipsAnimPath, dbSetupOnlySkipsAnimOutPath, "--setup-only"],
+    )
+    let setupOnlySkippedAsset =
+      if fileExists(dbSetupOnlySkipsAnimOutPath): loadBonyJsonAsset(readFile(dbSetupOnlySkipsAnimOutPath))
+      else: bonyAsset(skeletonData(skeletonHeader("err", "0"), @[boneData("err", "")]))
+
+    # Current local policy accepts animation.duration == 0 when the channel is a
+    # single zero-duration terminator key.
+    writeFile(dbZeroDurationAnimPath, dbArmatureJson("""{"name": "zero", "duration": 0, "bone": [
+        {"name": "root", "translateFrame": [{"duration": 0}]}
+      ]}"""))
+    let importedZeroDurationAnimation = runProcess(
+      cliPath,
+      ["import-dragonbones", dbZeroDurationAnimPath, dbZeroDurationAnimOutPath],
+    )
+    let zeroDurationAsset =
+      if fileExists(dbZeroDurationAnimOutPath): loadBonyJsonAsset(readFile(dbZeroDurationAnimOutPath))
+      else: bonyAsset(skeletonData(skeletonHeader("err", "0"), @[boneData("err", "")]))
+
+    recordDbReject(
+      "nonzero_tween",
+      dbArmatureJson("""{"name": "bad", "duration": 1, "bone": [
+        {"name": "root", "translateFrame": [
+          {"duration": 1, "tweenEasing": 0.5},
+          {"duration": 0}
+        ]}
+      ]}"""),
+      "unsupportedFeature", "target=animation[bad].bone[root].translateFrame[0]", "capability=tweenEasing",
+    )
+    recordDbReject(
+      "well_formed_curve",
+      dbArmatureJson("""{"name": "bad", "duration": 1, "bone": [
+        {"name": "root", "translateFrame": [
+          {"duration": 1, "curve": [0, 0, 1, 1]},
+          {"duration": 0}
+        ]}
+      ]}"""),
+      "unsupportedFeature", "target=animation[bad].bone[root].translateFrame[0]", "capability=curve",
+    )
+    recordDbReject(
+      "malformed_curve",
+      dbArmatureJson("""{"name": "bad", "duration": 1, "bone": [
+        {"name": "root", "translateFrame": [
+          {"duration": 1, "curve": [0, 1]},
+          {"duration": 0}
+        ]}
+      ]}"""),
+      "schemaViolation", "target=animation[bad].bone[root].translateFrame[0]", "capability=curve",
+    )
+    recordDbReject(
+      "clockwise",
+      dbArmatureJson("""{"name": "bad", "duration": 1, "bone": [
+        {"name": "root", "rotateFrame": [
+          {"duration": 1, "clockwise": 1},
+          {"duration": 0}
+        ]}
+      ]}"""),
+      "unsupportedFeature", "target=animation[bad].bone[root].rotateFrame[0]", "capability=clockwise",
+    )
+    recordDbReject(
+      "slot_channel",
+      dbArmatureJson(
+        """{"name": "bad", "duration": 0, "slot": [{"name": "slot1"}]}""",
+        extraArmatureFields = """,
+      "slot": [{"name": "slot1", "parent": "root"}]""",
+      ),
+      "unsupportedFeature", "target=animation[0]", "capability=slot",
+    )
+    recordDbReject(
+      "invalid_bone_reference",
+      dbArmatureJson("""{"name": "bad", "duration": 1, "bone": [
+        {"name": "ghost", "translateFrame": [
+          {"duration": 1},
+          {"duration": 0}
+        ]}
+      ]}"""),
+      "invalidReference", "target=ghost", "capability=bone",
+    )
+    recordDbReject(
+      "bad_duration_sum",
+      dbArmatureJson("""{"name": "bad", "duration": 2, "bone": [
+        {"name": "root", "translateFrame": [
+          {"duration": 1},
+          {"duration": 0}
+        ]}
+      ]}"""),
+      "schemaViolation", "target=animation[bad].bone[root]", "capability=translateFrame",
+    )
+    recordDbReject(
+      "missing_terminator",
+      dbArmatureJson("""{"name": "bad", "duration": 1, "bone": [
+        {"name": "root", "translateFrame": [{"duration": 1}]}
+      ]}"""),
+      "schemaViolation", "target=animation[bad].bone[root]", "capability=translateFrame",
+    )
+    recordDbReject(
+      "negative_scale",
+      dbArmatureJson(
+        """{"name": "bad", "duration": 0, "bone": [
+        {"name": "root", "translateFrame": [{"duration": 0}]}
+      ]}""",
+        boneJson = """[{"name": "root", "transform": {"scX": -1}}]""",
+      ),
+      "unsupportedFeature", "target=bone[0].transform", "capability=negativeScale",
+    )
+    for field in ["fadeInTime", "playTimes", "blendType", "type", "frame", "ffd"]:
+      let value =
+        if field in ["blendType", "type"]:
+          "\"unsupported\""
+        elif field in ["frame", "ffd"]:
+          "[]"
+        else:
+          "1"
+      recordDbReject(
+        "animation_field_" & field,
+        dbArmatureJson("""{"name": "bad", "duration": 0, """" & field & """": """ & value & """}"""),
+        "unsupportedFeature", "target=animation[0]", "capability=" & field,
+      )
+
     then:
       compileResult.exitCode == 0
       importDb.exitCode == 0
@@ -3436,13 +3621,22 @@ spec "bony package":
       rejectedUnsupportedAnim.output.contains("capability=animation")
       not rejectedUnsupportedAnim.output.contains("Traceback")
       rejectedUnsupportedAnimOutput == "sentinel output"
+      setupOnlySkippedInvalidAnimation.exitCode == 0
+      setupOnlySkippedInvalidAnimation.output.contains("--setup-only: animation suppressed")
+      setupOnlySkippedAsset.animations.len == 0
+      importedZeroDurationAnimation.exitCode == 0
+      zeroDurationAsset.animations.len == 1
+      closeTo(zeroDurationAsset.animations[0].duration, 0.0)
+      dbRejectMatrixFailures.join("\n") == ""
 
     for path in [cliPath, skePath, dbOutPath, dbBnbPath, dbRoundTripPath,
                  dbRejectMeshPath, dbRejectMeshOutPath,
                  dbRejectBadParentPath, dbRejectBadParentOutPath,
                  dbRejectDisplayXformPath, dbRejectDisplayXformOutPath,
                  dbAnimatedPath, dbAnimatedOutPath, dbAnimatedPreserveOutPath,
-                 dbUnsupportedAnimPath, dbUnsupportedAnimOutPath]:
+                 dbUnsupportedAnimPath, dbUnsupportedAnimOutPath,
+                 dbSetupOnlySkipsAnimPath, dbSetupOnlySkipsAnimOutPath,
+                 dbZeroDurationAnimPath, dbZeroDurationAnimOutPath]:
       if fileExists(path):
         removeFile(path)
 
