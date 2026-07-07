@@ -12,3 +12,4 @@ export 'src/physics_constraint.dart';
 export 'src/transform.dart';
 export 'src/transform_constraint.dart';
 export 'src/version.dart';
+export 'src/writer.dart';

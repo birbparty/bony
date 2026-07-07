@@ -1079,8 +1079,15 @@ void _validateStateMachines(SkeletonData data, _ValidationRegistry registry) {
     for (var li = 0; li < sm.layers.length; li++) {
       final layer = sm.layers[li];
       final lCtx = '$smCtx.layers[$li](${layer.name})';
+      if (layer.states.isEmpty) {
+        throw FormatException('$lCtx.states must not be empty');
+      }
       final stateNames = <String>{for (final s in layer.states) s.name};
       layerStateNames[layer.name] = stateNames;
+      if (!stateNames.contains(layer.initialState)) {
+        throw FormatException(
+            '$lCtx.initialState references unknown state: ${layer.initialState}');
+      }
       for (var si = 0; si < layer.states.length; si++) {
         final state = layer.states[si];
         final sCtx = '$lCtx.states[$si](${state.name})';
