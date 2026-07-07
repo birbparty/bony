@@ -9,6 +9,9 @@ spec "cli harness smoke coverage":
     let goldenPath = "/tmp/bony_cli_harness_golden.json"
     let framePath = "/tmp/bony_cli_harness_frame.png"
     let frameTopLeftPath = "/tmp/bony_cli_harness_frame_top_left.png"
+    let autoWeightsPath = "/tmp/bony_cli_harness_auto_weights.json"
+    let autoWeightsOutPath = "/tmp/bony_cli_harness_auto_weights_out.json"
+    let badAutoWeightsPath = "/tmp/bony_cli_harness_bad_auto_weights.json"
     let stateAssetPath = repoPath("conformance", "assets", "m8_rig.bony")
     let stateBnbPath = "/tmp/m8_rig.bnb"
     let stateScriptPath = "/tmp/bony_cli_harness_state_script.json"
@@ -34,6 +37,9 @@ spec "cli harness smoke coverage":
       goldenPath,
       framePath,
       frameTopLeftPath,
+      autoWeightsPath,
+      autoWeightsOutPath,
+      badAutoWeightsPath,
       stateScriptPath,
       stateBnbPath,
       badStateScriptPath,
@@ -77,6 +83,26 @@ spec "cli harness smoke coverage":
     let playTopLeft = runProcess(cliPath, ["play", assetPath, "--out", frameTopLeftPath, "--width", "8", "--height", "8", "--t", "0", "--origin", "top-left"])
     let playBadOrigin = runProcess(cliPath, ["play", assetPath, "--out", framePath, "--origin", "bad"])
     let unsupportedTime = runProcess(cliPath, ["golden-gen", assetPath, goldenPath, "--t", "1.25"])
+    writeFile(autoWeightsPath, """{
+  "format": "bony.auto-weights-input.v1",
+  "bones": [
+    {"name": "root", "worldX": 0, "worldY": 0},
+    {"name": "tip", "worldX": 10, "worldY": 0}
+  ],
+  "vertices": [
+    {"x": 2, "y": 0}
+  ],
+  "maxInfluences": 2
+}
+""")
+    writeFile(badAutoWeightsPath, """{
+  "format": "bony.auto-weights-input.v1",
+  "bones": ["root"],
+  "vertices": [{"x": 2, "y": 0}]
+}
+""")
+    let autoWeights = runProcess(cliPath, ["auto-weights", autoWeightsPath, autoWeightsOutPath])
+    let badAutoWeights = runProcess(cliPath, ["auto-weights", badAutoWeightsPath, autoWeightsOutPath])
     writeFile(stateScriptPath, """{
   "format": "bony.input-script.v1",
   "asset": "m8_rig.bony",
@@ -371,6 +397,7 @@ spec "cli harness smoke coverage":
       ["import-lottie", rejectAnimatedPath, "/tmp/bony_cli_harness_lottie_bad.bony", "--assets-dir", lottieAssetsDir],
     )
     let goldenJson = parseJson(readFile(goldenPath))
+    let autoWeightsJson = if fileExists(autoWeightsOutPath): parseJson(readFile(autoWeightsOutPath)) else: newJObject()
     let stateGoldenJson = if fileExists(stateGoldenPath): parseJson(readFile(stateGoldenPath)) else: newJObject()
     let colorStateGoldenJson = if fileExists(colorStateGoldenPath): parseJson(readFile(colorStateGoldenPath)) else: newJObject()
     let stateImage = if fileExists(stateFramePath): decodeImage(readFile(stateFramePath)) else: newImage(1, 1)
@@ -438,6 +465,12 @@ spec "cli harness smoke coverage":
       lottieBnbToJson.exitCode == 0
       unsupportedTime.exitCode != 0
       unsupportedTime.output.contains("--t is reserved")
+      autoWeights.exitCode == 0
+      autoWeightsJson["format"].getStr() == "bony.auto-weights-output.v1"
+      autoWeightsJson["vertices"].elems.len == 1
+      autoWeightsJson["vertices"].elems[0]["influences"].elems.len == 2
+      badAutoWeights.exitCode != 0
+      badAutoWeights.output.contains("bones[0] must be an object")
       rejectedOpacity.exitCode != 0
       rejectedOpacity.output.contains("unsupportedFeature")
       rejectedOpacity.output.contains("capability=opacity")
@@ -504,6 +537,9 @@ spec "cli harness smoke coverage":
       goldenPath,
       framePath,
       frameTopLeftPath,
+      autoWeightsPath,
+      autoWeightsOutPath,
+      badAutoWeightsPath,
       stateScriptPath,
       badStateScriptPath,
       duplicateStateScriptPath,
