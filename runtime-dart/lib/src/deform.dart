@@ -95,15 +95,15 @@ double _bernstein(int i, int degree, double t) =>
   double px,
   double py,
   DeformerData deformer,
-) {
-  if (deformer.kind == DeformerKind.rotation) {
-    return _applyRotation(px, py, deformer.rotation!);
-  }
-  final w = deformer.warp!;
-  final u = (px - w.minX) / (w.maxX - w.minX);
-  final v = (py - w.minY) / (w.maxY - w.minY);
-  return _applyWarpAt(px, py, w, u, v);
-}
+) =>
+    switch (deformer) {
+      RotationDeformer(:final rotation) => _applyRotation(px, py, rotation),
+      WarpDeformer(:final warp) => () {
+          final u = (px - warp.minX) / (warp.maxX - warp.minX);
+          final v = (py - warp.minY) / (warp.maxY - warp.minY);
+          return _applyWarpAt(px, py, warp, u, v);
+        }(),
+    };
 
 // Compute AABB of the four lattice-corner points after transformation by parent.
 ({double minX, double minY, double maxX, double maxY}) _transformedBounds(
@@ -131,46 +131,33 @@ double _bernstein(int i, int degree, double t) =>
 // For warp: transform every control point and recompute AABB.
 // For rotation: transform only the pivot point; angle/scale/opacity unchanged.
 DeformerData _transformFrame(DeformerData deformer, DeformerData parent) {
-  if (deformer.kind == DeformerKind.warp) {
-    final w = deformer.warp!;
-    final pts = w.controlPoints.map((p) {
-      final r = _applyToPoint(p.x, p.y, parent);
-      return DeformerPoint(x: quantizeF32(r.x), y: quantizeF32(r.y));
-    }).toList();
-    final b = _transformedBounds(w, parent);
-    return DeformerData(
-      id: deformer.id,
-      parent: deformer.parent,
-      order: deformer.order,
-      kind: DeformerKind.warp,
-      warp: WarpLattice(
-        rows: w.rows,
-        cols: w.cols,
-        minX: b.minX,
-        minY: b.minY,
-        maxX: b.maxX,
-        maxY: b.maxY,
-        controlPoints: pts,
-      ),
-    );
-  } else {
-    final rot = deformer.rotation!;
-    final p = _applyToPoint(rot.pivotX, rot.pivotY, parent);
-    return DeformerData(
-      id: deformer.id,
-      parent: deformer.parent,
-      order: deformer.order,
-      kind: DeformerKind.rotation,
-      rotation: RotationDeformerData(
-        pivotX: quantizeF32(p.x),
-        pivotY: quantizeF32(p.y),
-        angleDegrees: rot.angleDegrees,
-        scaleX: rot.scaleX,
-        scaleY: rot.scaleY,
-        opacity: rot.opacity,
-      ),
-    );
-  }
+  return switch (deformer) {
+    WarpDeformer(:final warp) => () {
+        final pts = warp.controlPoints.map((p) {
+          final r = _applyToPoint(p.x, p.y, parent);
+          return DeformerPoint(x: quantizeF32(r.x), y: quantizeF32(r.y));
+        }).toList();
+        final b = _transformedBounds(warp, parent);
+        return deformer.copyWith(
+          warp: warp.copyWith(
+            minX: b.minX,
+            minY: b.minY,
+            maxX: b.maxX,
+            maxY: b.maxY,
+            controlPoints: pts,
+          ),
+        );
+      }(),
+    RotationDeformer(:final rotation) => () {
+        final p = _applyToPoint(rotation.pivotX, rotation.pivotY, parent);
+        return deformer.copyWith(
+          rotation: rotation.copyWith(
+            pivotX: quantizeF32(p.x),
+            pivotY: quantizeF32(p.y),
+          ),
+        );
+      }(),
+  };
 }
 
 // Build a lookup key from axis names + coordinate values, null-byte delimited.
@@ -324,28 +311,15 @@ List<DeformerData> effectiveDeformers(
   final result = <DeformerData>[];
   for (final rec in records) {
     final blend = rec.keyformBlend;
-    if (blend.axes.isNotEmpty &&
-        blend.keyforms.isNotEmpty &&
-        rec.deformer.kind == DeformerKind.warp) {
-      final pts = sampleKeyformPoints(blend, samples);
-      final w = rec.deformer.warp!;
-      result.add(DeformerData(
-        id: rec.deformer.id,
-        parent: rec.deformer.parent,
-        order: rec.deformer.order,
-        kind: DeformerKind.warp,
-        warp: WarpLattice(
-          rows: w.rows,
-          cols: w.cols,
-          minX: w.minX,
-          minY: w.minY,
-          maxX: w.maxX,
-          maxY: w.maxY,
-          controlPoints: pts,
-        ),
-      ));
-    } else {
-      result.add(rec.deformer);
+    switch (rec.deformer) {
+      case final WarpDeformer deformer
+          when blend.axes.isNotEmpty && blend.keyforms.isNotEmpty:
+        final pts = sampleKeyformPoints(blend, samples);
+        result.add(deformer.copyWith(
+          warp: deformer.warp.copyWith(controlPoints: pts),
+        ));
+      case WarpDeformer() || RotationDeformer():
+        result.add(rec.deformer);
     }
   }
   return result;
@@ -384,23 +358,25 @@ List<({double x, double y})> applyDeformers(
       effective = _transformFrame(deformer, parentEffective);
     }
 
-    if (effective.kind == DeformerKind.warp) {
-      final ew = effective.warp!;
-      // u,v from ORIGINAL deformer bounds + SETUP vertex positions.
-      final dw = deformer.warp!;
-      final rangeX = dw.maxX - dw.minX;
-      final rangeY = dw.maxY - dw.minY;
-      for (var i = 0; i < result.length; i++) {
-        final u = (setup[i].x - dw.minX) / rangeX;
-        final v = (setup[i].y - dw.minY) / rangeY;
-        final r = _applyWarpAt(result[i].x, result[i].y, ew, u, v);
-        result[i] = r;
-      }
-    } else {
-      final rot = effective.rotation!;
-      for (var i = 0; i < result.length; i++) {
-        result[i] = _applyRotation(result[i].x, result[i].y, rot);
-      }
+    switch ((deformer, effective)) {
+      case (WarpDeformer(warp: final dw), WarpDeformer(warp: final ew)):
+        // u,v from ORIGINAL deformer bounds + SETUP vertex positions.
+        final rangeX = dw.maxX - dw.minX;
+        final rangeY = dw.maxY - dw.minY;
+        for (var i = 0; i < result.length; i++) {
+          final u = (setup[i].x - dw.minX) / rangeX;
+          final v = (setup[i].y - dw.minY) / rangeY;
+          final r = _applyWarpAt(result[i].x, result[i].y, ew, u, v);
+          result[i] = r;
+        }
+      case (RotationDeformer(), RotationDeformer(rotation: final rot)):
+        for (var i = 0; i < result.length; i++) {
+          result[i] = _applyRotation(result[i].x, result[i].y, rot);
+        }
+      case _:
+        throw FormatException(
+          'applyDeformers: effective deformer kind changed for "${deformer.id}"',
+        );
     }
     effectiveById[deformer.id] = effective;
   }

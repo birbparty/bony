@@ -51,6 +51,8 @@ void main() {
     expect(data.deformers, hasLength(2));
     final rot = data.deformers.firstWhere((r) => r.deformer.id == 'mesh_rot');
     final warp = data.deformers.firstWhere((r) => r.deformer.id == 'mesh_warp');
+    expect(rot.deformer, isA<RotationDeformer>());
+    expect(warp.deformer, isA<WarpDeformer>());
     expect(rot.deformer.kind, DeformerKind.rotation);
     expect(warp.deformer.kind, DeformerKind.warp);
     expect(warp.deformer.parent, 'mesh_rot');

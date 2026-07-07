@@ -695,6 +695,25 @@ class WarpLattice {
   final double maxX;
   final double maxY;
   final List<DeformerPoint> controlPoints;
+
+  WarpLattice copyWith({
+    int? rows,
+    int? cols,
+    double? minX,
+    double? minY,
+    double? maxX,
+    double? maxY,
+    List<DeformerPoint>? controlPoints,
+  }) =>
+      WarpLattice(
+        rows: rows ?? this.rows,
+        cols: cols ?? this.cols,
+        minX: minX ?? this.minX,
+        minY: minY ?? this.minY,
+        maxX: maxX ?? this.maxX,
+        maxY: maxY ?? this.maxY,
+        controlPoints: controlPoints ?? this.controlPoints,
+      );
 }
 
 class RotationDeformerData {
@@ -712,25 +731,89 @@ class RotationDeformerData {
   final double scaleX;
   final double scaleY;
   final double opacity;
+
+  RotationDeformerData copyWith({
+    double? pivotX,
+    double? pivotY,
+    double? angleDegrees,
+    double? scaleX,
+    double? scaleY,
+    double? opacity,
+  }) =>
+      RotationDeformerData(
+        pivotX: pivotX ?? this.pivotX,
+        pivotY: pivotY ?? this.pivotY,
+        angleDegrees: angleDegrees ?? this.angleDegrees,
+        scaleX: scaleX ?? this.scaleX,
+        scaleY: scaleY ?? this.scaleY,
+        opacity: opacity ?? this.opacity,
+      );
 }
 
 enum DeformerKind { warp, rotation }
 
-class DeformerData {
+sealed class DeformerData {
   const DeformerData({
     required this.id,
     this.parent = '',
     required this.order,
-    required this.kind,
-    this.warp,
-    this.rotation,
   });
   final String id;
   final String parent;
   final int order;
-  final DeformerKind kind;
-  final WarpLattice? warp;
-  final RotationDeformerData? rotation;
+  DeformerKind get kind;
+}
+
+class WarpDeformer extends DeformerData {
+  const WarpDeformer({
+    required super.id,
+    super.parent = '',
+    required super.order,
+    required this.warp,
+  });
+  final WarpLattice warp;
+
+  @override
+  DeformerKind get kind => DeformerKind.warp;
+
+  WarpDeformer copyWith({
+    String? id,
+    String? parent,
+    int? order,
+    WarpLattice? warp,
+  }) =>
+      WarpDeformer(
+        id: id ?? this.id,
+        parent: parent ?? this.parent,
+        order: order ?? this.order,
+        warp: warp ?? this.warp,
+      );
+}
+
+class RotationDeformer extends DeformerData {
+  const RotationDeformer({
+    required super.id,
+    super.parent = '',
+    required super.order,
+    required this.rotation,
+  });
+  final RotationDeformerData rotation;
+
+  @override
+  DeformerKind get kind => DeformerKind.rotation;
+
+  RotationDeformer copyWith({
+    String? id,
+    String? parent,
+    int? order,
+    RotationDeformerData? rotation,
+  }) =>
+      RotationDeformer(
+        id: id ?? this.id,
+        parent: parent ?? this.parent,
+        order: order ?? this.order,
+        rotation: rotation ?? this.rotation,
+      );
 }
 
 class Keyform {

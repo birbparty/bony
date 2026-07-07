@@ -68,11 +68,13 @@ void main() {
 
     test('root_rot is rotation kind', () {
       final rec = data.deformers.firstWhere((r) => r.deformer.id == 'root_rot');
+      expect(rec.deformer, isA<RotationDeformer>());
       expect(rec.deformer.kind, DeformerKind.rotation);
     });
 
     test('head_warp is warp kind with keyformBlend', () {
       final rec = data.deformers.firstWhere((r) => r.deformer.id == 'head_warp');
+      expect(rec.deformer, isA<WarpDeformer>());
       expect(rec.deformer.kind, DeformerKind.warp);
       expect(rec.keyformBlend.axes, isNotEmpty);
     });

@@ -810,11 +810,10 @@ DeformerRecord _parseDeformer(
         y: _required<num>(pm['y'], 'warp.controlPoint.y').toDouble(),
       );
     }).toList();
-    deformerData = DeformerData(
+    deformerData = WarpDeformer(
       id: id,
       parent: parent,
       order: order,
-      kind: DeformerKind.warp,
       warp: WarpLattice(
         rows: rows,
         cols: cols,
@@ -828,11 +827,10 @@ DeformerRecord _parseDeformer(
   } else if (kindStr == 'rotation') {
     final rj =
         _required<Map<String, dynamic>>(j['rotation'], 'deformer.rotation');
-    deformerData = DeformerData(
+    deformerData = RotationDeformer(
       id: id,
       parent: parent,
       order: order,
-      kind: DeformerKind.rotation,
       rotation: RotationDeformerData(
         pivotX: _required<num>(rj['pivotX'], 'rotation.pivotX').toDouble(),
         pivotY: _required<num>(rj['pivotY'], 'rotation.pivotY').toDouble(),
@@ -1729,25 +1727,27 @@ void _validate(SkeletonData data) {
       throw FormatException(
           '$ctx: parent deformer not found or not ordered before child: ${def.parent}');
     }
-    if (def.kind == DeformerKind.warp) {
-      final w = def.warp!;
-      if (w.rows < 2)
-        throw FormatException('$ctx warp.rows must be >= 2, got ${w.rows}');
-      if (w.cols < 2)
-        throw FormatException('$ctx warp.cols must be >= 2, got ${w.cols}');
-      final expectedPts = w.rows * w.cols;
-      if (w.controlPoints.length != expectedPts) {
-        throw FormatException(
-            '$ctx warp.controlPoints: expected $expectedPts, got ${w.controlPoints.length}');
-      }
-      if (w.maxX <= w.minX) {
-        throw FormatException(
-            '$ctx warp bounds: maxX (${w.maxX}) must be > minX (${w.minX})');
-      }
-      if (w.maxY <= w.minY) {
-        throw FormatException(
-            '$ctx warp bounds: maxY (${w.maxY}) must be > minY (${w.minY})');
-      }
+    switch (def) {
+      case WarpDeformer(:final warp):
+        if (warp.rows < 2)
+          throw FormatException('$ctx warp.rows must be >= 2, got ${warp.rows}');
+        if (warp.cols < 2)
+          throw FormatException('$ctx warp.cols must be >= 2, got ${warp.cols}');
+        final expectedPts = warp.rows * warp.cols;
+        if (warp.controlPoints.length != expectedPts) {
+          throw FormatException(
+              '$ctx warp.controlPoints: expected $expectedPts, got ${warp.controlPoints.length}');
+        }
+        if (warp.maxX <= warp.minX) {
+          throw FormatException(
+              '$ctx warp bounds: maxX (${warp.maxX}) must be > minX (${warp.minX})');
+        }
+        if (warp.maxY <= warp.minY) {
+          throw FormatException(
+              '$ctx warp bounds: maxY (${warp.maxY}) must be > minY (${warp.minY})');
+        }
+      case RotationDeformer():
+        break;
     }
   }
 
@@ -2924,19 +2924,17 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
     }
     final DeformerData deformerData;
     if (pendingKind == DeformerKind.warp) {
-      deformerData = DeformerData(
+      deformerData = WarpDeformer(
         id: pendingId,
         parent: pendingParent,
         order: pendingOrder,
-        kind: DeformerKind.warp,
         warp: pendingWarp!,
       );
     } else {
-      deformerData = DeformerData(
+      deformerData = RotationDeformer(
         id: pendingId,
         parent: pendingParent,
         order: pendingOrder,
-        kind: DeformerKind.rotation,
         rotation: pendingRotation!,
       );
     }
