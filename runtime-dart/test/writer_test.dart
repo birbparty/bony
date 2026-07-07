@@ -1,7 +1,6 @@
 import 'dart:io';
 
 import 'package:bony/bony.dart';
-import 'package:bony/src/physics_constraint.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -78,8 +77,103 @@ void main() {
       expect(
         () => writeBonyJson(invalid),
         throwsA(isA<BonyWriteException>()
-            .having((e) => e.cause, 'cause', isA<FormatException>())),
+            .having((e) => e.message, 'message', 'invalid SkeletonData')
+            .having((e) => e.cause, 'cause', isA<FormatException>())
+            .having(
+              (e) => e.cause.toString(),
+              'cause text',
+              contains('unknown parent bone: missing'),
+            )),
       );
+    });
+
+    test('omits default-valued fields from public output', () {
+      final data = SkeletonData(
+        header: const SkeletonHeader(name: 'defaults', version: '0.1.0'),
+        bones: const [
+          BoneData(
+            name: 'root',
+            parent: '',
+            x: -0.0,
+            y: 0,
+            rotation: 0,
+            scaleX: 1.00000001,
+            scaleY: 1,
+            shearX: 0,
+            shearY: 0,
+            inheritRotation: true,
+            inheritScale: true,
+            inheritReflection: true,
+            transformMode: 'normal',
+          ),
+        ],
+        slots: const [
+          SlotData(name: 'slot', bone: 'root', attachment: 'region'),
+        ],
+        regions: const [
+          RegionAttachment(name: 'region', width: 12, height: 34),
+        ],
+        paths: const [],
+        pathAttachments: const [],
+      );
+
+      final emitted = writeBonyJson(data);
+      expect(emitted, contains('"name": "defaults"'));
+      expect(emitted, contains('"width": 12'));
+      expect(emitted, contains('"height": 34'));
+      expect(emitted, isNot(contains('"version"')));
+      expect(emitted, isNot(contains('"parent"')));
+      expect(emitted, isNot(contains('"x"')));
+      expect(emitted, isNot(contains('"scaleX"')));
+      expect(emitted, isNot(contains('"inheritRotation"')));
+      expect(emitted, isNot(contains('"transformMode"')));
+      expect(emitted, isNot(contains('"texturePage"')));
+      expect(emitted, isNot(contains('"u0"')));
+      expect(emitted, isNot(contains('"alphaMode"')));
+      expect(writeBonyJson(loadBonyJson(emitted)), emitted);
+    });
+
+    test('escapes strings and spells numbers canonically in public output', () {
+      final data = SkeletonData(
+        header: const SkeletonHeader(
+          name: 'quote" slash/ backslash\\ line\n tab\t café',
+          version: '0.1.0',
+        ),
+        bones: const [
+          BoneData(
+            name: 'root',
+            parent: '',
+            x: 0.0000001,
+            y: 1e20,
+            rotation: -0.0,
+            scaleX: 1,
+            scaleY: 1.5,
+            shearX: 0,
+            shearY: 0,
+            inheritRotation: true,
+            inheritScale: true,
+            inheritReflection: true,
+            transformMode: 'normal',
+          ),
+        ],
+        slots: const [],
+        regions: const [],
+        paths: const [],
+        pathAttachments: const [],
+      );
+
+      final emitted = writeBonyJson(data);
+      expect(
+        emitted,
+        contains(
+          r'"name": "quote\" slash/ backslash\\ line\n tab\t café"',
+        ),
+      );
+      expect(emitted, contains('"x": 1.0000000116860974e-7'));
+      expect(emitted, contains('"y": 100000002004087730000.0'));
+      expect(emitted, isNot(contains('"rotation"')));
+      expect(emitted, contains('"scaleY": 1.5'));
+      expect(writeBonyJson(loadBonyJson(emitted)), emitted);
     });
 
     test('matches Nim canonical JSON for committed JSON fixtures', () {
@@ -100,6 +194,30 @@ void main() {
 
         expect(emitted, expected, reason: name);
         expect(() => loadBonyJson(emitted), returnsNormally, reason: name);
+        expect(writeBonyJson(loadBonyJson(emitted)), emitted, reason: name);
+      }
+    });
+
+    test('matches Nim canonical JSON for committed .bnb fixtures', () {
+      final goldenFiles = Directory('../conformance/goldens/canonical-json/bnb')
+          .listSync()
+          .whereType<File>()
+          .where((file) => file.path.endsWith('.bony'))
+          .toList()
+        ..sort((a, b) => a.path.compareTo(b.path));
+
+      expect(goldenFiles, isNotEmpty);
+      for (final golden in goldenFiles) {
+        final name = golden.uri.pathSegments.last;
+        final stem = name.substring(0, name.length - '.bony'.length);
+        final input =
+            File('../conformance/assets/bnb/$stem.bnb').readAsBytesSync();
+        final expected = golden.readAsStringSync();
+        final emitted = writeBonyJson(loadBonyBnb(input));
+
+        expect(emitted, expected, reason: name);
+        expect(() => loadBonyJson(emitted), returnsNormally, reason: name);
+        expect(writeBonyJson(loadBonyJson(emitted)), emitted, reason: name);
       }
     });
 
