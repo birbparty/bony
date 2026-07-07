@@ -29,6 +29,9 @@ class _LayerRuntime {
   final StateMachineLayer layer;
   String currentState;
   double time = 0.0;
+  AnimationState? animationState;
+  String loadedState = '';
+  double previousTime = 0.0;
 }
 
 // --- Evaluated output types ---
@@ -105,9 +108,6 @@ class StateMachineRuntime {
   final List<_InputValue> _inputs;
   final List<StateMachineListenerEvent> events = [];
   final List<DispatchedEvent> animationEvents = [];
-  final List<AnimationState?> _layerAnimationStates = [];
-  final List<String> _layerLoadedStates = [];
-  final List<double> _layerPreviousTimes = [];
   SkeletonData? _layerAnimationData;
   bool _animationEventsValid = false;
 
@@ -127,39 +127,15 @@ class StateMachineRuntime {
   }
 
   bool getBoolInput(String name) {
-    for (final iv in _inputs) {
-      if (iv.name == name) {
-        if (iv.kind != StateMachineInputKind.bool_) {
-          throw FormatException('state machine input is not bool: $name');
-        }
-        return iv.boolValue;
-      }
-    }
-    throw FormatException('unknown state machine input: $name');
+    return _requireInput(name, StateMachineInputKind.bool_).boolValue;
   }
 
   double getNumberInput(String name) {
-    for (final iv in _inputs) {
-      if (iv.name == name) {
-        if (iv.kind != StateMachineInputKind.number) {
-          throw FormatException('state machine input is not number: $name');
-        }
-        return iv.numberValue;
-      }
-    }
-    throw FormatException('unknown state machine input: $name');
+    return _requireInput(name, StateMachineInputKind.number).numberValue;
   }
 
   bool getTriggerInput(String name) {
-    for (final iv in _inputs) {
-      if (iv.name == name) {
-        if (iv.kind != StateMachineInputKind.trigger) {
-          throw FormatException('state machine input is not trigger: $name');
-        }
-        return iv.boolValue;
-      }
-    }
-    throw FormatException('unknown state machine input: $name');
+    return _requireInput(name, StateMachineInputKind.trigger).boolValue;
   }
 
   void clearEvents() {
@@ -167,42 +143,16 @@ class StateMachineRuntime {
   }
 
   void setBoolInput(String name, bool value) {
-    for (final iv in _inputs) {
-      if (iv.name == name) {
-        if (iv.kind != StateMachineInputKind.bool_) {
-          throw FormatException('state machine input is not bool: $name');
-        }
-        iv.boolValue = value;
-        return;
-      }
-    }
-    throw FormatException('unknown state machine input: $name');
+    _requireInput(name, StateMachineInputKind.bool_).boolValue = value;
   }
 
   void setNumberInput(String name, double value) {
-    for (final iv in _inputs) {
-      if (iv.name == name) {
-        if (iv.kind != StateMachineInputKind.number) {
-          throw FormatException('state machine input is not number: $name');
-        }
-        iv.numberValue = quantizeF32(value);
-        return;
-      }
-    }
-    throw FormatException('unknown state machine input: $name');
+    _requireInput(name, StateMachineInputKind.number).numberValue =
+        quantizeF32(value);
   }
 
   void fireTrigger(String name) {
-    for (final iv in _inputs) {
-      if (iv.name == name) {
-        if (iv.kind != StateMachineInputKind.trigger) {
-          throw FormatException('state machine input is not trigger: $name');
-        }
-        iv.boolValue = true;
-        return;
-      }
-    }
-    throw FormatException('unknown state machine input: $name');
+    _requireInput(name, StateMachineInputKind.trigger).boolValue = true;
   }
 
   void dispatchPointerListeners(
@@ -329,6 +279,14 @@ class StateMachineRuntime {
     return true;
   }
 
+  _InputValue _runtimeInputByName(String name,
+      {required String unknownMessage}) {
+    for (final input in _inputs) {
+      if (input.name == name) return input;
+    }
+    throw FormatException(unknownMessage);
+  }
+
   StateMachineInput _inputByName(String name) {
     for (final input in _data.inputs) {
       if (input.name == name) return input;
@@ -336,16 +294,19 @@ class StateMachineRuntime {
     throw FormatException('unknown state-machine input: $name');
   }
 
-  bool _conditionMatches(StateMachineCondition c) {
-    _InputValue? iv;
-    for (final v in _inputs) {
-      if (v.name == c.input) {
-        iv = v;
-        break;
-      }
+  _InputValue _requireInput(String name, StateMachineInputKind kind) {
+    final input = _runtimeInputByName(name,
+        unknownMessage: 'unknown state machine input: $name');
+    if (input.kind != kind) {
+      throw FormatException(
+          'state machine input is not ${_inputKindName(kind)}: $name');
     }
-    if (iv == null)
-      throw FormatException('missing state machine runtime input: ${c.input}');
+    return input;
+  }
+
+  bool _conditionMatches(StateMachineCondition c) {
+    final iv = _runtimeInputByName(c.input,
+        unknownMessage: 'missing state machine runtime input: ${c.input}');
     switch (c.kind) {
       case StateMachineConditionKind.boolEquals:
         return iv.boolValue == c.boolValue;
@@ -420,23 +381,12 @@ class StateMachineRuntime {
   }
 
   void _ensureAnimationEventBridge(SkeletonData data) {
-    if (identical(_layerAnimationData, data) &&
-        _layerAnimationStates.length == _layers.length) {
+    if (identical(_layerAnimationData, data)) {
       return;
     }
-    final preserveLayerState = _layerPreviousTimes.length == _layers.length &&
-        _layerLoadedStates.length == _layers.length;
     _layerAnimationData = data;
-    _layerAnimationStates
-      ..clear()
-      ..addAll(List<AnimationState?>.filled(_layers.length, null));
-    if (!preserveLayerState) {
-      _layerLoadedStates
-        ..clear()
-        ..addAll(List<String>.filled(_layers.length, ''));
-      _layerPreviousTimes
-        ..clear()
-        ..addAll(List<double>.filled(_layers.length, 0.0));
+    for (final lr in _layers) {
+      lr.animationState = null;
     }
   }
 
@@ -445,41 +395,39 @@ class StateMachineRuntime {
     animationEvents.clear();
     _ensureAnimationEventBridge(data);
 
-    for (var layerIndex = 0; layerIndex < _layers.length; layerIndex++) {
-      final lr = _layers[layerIndex];
+    for (final lr in _layers) {
       final state = _stateByName(lr.layer, lr.currentState);
-      final previousTime = _layerPreviousTimes[layerIndex];
+      final previousTime = lr.previousTime;
       final layerTimeReset = lr.time < previousTime;
 
       if (state.kind != StateMachineStateKind.clip) {
-        _layerAnimationStates[layerIndex] = null;
-        _layerLoadedStates[layerIndex] = '';
-        _layerPreviousTimes[layerIndex] = lr.time;
+        lr.animationState = null;
+        lr.loadedState = '';
+        lr.previousTime = lr.time;
         continue;
       }
 
-      final sameLoadedState = _layerLoadedStates[layerIndex] == state.name;
-      final needsReload = _layerAnimationStates[layerIndex] == null ||
-          !sameLoadedState ||
-          layerTimeReset;
+      final sameLoadedState = lr.loadedState == state.name;
+      final needsReload =
+          lr.animationState == null || !sameLoadedState || layerTimeReset;
       if (needsReload) {
         final clip = _findClip(data, state.clipName);
-        _layerAnimationStates[layerIndex] = AnimationState(data)
+        lr.animationState = AnimationState(data)
           ..setAnimation(0, clip, loop: state.loop);
         if (!layerTimeReset && sameLoadedState && previousTime > 0.0) {
-          _layerAnimationStates[layerIndex]!.tracks[0].current!.time =
+          lr.animationState!.tracks[0].current!.time =
               quantizeF32(previousTime);
         }
-        _layerLoadedStates[layerIndex] = state.name;
+        lr.loadedState = state.name;
       }
 
-      final anim = _layerAnimationStates[layerIndex]!;
+      final anim = lr.animationState!;
       final current = anim.tracks[0].current;
       final currentTime = current?.time ?? 0.0;
       final amount = math.max(0.0, lr.time - currentTime);
       anim.update(amount);
       animationEvents.addAll(anim.events);
-      _layerPreviousTimes[layerIndex] = lr.time;
+      lr.previousTime = lr.time;
     }
     _animationEventsValid = true;
   }
@@ -549,6 +497,17 @@ bool _isPointerListenerKind(StateMachineListenerKind kind) {
     case StateMachineListenerKind.stateExit:
     case StateMachineListenerKind.transition_:
       return false;
+  }
+}
+
+String _inputKindName(StateMachineInputKind kind) {
+  switch (kind) {
+    case StateMachineInputKind.bool_:
+      return 'bool';
+    case StateMachineInputKind.number:
+      return 'number';
+    case StateMachineInputKind.trigger:
+      return 'trigger';
   }
 }
 
