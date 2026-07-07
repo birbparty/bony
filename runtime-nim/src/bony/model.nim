@@ -1299,31 +1299,14 @@ proc unionSets(a, b: HashSet[string]): HashSet[string] =
     result.incl(item)
 
 
-proc validateSkeletonData*(
-  header: SkeletonHeader;
-  bones: openArray[BoneData];
-  slots: openArray[SlotData] = [];
-  regions: openArray[RegionAttachment] = [];
-  pathAttachments: openArray[PathAttachmentData] = [];
-  paths: openArray[PathConstraintData] = [];
-  parameters: openArray[ParameterAxis] = [];
-  deformers: openArray[DeformerRecord] = [];
-  ikConstraints: openArray[IkConstraintData] = [];
-  transformConstraints: openArray[TransformConstraintData] = [];
-  physicsConstraints: openArray[PhysicsConstraintData] = [];
-  clippingAttachments: openArray[ClipAttachmentData] = [];
-  meshAttachments: openArray[MeshAttachment] = [];
-  skins: openArray[SkinData] = [];
-  pointAttachments: openArray[PointAttachmentData] = [];
-  boundingBoxAttachments: openArray[BoundingBoxAttachmentData] = [];
-  nestedRigAttachments: openArray[NestedRigAttachmentData] = [];
-) =
+proc validateSkeletonHeader(header: SkeletonHeader) =
   if header.name.len == 0:
     raise newBonyLoadError(schemaViolation, "skeleton.name must not be empty")
 
-  var allNames = initHashSet[string]()
-  var allRegionNames = initHashSet[string]()
-  var allSlotNames = initHashSet[string]()
+
+proc validateBones(bones: openArray[BoneData]): tuple[names: HashSet[string], parentByName: Table[string, string]] =
+  result.names = initHashSet[string]()
+  result.parentByName = initTable[string, string]()
   for index, bone in bones:
     let context = "bones[" & $index & "]"
     if bone.name.len == 0:
@@ -1335,19 +1318,23 @@ proc validateSkeletonData*(
       bone.local.inheritReflection,
     ):
       raise newBonyLoadError(schemaViolation, context & ".transformMode does not match inherit flags")
-    if bone.name in allNames:
+    if bone.name in result.names:
       raise newBonyLoadError(duplicateKey, "duplicate bone name: " & bone.name)
-    allNames.incl(bone.name)
+    result.names.incl(bone.name)
+    result.parentByName[bone.name] = bone.parent
 
   var seen = initHashSet[string]()
   for index, bone in bones:
     if bone.parent.len > 0:
-      if bone.parent notin allNames:
+      if bone.parent notin result.names:
         raise newBonyLoadError(unknownRequiredReference, "unknown parent bone: " & bone.parent)
       if bone.parent notin seen:
         raise newBonyLoadError(orderingViolation, "bone parent must appear before child: " & bone.name)
     seen.incl(bone.name)
 
+
+proc validateRegionAttachments(regions: openArray[RegionAttachment]): HashSet[string] =
+  result = initHashSet[string]()
   for index, region in regions:
     let context = "regions[" & $index & "]"
     if region.name.len == 0:
@@ -1367,92 +1354,128 @@ proc validateSkeletonData*(
       region.alphaMode != "straight"
     ):
       raise newBonyLoadError(schemaViolation, context & ".texturePage is required for region texture metadata")
-    if region.name in allRegionNames:
+    if region.name in result:
       raise newBonyLoadError(duplicateKey, "duplicate region name: " & region.name)
-    allRegionNames.incl(region.name)
+    result.incl(region.name)
 
-  var allClipNames = initHashSet[string]()
+
+type AttachmentValidation = object
+  clipNames: HashSet[string]
+  meshNames: HashSet[string]
+  pointNames: HashSet[string]
+  boundingBoxNames: HashSet[string]
+  nestedRigNames: HashSet[string]
+
+
+proc validateAttachmentCollections(
+  bones: openArray[BoneData];
+  clippingAttachments: openArray[ClipAttachmentData];
+  meshAttachments: openArray[MeshAttachment];
+  pointAttachments: openArray[PointAttachmentData];
+  boundingBoxAttachments: openArray[BoundingBoxAttachmentData];
+  nestedRigAttachments: openArray[NestedRigAttachmentData];
+  allRegionNames: HashSet[string];
+): AttachmentValidation =
+  result.clipNames = initHashSet[string]()
+  result.meshNames = initHashSet[string]()
+  result.pointNames = initHashSet[string]()
+  result.boundingBoxNames = initHashSet[string]()
+  result.nestedRigNames = initHashSet[string]()
   for index, clip in clippingAttachments:
     let context = "clippingAttachments[" & $index & "]"
     if clip.name.len == 0:
       raise newBonyLoadError(schemaViolation, context & ".name must not be empty")
-    if clip.name in allClipNames:
+    if clip.name in result.clipNames:
       raise newBonyLoadError(duplicateKey, "duplicate clipping attachment name: " & clip.name)
     if clip.name in allRegionNames:
       raise newBonyLoadError(duplicateKey,
         "clipping attachment name collides with a region attachment name: " & clip.name)
-    allClipNames.incl(clip.name)
+    result.clipNames.incl(clip.name)
     validateConvexPolygonVertices(clip.vertices, context)
 
   # Mesh attachments: cross-collection unique non-empty names (must not collide
   # with region or clipping attachment names), then the shared (a)-(g) geometry
   # and bone-reference validation. Names join the slot->attachment accepted set
   # below so a slot may reference a mesh.
-  var allMeshNames = initHashSet[string]()
   for index, mesh in meshAttachments:
     let context = "meshAttachments[" & $index & "]"
     if mesh.name.len == 0:
       raise newBonyLoadError(schemaViolation, context & ".name must not be empty")
-    if mesh.name in allMeshNames:
+    if mesh.name in result.meshNames:
       raise newBonyLoadError(duplicateKey, "duplicate mesh attachment name: " & mesh.name)
     if mesh.name in allRegionNames:
       raise newBonyLoadError(duplicateKey,
         "mesh attachment name collides with a region attachment name: " & mesh.name)
-    if mesh.name in allClipNames:
+    if mesh.name in result.clipNames:
       raise newBonyLoadError(duplicateKey,
         "mesh attachment name collides with a clipping attachment name: " & mesh.name)
-    allMeshNames.incl(mesh.name)
+    result.meshNames.incl(mesh.name)
     validateMeshAttachment(bones, mesh)
 
-  var allPointNames = initHashSet[string]()
   for index, point in pointAttachments:
     let context = "pointAttachments[" & $index & "]"
     if point.name.len == 0:
       raise newBonyLoadError(schemaViolation, context & ".name must not be empty")
-    if point.name in allPointNames:
+    if point.name in result.pointNames:
       raise newBonyLoadError(duplicateKey, "duplicate point attachment name: " & point.name)
-    if point.name in allRegionNames or point.name in allClipNames or point.name in allMeshNames:
+    if point.name in allRegionNames or point.name in result.clipNames or point.name in result.meshNames:
       raise newBonyLoadError(duplicateKey,
         "point attachment name collides with another slot attachment name: " & point.name)
     discard requireFiniteF64(point.x, context & ".x")
     discard requireFiniteF64(point.y, context & ".y")
     discard requireFiniteF64(point.rotation, context & ".rotation")
-    allPointNames.incl(point.name)
+    result.pointNames.incl(point.name)
 
-  var allBoundingBoxNames = initHashSet[string]()
   for index, box in boundingBoxAttachments:
     let context = "boundingBoxAttachments[" & $index & "]"
     if box.name.len == 0:
       raise newBonyLoadError(schemaViolation, context & ".name must not be empty")
-    if box.name in allBoundingBoxNames:
+    if box.name in result.boundingBoxNames:
       raise newBonyLoadError(duplicateKey, "duplicate bounding-box attachment name: " & box.name)
-    if box.name in allRegionNames or box.name in allClipNames or box.name in allMeshNames or box.name in allPointNames:
+    if box.name in allRegionNames or box.name in result.clipNames or box.name in result.meshNames or box.name in result.pointNames:
       raise newBonyLoadError(duplicateKey,
         "bounding-box attachment name collides with another slot attachment name: " & box.name)
     validateConvexPolygonVertices(box.vertices, context)
-    allBoundingBoxNames.incl(box.name)
+    result.boundingBoxNames.incl(box.name)
 
-  var allNestedRigNames = initHashSet[string]()
   for index, nested in nestedRigAttachments:
     let context = "nestedRigAttachments[" & $index & "]"
     if nested.name.len == 0:
       raise newBonyLoadError(schemaViolation, context & ".name must not be empty")
     if nested.skeleton.len == 0:
       raise newBonyLoadError(schemaViolation, context & ".skeleton must not be empty")
-    if nested.name in allNestedRigNames:
+    if nested.name in result.nestedRigNames:
       raise newBonyLoadError(duplicateKey, "duplicate nested rig attachment name: " & nested.name)
-    if nested.name in allRegionNames or nested.name in allClipNames or nested.name in allMeshNames or
-        nested.name in allPointNames or nested.name in allBoundingBoxNames:
+    if nested.name in allRegionNames or nested.name in result.clipNames or nested.name in result.meshNames or
+        nested.name in result.pointNames or nested.name in result.boundingBoxNames:
       raise newBonyLoadError(duplicateKey,
         "nested rig attachment name collides with another slot attachment name: " & nested.name)
-    allNestedRigNames.incl(nested.name)
+    result.nestedRigNames.incl(nested.name)
 
-  var resolvedSlotAttachments = newSeq[string](slots.len)
+
+type SlotSkinValidation = object
+  slotNames: HashSet[string]
+  resolvedSlotAttachments: seq[string]
+
+
+proc validateSlotsAndSkins(
+  slots: openArray[SlotData];
+  skins: openArray[SkinData];
+  allNames: HashSet[string];
+  allRegionNames: HashSet[string];
+  allClipNames: HashSet[string];
+  allMeshNames: HashSet[string];
+  allPointNames: HashSet[string];
+  allBoundingBoxNames: HashSet[string];
+  allNestedRigNames: HashSet[string];
+): SlotSkinValidation =
+  result.slotNames = initHashSet[string]()
+  result.resolvedSlotAttachments = newSeq[string](slots.len)
   for index, slot in slots:
     let context = "slots[" & $index & "]"
     if slot.name.len == 0:
       raise newBonyLoadError(schemaViolation, context & ".name must not be empty")
-    if slot.name in allSlotNames:
+    if slot.name in result.slotNames:
       raise newBonyLoadError(duplicateKey, "duplicate slot name: " & slot.name)
     if slot.bone notin allNames:
       raise newBonyLoadError(unknownRequiredReference, "unknown slot bone: " & slot.bone)
@@ -1462,8 +1485,8 @@ proc validateSkeletonData*(
         slot.attachment notin allNestedRigNames:
       raise newBonyLoadError(unknownRequiredReference, "unknown slot attachment: " & slot.attachment)
     if skins.len == 0:
-      resolvedSlotAttachments[index] = slot.attachment
-    allSlotNames.incl(slot.name)
+      result.resolvedSlotAttachments[index] = slot.attachment
+    result.slotNames.incl(slot.name)
 
   if skins.len > 0:
     var skinNames = initHashSet[string]()
@@ -1487,7 +1510,7 @@ proc validateSkeletonData*(
           raise newBonyLoadError(schemaViolation, entryContext & ".attachment must not be empty")
         if entry.target.len == 0:
           raise newBonyLoadError(schemaViolation, entryContext & ".target must not be empty")
-        if entry.slot notin allSlotNames:
+        if entry.slot notin result.slotNames:
           raise newBonyLoadError(unknownRequiredReference, "unknown skin entry slot: " & entry.slot)
         let localKey = entry.slot & "\0" & entry.attachment
         if localKey in seenEntries:
@@ -1516,14 +1539,21 @@ proc validateSkeletonData*(
       raise newBonyLoadError(schemaViolation, "skins must contain exactly one default skin")
     for index, slot in slots:
       if slot.attachment.len == 0:
-        resolvedSlotAttachments[index] = ""
+        result.resolvedSlotAttachments[index] = ""
         continue
       let key = "default" & "\0" & slot.name & "\0" & slot.attachment
       if key notin skinEntryTargets:
         raise newBonyLoadError(unknownRequiredReference,
           "slot attachment does not resolve through default skin: " & slot.name & "/" & slot.attachment)
-      resolvedSlotAttachments[index] = skinEntryTargets[key]
+      result.resolvedSlotAttachments[index] = skinEntryTargets[key]
 
+
+proc validateClipRanges(
+  slots: openArray[SlotData];
+  clippingAttachments: openArray[ClipAttachmentData];
+  resolvedSlotAttachments: openArray[string];
+  allClipNames: HashSet[string];
+) =
   # Clip range + no-overlap validation. A clip's range starts at the slot that
   # references it (via slot.attachment) and runs through untilSlot inclusive, or
   # to the end of draw order when untilSlot is empty. untilSlot must name a known
@@ -1564,12 +1594,14 @@ proc validateSkeletonData*(
       activeUntil = endIndex
       activeName = resolvedAttachment
 
-  var allPathAttachmentNames = initHashSet[string]()
+
+proc validatePathAttachments(pathAttachments: openArray[PathAttachmentData]): HashSet[string] =
+  result = initHashSet[string]()
   for index, pathAttachment in pathAttachments:
     let context = "pathAttachments[" & $index & "]"
     if pathAttachment.name.len == 0:
       raise newBonyLoadError(schemaViolation, context & ".name must not be empty")
-    if pathAttachment.name in allPathAttachmentNames:
+    if pathAttachment.name in result:
       raise newBonyLoadError(duplicateKey, "duplicate path attachment name: " & pathAttachment.name)
     discard requireFiniteF64(pathAttachment.p0x, context & ".p0x")
     discard requireFiniteF64(pathAttachment.p0y, context & ".p0y")
@@ -1579,14 +1611,34 @@ proc validateSkeletonData*(
     discard requireFiniteF64(pathAttachment.p2y, context & ".p2y")
     discard requireFiniteF64(pathAttachment.p3x, context & ".p3x")
     discard requireFiniteF64(pathAttachment.p3y, context & ".p3y")
-    allPathAttachmentNames.incl(pathAttachment.name)
+    result.incl(pathAttachment.name)
 
-  var allPathNames = initHashSet[string]()
+
+type ConstraintValidation = object
+  pathNames: HashSet[string]
+  ikNames: HashSet[string]
+  transformNames: HashSet[string]
+  physicsNames: HashSet[string]
+
+
+proc validateConstraints(
+  paths: openArray[PathConstraintData];
+  ikConstraints: openArray[IkConstraintData];
+  transformConstraints: openArray[TransformConstraintData];
+  physicsConstraints: openArray[PhysicsConstraintData];
+  allNames: HashSet[string];
+  boneParentByName: Table[string, string];
+  allPathAttachmentNames: HashSet[string];
+): ConstraintValidation =
+  result.pathNames = initHashSet[string]()
+  result.ikNames = initHashSet[string]()
+  result.transformNames = initHashSet[string]()
+  result.physicsNames = initHashSet[string]()
   for index, path in paths:
     let context = "paths[" & $index & "]"
     if path.name.len == 0:
       raise newBonyLoadError(schemaViolation, context & ".name must not be empty")
-    if path.name in allPathNames:
+    if path.name in result.pathNames:
       raise newBonyLoadError(duplicateKey, "duplicate path constraint name: " & path.name)
     if path.bone notin allNames:
       raise newBonyLoadError(unknownRequiredReference, "unknown path constraint bone: " & path.bone)
@@ -1594,18 +1646,13 @@ proc validateSkeletonData*(
       raise newBonyLoadError(unknownRequiredReference, "unknown path constraint target: " & path.target)
     if path.path notin allPathAttachmentNames:
       raise newBonyLoadError(unknownRequiredReference, "unknown path constraint path: " & path.path)
-    allPathNames.incl(path.name)
+    result.pathNames.incl(path.name)
 
-  var boneParentByName = initTable[string, string]()
-  for bone in bones:
-    boneParentByName[bone.name] = bone.parent
-
-  var allIkNames = initHashSet[string]()
   for index, ik in ikConstraints:
     let context = "ikConstraints[" & $index & "]"
     if ik.name.len == 0:
       raise newBonyLoadError(schemaViolation, context & ".name must not be empty")
-    if ik.name in allIkNames:
+    if ik.name in result.ikNames:
       raise newBonyLoadError(duplicateKey, "duplicate ik constraint name: " & ik.name)
     if ik.bones.len == 0:
       raise newBonyLoadError(schemaViolation, context & ".bones must not be empty")
@@ -1623,14 +1670,13 @@ proc validateSkeletonData*(
           ik.bones[chainPos] & " is not a child of " & ik.bones[chainPos - 1])
     if ik.target notin allNames:
       raise newBonyLoadError(unknownRequiredReference, "unknown ik constraint target: " & ik.target)
-    allIkNames.incl(ik.name)
+    result.ikNames.incl(ik.name)
 
-  var allTransformNames = initHashSet[string]()
   for index, tc in transformConstraints:
     let context = "transformConstraints[" & $index & "]"
     if tc.name.len == 0:
       raise newBonyLoadError(schemaViolation, context & ".name must not be empty")
-    if tc.name in allTransformNames:
+    if tc.name in result.transformNames:
       raise newBonyLoadError(duplicateKey, "duplicate transform constraint name: " & tc.name)
     if tc.bone notin allNames:
       raise newBonyLoadError(unknownRequiredReference, "unknown transform constraint bone: " & tc.bone)
@@ -1647,14 +1693,13 @@ proc validateSkeletonData*(
       discard requireFiniteF64(mixValue, context & "." & mixName)
       if mixValue < 0.0 or mixValue > 1.0:
         raise newBonyLoadError(schemaViolation, context & "." & mixName & " must be in [0, 1]")
-    allTransformNames.incl(tc.name)
+    result.transformNames.incl(tc.name)
 
-  var allPhysicsNames = initHashSet[string]()
   for index, pc in physicsConstraints:
     let context = "physicsConstraints[" & $index & "]"
     if pc.name.len == 0:
       raise newBonyLoadError(schemaViolation, context & ".name must not be empty")
-    if pc.name in allPhysicsNames:
+    if pc.name in result.physicsNames:
       raise newBonyLoadError(duplicateKey, "duplicate physics constraint name: " & pc.name)
     if pc.bone notin allNames:
       raise newBonyLoadError(unknownRequiredReference, "unknown physics constraint bone: " & pc.bone)
@@ -1678,8 +1723,23 @@ proc validateSkeletonData*(
       raise newBonyLoadError(schemaViolation, context & ".mass must be non-negative")
     if pc.mix < 0.0 or pc.mix > 1.0:
       raise newBonyLoadError(schemaViolation, context & ".physicsMix must be in [0, 1]")
-    allPhysicsNames.incl(pc.name)
+    result.physicsNames.incl(pc.name)
 
+
+proc validateSkinRequiredClosure(
+  bones: openArray[BoneData];
+  skins: openArray[SkinData];
+  ikConstraints: openArray[IkConstraintData];
+  transformConstraints: openArray[TransformConstraintData];
+  paths: openArray[PathConstraintData];
+  physicsConstraints: openArray[PhysicsConstraintData];
+  allNames: HashSet[string];
+  boneParentByName: Table[string, string];
+  allIkNames: HashSet[string];
+  allTransformNames: HashSet[string];
+  allPathNames: HashSet[string];
+  allPhysicsNames: HashSet[string];
+) =
   if skins.len > 0:
     var requiredBoneNames = initHashSet[string]()
     for bone in bones:
@@ -1843,6 +1903,8 @@ proc validateSkeletonData*(
         if pc.skinRequired and pc.name in activePhysics:
           requireActiveRequiredBone(activeBones, pc.bone, skinContext & " physicsConstraint '" & pc.name & "'")
 
+
+proc validateParameters(parameters: openArray[ParameterAxis]) =
   var paramNames = initHashSet[string]()
   for index, param in parameters:
     let context = "parameters[" & $index & "]"
@@ -1856,6 +1918,8 @@ proc validateSkeletonData*(
     if param.defaultValue < param.minValue or param.defaultValue > param.maxValue:
       raise newBonyLoadError(schemaViolation, context & ": default must be within min..max")
 
+
+proc validateDeformers(deformers: openArray[DeformerRecord]) =
   var deformerIds = initHashSet[string]()
   var deformerOrders = initHashSet[uint32]()
   var deformerParentById = initTable[string, string]()
@@ -1887,6 +1951,90 @@ proc validateSkeletonData*(
     let parent = rec.deformer.parent
     if parent.len > 0 and deformerOrderById[parent] >= rec.deformer.order:
       raise newBonyLoadError(orderingViolation, "deformer parent must have an earlier global order")
+
+
+proc validateSkeletonData*(
+  header: SkeletonHeader;
+  bones: openArray[BoneData];
+  slots: openArray[SlotData] = [];
+  regions: openArray[RegionAttachment] = [];
+  pathAttachments: openArray[PathAttachmentData] = [];
+  paths: openArray[PathConstraintData] = [];
+  parameters: openArray[ParameterAxis] = [];
+  deformers: openArray[DeformerRecord] = [];
+  ikConstraints: openArray[IkConstraintData] = [];
+  transformConstraints: openArray[TransformConstraintData] = [];
+  physicsConstraints: openArray[PhysicsConstraintData] = [];
+  clippingAttachments: openArray[ClipAttachmentData] = [];
+  meshAttachments: openArray[MeshAttachment] = [];
+  skins: openArray[SkinData] = [];
+  pointAttachments: openArray[PointAttachmentData] = [];
+  boundingBoxAttachments: openArray[BoundingBoxAttachmentData] = [];
+  nestedRigAttachments: openArray[NestedRigAttachmentData] = [];
+) =
+  header.validateSkeletonHeader()
+  let boneValidation = bones.validateBones()
+  let allNames = boneValidation.names
+  let boneParentByName = boneValidation.parentByName
+  let allRegionNames = regions.validateRegionAttachments()
+  let attachmentValidation = validateAttachmentCollections(
+    bones,
+    clippingAttachments,
+    meshAttachments,
+    pointAttachments,
+    boundingBoxAttachments,
+    nestedRigAttachments,
+    allRegionNames,
+  )
+  let allClipNames = attachmentValidation.clipNames
+  let allMeshNames = attachmentValidation.meshNames
+  let allPointNames = attachmentValidation.pointNames
+  let allBoundingBoxNames = attachmentValidation.boundingBoxNames
+  let allNestedRigNames = attachmentValidation.nestedRigNames
+  let slotSkinValidation = validateSlotsAndSkins(
+    slots,
+    skins,
+    allNames,
+    allRegionNames,
+    allClipNames,
+    allMeshNames,
+    allPointNames,
+    allBoundingBoxNames,
+    allNestedRigNames,
+  )
+  validateClipRanges(slots, clippingAttachments, slotSkinValidation.resolvedSlotAttachments, allClipNames)
+
+  let allPathAttachmentNames = pathAttachments.validatePathAttachments()
+  let constraintValidation = validateConstraints(
+    paths,
+    ikConstraints,
+    transformConstraints,
+    physicsConstraints,
+    allNames,
+    boneParentByName,
+    allPathAttachmentNames,
+  )
+  let allPathNames = constraintValidation.pathNames
+  let allIkNames = constraintValidation.ikNames
+  let allTransformNames = constraintValidation.transformNames
+  let allPhysicsNames = constraintValidation.physicsNames
+
+  validateSkinRequiredClosure(
+    bones,
+    skins,
+    ikConstraints,
+    transformConstraints,
+    paths,
+    physicsConstraints,
+    allNames,
+    boneParentByName,
+    allIkNames,
+    allTransformNames,
+    allPathNames,
+    allPhysicsNames,
+  )
+  parameters.validateParameters()
+  deformers.validateDeformers()
 
 
 proc skeletonData*(
