@@ -6597,6 +6597,12 @@ spec "bony package":
       raisesBonyLoadError(proc() = discard stateMachine("", @[layer]), schemaViolation)
       raisesBonyLoadError(proc() = discard stateMachine("machine", @[]), schemaViolation)
       raisesBonyLoadError(proc() = discard stateMachine("machine", @[layer, layer]), duplicateKey)
+      raisesBonyLoadError(
+        proc() =
+          var invalidRuntime = StateMachineRuntime(machine: machine, layers: @[])
+          invalidRuntime.update(0.0),
+        schemaViolation,
+      )
       raisesBonyLoadError(proc() = discard StateMachineRuntime(machine: machine, layers: @[]).evaluate(), schemaViolation)
       raisesBonyLoadError(proc() = discard stateMachineBlendClip(animationClip(data, ""), 0.0), schemaViolation)
       raisesBonyLoadError(proc() = discard stateMachineBlendClip(idle, Inf), numericOutOfRange)
@@ -6761,8 +6767,46 @@ spec "bony package":
     then:
       raisesBonyLoadError(proc() = discard runtime.getBoolInput("missing"), unknownRequiredReference)
       raisesBonyLoadError(proc() = discard runtime.getBoolInput("speed"), schemaViolation)
+      raisesBonyLoadError(proc() =
+        let malformedRuntime = StateMachineRuntime(
+          machine: machine,
+          layers: runtime.layers,
+          inputs: @[
+            StateMachineInputValue(name: "speed", kind: numberInput),
+            StateMachineInputValue(name: "jump", kind: triggerInput),
+          ],
+        )
+        discard malformedRuntime.getBoolInput("armed"),
+        unknownRequiredReference,
+      )
+      raisesBonyLoadError(proc() =
+        let malformedRuntime = StateMachineRuntime(
+          machine: machine,
+          layers: runtime.layers,
+          inputs: @[
+            StateMachineInputValue(name: "armed", kind: numberInput),
+            StateMachineInputValue(name: "speed", kind: numberInput),
+            StateMachineInputValue(name: "jump", kind: triggerInput),
+          ],
+        )
+        discard malformedRuntime.getBoolInput("armed"),
+        schemaViolation,
+      )
       raisesBonyLoadError(proc() = runtime.setNumberInput("speed", Inf), numericOutOfRange)
       raisesBonyLoadError(proc() = runtime.fireTrigger("armed"), schemaViolation)
+      raisesBonyLoadError(proc() =
+        var invalidRuntime = StateMachineRuntime(
+          machine: machine,
+          layers: runtime.layers,
+          inputs: @[
+            StateMachineInputValue(name: "armed", kind: boolInput),
+            StateMachineInputValue(name: "speed", kind: numberInput, numberValue: Inf),
+            StateMachineInputValue(name: "jump", kind: triggerInput),
+          ],
+        )
+        invalidRuntime.update(0.0),
+        numericOutOfRange,
+      )
       raisesBonyLoadError(proc() =
         discard StateMachineRuntime(
           machine: machine,
@@ -6776,11 +6820,42 @@ spec "bony package":
         numericOutOfRange,
       )
       raisesBonyLoadError(proc() =
+        var invalidRuntime = StateMachineRuntime(
+          machine: machine,
+          layers: runtime.layers,
+          inputs: @[StateMachineInputValue(name: "armed", kind: boolInput)],
+        )
+        invalidRuntime.update(0.0),
+        schemaViolation,
+      )
+      raisesBonyLoadError(proc() =
         discard StateMachineRuntime(
           machine: machine,
           layers: runtime.layers,
           inputs: @[StateMachineInputValue(name: "armed", kind: boolInput)],
         ).evaluate(),
+        schemaViolation,
+      )
+      raisesBonyLoadError(proc() =
+        var invalidRuntime = StateMachineRuntime(
+          machine: machine,
+          layers: runtime.layers,
+          inputs: @[StateMachineInputValue(name: "armed", kind: boolInput)],
+        )
+        discard invalidRuntime.consumeTrigger("jump"),
+        schemaViolation,
+      )
+      raisesBonyLoadError(proc() =
+        var invalidRuntime = StateMachineRuntime(
+          machine: machine,
+          layers: runtime.layers,
+          inputs: @[
+            StateMachineInputValue(name: "armed", kind: boolInput),
+            StateMachineInputValue(name: "speed", kind: boolInput),
+            StateMachineInputValue(name: "jump", kind: triggerInput),
+          ],
+        )
+        invalidRuntime.update(0.0),
         schemaViolation,
       )
       raisesBonyLoadError(proc() =
@@ -6794,6 +6869,19 @@ spec "bony package":
           ],
         ).evaluate(),
         schemaViolation,
+      )
+      raisesBonyLoadError(proc() =
+        var invalidRuntime = StateMachineRuntime(
+          machine: machine,
+          layers: runtime.layers,
+          inputs: @[
+            StateMachineInputValue(name: "armed", kind: boolInput),
+            StateMachineInputValue(name: "speed", kind: numberInput),
+            StateMachineInputValue(name: "speed", kind: numberInput),
+          ],
+        )
+        invalidRuntime.update(0.0),
+        duplicateKey,
       )
       raisesBonyLoadError(proc() =
         discard StateMachineRuntime(
