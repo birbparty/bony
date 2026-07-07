@@ -6,10 +6,11 @@ has a matching conformance/assets/bnb/{stem}.bnb, converts the .bony to .bnb
 via `bony json-to-bnb` and compares the bytes against the committed golden
 .bnb file.  Byte-identical output proves canonical serialization is stable.
 
-Direction 2 (bnb→json→bnb byte-stability): For each conformance/assets/bnb/
-*_rig.bnb, converts to JSON via `bony bnb-to-json`, converts that JSON back to
-.bnb via `bony json-to-bnb`, and compares the resulting bytes against the
-original .bnb file.  Byte-identical output proves the round-trip is lossless.
+Direction 2 (bnb→json→bnb byte-stability): For each conformance/assets/bnb/*.bnb
+except explicitly one-way compatibility fixtures, converts to JSON via
+`bony bnb-to-json`, converts that JSON back to .bnb via `bony json-to-bnb`,
+and compares the resulting bytes against the original .bnb file. Byte-identical
+output proves the round-trip is lossless.
 
 Usage:
   python3 scripts/ci/round_trip_run.py --bony-bin /path/to/bony
@@ -67,7 +68,7 @@ def main():
     parser.add_argument("--assets-dir", default="conformance/assets")
     args = parser.parse_args()
 
-    bony_bin = resolve_bony_bin(args)
+    bony_bin = resolve_bony_bin(args.bony_bin)
 
     bnb_dir = os.path.join(args.assets_dir, "bnb")
     bony_files = require_glob(
@@ -79,6 +80,8 @@ def main():
         for path in sorted(glob.glob(os.path.join(bnb_dir, "*.bnb")))
         if os.path.basename(path) not in ONE_WAY_BNB_FIXTURES
     ]
+    for fixture in sorted(ONE_WAY_BNB_FIXTURES):
+        print(f"INFO {fixture}: one-way fixture excluded from bnb→json→bnb round-trip")
 
     tally = GateTally()
     dir1_ran = 0
@@ -123,7 +126,7 @@ def main():
         # --- Direction 2: bnb→json→bnb byte-stability ---
         print("\n=== bnb→json→bnb byte-stability (.bnb round-trip is lossless) ===")
         if not bnb_files:
-            print(f"  (no *_rig.bnb files found in {bnb_dir})")
+            print(f"  (no .bnb files found in {bnb_dir} after one-way exclusions)")
         for bnb_path in bnb_files:
             stem = os.path.splitext(os.path.basename(bnb_path))[0]
             label = f"{stem}.bnb"

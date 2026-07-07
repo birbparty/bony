@@ -61,7 +61,7 @@ def main():
     )
     args = parser.parse_args()
 
-    bony_bin = resolve_bony_bin(args)
+    bony_bin = resolve_bony_bin(args.bony_bin)
 
     results = []  # (gate_name, status, output)
 

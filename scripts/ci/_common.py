@@ -16,8 +16,8 @@ class Outcome(str, Enum):
     SKIP = "skip"
 
 
-def resolve_bony_bin(args) -> str:
-    bony_bin = os.path.abspath(args.bony_bin)
+def resolve_bony_bin(path: str) -> str:
+    bony_bin = os.path.abspath(path)
     if not os.path.isfile(bony_bin):
         print(f"error: bony binary not found: {bony_bin}", file=sys.stderr)
         sys.exit(2)

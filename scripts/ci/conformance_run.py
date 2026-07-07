@@ -62,7 +62,7 @@ def main():
     parser.add_argument("--scripts-dir", default="conformance/scripts")
     args = parser.parse_args()
 
-    bony_bin = resolve_bony_bin(args)
+    bony_bin = resolve_bony_bin(args.bony_bin)
     asset_files = require_glob(
         os.path.join(args.assets_dir, "*.bony"),
         f".bony assets in {args.assets_dir}",

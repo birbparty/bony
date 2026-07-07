@@ -69,7 +69,7 @@ def main():
     parser.add_argument("--schema", default="spec/bony-input-script.schema.json")
     args = parser.parse_args()
 
-    bony_bin = resolve_bony_bin(args)
+    bony_bin = resolve_bony_bin(args.bony_bin)
 
     schema_path = args.schema
     if not os.path.isfile(schema_path):

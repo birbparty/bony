@@ -1,4 +1,4 @@
-"""Shared numeric golden comparison logic for bony conformance CI scripts.
+"""Shared numeric golden comparison and golden-gen runner helpers for CI scripts.
 
 Canonical source for compare_goldens() — import from here, do not duplicate.
 """
@@ -180,6 +180,11 @@ def run_golden_gen_check(
     sample_selector=None,
 ):
     """Run golden-gen for one asset/sample and compare against golden_path."""
+    if state_machine and (not input_script or not sample_selector):
+        raise ValueError("state-machine golden checks require input_script and sample_selector")
+    if input_script and not sample_selector:
+        raise ValueError("input-script golden checks require sample_selector")
+
     if not os.path.exists(golden_path):
         print(f"SKIP {label}: no committed golden at {golden_path}")
         return Outcome.SKIP

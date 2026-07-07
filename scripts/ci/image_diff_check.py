@@ -126,7 +126,7 @@ def main():
     parser.add_argument("--height", type=int, default=256)
     args = parser.parse_args()
 
-    bony_bin = resolve_bony_bin(args)
+    bony_bin = resolve_bony_bin(args.bony_bin)
 
     asset_files = require_glob(
         os.path.join(args.assets, "*.bony"),
