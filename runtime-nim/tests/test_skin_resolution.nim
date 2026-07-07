@@ -361,3 +361,46 @@ spec "Nim skin attachment resolution":
       near(activeWorlds[3].tx, 8.0)
       near(activeWorlds[5].tx, 30.0)
       near(activeWorlds[7].tx, 11.0)
+
+include smoke_support
+
+spec "skin smoke coverage":
+  it "uses default and explicit nested child skins":
+    let child = skeletonData(
+      skeletonHeader("child", "1.0.0"),
+      @[boneData("root", "")],
+      @[slotData("face", "root", "face")],
+      @[regionAttachment("defaultFace", 2.0, 2.0), regionAttachment("fancyFace", 4.0, 2.0)],
+      skins = @[
+        skinData("default", @[skinEntryData("face", "face", "defaultFace")]),
+        skinData("fancy", @[skinEntryData("face", "face", "fancyFace")]),
+      ],
+    )
+    let host = skeletonData(
+      skeletonHeader("host", "1.0.0"),
+      @[boneData("root", "")],
+      @[
+        slotData("defaultSlot", "root", "nested_default"),
+        slotData("fancySlot", "root", "nested_fancy"),
+      ],
+      nestedRigAttachments = @[
+        nestedRigAttachmentData("nested_default", "faceRig"),
+        nestedRigAttachmentData("nested_fancy", "faceRig", skin = "fancy"),
+      ],
+      skins = @[skinData("default", @[
+        skinEntryData("defaultSlot", "nested_default", "nested_default"),
+        skinEntryData("fancySlot", "nested_fancy", "nested_fancy"),
+      ])],
+    )
+    var children = initTable[string, SkeletonData]()
+    children["faceRig"] = child
+    let batches = buildNestedDrawBatches(host, children)
+
+    then:
+      batches.len == 2
+      batches[0].attachment == "defaultFace"
+      closeTo(batches[0].vertices[0].x, -1.0)
+      closeTo(batches[0].vertices[2].x, 1.0)
+      batches[1].attachment == "fancyFace"
+      closeTo(batches[1].vertices[0].x, -2.0)
+      closeTo(batches[1].vertices[2].x, 2.0)
