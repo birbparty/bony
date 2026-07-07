@@ -348,17 +348,29 @@ class _MixedDeform {
 /// - `colors`      — slot RGBA / RGB / alpha colour channels
 /// - `colors2`     — slot two-colour (light RGBA + dark RGB)
 /// - `sequences`   — slot sequence frame index
+/// - `deforms`     — dense mesh-deform overrides by slot+attachment
 class MixedPose {
   const MixedPose({
     required this.scalars,
-    this.vectors = const [],
-    this.attachments = const [],
-    this.inherits = const [],
-    this.colors = const [],
-    this.colors2 = const [],
-    this.sequences = const [],
-    this.deforms = const [],
+    required this.vectors,
+    required this.attachments,
+    required this.inherits,
+    required this.colors,
+    required this.colors2,
+    required this.sequences,
+    required this.deforms,
   });
+
+  const MixedPose.empty()
+      : scalars = const [],
+        vectors = const [],
+        attachments = const [],
+        inherits = const [],
+        colors = const [],
+        colors2 = const [],
+        sequences = const [],
+        deforms = const [];
+
   final List<({String bone, BoneTimelineKind kind, double value})> scalars;
   final List<({String bone, BoneTimelineKind kind, double x, double y})>
       vectors;
@@ -412,12 +424,24 @@ double _setupScalar(SkeletonData data, String boneName, BoneTimelineKind kind) {
     SkeletonData data, String boneName, BoneTimelineKind kind) {
   for (final bone in data.bones) {
     if (bone.name == boneName) {
-      return switch (kind) {
-        BoneTimelineKind.translate => (bone.x, bone.y),
-        BoneTimelineKind.scale => (bone.scaleX, bone.scaleY),
-        BoneTimelineKind.shear => (bone.shearX, bone.shearY),
-        _ => (0.0, 0.0),
-      };
+      switch (kind) {
+        case BoneTimelineKind.translate:
+          return (bone.x, bone.y);
+        case BoneTimelineKind.scale:
+          return (bone.scaleX, bone.scaleY);
+        case BoneTimelineKind.shear:
+          return (bone.shearX, bone.shearY);
+        // Scalar kinds never appear in vectorKeys.
+        case BoneTimelineKind.rotate:
+        case BoneTimelineKind.translateX:
+        case BoneTimelineKind.translateY:
+        case BoneTimelineKind.scaleX:
+        case BoneTimelineKind.scaleY:
+        case BoneTimelineKind.shearX:
+        case BoneTimelineKind.shearY:
+        case BoneTimelineKind.inherit:
+          return (0.0, 0.0);
+      }
     }
   }
   return (0.0, 0.0);
@@ -439,6 +463,9 @@ List<T> _overlayChannel<T>(
   return map.values.toList()..sort(compare);
 }
 
+// Generic channel blender:
+// C is the stable channel identity, V is the channel value, and R is the
+// concrete MixedPose record shape rebuilt for the output list.
 List<R> _blendChannel<C, V, R>({
   required Iterable<R> loItems,
   required Iterable<R> hiItems,
@@ -520,8 +547,9 @@ int _compareDeformValues(
 
 /// Overlay two sampled poses, with [overlay] winning for duplicate channel keys.
 ///
-/// This is the multi-layer state-machine composition rule: later layers replace
-/// earlier layers per scalar/vector/slot/deform channel while preserving stable
+/// This is the canonical overlay rule for sampled [MixedPose] values:
+/// state-machine layers, or any other higher-priority pose, replace lower-priority
+/// values per scalar/vector/slot/deform channel key while preserving stable
 /// deterministic output order.
 MixedPose overlayPose(MixedPose base, MixedPose overlay) {
   return MixedPose(
@@ -580,7 +608,9 @@ MixedPose overlayPose(MixedPose base, MixedPose overlay) {
 /// Blend two sampled clip poses for a state-machine blend1d state.
 ///
 /// Numeric channels interpolate with setup-pose fallback when present in only
-/// one side; stepped channels and deforms snap at `t >= 0.5`.
+/// one side; stepped channels and deforms snap at `t >= 0.5`. Callers pass
+/// normalized blend factors in `[0, 1]`; values outside that range extrapolate
+/// numeric channels and keep the same snap rule.
 MixedPose blendPoses(SkeletonData data, MixedPose lo, MixedPose hi, double t) {
   const white = ColorRgba(r: 1.0, g: 1.0, b: 1.0, a: 1.0);
   const defaultColor2 = ColorRgba2(

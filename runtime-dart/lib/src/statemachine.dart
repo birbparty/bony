@@ -401,14 +401,7 @@ class StateMachineRuntime {
     _updateAnimationEvents(data);
 
     final evalLayers = <EvaluatedStateMachineLayer>[];
-    var combined = const MixedPose(
-        scalars: [],
-        vectors: [],
-        attachments: [],
-        inherits: [],
-        colors: [],
-        colors2: [],
-        sequences: []);
+    var combined = const MixedPose.empty();
 
     for (final lr in _layers) {
       final state = _stateByName(lr.layer, lr.currentState);
@@ -517,15 +510,7 @@ class StateMachineRuntime {
       SkeletonData data, StateMachineState state, double time) {
     final input = getNumberInput(state.blendInput);
     final clips = state.blendClips;
-    if (clips.isEmpty)
-      return const MixedPose(
-          scalars: [],
-          vectors: [],
-          attachments: [],
-          inherits: [],
-          colors: [],
-          colors2: [],
-          sequences: []);
+    if (clips.isEmpty) return const MixedPose.empty();
     if (input <= clips.first.value) {
       return _sampleClipPose(
           data, _findClip(data, clips.first.clipName), clips.first.loop, time);

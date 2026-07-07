@@ -1078,6 +1078,77 @@ void main() {
     });
   });
 
+  group('MixedPose public combinators', () {
+    test('overlayPose replaces duplicate keys and returns deterministic order',
+        () {
+      const base = MixedPose(
+        scalars: [
+          (bone: 'b', kind: BoneTimelineKind.rotate, value: 10.0),
+          (bone: 'a', kind: BoneTimelineKind.rotate, value: 20.0),
+        ],
+        vectors: [],
+        attachments: [(slot: 'body', attachment: 'base')],
+        inherits: [],
+        colors: [],
+        colors2: [],
+        sequences: [],
+        deforms: [],
+      );
+      const overlay = MixedPose(
+        scalars: [(bone: 'b', kind: BoneTimelineKind.rotate, value: 30.0)],
+        vectors: [],
+        attachments: [(slot: 'body', attachment: 'overlay')],
+        inherits: [],
+        colors: [],
+        colors2: [],
+        sequences: [],
+        deforms: [],
+      );
+
+      final combined = overlayPose(base, overlay);
+
+      expect(combined.scalars.map((s) => s.bone).toList(), ['a', 'b']);
+      expect(combined.scalars.map((s) => s.value).toList(), [20.0, 30.0]);
+      expect(combined.attachments.single.attachment, 'overlay');
+    });
+
+    test('blendPoses uses setup fallback and snaps stepped channels at 0.5',
+        () {
+      final data = loadBonyJson('{"skeleton":{"name":"blend"},'
+          '"bones":[{"name":"root","rotation":30}],'
+          '"slots":[{"name":"body","bone":"root","attachment":""}]}');
+      const lo = MixedPose(
+        scalars: [(bone: 'root', kind: BoneTimelineKind.rotate, value: 50.0)],
+        vectors: [],
+        attachments: [(slot: 'body', attachment: 'low')],
+        inherits: [],
+        colors: [],
+        colors2: [],
+        sequences: [],
+        deforms: [],
+      );
+      const hi = MixedPose(
+        scalars: [],
+        vectors: [],
+        attachments: [(slot: 'body', attachment: 'high')],
+        inherits: [],
+        colors: [],
+        colors2: [],
+        sequences: [],
+        deforms: [],
+      );
+
+      final beforeSnap = blendPoses(data, lo, hi, 0.49);
+      final atSnap = blendPoses(data, lo, hi, 0.5);
+
+      expect((beforeSnap.scalars.single.value - 40.2).abs(),
+          lessThanOrEqualTo(1e-6));
+      expect(beforeSnap.attachments.single.attachment, 'low');
+      expect(atSnap.scalars.single.value, 40.0);
+      expect(atSnap.attachments.single.attachment, 'high');
+    });
+  });
+
   group('M8 MixedPose channel completeness guard (bony-bna8)', () {
     // Mirrors the Nim completeness guard: a fixture whose clip drives ALL eight
     // MixedPose channels, pushed through the blend1D (blendPoses) and
@@ -1171,6 +1242,7 @@ void main() {
         colors: [],
         colors2: [],
         sequences: [],
+        deforms: [],
       );
       expect(droppedChannels(empty), hasLength(8));
     });
