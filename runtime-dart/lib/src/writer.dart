@@ -643,13 +643,13 @@ void _appendPathConstraint(
       indent + 1,
       fields);
   if (path.position != null) {
-    out.addNumberField('position', path.position!, indent + 1, fields);
+    out.addF32Field('position', path.position!, indent + 1, fields);
   }
   if (path.translateMix != null) {
-    out.addNumberField('translateMix', path.translateMix!, indent + 1, fields);
+    out.addF32Field('translateMix', path.translateMix!, indent + 1, fields);
   }
   if (path.rotateMix != null) {
-    out.addNumberField('rotateMix', path.rotateMix!, indent + 1, fields);
+    out.addF32Field('rotateMix', path.rotateMix!, indent + 1, fields);
   }
   out.write('\n');
   out.addIndent(indent);
@@ -675,7 +675,7 @@ void _appendIkConstraint(BonyJsonBuffer out, IkConstraintData ik, int indent) {
       BonyWriterScalar.bool('skinRequired', ik.skinRequired),
       indent + 1,
       fields);
-  if (ik.mix != null) out.addNumberField('mix', ik.mix!, indent + 1, fields);
+  if (ik.mix != null) out.addF32Field('mix', ik.mix!, indent + 1, fields);
   if (ik.bendPositive != null) {
     out.addBoolField('bendPositive', ik.bendPositive!, indent + 1, fields);
   }
@@ -705,16 +705,16 @@ void _appendTransformConstraint(
       indent + 1,
       fields);
   if (tc.translateMix != null) {
-    out.addNumberField('translateMix', tc.translateMix!, indent + 1, fields);
+    out.addF32Field('translateMix', tc.translateMix!, indent + 1, fields);
   }
   if (tc.rotateMix != null) {
-    out.addNumberField('rotateMix', tc.rotateMix!, indent + 1, fields);
+    out.addF32Field('rotateMix', tc.rotateMix!, indent + 1, fields);
   }
   if (tc.scaleMix != null) {
-    out.addNumberField('scaleMix', tc.scaleMix!, indent + 1, fields);
+    out.addF32Field('scaleMix', tc.scaleMix!, indent + 1, fields);
   }
   if (tc.shearMix != null) {
-    out.addNumberField('shearMix', tc.shearMix!, indent + 1, fields);
+    out.addF32Field('shearMix', tc.shearMix!, indent + 1, fields);
   }
   out.write('\n');
   out.addIndent(indent);
@@ -747,21 +747,21 @@ void _appendPhysicsConstraint(
       indent + 1,
       fields);
   if (pc.inertia != null) {
-    out.addNumberField('inertia', pc.inertia!, indent + 1, fields);
+    out.addF32Field('inertia', pc.inertia!, indent + 1, fields);
   }
   if (pc.strength != null) {
-    out.addNumberField('strength', pc.strength!, indent + 1, fields);
+    out.addF32Field('strength', pc.strength!, indent + 1, fields);
   }
   if (pc.damping != null) {
-    out.addNumberField('damping', pc.damping!, indent + 1, fields);
+    out.addF32Field('damping', pc.damping!, indent + 1, fields);
   }
-  if (pc.mass != null) out.addNumberField('mass', pc.mass!, indent + 1, fields);
+  if (pc.mass != null) out.addF32Field('mass', pc.mass!, indent + 1, fields);
   if (pc.gravity != null) {
-    out.addNumberField('gravity', pc.gravity!, indent + 1, fields);
+    out.addF32Field('gravity', pc.gravity!, indent + 1, fields);
   }
-  if (pc.wind != null) out.addNumberField('wind', pc.wind!, indent + 1, fields);
+  if (pc.wind != null) out.addF32Field('wind', pc.wind!, indent + 1, fields);
   if (pc.physicsMix != null) {
-    out.addNumberField('physicsMix', pc.physicsMix!, indent + 1, fields);
+    out.addF32Field('physicsMix', pc.physicsMix!, indent + 1, fields);
   }
   out.write('\n');
   out.addIndent(indent);
