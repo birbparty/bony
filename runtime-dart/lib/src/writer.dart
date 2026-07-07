@@ -2,7 +2,9 @@ import 'dart:convert' show jsonDecode;
 
 import 'deform.dart' show quantizeF32;
 import 'generated/wire.dart' as wire;
+import 'loader.dart' show validateBonyData;
 import 'model.dart';
+import 'physics_constraint.dart' show physicsChannelsToMask;
 
 const double _maxSafeInteger = 9007199254740991.0;
 
@@ -205,6 +207,11 @@ final class BonyJsonBuffer {
     _buffer.write(bonyCanonicalNumber(value));
   }
 
+  void addF32Field(String key, double value, int indent, FieldState state) {
+    addFieldPrefix(key, indent, state);
+    _buffer.write(bonyCanonicalF32Number(value));
+  }
+
   void addBoolField(String key, bool value, int indent, FieldState state) {
     addFieldPrefix(key, indent, state);
     _buffer.write(value ? 'true' : 'false');
@@ -223,6 +230,638 @@ final class FieldState {
   FieldState();
 
   bool first = true;
+}
+
+String writeBonyJson(SkeletonData data) {
+  try {
+    validateBonyData(data);
+  } on FormatException catch (e) {
+    throw BonyWriteException('invalid SkeletonData', e);
+  } catch (e) {
+    throw BonyWriteException('failed to validate SkeletonData', e);
+  }
+
+  try {
+    final out = BonyJsonBuffer();
+    final fields = FieldState();
+    out.write('{\n');
+    out.addFieldPrefix('skeleton', 1, fields);
+    _appendSkeleton(out, data.header, 1);
+    _addTopLevelList(out, 'bones', data.bones, 1, fields, _appendBone);
+    _addTopLevelList(out, 'slots', data.slots, 1, fields, _appendSlot);
+    _addTopLevelList(out, 'regions', data.regions, 1, fields, _appendRegion);
+    _addTopLevelList(out, 'pointAttachments', data.pointAttachments, 1, fields,
+        _appendPointAttachment,
+        omitWhenEmpty: true);
+    _addTopLevelList(
+      out,
+      'boundingBoxAttachments',
+      data.boundingBoxAttachments,
+      1,
+      fields,
+      _appendBoundingBoxAttachment,
+      omitWhenEmpty: true,
+    );
+    _addTopLevelList(
+      out,
+      'nestedRigAttachments',
+      data.nestedRigAttachments,
+      1,
+      fields,
+      _appendNestedRigAttachment,
+      omitWhenEmpty: true,
+    );
+    _addTopLevelList(out, 'paths', data.paths, 1, fields, _appendPathConstraint,
+        omitWhenEmpty: true);
+    _addTopLevelList(out, 'ikConstraints', data.ikConstraints, 1, fields,
+        _appendIkConstraint,
+        omitWhenEmpty: true);
+    _addTopLevelList(
+      out,
+      'transformConstraints',
+      data.transformConstraints,
+      1,
+      fields,
+      _appendTransformConstraint,
+      omitWhenEmpty: true,
+    );
+    _addTopLevelList(
+      out,
+      'physicsConstraints',
+      data.physicsConstraints,
+      1,
+      fields,
+      _appendPhysicsConstraint,
+      omitWhenEmpty: true,
+    );
+    _addTopLevelList(out, 'pathAttachments', data.pathAttachments, 1, fields,
+        _appendPathAttachment,
+        omitWhenEmpty: true);
+    _addTopLevelList(
+      out,
+      'clippingAttachments',
+      data.clippingAttachments,
+      1,
+      fields,
+      _appendClippingAttachment,
+      omitWhenEmpty: true,
+    );
+    _addTopLevelList(out, 'meshAttachments', data.meshAttachments, 1, fields,
+        _appendMeshAttachment,
+        omitWhenEmpty: true);
+    _addTopLevelList<SkinData>(
+      out,
+      'skins',
+      bonyCanonicalOrderedSkins(data),
+      1,
+      fields,
+      (out, skin, indent) {
+        out.addIndent(indent);
+        out.write(bonyCanonicalSkinJson(data, skin, indent: indent));
+      },
+      omitWhenEmpty: true,
+    );
+    _addTopLevelList(
+        out, 'parameters', data.parameters, 1, fields, _appendParameter,
+        omitWhenEmpty: true);
+    _addTopLevelList<DeformerRecord>(
+      out,
+      'deformers',
+      data.deformers,
+      1,
+      fields,
+      (out, record, indent) {
+        out.addIndent(indent);
+        out.write(bonyCanonicalDeformerRecordJson(record, indent: indent));
+      },
+      omitWhenEmpty: true,
+    );
+    _addTopLevelList<AnimationClip>(
+      out,
+      'animations',
+      data.animations,
+      1,
+      fields,
+      (out, animation, indent) {
+        out.addIndent(indent);
+        out.write(bonyCanonicalAnimationClipJson(animation,
+            setupSlots: data.slots, indent: indent));
+      },
+      omitWhenEmpty: true,
+    );
+    _addTopLevelList<StateMachineData>(
+      out,
+      'stateMachines',
+      data.stateMachines,
+      1,
+      fields,
+      (out, machine, indent) {
+        out.addIndent(indent);
+        out.write(bonyCanonicalStateMachineJson(machine, indent: indent));
+      },
+      omitWhenEmpty: true,
+    );
+    out.write('\n}\n');
+    return out.toString();
+  } catch (e) {
+    if (e is BonyWriteException) rethrow;
+    throw BonyWriteException('failed to write canonical .bony JSON', e);
+  }
+}
+
+typedef _JsonItemWriter<T> = void Function(
+  BonyJsonBuffer out,
+  T value,
+  int indent,
+);
+
+void _addTopLevelList<T>(
+  BonyJsonBuffer out,
+  String key,
+  List<T> values,
+  int indent,
+  FieldState fields,
+  _JsonItemWriter<T> writeItem, {
+  bool omitWhenEmpty = false,
+}) {
+  if (omitWhenEmpty && values.isEmpty) return;
+  out.addFieldPrefix(key, indent, fields);
+  _appendList(out, values, indent, writeItem);
+}
+
+void _appendList<T>(
+  BonyJsonBuffer out,
+  List<T> values,
+  int indent,
+  _JsonItemWriter<T> writeItem,
+) {
+  out.write('[');
+  if (values.isNotEmpty) {
+    out.write('\n');
+    for (var i = 0; i < values.length; i++) {
+      if (i > 0) out.write(',\n');
+      writeItem(out, values[i], indent + 1);
+    }
+    out.write('\n');
+    out.addIndent(indent);
+  }
+  out.write(']');
+}
+
+void _appendNumberArray(BonyJsonBuffer out, List<double> values) {
+  out.write('[');
+  for (var i = 0; i < values.length; i++) {
+    if (i > 0) out.write(', ');
+    out.write(bonyCanonicalNumber(values[i]));
+  }
+  out.write(']');
+}
+
+void _appendSkeleton(BonyJsonBuffer out, SkeletonHeader header, int indent) {
+  out.write('{\n');
+  final fields = FieldState();
+  _addScalarField(
+    out,
+    'skeleton',
+    'name',
+    BonyWriterScalar.string('name', header.name),
+    indent + 1,
+    fields,
+  );
+  _addScalarField(
+    out,
+    'skeleton',
+    'version',
+    BonyWriterScalar.string('version', header.version),
+    indent + 1,
+    fields,
+  );
+  out.write('\n');
+  out.addIndent(indent);
+  out.write('}');
+}
+
+void _appendBone(BonyJsonBuffer out, BoneData bone, int indent) {
+  out.addIndent(indent);
+  out.write('{\n');
+  final fields = FieldState();
+  _addScalarField(out, 'bone', 'name',
+      BonyWriterScalar.string('name', bone.name), indent + 1, fields);
+  _addScalarField(out, 'bone', 'parent',
+      BonyWriterScalar.string('parent', bone.parent), indent + 1, fields);
+  _addScalarField(
+      out, 'bone', 'x', BonyWriterScalar.f32('x', bone.x), indent + 1, fields);
+  _addScalarField(
+      out, 'bone', 'y', BonyWriterScalar.f32('y', bone.y), indent + 1, fields);
+  _addScalarField(out, 'bone', 'rotation',
+      BonyWriterScalar.f32('rotation', bone.rotation), indent + 1, fields);
+  _addScalarField(out, 'bone', 'scaleX',
+      BonyWriterScalar.f32('scaleX', bone.scaleX), indent + 1, fields);
+  _addScalarField(out, 'bone', 'scaleY',
+      BonyWriterScalar.f32('scaleY', bone.scaleY), indent + 1, fields);
+  _addScalarField(out, 'bone', 'shearX',
+      BonyWriterScalar.f32('shearX', bone.shearX), indent + 1, fields);
+  _addScalarField(out, 'bone', 'shearY',
+      BonyWriterScalar.f32('shearY', bone.shearY), indent + 1, fields);
+  _addScalarField(
+      out,
+      'bone',
+      'inheritRotation',
+      BonyWriterScalar.bool('inheritRotation', bone.inheritRotation),
+      indent + 1,
+      fields);
+  _addScalarField(
+      out,
+      'bone',
+      'inheritScale',
+      BonyWriterScalar.bool('inheritScale', bone.inheritScale),
+      indent + 1,
+      fields);
+  _addScalarField(
+      out,
+      'bone',
+      'inheritReflection',
+      BonyWriterScalar.bool('inheritReflection', bone.inheritReflection),
+      indent + 1,
+      fields);
+  _addScalarField(
+      out,
+      'bone',
+      'transformMode',
+      BonyWriterScalar.string('transformMode', bone.transformMode),
+      indent + 1,
+      fields);
+  _addScalarField(
+      out,
+      'bone',
+      'skinRequired',
+      BonyWriterScalar.bool('skinRequired', bone.skinRequired),
+      indent + 1,
+      fields);
+  out.write('\n');
+  out.addIndent(indent);
+  out.write('}');
+}
+
+void _appendSlot(BonyJsonBuffer out, SlotData slot, int indent) {
+  out.addIndent(indent);
+  out.write('{\n');
+  final fields = FieldState();
+  _addScalarField(out, 'slot', 'name',
+      BonyWriterScalar.string('name', slot.name), indent + 1, fields);
+  _addScalarField(out, 'slot', 'bone',
+      BonyWriterScalar.string('bone', slot.bone), indent + 1, fields);
+  _addScalarField(
+      out,
+      'slot',
+      'attachment',
+      BonyWriterScalar.string('attachment', slot.attachment),
+      indent + 1,
+      fields);
+  out.write('\n');
+  out.addIndent(indent);
+  out.write('}');
+}
+
+void _appendRegion(BonyJsonBuffer out, RegionAttachment region, int indent) {
+  out.addIndent(indent);
+  out.write('{\n');
+  final fields = FieldState();
+  _addScalarField(out, 'region', 'name',
+      BonyWriterScalar.string('name', region.name), indent + 1, fields);
+  _addScalarField(out, 'region', 'width',
+      BonyWriterScalar.f32('width', region.width), indent + 1, fields);
+  _addScalarField(out, 'region', 'height',
+      BonyWriterScalar.f32('height', region.height), indent + 1, fields);
+  _addScalarField(
+      out,
+      'region',
+      'texturePage',
+      BonyWriterScalar.string('texturePage', region.texturePage),
+      indent + 1,
+      fields);
+  _addScalarField(out, 'region', 'u0', BonyWriterScalar.f32('u0', region.u0),
+      indent + 1, fields);
+  _addScalarField(out, 'region', 'v0', BonyWriterScalar.f32('v0', region.v0),
+      indent + 1, fields);
+  _addScalarField(out, 'region', 'u1', BonyWriterScalar.f32('u1', region.u1),
+      indent + 1, fields);
+  _addScalarField(out, 'region', 'v1', BonyWriterScalar.f32('v1', region.v1),
+      indent + 1, fields);
+  _addScalarField(
+      out,
+      'region',
+      'alphaMode',
+      BonyWriterScalar.string('alphaMode', region.alphaMode),
+      indent + 1,
+      fields);
+  out.write('\n');
+  out.addIndent(indent);
+  out.write('}');
+}
+
+void _appendPointAttachment(
+    BonyJsonBuffer out, PointAttachment point, int indent) {
+  out.addIndent(indent);
+  out.write('{\n');
+  final fields = FieldState();
+  _addScalarField(out, 'pointAttachment', 'name',
+      BonyWriterScalar.string('name', point.name), indent + 1, fields);
+  _addScalarField(out, 'pointAttachment', 'x',
+      BonyWriterScalar.f32('x', point.x), indent + 1, fields);
+  _addScalarField(out, 'pointAttachment', 'y',
+      BonyWriterScalar.f32('y', point.y), indent + 1, fields);
+  _addScalarField(out, 'pointAttachment', 'rotation',
+      BonyWriterScalar.f32('rotation', point.rotation), indent + 1, fields);
+  out.write('\n');
+  out.addIndent(indent);
+  out.write('}');
+}
+
+void _appendBoundingBoxAttachment(
+    BonyJsonBuffer out, BoundingBoxAttachment box, int indent) {
+  out.addIndent(indent);
+  out.write('{\n');
+  final fields = FieldState();
+  _addScalarField(out, 'boundingBoxAttachment', 'name',
+      BonyWriterScalar.string('name', box.name), indent + 1, fields);
+  out.addFieldPrefix('vertices', indent + 1, fields);
+  _appendNumberArray(out, box.vertices);
+  out.write('\n');
+  out.addIndent(indent);
+  out.write('}');
+}
+
+void _appendNestedRigAttachment(
+    BonyJsonBuffer out, NestedRigAttachment nested, int indent) {
+  out.addIndent(indent);
+  out.write('{\n');
+  final fields = FieldState();
+  _addScalarField(out, 'nestedRigAttachment', 'name',
+      BonyWriterScalar.string('name', nested.name), indent + 1, fields);
+  _addScalarField(
+      out,
+      'nestedRigAttachment',
+      'skeleton',
+      BonyWriterScalar.string('nestedSkeleton', nested.skeleton),
+      indent + 1,
+      fields);
+  _addScalarField(out, 'nestedRigAttachment', 'skin',
+      BonyWriterScalar.string('nestedSkin', nested.skin), indent + 1, fields);
+  _addScalarField(
+      out,
+      'nestedRigAttachment',
+      'animation',
+      BonyWriterScalar.string('nestedAnimation', nested.animation),
+      indent + 1,
+      fields);
+  out.write('\n');
+  out.addIndent(indent);
+  out.write('}');
+}
+
+void _appendPathConstraint(
+    BonyJsonBuffer out, PathConstraintData path, int indent) {
+  out.addIndent(indent);
+  out.write('{\n');
+  final fields = FieldState();
+  _addScalarField(out, 'path', 'name',
+      BonyWriterScalar.string('name', path.name), indent + 1, fields);
+  _addScalarField(out, 'path', 'bone',
+      BonyWriterScalar.string('bone', path.bone), indent + 1, fields);
+  _addScalarField(out, 'path', 'target',
+      BonyWriterScalar.string('target', path.target), indent + 1, fields);
+  _addScalarField(out, 'path', 'path',
+      BonyWriterScalar.string('path', path.path), indent + 1, fields);
+  _addScalarField(out, 'path', 'order',
+      BonyWriterScalar.varint('order', path.order), indent + 1, fields);
+  _addScalarField(
+      out,
+      'path',
+      'skinRequired',
+      BonyWriterScalar.bool('skinRequired', path.skinRequired),
+      indent + 1,
+      fields);
+  if (path.position != null) {
+    out.addNumberField('position', path.position!, indent + 1, fields);
+  }
+  if (path.translateMix != null) {
+    out.addNumberField('translateMix', path.translateMix!, indent + 1, fields);
+  }
+  if (path.rotateMix != null) {
+    out.addNumberField('rotateMix', path.rotateMix!, indent + 1, fields);
+  }
+  out.write('\n');
+  out.addIndent(indent);
+  out.write('}');
+}
+
+void _appendIkConstraint(BonyJsonBuffer out, IkConstraintData ik, int indent) {
+  out.addIndent(indent);
+  out.write('{\n');
+  final fields = FieldState();
+  _addScalarField(out, 'ikConstraint', 'name',
+      BonyWriterScalar.string('name', ik.name), indent + 1, fields);
+  out.addFieldPrefix('bones', indent + 1, fields);
+  out.write(bonyCanonicalStringArrayJson(ik.bones));
+  _addScalarField(out, 'ikConstraint', 'target',
+      BonyWriterScalar.string('target', ik.target), indent + 1, fields);
+  _addScalarField(out, 'ikConstraint', 'order',
+      BonyWriterScalar.varint('order', ik.order), indent + 1, fields);
+  _addScalarField(
+      out,
+      'ikConstraint',
+      'skinRequired',
+      BonyWriterScalar.bool('skinRequired', ik.skinRequired),
+      indent + 1,
+      fields);
+  if (ik.mix != null) out.addNumberField('mix', ik.mix!, indent + 1, fields);
+  if (ik.bendPositive != null) {
+    out.addBoolField('bendPositive', ik.bendPositive!, indent + 1, fields);
+  }
+  out.write('\n');
+  out.addIndent(indent);
+  out.write('}');
+}
+
+void _appendTransformConstraint(
+    BonyJsonBuffer out, TransformConstraintData tc, int indent) {
+  out.addIndent(indent);
+  out.write('{\n');
+  final fields = FieldState();
+  _addScalarField(out, 'transformConstraint', 'name',
+      BonyWriterScalar.string('name', tc.name), indent + 1, fields);
+  _addScalarField(out, 'transformConstraint', 'bone',
+      BonyWriterScalar.string('bone', tc.bone), indent + 1, fields);
+  _addScalarField(out, 'transformConstraint', 'target',
+      BonyWriterScalar.string('target', tc.target), indent + 1, fields);
+  _addScalarField(out, 'transformConstraint', 'order',
+      BonyWriterScalar.varint('order', tc.order), indent + 1, fields);
+  _addScalarField(
+      out,
+      'transformConstraint',
+      'skinRequired',
+      BonyWriterScalar.bool('skinRequired', tc.skinRequired),
+      indent + 1,
+      fields);
+  if (tc.translateMix != null) {
+    out.addNumberField('translateMix', tc.translateMix!, indent + 1, fields);
+  }
+  if (tc.rotateMix != null) {
+    out.addNumberField('rotateMix', tc.rotateMix!, indent + 1, fields);
+  }
+  if (tc.scaleMix != null) {
+    out.addNumberField('scaleMix', tc.scaleMix!, indent + 1, fields);
+  }
+  if (tc.shearMix != null) {
+    out.addNumberField('shearMix', tc.shearMix!, indent + 1, fields);
+  }
+  out.write('\n');
+  out.addIndent(indent);
+  out.write('}');
+}
+
+void _appendPhysicsConstraint(
+    BonyJsonBuffer out, PhysicsConstraintData pc, int indent) {
+  out.addIndent(indent);
+  out.write('{\n');
+  final fields = FieldState();
+  _addScalarField(out, 'physicsConstraint', 'name',
+      BonyWriterScalar.string('name', pc.name), indent + 1, fields);
+  _addScalarField(out, 'physicsConstraint', 'bone',
+      BonyWriterScalar.string('bone', pc.bone), indent + 1, fields);
+  _addScalarField(out, 'physicsConstraint', 'order',
+      BonyWriterScalar.varint('order', pc.order), indent + 1, fields);
+  _addScalarField(
+      out,
+      'physicsConstraint',
+      'skinRequired',
+      BonyWriterScalar.bool('skinRequired', pc.skinRequired),
+      indent + 1,
+      fields);
+  _addScalarField(
+      out,
+      'physicsConstraint',
+      'channels',
+      BonyWriterScalar.varuint('channels', physicsChannelsToMask(pc.channels)),
+      indent + 1,
+      fields);
+  if (pc.inertia != null) {
+    out.addNumberField('inertia', pc.inertia!, indent + 1, fields);
+  }
+  if (pc.strength != null) {
+    out.addNumberField('strength', pc.strength!, indent + 1, fields);
+  }
+  if (pc.damping != null) {
+    out.addNumberField('damping', pc.damping!, indent + 1, fields);
+  }
+  if (pc.mass != null) out.addNumberField('mass', pc.mass!, indent + 1, fields);
+  if (pc.gravity != null) {
+    out.addNumberField('gravity', pc.gravity!, indent + 1, fields);
+  }
+  if (pc.wind != null) out.addNumberField('wind', pc.wind!, indent + 1, fields);
+  if (pc.physicsMix != null) {
+    out.addNumberField('physicsMix', pc.physicsMix!, indent + 1, fields);
+  }
+  out.write('\n');
+  out.addIndent(indent);
+  out.write('}');
+}
+
+void _appendPathAttachment(
+    BonyJsonBuffer out, PathAttachment path, int indent) {
+  out.addIndent(indent);
+  out.write('{\n');
+  final fields = FieldState();
+  _addScalarField(out, 'pathAttachment', 'name',
+      BonyWriterScalar.string('name', path.name), indent + 1, fields);
+  _addScalarField(out, 'pathAttachment', 'p0x',
+      BonyWriterScalar.f64('p0x', path.p0x), indent + 1, fields);
+  _addScalarField(out, 'pathAttachment', 'p0y',
+      BonyWriterScalar.f64('p0y', path.p0y), indent + 1, fields);
+  _addScalarField(out, 'pathAttachment', 'p1x',
+      BonyWriterScalar.f64('p1x', path.p1x), indent + 1, fields);
+  _addScalarField(out, 'pathAttachment', 'p1y',
+      BonyWriterScalar.f64('p1y', path.p1y), indent + 1, fields);
+  _addScalarField(out, 'pathAttachment', 'p2x',
+      BonyWriterScalar.f64('p2x', path.p2x), indent + 1, fields);
+  _addScalarField(out, 'pathAttachment', 'p2y',
+      BonyWriterScalar.f64('p2y', path.p2y), indent + 1, fields);
+  _addScalarField(out, 'pathAttachment', 'p3x',
+      BonyWriterScalar.f64('p3x', path.p3x), indent + 1, fields);
+  _addScalarField(out, 'pathAttachment', 'p3y',
+      BonyWriterScalar.f64('p3y', path.p3y), indent + 1, fields);
+  out.write('\n');
+  out.addIndent(indent);
+  out.write('}');
+}
+
+void _appendClippingAttachment(
+    BonyJsonBuffer out, ClippingAttachment clip, int indent) {
+  out.addIndent(indent);
+  out.write('{\n');
+  final fields = FieldState();
+  _addScalarField(out, 'clippingAttachment', 'name',
+      BonyWriterScalar.string('name', clip.name), indent + 1, fields);
+  out.addFieldPrefix('vertices', indent + 1, fields);
+  _appendNumberArray(out, clip.vertices);
+  _addScalarField(out, 'clippingAttachment', 'untilSlot',
+      BonyWriterScalar.string('untilSlot', clip.untilSlot), indent + 1, fields);
+  out.write('\n');
+  out.addIndent(indent);
+  out.write('}');
+}
+
+void _appendMeshAttachment(
+    BonyJsonBuffer out, MeshAttachment mesh, int indent) {
+  out.addIndent(indent);
+  out.write('{\n');
+  final fields = FieldState();
+  _addScalarField(out, 'meshAttachment', 'name',
+      BonyWriterScalar.string('name', mesh.name), indent + 1, fields);
+  _addScalarField(out, 'meshAttachment', 'weighted',
+      BonyWriterScalar.bool('meshWeighted', mesh.weighted), indent + 1, fields);
+  out.addFieldPrefix('vertices', indent + 1, fields);
+  out.write(bonyCanonicalMeshVerticesJson(mesh.vertices, indent: indent + 1));
+  out.addFieldPrefix('uvs', indent + 1, fields);
+  out.write(bonyCanonicalMeshUvsJson(mesh.uvs));
+  out.addFieldPrefix('triangles', indent + 1, fields);
+  out.write(bonyCanonicalIntArrayJson(mesh.triangles));
+  out.write('\n');
+  out.addIndent(indent);
+  out.write('}');
+}
+
+void _appendParameter(BonyJsonBuffer out, ParameterAxis parameter, int indent) {
+  out.addIndent(indent);
+  out.write('{\n');
+  final fields = FieldState();
+  _addScalarField(out, 'parameter', 'name',
+      BonyWriterScalar.string('name', parameter.name), indent + 1, fields);
+  _addScalarField(
+      out,
+      'parameter',
+      'min',
+      BonyWriterScalar.f32('parameterMin', parameter.minValue),
+      indent + 1,
+      fields);
+  _addScalarField(
+      out,
+      'parameter',
+      'max',
+      BonyWriterScalar.f32('parameterMax', parameter.maxValue),
+      indent + 1,
+      fields);
+  _addScalarField(
+      out,
+      'parameter',
+      'default',
+      BonyWriterScalar.f32('parameterDefault', parameter.defaultValue),
+      indent + 1,
+      fields);
+  out.write('\n');
+  out.addIndent(indent);
+  out.write('}');
 }
 
 List<SkinData> bonyCanonicalOrderedSkins(SkeletonData data) {
@@ -656,7 +1295,7 @@ String bonyCanonicalStateMachineJson(
           }
         case StateMachineInputKind.number:
           if (input.defaultNumber != 0.0) {
-            out.addNumberField(
+            out.addF32Field(
                 'default', input.defaultNumber, indent + 3, inputFields);
           }
         case StateMachineInputKind.trigger:
@@ -859,10 +1498,10 @@ void _appendCurveFields(
     fields,
   );
   if (curve.kind == TimelineCurveKind.bezier) {
-    out.addNumberField('c1x', curve.c1x, indent, fields);
-    out.addNumberField('c1y', curve.c1y, indent, fields);
-    out.addNumberField('c2x', curve.c2x, indent, fields);
-    out.addNumberField('c2y', curve.c2y, indent, fields);
+    out.addF32Field('c1x', curve.c1x, indent, fields);
+    out.addF32Field('c1y', curve.c1y, indent, fields);
+    out.addF32Field('c2x', curve.c2x, indent, fields);
+    out.addF32Field('c2y', curve.c2y, indent, fields);
   }
 }
 
@@ -915,8 +1554,8 @@ void _appendScalarKeyframes(
     out.addIndent(indent);
     out.write('{\n');
     final fields = FieldState();
-    out.addNumberField('t', key.time, indent + 1, fields);
-    out.addNumberField('value', key.value, indent + 1, fields);
+    out.addF32Field('t', key.time, indent + 1, fields);
+    out.addF32Field('value', key.value, indent + 1, fields);
     _appendCurveFields(out, key.curve, indent + 1, fields);
     out.write('\n');
     out.addIndent(indent);
@@ -935,9 +1574,9 @@ void _appendVectorKeyframes(
     out.addIndent(indent);
     out.write('{\n');
     final fields = FieldState();
-    out.addNumberField('t', key.time, indent + 1, fields);
-    out.addNumberField('x', key.x, indent + 1, fields);
-    out.addNumberField('y', key.y, indent + 1, fields);
+    out.addF32Field('t', key.time, indent + 1, fields);
+    out.addF32Field('x', key.x, indent + 1, fields);
+    out.addF32Field('y', key.y, indent + 1, fields);
     _appendCurveFields(out, key.curveX, indent + 1, fields, key: 'curveX');
     _appendCurveFields(out, key.curveY, indent + 1, fields, key: 'curveY');
     out.write('\n');
@@ -957,7 +1596,7 @@ void _appendInheritKeyframes(
     out.addIndent(indent);
     out.write('{\n');
     final fields = FieldState();
-    out.addNumberField('t', key.time, indent + 1, fields);
+    out.addF32Field('t', key.time, indent + 1, fields);
     out.addBoolField(
         'inheritRotation', key.inheritRotation, indent + 1, fields);
     out.addBoolField('inheritScale', key.inheritScale, indent + 1, fields);
@@ -1021,7 +1660,7 @@ void _appendAttachmentKeyframes(
     out.addIndent(indent);
     out.write('{\n');
     final fields = FieldState();
-    out.addNumberField('t', key.time, indent + 1, fields);
+    out.addF32Field('t', key.time, indent + 1, fields);
     if (key.attachment.isNotEmpty) {
       out.addStringField('attachment', key.attachment, indent + 1, fields);
     }
@@ -1042,11 +1681,11 @@ void _appendColorKeyframes(
     out.addIndent(indent);
     out.write('{\n');
     final fields = FieldState();
-    out.addNumberField('t', key.time, indent + 1, fields);
-    out.addNumberField('r', key.color.r, indent + 1, fields);
-    out.addNumberField('g', key.color.g, indent + 1, fields);
-    out.addNumberField('b', key.color.b, indent + 1, fields);
-    out.addNumberField('a', key.color.a, indent + 1, fields);
+    out.addF32Field('t', key.time, indent + 1, fields);
+    out.addF32Field('r', key.color.r, indent + 1, fields);
+    out.addF32Field('g', key.color.g, indent + 1, fields);
+    out.addF32Field('b', key.color.b, indent + 1, fields);
+    out.addF32Field('a', key.color.a, indent + 1, fields);
     _appendCurveFields(out, key.curve, indent + 1, fields);
     out.write('\n');
     out.addIndent(indent);
@@ -1065,14 +1704,14 @@ void _appendColor2Keyframes(
     out.addIndent(indent);
     out.write('{\n');
     final fields = FieldState();
-    out.addNumberField('t', key.time, indent + 1, fields);
-    out.addNumberField('r', key.color.light.r, indent + 1, fields);
-    out.addNumberField('g', key.color.light.g, indent + 1, fields);
-    out.addNumberField('b', key.color.light.b, indent + 1, fields);
-    out.addNumberField('a', key.color.light.a, indent + 1, fields);
-    out.addNumberField('dr', key.color.darkR, indent + 1, fields);
-    out.addNumberField('dg', key.color.darkG, indent + 1, fields);
-    out.addNumberField('db', key.color.darkB, indent + 1, fields);
+    out.addF32Field('t', key.time, indent + 1, fields);
+    out.addF32Field('r', key.color.light.r, indent + 1, fields);
+    out.addF32Field('g', key.color.light.g, indent + 1, fields);
+    out.addF32Field('b', key.color.light.b, indent + 1, fields);
+    out.addF32Field('a', key.color.light.a, indent + 1, fields);
+    out.addF32Field('dr', key.color.darkR, indent + 1, fields);
+    out.addF32Field('dg', key.color.darkG, indent + 1, fields);
+    out.addF32Field('db', key.color.darkB, indent + 1, fields);
     _appendCurveFields(out, key.curve, indent + 1, fields);
     out.write('\n');
     out.addIndent(indent);
@@ -1091,9 +1730,9 @@ void _appendSequenceKeyframes(
     out.addIndent(indent);
     out.write('{\n');
     final fields = FieldState();
-    out.addNumberField('t', key.time, indent + 1, fields);
+    out.addF32Field('t', key.time, indent + 1, fields);
     out.addIntField('index', key.index, indent + 1, fields);
-    out.addNumberField('delay', key.delay, indent + 1, fields);
+    out.addF32Field('delay', key.delay, indent + 1, fields);
     out.addStringField(
         'mode', bonySequenceModeName(key.mode), indent + 1, fields);
     out.write('\n');
@@ -1121,7 +1760,7 @@ void _appendDrawOrderTimeline(
     out.addIndent(indent + 2);
     out.write('{\n');
     final keyFields = FieldState();
-    out.addNumberField('t', key.time, indent + 3, keyFields);
+    out.addF32Field('t', key.time, indent + 3, keyFields);
     out.addFieldPrefix('offsets', indent + 3, keyFields);
     out.write('[');
     if (offsets.isNotEmpty) {
@@ -1176,7 +1815,7 @@ void _appendDeformTimelines(
       out.addIndent(indent + 3);
       out.write('{\n');
       final keyFields = FieldState();
-      out.addNumberField('t', key.time, indent + 4, keyFields);
+      out.addF32Field('t', key.time, indent + 4, keyFields);
       out.addIntField('offset', key.offset, indent + 4, keyFields);
       out.addFieldPrefix('deltas', indent + 4, keyFields);
       out.write('[\n');
@@ -1186,8 +1825,8 @@ void _appendDeformTimelines(
         out.addIndent(indent + 5);
         out.write('{\n');
         final deltaFields = FieldState();
-        out.addNumberField('x', delta.x, indent + 6, deltaFields);
-        out.addNumberField('y', delta.y, indent + 6, deltaFields);
+        out.addF32Field('x', delta.x, indent + 6, deltaFields);
+        out.addF32Field('y', delta.y, indent + 6, deltaFields);
         out.write('\n');
         out.addIndent(indent + 5);
         out.write('}');
@@ -1232,14 +1871,13 @@ void _appendEventTimelines(
       out.addIndent(indent + 3);
       out.write('{\n');
       final keyFields = FieldState();
-      out.addNumberField('t', key.time, indent + 4, keyFields);
+      out.addF32Field('t', key.time, indent + 4, keyFields);
       out.addStringField('name', event.name, indent + 4, keyFields);
       if (event.intValue != 0) {
         out.addIntField('intValue', event.intValue, indent + 4, keyFields);
       }
       if (event.floatValue != 0.0) {
-        out.addNumberField(
-            'floatValue', event.floatValue, indent + 4, keyFields);
+        out.addF32Field('floatValue', event.floatValue, indent + 4, keyFields);
       }
       if (event.stringValue.isNotEmpty) {
         out.addStringField(
@@ -1249,10 +1887,10 @@ void _appendEventTimelines(
         out.addStringField('audioPath', event.audioPath, indent + 4, keyFields);
       }
       if (event.volume != 1.0) {
-        out.addNumberField('volume', event.volume, indent + 4, keyFields);
+        out.addF32Field('volume', event.volume, indent + 4, keyFields);
       }
       if (event.balance != 0.0) {
-        out.addNumberField('balance', event.balance, indent + 4, keyFields);
+        out.addF32Field('balance', event.balance, indent + 4, keyFields);
       }
       out.write('\n');
       out.addIndent(indent + 3);
@@ -1332,7 +1970,7 @@ void _appendStateMachineStates(
           out.write('{\n');
           final clipFields = FieldState();
           out.addStringField('clip', clip.clipName, indent + 4, clipFields);
-          out.addNumberField('value', clip.value, indent + 4, clipFields);
+          out.addF32Field('value', clip.value, indent + 4, clipFields);
           if (clip.loop) {
             out.addBoolField('loop', clip.loop, indent + 4, clipFields);
           }
@@ -1393,7 +2031,7 @@ void _appendStateMachineTransitions(
         case StateMachineConditionKind.numberGreaterOrEqual:
         case StateMachineConditionKind.numberLess:
         case StateMachineConditionKind.numberLessOrEqual:
-          out.addNumberField(
+          out.addF32Field(
               'value', condition.numberValue, indent + 4, conditionFields);
         case StateMachineConditionKind.triggerSet:
           break;
@@ -1468,7 +2106,7 @@ void _appendStateMachineListeners(
               throw FormatException(
                   'point pointer listener hitRadius is required: ${listener.name}');
             }
-            out.addNumberField('hitRadius', hitRadius, indent + 2, fields);
+            out.addF32Field('hitRadius', hitRadius, indent + 2, fields);
           case PointerHelperTargetKind.boundingBox:
             if (listener.hitRadius != null) {
               throw FormatException(
@@ -1498,7 +2136,7 @@ void _appendStateMachineListeners(
                   'number pointer listener requires exactly one numeric value: '
                   '${listener.name}');
             }
-            out.addNumberField('value', value, indent + 2, fields);
+            out.addF32Field('value', value, indent + 2, fields);
           case StateMachineInputKind.trigger:
             if (listener.boolValue != null || listener.numberValue != null) {
               throw FormatException(
