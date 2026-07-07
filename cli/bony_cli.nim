@@ -989,11 +989,13 @@ proc parseDbAnimation(node: JsonNode; index: int; boneNames: HashSet[string]): D
   if node.kind != JObject:
     raiseDb("schemaViolation", target, "object", "expected animation object")
   for key in node.keys:
-    if key notin ["name", "duration", "bone", "slot", "fadeInTime", "playTimes",
-                  "blendType", "type", "frame", "ffd"]:
+    if key in ["fadeInTime", "playTimes", "blendType", "type", "frame", "ffd"]:
+      raiseDb("unsupportedFeature", target, key,
+        "animation field not supported in Tier 1: " & key)
+    if key notin ["name", "duration", "bone", "slot"]:
       raiseDb("schemaViolation", target, key, "unknown key in animation: " & key)
   result.name = dbRequireString(node, "name", target)
-  result.duration = dbRequirePositiveInt(node, "duration", target)
+  result.duration = dbRequireNonNegativeInt(node, "duration", target)
   if node.hasKey("bone"):
     if node["bone"].kind != JArray:
       raiseDb("schemaViolation", target, "bone", "expected bone animation array")
