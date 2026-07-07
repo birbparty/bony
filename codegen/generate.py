@@ -104,6 +104,15 @@ PACKED_BYTES_METADATA: dict[str, dict[str, Any]] = {
     },
 }
 
+NIM_SCALAR_BACKINGS = {
+    "string": "bskString",
+    "f32": "bskF32",
+    "f64": "bskF64",
+    "bool": "bskBool",
+    "varint": "bskVarint",
+    "varuint": "bskVaruint",
+}
+
 
 class SourceError(ValueError):
     pass
@@ -1388,6 +1397,330 @@ def emit_runtime_metadata(registry: dict[str, Any], defaults: dict[str, Any], sp
     return "\n".join(lines)
 
 
+def nim_identifier_suffix(identifier: str) -> str:
+    return dart_const_suffix(identifier)
+
+
+def nim_scalar_value_literal(backing_type: str, value: Any | None) -> str:
+    if backing_type == "string":
+        return f"bonyStringValue({nim_string_literal(value if isinstance(value, str) else '')})"
+    if backing_type == "f32":
+        numeric = 0.0 if value is None else value
+        return f"bonyF32Value({float(numeric)!r})"
+    if backing_type == "f64":
+        numeric = 0.0 if value is None else value
+        return f"bonyF64Value({float(numeric)!r})"
+    if backing_type == "bool":
+        return f"bonyBoolValue({generated_bool(bool(value))})"
+    if backing_type == "varint":
+        numeric = 0 if value is None else int(value)
+        return f"bonyIntValue({numeric}.int64)"
+    if backing_type == "varuint":
+        numeric = 0 if value is None else int(value)
+        return f"bonyUintValue({numeric}.uint64)"
+    raise SourceError(f"unsupported Nim scalar backing type {backing_type}")
+
+
+def nim_scalar_codec_lines(registry: dict[str, Any], defaults: dict[str, Any]) -> list[str]:
+    type_keys = require_list(registry, "typeKeys")
+    property_keys = require_list(registry, "propertyKeys")
+    objects = require_list(registry, "objects")
+    property_by_id = {entry["id"]: entry for entry in property_keys}
+    type_key_by_id = {entry["id"]: entry["key"] for entry in type_keys}
+    default_map = {
+        entry["object"]: entry.get("properties", {})
+        for entry in require_list(defaults, "objectDefaults")
+    }
+    required_map: dict[str, set[str]] = {}
+    for entry in require_list(defaults, "requiredProperties"):
+        required_map.setdefault(entry["object"], set()).add(entry["property"])
+
+    lines = [
+        "",
+        "type",
+        "  BonyScalarKind* = enum",
+        "    bskString, bskF32, bskF64, bskBool, bskVarint, bskVaruint",
+        "  BonyScalarValue* = object",
+        "    case kind*: BonyScalarKind",
+        "    of bskString:",
+        "      stringValue*: string",
+        "    of bskF32, bskF64:",
+        "      floatValue*: float64",
+        "    of bskBool:",
+        "      boolValue*: bool",
+        "    of bskVarint:",
+        "      intValue*: int64",
+        "    of bskVaruint:",
+        "      uintValue*: uint64",
+        "  BonyJsonScalarProperty* = object",
+        "    propertyId*: string",
+        "    value*: BonyScalarValue",
+        "  BonyBnbScalarProperty* = object",
+        "    propertyKey*: uint64",
+        "    value*: BonyScalarValue",
+        "  BonyScalarPropertySpec* = object",
+        "    objectId*: string",
+        "    propertyId*: string",
+        "    propertyKey*: uint64",
+        "    kind*: BonyScalarKind",
+        "    required*: bool",
+        "    hasDefault*: bool",
+        "    defaultValue*: BonyScalarValue",
+        "    equality*: string",
+        "    omitWhenDefault*: bool",
+        "    applyOnLoad*: bool",
+        "",
+        "func bonyStringValue*(value: string): BonyScalarValue =",
+        "  BonyScalarValue(kind: bskString, stringValue: value)",
+        "",
+        "func bonyF32Value*(value: float64): BonyScalarValue =",
+        "  BonyScalarValue(kind: bskF32, floatValue: value)",
+        "",
+        "func bonyF64Value*(value: float64): BonyScalarValue =",
+        "  BonyScalarValue(kind: bskF64, floatValue: value)",
+        "",
+        "func bonyBoolValue*(value: bool): BonyScalarValue =",
+        "  BonyScalarValue(kind: bskBool, boolValue: value)",
+        "",
+        "func bonyIntValue*(value: int64): BonyScalarValue =",
+        "  BonyScalarValue(kind: bskVarint, intValue: value)",
+        "",
+        "func bonyUintValue*(value: uint64): BonyScalarValue =",
+        "  BonyScalarValue(kind: bskVaruint, uintValue: value)",
+        "",
+        "proc bonyScalarMatchesKind(value: BonyScalarValue; kind: BonyScalarKind): bool =",
+        "  if kind == bskF32:",
+        "    return value.kind in {bskF32, bskF64}",
+        "  value.kind == kind",
+        "",
+        "proc bonyScalarEquals(value, defaultValue: BonyScalarValue; equality: string): bool =",
+        "  if equality == \"storedF32\":",
+        "    return value.kind in {bskF32, bskF64} and defaultValue.kind in {bskF32, bskF64} and",
+        "      float32(value.floatValue) == float32(defaultValue.floatValue)",
+        "  if not value.bonyScalarMatchesKind(defaultValue.kind):",
+        "    return false",
+        "  case defaultValue.kind",
+        "  of bskString:",
+        "    value.stringValue == defaultValue.stringValue",
+        "  of bskF32:",
+        "    value.floatValue == defaultValue.floatValue",
+        "  of bskF64:",
+        "    value.floatValue == defaultValue.floatValue",
+        "  of bskBool:",
+        "    value.boolValue == defaultValue.boolValue",
+        "  of bskVarint:",
+        "    value.intValue == defaultValue.intValue",
+        "  of bskVaruint:",
+        "    value.uintValue == defaultValue.uintValue",
+        "",
+        "proc bonyFindJsonScalar(properties: openArray[BonyJsonScalarProperty]; propertyId: string): int =",
+        "  for index, property in properties:",
+        "    if property.propertyId == propertyId:",
+        "      return index",
+        "  -1",
+        "",
+        "proc bonyFindBnbScalar(properties: openArray[BonyBnbScalarProperty]; propertyKey: uint64): int =",
+        "  for index, property in properties:",
+        "    if property.propertyKey == propertyKey:",
+        "      return index",
+        "  -1",
+        "",
+        "proc bonyValidateJsonScalar(specs: openArray[BonyScalarPropertySpec]; property: BonyJsonScalarProperty) =",
+        "  for spec in specs:",
+        "    if spec.propertyId == property.propertyId:",
+        "      if not property.value.bonyScalarMatchesKind(spec.kind):",
+        "        raise newException(ValueError, \"wrong scalar kind for \" & spec.objectId & \".\" & spec.propertyId)",
+        "      return",
+        "  raise newException(ValueError, \"unknown scalar property id: \" & property.propertyId)",
+        "",
+        "proc bonyValidateBnbScalar(specs: openArray[BonyScalarPropertySpec]; property: BonyBnbScalarProperty) =",
+        "  for spec in specs:",
+        "    if spec.propertyKey == property.propertyKey:",
+        "      if not property.value.bonyScalarMatchesKind(spec.kind):",
+        "        raise newException(ValueError, \"wrong scalar kind for \" & spec.objectId & \".\" & spec.propertyId)",
+        "      return",
+        "  raise newException(ValueError, \"unknown scalar property key: \" & $property.propertyKey)",
+        "",
+        "proc bonyValidateJsonScalarProperties(specs: openArray[BonyScalarPropertySpec]; properties: openArray[BonyJsonScalarProperty]) =",
+        "  var seen: seq[string]",
+        "  for property in properties:",
+        "    if property.propertyId in seen:",
+        "      raise newException(ValueError, \"duplicate scalar property id: \" & property.propertyId)",
+        "    seen.add property.propertyId",
+        "    bonyValidateJsonScalar(specs, property)",
+        "",
+        "proc bonyValidateBnbScalarProperties(specs: openArray[BonyScalarPropertySpec]; properties: openArray[BonyBnbScalarProperty]) =",
+        "  var seen: seq[uint64]",
+        "  for property in properties:",
+        "    if property.propertyKey in seen:",
+        "      raise newException(ValueError, \"duplicate scalar property key: \" & $property.propertyKey)",
+        "    seen.add property.propertyKey",
+        "    bonyValidateBnbScalar(specs, property)",
+        "",
+        "proc bonyEncodeJsonScalars*(specs: openArray[BonyScalarPropertySpec]; properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =",
+        "  bonyValidateJsonScalarProperties(specs, properties)",
+        "  for spec in specs:",
+        "    let index = properties.bonyFindJsonScalar(spec.propertyId)",
+        "    if index < 0:",
+        "      if spec.required:",
+        "        raise newException(ValueError, \"missing required scalar property: \" & spec.objectId & \".\" & spec.propertyId)",
+        "      continue",
+        "    let value = properties[index].value",
+        "    if spec.omitWhenDefault and spec.hasDefault and bonyScalarEquals(value, spec.defaultValue, spec.equality):",
+        "      continue",
+        "    result.add BonyJsonScalarProperty(propertyId: spec.propertyId, value: value)",
+        "",
+        "proc bonyDecodeJsonScalars*(specs: openArray[BonyScalarPropertySpec]; properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =",
+        "  bonyValidateJsonScalarProperties(specs, properties)",
+        "  for spec in specs:",
+        "    let index = properties.bonyFindJsonScalar(spec.propertyId)",
+        "    if index >= 0:",
+        "      result.add BonyJsonScalarProperty(propertyId: spec.propertyId, value: properties[index].value)",
+        "    elif spec.hasDefault and spec.applyOnLoad:",
+        "      result.add BonyJsonScalarProperty(propertyId: spec.propertyId, value: spec.defaultValue)",
+        "    elif spec.required:",
+        "      raise newException(ValueError, \"missing required scalar property: \" & spec.objectId & \".\" & spec.propertyId)",
+        "",
+        "proc bonyEncodeBnbScalars*(specs: openArray[BonyScalarPropertySpec]; properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =",
+        "  bonyValidateBnbScalarProperties(specs, properties)",
+        "  for spec in specs:",
+        "    let index = properties.bonyFindBnbScalar(spec.propertyKey)",
+        "    if index < 0:",
+        "      if spec.required:",
+        "        raise newException(ValueError, \"missing required scalar property: \" & spec.objectId & \".\" & spec.propertyId)",
+        "      continue",
+        "    let value = properties[index].value",
+        "    if spec.omitWhenDefault and spec.hasDefault and bonyScalarEquals(value, spec.defaultValue, spec.equality):",
+        "      continue",
+        "    result.add BonyBnbScalarProperty(propertyKey: spec.propertyKey, value: value)",
+        "",
+        "proc bonyDecodeBnbScalars*(specs: openArray[BonyScalarPropertySpec]; properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =",
+        "  bonyValidateBnbScalarProperties(specs, properties)",
+        "  for spec in specs:",
+        "    let index = properties.bonyFindBnbScalar(spec.propertyKey)",
+        "    if index >= 0:",
+        "      result.add BonyBnbScalarProperty(propertyKey: spec.propertyKey, value: properties[index].value)",
+        "    elif spec.hasDefault and spec.applyOnLoad:",
+        "      result.add BonyBnbScalarProperty(propertyKey: spec.propertyKey, value: spec.defaultValue)",
+        "    elif spec.required:",
+        "      raise newException(ValueError, \"missing required scalar property: \" & spec.objectId & \".\" & spec.propertyId)",
+        "",
+    ]
+
+    scalar_object_ids: list[str] = []
+    for obj in objects:
+        object_id = obj["type"]
+        scalar_properties = [
+            property_id
+            for property_id in obj["properties"]
+            if property_by_id[property_id]["backingType"] in NIM_SCALAR_BACKINGS
+        ]
+        scalar_object_ids.append(object_id)
+        suffix = nim_identifier_suffix(object_id)
+        if scalar_properties:
+            lines.append(f"const bony{suffix}ScalarSpecs* = [")
+            for property_id in scalar_properties:
+                property_entry = property_by_id[property_id]
+                backing_type = property_entry["backingType"]
+                default = default_map.get(object_id, {}).get(property_id)
+                equality = (default or {}).get("equality") or inferred_equality_mode(backing_type)
+                default_value = default["value"] if default is not None else None
+                lines.append(
+                    "  BonyScalarPropertySpec("
+                    f"objectId: {nim_string_literal(object_id)}, "
+                    f"propertyId: {nim_string_literal(property_id)}, "
+                    f"propertyKey: {property_entry['key']}.uint64, "
+                    f"kind: {NIM_SCALAR_BACKINGS[backing_type]}, "
+                    f"required: {generated_bool(property_id in required_map.get(object_id, set()))}, "
+                    f"hasDefault: {generated_bool(default is not None)}, "
+                    f"defaultValue: {nim_scalar_value_literal(backing_type, default_value)}, "
+                    f"equality: {nim_string_literal(equality)}, "
+                    f"omitWhenDefault: {generated_bool(default['omitWhenDefault'] if default is not None else False)}, "
+                    f"applyOnLoad: {generated_bool(default['applyOnLoad'] if default is not None else False)}),"
+                )
+        else:
+            lines.append(f"const bony{suffix}ScalarSpecs*: array[0, BonyScalarPropertySpec] = []")
+        if scalar_properties:
+            lines.append("]")
+        lines.extend(
+            [
+                "",
+                f"proc encode{suffix}JsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =",
+                f"  bonyEncodeJsonScalars(bony{suffix}ScalarSpecs, properties)",
+                "",
+                f"proc decode{suffix}JsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =",
+                f"  bonyDecodeJsonScalars(bony{suffix}ScalarSpecs, properties)",
+                "",
+                f"proc encode{suffix}BnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =",
+                f"  bonyEncodeBnbScalars(bony{suffix}ScalarSpecs, properties)",
+                "",
+                f"proc decode{suffix}BnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =",
+                f"  bonyDecodeBnbScalars(bony{suffix}ScalarSpecs, properties)",
+                "",
+            ]
+        )
+
+    lines.extend(
+        [
+            "proc encodeBonyObjectJsonScalars*(typeId: string; properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =",
+            "  discard bonyObjectSpec(typeId)",
+            "  case typeId",
+        ]
+    )
+    for object_id in scalar_object_ids:
+        suffix = nim_identifier_suffix(object_id)
+        lines.append(f"  of {nim_string_literal(object_id)}: encode{suffix}JsonScalars(properties)")
+    lines.extend(
+        [
+            "  else: @[]",
+            "",
+            "proc decodeBonyObjectJsonScalars*(typeId: string; properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =",
+            "  discard bonyObjectSpec(typeId)",
+            "  case typeId",
+        ]
+    )
+    for object_id in scalar_object_ids:
+        suffix = nim_identifier_suffix(object_id)
+        lines.append(f"  of {nim_string_literal(object_id)}: decode{suffix}JsonScalars(properties)")
+    lines.extend(
+        [
+            "  else: @[]",
+            "",
+            "proc encodeBonyObjectBnbScalars*(typeKey: uint64; properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =",
+            "  case typeKey",
+        ]
+    )
+    for object_id in scalar_object_ids:
+        suffix = nim_identifier_suffix(object_id)
+        lines.append(f"  of {type_key_by_id[object_id]}.uint64: encode{suffix}BnbScalars(properties)")
+    lines.extend(
+        [
+            "  else:",
+            "    for item in bonyTypeKeys:",
+            "      if item.key == typeKey:",
+            "        return @[]",
+            "    raise newException(ValueError, \"unknown bony object type key: \" & $typeKey)",
+            "",
+            "proc decodeBonyObjectBnbScalars*(typeKey: uint64; properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =",
+            "  case typeKey",
+        ]
+    )
+    for object_id in scalar_object_ids:
+        suffix = nim_identifier_suffix(object_id)
+        lines.append(f"  of {type_key_by_id[object_id]}.uint64: decode{suffix}BnbScalars(properties)")
+    lines.extend(
+        [
+            "  else:",
+            "    for item in bonyTypeKeys:",
+            "      if item.key == typeKey:",
+            "        return @[]",
+            "    raise newException(ValueError, \"unknown bony object type key: \" & $typeKey)",
+            "",
+        ]
+    )
+    return lines
+
+
 def generate_nim(registry: dict[str, Any], defaults: dict[str, Any]) -> str:
     spec = TargetLangSpec(
         comment_prefix="##",
@@ -1472,7 +1805,7 @@ def generate_nim(registry: dict[str, Any], defaults: dict[str, Any]) -> str:
             "    if spec.typeId == typeId:",
             "      return spec",
             "  raise newException(ValueError, \"unknown bony object type: \" & typeId)",
-            "",
+            *nim_scalar_codec_lines(registry, defaults),
             "proc encodeBonyObject*(typeId: string) =",
             "  discard bonyObjectSpec(typeId)",
             "  raise newException(CatchableError, \"generated encodeBonyObject has no registered fields yet\")",
