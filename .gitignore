@@ -2,14 +2,8 @@ nimcache/
 nimblecache/
 htmldocs/
 runtime-dart/.dart_tool/
-runtime-nim/tests/test_smoke
-runtime-nim/tests/test_physics_eval
-runtime-nim/tests/test_json_bnb_json_idempotency
-runtime-nim/tests/test_cli_pose
-runtime-nim/tests/test_ik_current_pivot
-runtime-nim/tests/test_bnb_byte_stability
-runtime-nim/tests/test_bnb_fuzz
-runtime-nim/tests/test_event_timeline
+runtime-nim/tests/test_*
+!runtime-nim/tests/*.nim
 runtime-nim/tests/*.exe
 runtime-nim/bench_perf
 runtime-nim/bench_perf.exe
