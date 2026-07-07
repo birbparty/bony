@@ -1361,20 +1361,24 @@ proc dbTranslateTimeline(
   frames: openArray[DbTranslateFrame];
   frameRate: int;
 ): BoneTimeline =
-  var keys: seq[Vector2Keyframe]
-  var frameOffset = 0
-  for index, frame in frames:
-    ensureDbEmittableFrameTime("translateFrame", bone.name, animName, index, frames.len, frame.duration)
-    let curve = dbTimelineCurve(frame.easing)
-    keys.add vector2Keyframe(
-      dbFrameTime(frameOffset, frameRate),
-      bone.transform.x + frame.x,
-      -(bone.transform.y + frame.y),
-      curveX = curve,
-      curveY = curve,
-    )
-    frameOffset += frame.duration
-  boneVectorTimeline(bone.name, translateTimeline, keys)
+  let target = "animation[" & animName & "].bone[" & bone.name & "]"
+  try:
+    var keys: seq[Vector2Keyframe]
+    var frameOffset = 0
+    for index, frame in frames:
+      ensureDbEmittableFrameTime("translateFrame", bone.name, animName, index, frames.len, frame.duration)
+      let curve = dbTimelineCurve(frame.easing)
+      keys.add vector2Keyframe(
+        dbFrameTime(frameOffset, frameRate),
+        bone.transform.x + frame.x,
+        -(bone.transform.y + frame.y),
+        curveX = curve,
+        curveY = curve,
+      )
+      frameOffset += frame.duration
+    result = boneVectorTimeline(bone.name, translateTimeline, keys)
+  except BonyLoadError as exc:
+    raiseDb("schemaViolation", target, "translateFrame", exc.msg)
 
 
 proc dbRotateTimeline(
@@ -1383,17 +1387,21 @@ proc dbRotateTimeline(
   frames: openArray[DbRotateFrame];
   frameRate: int;
 ): BoneTimeline =
-  var keys: seq[ScalarKeyframe]
-  var frameOffset = 0
-  for index, frame in frames:
-    ensureDbEmittableFrameTime("rotateFrame", bone.name, animName, index, frames.len, frame.duration)
-    keys.add scalarKeyframe(
-      dbFrameTime(frameOffset, frameRate),
-      -(bone.transform.skY + frame.rotate),
-      curve = dbTimelineCurve(frame.easing),
-    )
-    frameOffset += frame.duration
-  boneScalarTimeline(bone.name, rotateTimeline, keys)
+  let target = "animation[" & animName & "].bone[" & bone.name & "]"
+  try:
+    var keys: seq[ScalarKeyframe]
+    var frameOffset = 0
+    for index, frame in frames:
+      ensureDbEmittableFrameTime("rotateFrame", bone.name, animName, index, frames.len, frame.duration)
+      keys.add scalarKeyframe(
+        dbFrameTime(frameOffset, frameRate),
+        -(bone.transform.skY + frame.rotate),
+        curve = dbTimelineCurve(frame.easing),
+      )
+      frameOffset += frame.duration
+    result = boneScalarTimeline(bone.name, rotateTimeline, keys)
+  except BonyLoadError as exc:
+    raiseDb("schemaViolation", target, "rotateFrame", exc.msg)
 
 
 proc dbScaleTimeline(
@@ -1402,20 +1410,24 @@ proc dbScaleTimeline(
   frames: openArray[DbScaleFrame];
   frameRate: int;
 ): BoneTimeline =
-  var keys: seq[Vector2Keyframe]
-  var frameOffset = 0
-  for index, frame in frames:
-    ensureDbEmittableFrameTime("scaleFrame", bone.name, animName, index, frames.len, frame.duration)
-    let curve = dbTimelineCurve(frame.easing)
-    keys.add vector2Keyframe(
-      dbFrameTime(frameOffset, frameRate),
-      bone.transform.scX * frame.x,
-      bone.transform.scY * frame.y,
-      curveX = curve,
-      curveY = curve,
-    )
-    frameOffset += frame.duration
-  boneVectorTimeline(bone.name, scaleTimeline, keys)
+  let target = "animation[" & animName & "].bone[" & bone.name & "]"
+  try:
+    var keys: seq[Vector2Keyframe]
+    var frameOffset = 0
+    for index, frame in frames:
+      ensureDbEmittableFrameTime("scaleFrame", bone.name, animName, index, frames.len, frame.duration)
+      let curve = dbTimelineCurve(frame.easing)
+      keys.add vector2Keyframe(
+        dbFrameTime(frameOffset, frameRate),
+        bone.transform.scX * frame.x,
+        bone.transform.scY * frame.y,
+        curveX = curve,
+        curveY = curve,
+      )
+      frameOffset += frame.duration
+    result = boneVectorTimeline(bone.name, scaleTimeline, keys)
+  except BonyLoadError as exc:
+    raiseDb("schemaViolation", target, "scaleFrame", exc.msg)
 
 
 proc addDbAnimationClip(
@@ -1437,7 +1449,10 @@ proc addDbAnimationClip(
 
   if timelines.len == 0:
     return
-  clips.add animationClip(data, anim.name, timelines)
+  try:
+    clips.add animationClip(data, anim.name, timelines)
+  except BonyLoadError as exc:
+    raiseDb("schemaViolation", "animation[" & anim.name & "]", "animation", exc.msg)
 
 
 proc dbAnimationsToClips(armature: DbArmature; data: SkeletonData): seq[AnimationClip] =
