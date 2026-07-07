@@ -15,19 +15,7 @@
 
 import bddy
 import bony
-
-proc closeWithin(actual, expected, tolerance: float64): bool =
-  abs(actual - expected) <= tolerance
-
-proc closeTo(actual, expected: float64): bool =
-  closeWithin(actual, expected, 1e-9)
-
-proc raisesBonyLoadError(action: proc()): bool =
-  try:
-    action()
-    false
-  except BonyLoadError:
-    true
+import testutil
 
 proc springSkeleton(
   strength = 0.0;

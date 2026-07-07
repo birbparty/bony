@@ -5,6 +5,7 @@
 import std/[os, strutils]
 
 include "../../cli/bony_cli.nim"
+import testutil
 
 const
   assetJson = "../conformance/assets/m22_skin_required_rig.bony"
@@ -17,34 +18,6 @@ const
   variantActiveGolden = "../conformance/goldens/m22_skin_required_variant_active.json"
   variantSettledGolden = "../conformance/goldens/m22_skin_required_variant_settled.json"
 
-proc canonicalText(path: string): string =
-  readFile(path).strip()
-
-proc checkGolden(assetPath, scriptPath, sampleName, expectedPath: string) =
-  let outPath = getTempDir() / ("bony_m22_" & sampleName & "_" & extractFilename(assetPath) & ".json")
-  try:
-    writeNumericGolden(@[
-      assetPath,
-      outPath,
-      "--state-machine",
-      "skin_required_story",
-      "--input-script",
-      scriptPath,
-      "--sample",
-      sampleName,
-    ])
-    doAssert canonicalText(outPath) == canonicalText(expectedPath)
-  finally:
-    if fileExists(outPath):
-      removeFile(outPath)
-
-proc raisesBonyLoadError(action: proc(); kind: BonyLoadErrorKind): bool =
-  try:
-    action()
-    false
-  except BonyLoadError as exc:
-    exc.kind == kind
-
 let assetText = readFile(assetJson)
 let asset = loadBonyJsonAsset(assetText)
 let data = asset.skeleton
@@ -54,16 +27,16 @@ doAssert data.skins[1].bones == @["shared_helper", "variant_extra"]
 doAssert variant.bones[1]
 doAssert variant.bones[2]
 
-checkGolden(assetJson, defaultScript, "rest", defaultRestGolden)
-checkGolden(assetBnb, defaultScript, "rest", defaultRestGolden)
-checkGolden(assetJson, defaultScript, "late", defaultLateGolden)
-checkGolden(assetBnb, defaultScript, "late", defaultLateGolden)
-checkGolden(assetJson, variantScript, "rest", variantRestGolden)
-checkGolden(assetBnb, variantScript, "rest", variantRestGolden)
-checkGolden(assetJson, variantScript, "active", variantActiveGolden)
-checkGolden(assetBnb, variantScript, "active", variantActiveGolden)
-checkGolden(assetJson, variantScript, "settled", variantSettledGolden)
-checkGolden(assetBnb, variantScript, "settled", variantSettledGolden)
+checkStateMachineGolden(assetJson, defaultRestGolden, "bony_m22", "rest", "skin_required_story", defaultScript)
+checkStateMachineGolden(assetBnb, defaultRestGolden, "bony_m22", "rest", "skin_required_story", defaultScript)
+checkStateMachineGolden(assetJson, defaultLateGolden, "bony_m22", "late", "skin_required_story", defaultScript)
+checkStateMachineGolden(assetBnb, defaultLateGolden, "bony_m22", "late", "skin_required_story", defaultScript)
+checkStateMachineGolden(assetJson, variantRestGolden, "bony_m22", "rest", "skin_required_story", variantScript)
+checkStateMachineGolden(assetBnb, variantRestGolden, "bony_m22", "rest", "skin_required_story", variantScript)
+checkStateMachineGolden(assetJson, variantActiveGolden, "bony_m22", "active", "skin_required_story", variantScript)
+checkStateMachineGolden(assetBnb, variantActiveGolden, "bony_m22", "active", "skin_required_story", variantScript)
+checkStateMachineGolden(assetJson, variantSettledGolden, "bony_m22", "settled", "skin_required_story", variantScript)
+checkStateMachineGolden(assetBnb, variantSettledGolden, "bony_m22", "settled", "skin_required_story", variantScript)
 
 let unknownRef = assetText.replace("\"bones\": [\"shared_helper\"]", "\"bones\": [\"ghost\"]")
 let duplicateRef = assetText.replace(

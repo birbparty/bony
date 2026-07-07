@@ -1,8 +1,9 @@
-import std/[json, math, os, osproc, sequtils, streams, strutils, tables]
+import std/[json, math, os, osproc, sequtils, strutils, tables]
 
 import bddy
 import bony
 import pixie
+import testutil
 
 let repoRoot = parentDir(parentDir(parentDir(absolutePath(currentSourcePath()))))
 
@@ -12,56 +13,9 @@ proc repoPath(parts: varargs[string]): string =
   for part in parts:
     result = result / part
 
-
-proc raisesBonyLoadError(input: string): bool =
-  try:
-    discard loadBonyJson(input)
-    false
-  except BonyLoadError:
-    true
-
-
-proc raisesBonyLoadError(input: string; kind: BonyLoadErrorKind): bool =
-  try:
-    discard loadBonyJson(input)
-    false
-  except BonyLoadError as exc:
-    exc.kind == kind
-
-proc raisesBonyLoadError(action: proc(); kind: BonyLoadErrorKind): bool =
-  try:
-    action()
-    false
-  except BonyLoadError as exc:
-    exc.kind == kind
-
-proc raisesAnyBonyLoadError(action: proc()): bool =
-  ## True only if `action` raises a BonyLoadError of any kind. A non-BonyLoadError
-  ## (e.g. a Nim Defect) is NOT caught and propagates, failing the caller — which
-  ## is what we want when asserting malformed input never crashes the decoder.
-  try:
-    action()
-    false
-  except BonyLoadError:
-    true
-
-proc closeTo(actual, expected: float64): bool =
-  abs(actual - expected) <= 1e-9
-
-proc closeWithin(actual, expected, tolerance: float64): bool =
-  abs(actual - expected) <= tolerance
-
 proc ikWorldRot(w: Affine2): float64 =
   ## World rotation (degrees) of an affine basis, for IK integration assertions.
   radToDeg(arctan2(w.b, w.a))
-
-proc runProcess(binary: string; args: openArray[string]): tuple[output: string; exitCode: int] =
-  let process = startProcess(binary, args = args, options = {poStdErrToStdOut})
-  let output = process.outputStream.readAll()
-  let exitCode = process.waitForExit()
-  process.close()
-  (output, exitCode)
-
 proc pointDistance(a, b: IkPoint): float64 =
   hypot(b.x - a.x, b.y - a.y)
 

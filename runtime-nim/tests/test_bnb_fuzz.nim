@@ -1,6 +1,7 @@
 import std/[strformat, times]
 
 import bony
+import testutil
 
 const perCaseTimeBudgetSeconds = 0.25
 
@@ -8,15 +9,6 @@ proc bytes(text: string): seq[byte] =
   result = newSeq[byte](text.len)
   for index, ch in text:
     result[index] = byte(ord(ch))
-
-proc stringPayload(table: var BnbStringTable; value: string): seq[byte] =
-  result.writeStringPayload(table, value)
-
-proc boolPayload(value: bool): seq[byte] =
-  if value:
-    @[1'u8]
-  else:
-    @[0'u8]
 
 proc expectReject(name: string; input: openArray[byte]; kinds: set[BonyLoadErrorKind]) =
   let started = epochTime()

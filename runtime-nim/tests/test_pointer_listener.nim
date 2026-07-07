@@ -1,16 +1,5 @@
 import bony
-
-
-proc raisesBonyLoadError(action: proc(); kind: BonyLoadErrorKind): bool =
-  try:
-    action()
-    false
-  except BonyLoadError as exc:
-    exc.kind == kind
-
-
-proc closeWithin(actual, expected, tolerance: float64): bool =
-  abs(actual - expected) <= tolerance
+import testutil
 
 
 proc pointerFixture(): SkeletonData =
