@@ -3212,8 +3212,8 @@ spec "bony package":
       options = {poStdErrToStdOut},
     )
 
-    # Minimal valid 5.x _ske.json with two bones and one slot (no assets needed
-    # for a setup-only, no-skin import).
+    # Minimal valid 5.x _ske.json with unsorted child-before-parent bones and
+    # one slot (no assets needed for a setup-only, no-skin import).
     writeFile(skePath, """{
   "version": "5.6.300.1",
   "name": "db_test",
@@ -3224,8 +3224,8 @@ spec "bony package":
       "name": "hero",
       "bone": [
         {"name": "root"},
-        {"name": "torso", "parent": "root", "transform": {"x": 0, "y": 10, "skX": 5, "skY": 5, "scX": 1, "scY": 1}},
-        {"name": "arm", "parent": "torso", "transform": {"x": 20, "y": -5, "skX": -15, "skY": -10}}
+        {"name": "arm", "parent": "torso", "transform": {"x": 20, "y": -5, "skX": -15, "skY": -10}},
+        {"name": "torso", "parent": "root", "transform": {"x": 0, "y": 10, "skX": 5, "skY": 5, "scX": 1, "scY": 1}}
       ],
       "slot": [
         {"name": "body_slot", "parent": "torso"}
@@ -3313,6 +3313,7 @@ spec "bony package":
     then:
       compileResult.exitCode == 0
       importDb.exitCode == 0
+      not importDb.output.contains("--setup-only: animation suppressed")
       dbJsonToBnb.exitCode == 0
       dbBnbToJson.exitCode == 0
       imported.bones.len == 3
@@ -3331,15 +3332,20 @@ spec "bony package":
       imported.slots[0].bone == "torso"
       rejectedMesh.exitCode != 0
       rejectedMesh.output.contains("unsupportedFeature")
+      rejectedMesh.output.contains("target=skin.slot[slot1].display[0]")
       rejectedMesh.output.contains("capability=mesh")
       rejectedBadParent.exitCode != 0
       rejectedBadParent.output.contains("invalidReference")
+      rejectedBadParent.output.contains("target=slot1")
+      rejectedBadParent.output.contains("capability=parent")
       not rejectedMesh.output.contains("Traceback")
       not rejectedBadParent.output.contains("Traceback")
       rejectedDisplayXform.exitCode != 0
       rejectedDisplayXform.output.contains("unsupportedFeature")
+      rejectedDisplayXform.output.contains("target=skin.slot[slot1].display[0]")
       rejectedDisplayXform.output.contains("capability=displayTransform")
       not rejectedDisplayXform.output.contains("Traceback")
+      not fileExists("/tmp/bony_cli_harness_db_bad.bony")
 
     for path in [cliPath, skePath, dbOutPath, dbBnbPath, dbRoundTripPath,
                  dbRejectMeshPath, dbRejectBadParentPath, dbRejectDisplayXformPath,
