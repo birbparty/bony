@@ -42,6 +42,40 @@ class BoneData {
   final bool inheritReflection;
   final String transformMode;
   final bool skinRequired;
+
+  BoneData copyWith({
+    String? name,
+    String? parent,
+    double? x,
+    double? y,
+    double? rotation,
+    double? scaleX,
+    double? scaleY,
+    double? shearX,
+    double? shearY,
+    bool? inheritRotation,
+    bool? inheritScale,
+    bool? inheritReflection,
+    String? transformMode,
+    bool? skinRequired,
+  }) {
+    return BoneData(
+      name: name ?? this.name,
+      parent: parent ?? this.parent,
+      x: x ?? this.x,
+      y: y ?? this.y,
+      rotation: rotation ?? this.rotation,
+      scaleX: scaleX ?? this.scaleX,
+      scaleY: scaleY ?? this.scaleY,
+      shearX: shearX ?? this.shearX,
+      shearY: shearY ?? this.shearY,
+      inheritRotation: inheritRotation ?? this.inheritRotation,
+      inheritScale: inheritScale ?? this.inheritScale,
+      inheritReflection: inheritReflection ?? this.inheritReflection,
+      transformMode: transformMode ?? this.transformMode,
+      skinRequired: skinRequired ?? this.skinRequired,
+    );
+  }
 }
 
 class SlotData {
