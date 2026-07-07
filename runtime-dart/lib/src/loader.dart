@@ -9,7 +9,13 @@ import 'generated/wire.dart' as wire;
 import 'model.dart';
 import 'physics_constraint.dart' show physicsChannelsFromMask;
 
-part 'loader_json_parsers.dart';
+// Part order follows internal dependencies: shared parse/timeline helpers,
+// JSON-only sections, validation, then BNB decoding.
+part 'loader_json_core_parsers.dart';
+part 'loader_timeline_helpers.dart';
+part 'loader_animation_parsers.dart';
+part 'loader_deformer_parsers.dart';
+part 'loader_state_machine_parsers.dart';
 part 'loader_validation.dart';
 part 'bnb_reader.dart';
 part 'bnb_decoder.dart';
@@ -137,27 +143,9 @@ SkeletonData loadBonyJson(String jsonText) {
   );
   final skins = _parseList(root, 'skins', _parseSkin);
 
-  final preAnimationData = SkeletonData(
-    header: header,
-    bones: bones,
-    slots: slots,
-    regions: regions,
-    paths: paths,
-    pathAttachments: pathAttachments,
-    pointAttachments: pointAttachments,
-    boundingBoxAttachments: boundingBoxAttachments,
-    nestedRigAttachments: nestedRigAttachments,
-    clippingAttachments: clippingAttachments,
-    meshAttachments: meshAttachments,
-    ikConstraints: ikConstraints,
-    transformConstraints: transformConstraints,
-    physicsConstraints: physicsConstraints,
-    skins: skins,
-  );
-
   final animsRaw = root['animations'];
   final animations = animsRaw is List<dynamic>
-      ? _parseAnimations(animsRaw, preAnimationData)
+      ? _parseAnimations(animsRaw, meshAttachments, skins)
       : const <AnimationClip>[];
 
   final parameters =
