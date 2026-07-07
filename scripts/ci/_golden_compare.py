@@ -3,6 +3,13 @@
 Canonical source for compare_goldens() — import from here, do not duplicate.
 """
 
+import json
+import os
+import subprocess
+
+from _common import Outcome
+
+
 TOLERANCE = 1e-4
 
 
@@ -158,3 +165,64 @@ def compare_goldens(actual, expected):
                         )
 
     return errors
+
+
+def run_golden_gen_check(
+    bony_bin,
+    asset_path,
+    golden_path,
+    actual_path,
+    label,
+    *,
+    t=None,
+    state_machine=None,
+    input_script=None,
+    sample_selector=None,
+):
+    """Run golden-gen for one asset/sample and compare against golden_path."""
+    if not os.path.exists(golden_path):
+        print(f"SKIP {label}: no committed golden at {golden_path}")
+        return Outcome.SKIP
+
+    try:
+        cmd = [bony_bin, "golden-gen", asset_path, actual_path]
+        if state_machine:
+            cmd.extend(
+                [
+                    "--state-machine",
+                    state_machine,
+                    "--input-script",
+                    input_script,
+                    "--sample",
+                    sample_selector,
+                ]
+            )
+        elif input_script:
+            cmd.extend(["--input-script", input_script, "--sample", sample_selector])
+        else:
+            cmd.extend(["--t", str(t if t is not None else 0.0)])
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            print(f"FAIL {label}: golden-gen exited {result.returncode}")
+            if result.stderr:
+                print(result.stderr.rstrip())
+            return Outcome.FAIL
+
+        with open(actual_path) as f:
+            actual = json.load(f)
+        with open(golden_path) as f:
+            expected = json.load(f)
+
+        errors = compare_goldens(actual, expected)
+    except Exception as exc:
+        print(f"FAIL {label}: {exc}")
+        return Outcome.FAIL
+
+    if errors:
+        print(f"FAIL {label}: {len(errors)} mismatch(es) (tolerance={TOLERANCE:.0e})")
+        for e in errors:
+            print(e)
+        return Outcome.FAIL
+
+    print(f"PASS {label}")
+    return Outcome.PASS

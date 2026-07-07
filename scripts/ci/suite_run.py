@@ -23,6 +23,8 @@ import os
 import subprocess
 import sys
 
+from _common import resolve_bony_bin
+
 # (gate_name, script_path, extra_deps_hint)
 GATES = [
     ("numeric-golden", "scripts/ci/conformance_run.py", None),
@@ -59,10 +61,7 @@ def main():
     )
     args = parser.parse_args()
 
-    bony_bin = os.path.abspath(args.bony_bin)
-    if not os.path.isfile(bony_bin):
-        print(f"error: bony binary not found: {bony_bin}", file=sys.stderr)
-        sys.exit(_SETUP_ERROR)
+    bony_bin = resolve_bony_bin(args)
 
     results = []  # (gate_name, status, output)
 

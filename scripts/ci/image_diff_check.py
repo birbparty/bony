@@ -18,7 +18,6 @@ Requires: pip install 'Pillow>=10.0.0,<12'
 """
 
 import argparse
-import glob
 import os
 import subprocess
 import sys
@@ -32,6 +31,8 @@ except ImportError:
         file=sys.stderr,
     )
     sys.exit(2)
+
+from _common import GateTally, require_glob, resolve_bony_bin
 
 # Deterministic rasterizer against its own golden: allow ≤ 1 per channel
 # to absorb any platform-level float rounding (sub-pixel edge sampling).
@@ -125,19 +126,14 @@ def main():
     parser.add_argument("--height", type=int, default=256)
     args = parser.parse_args()
 
-    bony_bin = os.path.abspath(args.bony_bin)
-    if not os.path.isfile(bony_bin):
-        print(f"error: bony binary not found: {bony_bin}", file=sys.stderr)
-        sys.exit(2)
+    bony_bin = resolve_bony_bin(args)
 
-    asset_files = sorted(glob.glob(os.path.join(args.assets, "*.bony")))
-    if not asset_files:
-        print(f"error: no .bony assets found in {args.assets}", file=sys.stderr)
-        sys.exit(2)
+    asset_files = require_glob(
+        os.path.join(args.assets, "*.bony"),
+        f".bony assets in {args.assets}",
+    )
 
-    passed = 0
-    failed = 0
-    skipped = 0
+    tally = GateTally()
 
     with tempfile.TemporaryDirectory() as tmpdir:
         for asset_path in asset_files:
@@ -148,21 +144,12 @@ def main():
                 bony_bin, asset_path, golden_path, actual_path, stem,
                 width=args.width, height=args.height,
             )
-            if outcome == "pass":
-                passed += 1
-            elif outcome == "fail":
-                failed += 1
-            else:
-                skipped += 1
+            tally.record(outcome)
 
-    print(f"\n{passed} passed, {failed} failed, {skipped} skipped")
+    print(f"\n{tally.summary_line()}")
 
-    if passed == 0 and failed == 0:
-        print("error: no image goldens were checked — gate is vacuously green", file=sys.stderr)
-        sys.exit(2)
-
-    if failed:
-        sys.exit(1)
+    tally.assert_not_vacuous("image goldens")
+    sys.exit(tally.exit_code())
 
 
 if __name__ == "__main__":

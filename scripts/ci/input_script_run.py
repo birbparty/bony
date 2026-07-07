@@ -27,11 +27,7 @@ Requires: pip install 'jsonschema>=4.18.0,<5'
 """
 
 import argparse
-import glob
-import json
 import os
-import re
-import subprocess
 import sys
 import tempfile
 
@@ -44,24 +40,13 @@ except ImportError:
     )
     sys.exit(2)
 
-from _golden_compare import compare_goldens
-
-
-SAMPLE_NAME_RE = re.compile(r"^(?=.*[^0-9])[A-Za-z0-9_.-]+$")
-
-
-def _object_without_duplicate_keys(pairs):
-    result = {}
-    for key, value in pairs:
-        if key in result:
-            raise ValueError(f"duplicate JSON object key: {key}")
-        result[key] = value
-    return result
-
-
-def _load_json_without_duplicate_keys(path):
-    with open(path) as f:
-        return json.load(f, object_pairs_hook=_object_without_duplicate_keys)
+from _common import (
+    GateTally,
+    load_json_without_duplicate_keys,
+    require_glob,
+    resolve_bony_bin,
+)
+from _golden_compare import run_golden_gen_check
 
 
 def _format_t(t):
@@ -75,74 +60,6 @@ def _format_t(t):
     return s.rstrip("0").rstrip(".")
 
 
-def run_sample(
-    bony_bin,
-    asset_path,
-    t,
-    golden_path,
-    actual_path,
-    label,
-    *,
-    state_machine=None,
-    input_script=None,
-    sample_selector=None,
-):
-    """Run golden-gen for one sample and compare against golden.
-
-    Returns "pass", "fail", or "skip" (no committed golden).
-    """
-    if not os.path.exists(golden_path):
-        print(f"SKIP {label}: no committed golden at {golden_path}")
-        return "skip"
-
-    try:
-        cmd = [bony_bin, "golden-gen", asset_path, actual_path]
-        if state_machine:
-            cmd.extend(
-                [
-                    "--state-machine",
-                    state_machine,
-                    "--input-script",
-                    input_script,
-                    "--sample",
-                    sample_selector,
-                ]
-            )
-        elif input_script:
-            cmd.extend(["--input-script", input_script, "--sample", sample_selector])
-        else:
-            cmd.extend(["--t", str(t)])
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            print(f"FAIL {label}: golden-gen exited {result.returncode}")
-            if result.stderr:
-                print(result.stderr.rstrip())
-            return "fail"
-
-        with open(actual_path) as f:
-            actual = json.load(f)
-        with open(golden_path) as f:
-            expected = json.load(f)
-
-        errors = compare_goldens(actual, expected)
-    except Exception as exc:
-        print(f"FAIL {label}: {exc}")
-        return "fail"
-
-    if errors:
-        print(f"FAIL {label}: {len(errors)} mismatch(es)")
-        for e in errors:
-            print(e)
-        return "fail"
-
-    print(f"PASS {label}")
-    return "pass"
-
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--bony-bin", required=True, help="Path to bony CLI binary")
@@ -152,35 +69,30 @@ def main():
     parser.add_argument("--schema", default="spec/bony-input-script.schema.json")
     args = parser.parse_args()
 
-    bony_bin = os.path.abspath(args.bony_bin)
-    if not os.path.isfile(bony_bin):
-        print(f"error: bony binary not found: {bony_bin}", file=sys.stderr)
-        sys.exit(2)
+    bony_bin = resolve_bony_bin(args)
 
     schema_path = args.schema
     if not os.path.isfile(schema_path):
         print(f"error: schema not found: {schema_path}", file=sys.stderr)
         sys.exit(2)
 
-    schema = _load_json_without_duplicate_keys(schema_path)
+    schema = load_json_without_duplicate_keys(schema_path)
 
-    script_files = sorted(glob.glob(os.path.join(args.scripts, "*.json")))
-    if not script_files:
-        print(f"error: no input scripts found in {args.scripts}", file=sys.stderr)
-        sys.exit(2)
+    script_files = require_glob(
+        os.path.join(args.scripts, "*.json"),
+        f"input scripts in {args.scripts}",
+    )
 
-    passed = 0
-    failed = 0
-    skipped = 0
+    tally = GateTally()
 
     with tempfile.TemporaryDirectory() as tmpdir:
         for script_path in script_files:
             script_name = os.path.basename(script_path)
             try:
-                script = _load_json_without_duplicate_keys(script_path)
+                script = load_json_without_duplicate_keys(script_path)
             except ValueError as exc:
                 print(f"FAIL {script_name}: JSON validation: {exc}")
-                failed += 1
+                tally.failed += 1
                 continue
 
             # Validate schema
@@ -188,7 +100,7 @@ def main():
                 jsonschema.validate(instance=script, schema=schema)
             except jsonschema.ValidationError as exc:
                 print(f"FAIL {script_name}: schema validation: {exc.message}")
-                failed += 1
+                tally.failed += 1
                 continue
 
             asset_stem = os.path.splitext(script["asset"])[0]
@@ -197,7 +109,7 @@ def main():
             asset_path = os.path.join(args.assets, script["asset"])
             if not os.path.isfile(asset_path):
                 print(f"FAIL {script_name}: asset not found: {asset_path}")
-                failed += 1
+                tally.failed += 1
                 continue
 
             state_machine = script.get("stateMachine")
@@ -209,24 +121,19 @@ def main():
                     sample_name = sample.get("name")
                     if not sample_name:
                         print(f"FAIL {script_name}[{i}]: state-machine samples require name")
-                        failed += 1
-                        script_valid = False
-                        continue
-                    if not SAMPLE_NAME_RE.match(sample_name):
-                        print(f"FAIL {script_name}[{i}]: invalid or numeric-only sample name: {sample_name!r}")
-                        failed += 1
+                        tally.failed += 1
                         script_valid = False
                         continue
                     if sample_name in seen_names:
                         print(f"FAIL {script_name}[{i}]: duplicate sample name: {sample_name}")
-                        failed += 1
+                        tally.failed += 1
                         script_valid = False
                         continue
                     seen_names.add(sample_name)
                     t = sample["t"]
                     if i > 0 and t < previous_t:
                         print(f"FAIL {script_name}[{i}]: sample times must be non-decreasing")
-                        failed += 1
+                        tally.failed += 1
                         script_valid = False
                     previous_t = t
                 if not script_valid:
@@ -241,8 +148,11 @@ def main():
                     replay_assets = [(asset_ext or ".bony", asset_path)]
                     bnb_path = os.path.join(args.assets, "bnb", f"{asset_stem}.bnb")
                     if not os.path.isfile(bnb_path):
-                        print(f"FAIL {script_name}[.bnb][{sample_name}]: asset not found: {bnb_path}")
-                        failed += 1
+                        print(
+                            f"FAIL {script_name}[.bnb][{sample_name}]: "
+                            f"asset not found: {bnb_path}"
+                        )
+                        tally.failed += 1
                     else:
                         replay_assets.append((".bnb", bnb_path))
                     for replay_ext, replay_asset_path in replay_assets:
@@ -251,28 +161,23 @@ def main():
                             f"{script_stem}_{sample_name}_{replay_ext.lstrip('.')}_actual.json",
                         )
                         label = f"{script_name}[{replay_ext}][{sample_name}] t={t}"
-                        outcome = run_sample(
+                        outcome = run_golden_gen_check(
                             bony_bin,
                             replay_asset_path,
-                            t,
                             golden_path,
                             actual_path,
                             label,
+                            t=t,
                             state_machine=state_machine,
                             input_script=script_path,
                             sample_selector=sample_name,
                         )
-                        if outcome == "pass":
-                            passed += 1
-                        elif outcome == "fail":
-                            failed += 1
-                        else:
-                            skipped += 1
+                        tally.record(outcome)
                     continue
                 else:
                     if inputs:
                         print(f"FAIL {script_name}[{i}]: inputs require stateMachine")
-                        failed += 1
+                        tally.failed += 1
                         continue
                     t_suffix = _format_t(t)
                     golden_path = os.path.join(args.goldens, f"{asset_stem}_t{t_suffix}.json")
@@ -281,8 +186,11 @@ def main():
                         replay_assets = [(asset_ext or ".bony", asset_path)]
                         bnb_path = os.path.join(args.assets, "bnb", f"{asset_stem}.bnb")
                         if not os.path.isfile(bnb_path):
-                            print(f"FAIL {script_name}[.bnb][{sample_selector}]: asset not found: {bnb_path}")
-                            failed += 1
+                            print(
+                                f"FAIL {script_name}[.bnb][{sample_selector}]: "
+                                f"asset not found: {bnb_path}"
+                            )
+                            tally.failed += 1
                         else:
                             replay_assets.append((".bnb", bnb_path))
                         for replay_ext, replay_asset_path in replay_assets:
@@ -291,41 +199,29 @@ def main():
                                 f"{asset_stem}_sample{i}_{replay_ext.lstrip('.')}_actual.json",
                             )
                             label = f"{script_name}[{replay_ext}][{sample_selector}] t={t}"
-                            outcome = run_sample(
+                            outcome = run_golden_gen_check(
                                 bony_bin,
                                 replay_asset_path,
-                                t,
                                 golden_path,
                                 actual_path,
                                 label,
+                                t=t,
                                 input_script=script_path,
                                 sample_selector=sample_selector,
                             )
-                            if outcome == "pass":
-                                passed += 1
-                            elif outcome == "fail":
-                                failed += 1
-                            else:
-                                skipped += 1
+                            tally.record(outcome)
                         continue
                     actual_path = os.path.join(tmpdir, f"{asset_stem}_sample{i}_actual.json")
                     label = f"{script_name}[{i}] t={t}"
-                    outcome = run_sample(bony_bin, asset_path, t, golden_path, actual_path, label)
-                if outcome == "pass":
-                    passed += 1
-                elif outcome == "fail":
-                    failed += 1
-                else:
-                    skipped += 1
+                    outcome = run_golden_gen_check(
+                        bony_bin, asset_path, golden_path, actual_path, label, t=t
+                    )
+                tally.record(outcome)
 
-    print(f"\n{passed} passed, {failed} failed, {skipped} skipped")
+    print(f"\n{tally.summary_line()}")
 
-    if passed == 0 and failed == 0:
-        print("error: no samples were checked — gate is vacuously green", file=sys.stderr)
-        sys.exit(2)
-
-    if failed:
-        sys.exit(1)
+    tally.assert_not_vacuous("samples")
+    sys.exit(tally.exit_code())
 
 
 if __name__ == "__main__":

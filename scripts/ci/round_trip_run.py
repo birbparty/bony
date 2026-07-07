@@ -24,6 +24,13 @@ import subprocess
 import sys
 import tempfile
 
+from _common import GateTally, require_glob, resolve_bony_bin
+
+
+ONE_WAY_BNB_FIXTURES = {
+    "forward_compat.bnb",
+}
+
 
 def run_json_to_bnb(bony_bin, src_bony, dst_bnb):
     """Run json-to-bnb, return (returncode, stderr)."""
@@ -60,26 +67,20 @@ def main():
     parser.add_argument("--assets-dir", default="conformance/assets")
     args = parser.parse_args()
 
-    bony_bin = os.path.abspath(args.bony_bin)
-    if not os.path.isfile(bony_bin):
-        print(f"error: bony binary not found: {bony_bin}", file=sys.stderr)
-        sys.exit(2)
+    bony_bin = resolve_bony_bin(args)
 
     bnb_dir = os.path.join(args.assets_dir, "bnb")
-    bony_files = sorted(glob.glob(os.path.join(args.assets_dir, "*.bony")))
-    # *_rig.bnb intentionally excludes forward_compat.bnb, which is a one-way
-    # forward-compatibility fixture (drops unknown future fields on load and
-    # cannot be round-tripped through JSON).  It is covered by a dedicated
-    # smoke test instead.
-    bnb_files = sorted(glob.glob(os.path.join(bnb_dir, "*_rig.bnb")))
+    bony_files = require_glob(
+        os.path.join(args.assets_dir, "*.bony"),
+        f".bony assets in {args.assets_dir}",
+    )
+    bnb_files = [
+        path
+        for path in sorted(glob.glob(os.path.join(bnb_dir, "*.bnb")))
+        if os.path.basename(path) not in ONE_WAY_BNB_FIXTURES
+    ]
 
-    if not bony_files:
-        print(f"error: no .bony assets found in {args.assets_dir}", file=sys.stderr)
-        sys.exit(2)
-
-    passed = 0
-    failed = 0
-    skipped = 0
+    tally = GateTally()
     dir1_ran = 0
     dir2_ran = 0
 
@@ -94,7 +95,7 @@ def main():
 
             if not os.path.exists(golden_bnb):
                 print(f"SKIP {label}: no committed golden at {golden_bnb}")
-                skipped += 1
+                tally.skipped += 1
                 continue
 
             dir1_ran += 1
@@ -105,19 +106,19 @@ def main():
                     print(f"FAIL {label}: json-to-bnb exited {rc}")
                     if stderr:
                         print(stderr.rstrip())
-                    failed += 1
+                    tally.failed += 1
                     continue
 
                 match, actual_len, _ = bytes_equal(out_bnb, golden_bnb)
                 if match:
                     print(f"PASS {label} ({actual_len} bytes)")
-                    passed += 1
+                    tally.passed += 1
                 else:
                     print(f"FAIL {label}: byte mismatch ({actual_len} bytes vs golden)")
-                    failed += 1
+                    tally.failed += 1
             except Exception as exc:
                 print(f"FAIL {label}: {exc}")
-                failed += 1
+                tally.failed += 1
 
         # --- Direction 2: bnb→json→bnb byte-stability ---
         print("\n=== bnb→json→bnb byte-stability (.bnb round-trip is lossless) ===")
@@ -136,7 +137,7 @@ def main():
                     print(f"FAIL {label}: bnb-to-json exited {rc}")
                     if stderr:
                         print(stderr.rstrip())
-                    failed += 1
+                    tally.failed += 1
                     continue
 
                 rc, stderr = run_json_to_bnb(bony_bin, mid_bony, out_bnb)
@@ -144,31 +145,39 @@ def main():
                     print(f"FAIL {label}: json-to-bnb exited {rc}")
                     if stderr:
                         print(stderr.rstrip())
-                    failed += 1
+                    tally.failed += 1
                     continue
 
                 match, actual_len, _ = bytes_equal(out_bnb, bnb_path)
                 if match:
                     print(f"PASS {label} ({actual_len} bytes)")
-                    passed += 1
+                    tally.passed += 1
                 else:
-                    print(f"FAIL {label}: byte mismatch after round-trip ({actual_len} bytes vs original)")
-                    failed += 1
+                    print(
+                        f"FAIL {label}: byte mismatch after round-trip "
+                        f"({actual_len} bytes vs original)"
+                    )
+                    tally.failed += 1
             except Exception as exc:
                 print(f"FAIL {label}: {exc}")
-                failed += 1
+                tally.failed += 1
 
-    print(f"\n{passed} passed, {failed} failed, {skipped} skipped")
+    print(f"\n{tally.summary_line()}")
 
     if dir1_ran == 0:
-        print("error: Direction 1 (json→bnb) ran no checks — gate is vacuously green", file=sys.stderr)
+        print(
+            "error: Direction 1 (json→bnb) ran no checks — gate is vacuously green",
+            file=sys.stderr,
+        )
         sys.exit(2)
     if dir2_ran == 0:
-        print("error: Direction 2 (bnb→json→bnb) ran no checks — gate is vacuously green", file=sys.stderr)
+        print(
+            "error: Direction 2 (bnb→json→bnb) ran no checks — gate is vacuously green",
+            file=sys.stderr,
+        )
         sys.exit(2)
 
-    if failed:
-        sys.exit(1)
+    sys.exit(tally.exit_code())
 
 
 if __name__ == "__main__":
