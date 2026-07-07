@@ -16,6 +16,7 @@ nim c -o:bony --path:runtime-nim/src cli/bony_cli.nim
   --state-machine gesture --input-script script.json --sample wave_on
 ./bony play input.bony --t 0 --out frame.png --width 256 --height 256
 ./bony play input.bony --state-machine gesture --input-script script.json --out story.png
+./bony import-dragonbones input_ske.json output.bony --assets-dir images
 ```
 
 `golden-gen` emits the cross-runtime numeric conformance surface for the
@@ -54,3 +55,16 @@ current writer.
 State-machine input scripts may target `.bnb` assets generated from the named
 `.bony` source in the script. Missing binary animation or state-machine records
 fail with the same unknown-reference diagnostics as missing JSON data.
+
+## DragonBones Import
+
+`import-dragonbones` converts the project-owned Tier 1 subset documented in
+`docs/dragonbones-importer-design.md`. Static armatures produce static `.bony`
+JSON. Supported bone `translateFrame`, `rotateFrame`, and `scaleFrame` channels
+are preserved as bony `AnimationClip` data unless `--setup-only` is supplied.
+
+`--setup-only` emits rest-pose setup data and suppresses animation before
+animation-channel validation. Normal imports fail rather than silently dropping
+unsupported animation data. Diagnostics use stable `code`, `target`, and
+`capability` fragments, and validation failures occur before the output path is
+written.

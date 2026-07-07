@@ -365,8 +365,11 @@ parsed or silently ignored as noted. Unknown keys beyond these are silently
 ignored at the armature level.
 
 A static rig (no `animation` key, or empty `animation` array) is valid input. The
-`--setup-only` flag also suppresses any animation present in the file. Both paths
-produce identical bony output: bones and skin only, no animation clips.
+normal import path emits static bony output for static rigs. The `--setup-only`
+flag suppresses any animation present in the file and also emits static bony
+output. Without `--setup-only`, every parsed animation must either be emitted as
+bony `AnimationClip` data or fail with a diagnostic before the output file is
+written.
 
 Multi-armature files: the importer converts the first armature and emits a
 `multipleArmatures` diagnostic listing ignored armature names. Exit status is
@@ -453,14 +456,21 @@ Any additional field in a `TransformObject` is rejected as `schemaViolation`.
 ```
 {
   "name":     string,                  // required
-  "duration": number,                  // required, integer frames > 0
-  "bone": [ BoneChannelObject ],       // optional; absent or empty = static
+  "duration": number,                  // required, integer frames ≥ 0
+  "bone": [ BoneChannelObject ],       // optional; absent/empty has no Tier 1 timelines
   "slot": [ SlotChannelObject ]        // optional; all slot channels rejected in Tier 1
 }
 ```
 
 Other fields (`fadeInTime`, `playTimes`, `blendType`, `type`, `frame`, `ffd`)
-are silently ignored.
+are recognized but out of the Tier 1 emission subset. They reject with
+`unsupportedFeature` and `capability=<field>`.
+
+`duration = 0` is accepted when each non-empty channel consists of a single
+zero-duration terminator key. This produces a zero-duration bony clip. Without
+`--setup-only`, an animation with no supported `translateFrame`, `rotateFrame`,
+or `scaleFrame` timelines rejects as `unsupportedFeature` instead of being
+silently omitted.
 
 ### BoneChannelObject
 
@@ -576,9 +586,9 @@ Only `"normal"` (the default) is in the first supported subset. Others produce
 | Skin (name)                  | `Skin` (name)                        |
 | Image display in skin        | `RegionAttachment` in skin           |
 | Animation (name, duration)   | `AnimationClip` (name)               |
-| `translateFrame` channel     | Separate X and Y translation timelines |
+| `translateFrame` channel     | Bone vector translation timeline       |
 | `rotateFrame` channel        | Rotation timeline (shearY stays constant) |
-| `scaleFrame` channel         | Separate scaleX and scaleY timelines |
+| `scaleFrame` channel         | Bone vector scale timeline             |
 | TranslateFrame/RotateFrame/ScaleFrame with `duration` | Keyframe in property timeline |
 
 ### Bone Hierarchy
@@ -664,8 +674,8 @@ bony.x[t] = rest.x + translateFrame.x_delta[t]    (x_delta default: 0)
 bony.y[t] = -(rest.y + translateFrame.y_delta[t])  (y_delta default: 0)
 ```
 
-Produces two bony keyframe timelines: one for `x` and one for `y`. Both are
-linear (or step) between sampled keyframe values.
+Produces one bony vector translation timeline. The x and y components share the
+DragonBones frame's Tier 1 interpolation mode: linear, or step/hold.
 
 **Rotation channel** (`rotateFrame`):
 
@@ -693,7 +703,8 @@ bony.scaleX[t] = rest.scX * scaleFrame.x[t]   (x default: 1.0)
 bony.scaleY[t] = rest.scY * scaleFrame.y[t]   (y default: 1.0)
 ```
 
-Produces two bony keyframe timelines: one for `scaleX` and one for `scaleY`.
+Produces one bony vector scale timeline. The x and y components share the
+DragonBones frame's Tier 1 interpolation mode: linear, or step/hold.
 
 **Channels that are absent** produce no bony keyframes for that property; the
 property holds its rest-pose value throughout the animation.
@@ -735,6 +746,9 @@ Tier 1 is the implementation gate for `bony-g20`. Tier 1 support covers:
 - Linear interpolation (`tweenEasing = 0`) and step/hold keyframes (`tweenEasing`
   absent or null).
 - Positive `scX`, `scY` only; negative scale → `unsupportedFeature` in Tier 1.
+- Default import preserves supported bone translate/rotate/scale animations as
+  bony `AnimationClip` data. `--setup-only` suppresses animation parsing and
+  emits static setup data only.
 
 Everything not in Tier 1 produces a diagnostic and non-zero exit status by
 default. A future `--allow-drop=<feature>` flag may allow silent drops for
@@ -757,6 +771,10 @@ exploratory use.
 - `SlotChannelObject` entries (any `colorFrame` or `displayFrame`) →
   `unsupportedFeature`. Slot animation is deferred to a later tier.
 - `clockwise` field in `rotateFrame` → `unsupportedFeature` in Tier 1.
+- Animation-level fields `fadeInTime`, `playTimes`, `blendType`, `type`,
+  `frame`, and `ffd` → `unsupportedFeature` with the field name as capability.
+- Parsed animations with no supported Tier 1 bone timelines →
+  `unsupportedFeature` rather than silent omission.
 - Non-finite angles (`skX`, `skY`) or zero/non-finite scale (`scX`, `scY`) in
   any `TransformObject` → `schemaViolation`.
 - Well-formed four-element `curve` arrays → `unsupportedFeature`.
@@ -773,7 +791,9 @@ Initial options:
 - `--assets-dir <path>`: directory containing referenced image assets. If absent
   the importer validates structure only and rejects any skin display that
   references an image (since there is no atlas to build from).
-- `--setup-only`: emit rest-pose bones and skin only; reject all animation data.
+- `--setup-only`: emit rest-pose bones and skin only. Animation is suppressed
+  before animation-channel validation, while structural armature validation still
+  runs.
 - `--allow-multiple-armatures`: import the first armature, list the others in a
   `multipleArmatures` diagnostic, and exit 0. Without this flag, a
   multi-armature file exits non-zero with the same `multipleArmatures` diagnostic
@@ -781,7 +801,10 @@ Initial options:
 
 The command fails by default when it would silently drop bones, slots, skin
 displays, or animation data. The only allowed silent drops are optional fields
-that map to bony defaults.
+that map to bony defaults, and animation data explicitly suppressed by
+`--setup-only`. Conversion and animation construction complete before `writeFile`
+on the normal path, so validation failures leave no partial output file or leave
+an existing output file unchanged.
 
 ## Diagnostics
 
@@ -795,9 +818,9 @@ that map to bony defaults.
 | `multipleArmatures`    | File contains more than one armature (unless `--allow-multiple…`) |
 | `missingAsset`         | Image display cannot be located under `--assets-dir`              |
 
-Each diagnostic includes: code, armature name, bone/slot/animation name when
-available, and a short human-readable message. Diagnostic text must not copy
-DragonBones documentation prose.
+Each diagnostic includes a stable code and, when available, `target=...` and
+`capability=...` fragments naming the rejected object or feature. Diagnostic
+text must not copy DragonBones documentation prose.
 
 ## Conformance Gate for Implementation
 
