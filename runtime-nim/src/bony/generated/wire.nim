@@ -489,6 +489,12 @@ proc bonyScalarMatchesKind(value: BonyScalarValue; kind: BonyScalarKind): bool =
     return value.kind in {bskF32, bskF64}
   value.kind == kind
 
+proc bonyScalarIsRequired(spec: BonyScalarPropertySpec): bool =
+  for property in bonyRequiredProperties:
+    if property.objectId == spec.objectId and property.propertyId == spec.propertyId:
+      return true
+  false
+
 proc bonyScalarEquals(value, defaultValue: BonyScalarValue; equality: string): bool =
   if equality == "storedF32":
     return value.kind in {bskF32, bskF64} and defaultValue.kind in {bskF32, bskF64} and
@@ -558,7 +564,7 @@ proc bonyEncodeJsonScalars*(specs: openArray[BonyScalarPropertySpec]; properties
   for spec in specs:
     let index = properties.bonyFindJsonScalar(spec.propertyId)
     if index < 0:
-      if spec.required:
+      if spec.bonyScalarIsRequired():
         raise newException(ValueError, "missing required scalar property: " & spec.objectId & "." & spec.propertyId)
       continue
     let value = properties[index].value
@@ -574,7 +580,7 @@ proc bonyDecodeJsonScalars*(specs: openArray[BonyScalarPropertySpec]; properties
       result.add BonyJsonScalarProperty(propertyId: spec.propertyId, value: properties[index].value)
     elif spec.hasDefault and spec.applyOnLoad:
       result.add BonyJsonScalarProperty(propertyId: spec.propertyId, value: spec.defaultValue)
-    elif spec.required:
+    elif spec.bonyScalarIsRequired():
       raise newException(ValueError, "missing required scalar property: " & spec.objectId & "." & spec.propertyId)
 
 proc bonyEncodeBnbScalars*(specs: openArray[BonyScalarPropertySpec]; properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
@@ -582,7 +588,7 @@ proc bonyEncodeBnbScalars*(specs: openArray[BonyScalarPropertySpec]; properties:
   for spec in specs:
     let index = properties.bonyFindBnbScalar(spec.propertyKey)
     if index < 0:
-      if spec.required:
+      if spec.bonyScalarIsRequired():
         raise newException(ValueError, "missing required scalar property: " & spec.objectId & "." & spec.propertyId)
       continue
     let value = properties[index].value
@@ -598,7 +604,7 @@ proc bonyDecodeBnbScalars*(specs: openArray[BonyScalarPropertySpec]; properties:
       result.add BonyBnbScalarProperty(propertyKey: spec.propertyKey, value: properties[index].value)
     elif spec.hasDefault and spec.applyOnLoad:
       result.add BonyBnbScalarProperty(propertyKey: spec.propertyKey, value: spec.defaultValue)
-    elif spec.required:
+    elif spec.bonyScalarIsRequired():
       raise newException(ValueError, "missing required scalar property: " & spec.objectId & "." & spec.propertyId)
 
 const bonySkeletonScalarSpecs* = [

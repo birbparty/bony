@@ -639,6 +639,12 @@ BonyObjectSpec bonyObjectSpec(String typeId) {
   );
 }
 
+bool bonyIsRequiredProperty(String objectId, String propertyId) {
+  return bonyRequiredProperties.any(
+    (property) => property.objectId == objectId && property.propertyId == propertyId,
+  );
+}
+
 Never encodeBonyObject(String typeId) {
   bonyObjectSpec(typeId);
   throw UnsupportedError('generated encodeBonyObject has no registered fields yet');
