@@ -279,6 +279,14 @@ class StateMachineRuntime {
     return true;
   }
 
+  _InputValue _runtimeInputByName(String name,
+      {required String unknownMessage}) {
+    for (final input in _inputs) {
+      if (input.name == name) return input;
+    }
+    throw FormatException(unknownMessage);
+  }
+
   StateMachineInput _inputByName(String name) {
     for (final input in _data.inputs) {
       if (input.name == name) return input;
@@ -287,28 +295,18 @@ class StateMachineRuntime {
   }
 
   _InputValue _requireInput(String name, StateMachineInputKind kind) {
-    for (final input in _inputs) {
-      if (input.name == name) {
-        if (input.kind != kind) {
-          throw FormatException(
-              'state machine input is not ${_inputKindName(kind)}: $name');
-        }
-        return input;
-      }
+    final input = _runtimeInputByName(name,
+        unknownMessage: 'unknown state machine input: $name');
+    if (input.kind != kind) {
+      throw FormatException(
+          'state machine input is not ${_inputKindName(kind)}: $name');
     }
-    throw FormatException('unknown state machine input: $name');
+    return input;
   }
 
   bool _conditionMatches(StateMachineCondition c) {
-    _InputValue? iv;
-    for (final v in _inputs) {
-      if (v.name == c.input) {
-        iv = v;
-        break;
-      }
-    }
-    if (iv == null)
-      throw FormatException('missing state machine runtime input: ${c.input}');
+    final iv = _runtimeInputByName(c.input,
+        unknownMessage: 'missing state machine runtime input: ${c.input}');
     switch (c.kind) {
       case StateMachineConditionKind.boolEquals:
         return iv.boolValue == c.boolValue;
@@ -397,8 +395,7 @@ class StateMachineRuntime {
     animationEvents.clear();
     _ensureAnimationEventBridge(data);
 
-    for (var layerIndex = 0; layerIndex < _layers.length; layerIndex++) {
-      final lr = _layers[layerIndex];
+    for (final lr in _layers) {
       final state = _stateByName(lr.layer, lr.currentState);
       final previousTime = lr.previousTime;
       final layerTimeReset = lr.time < previousTime;
