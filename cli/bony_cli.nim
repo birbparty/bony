@@ -14,7 +14,7 @@ proc usage(): string =
     "       bony bnb-to-json <input.bnb> <output.bony>\n" &
     "       bony import-lottie <input.json> <output.bony> --assets-dir images [--setup-only] [--origin center|top-left]\n" &
     "       bony import-dragonbones <input_ske.json> <output.bony> [--assets-dir images] [--setup-only] [--allow-multiple-armatures]\n" &
-    "       bony golden-gen <input.bony|input.bnb> <output.json> [--t seconds]\n" &
+    "       bony golden-gen <input.bony|input.bnb> <output.json> [--t seconds] [--animation clip]\n" &
     "       bony golden-gen <input.bony|input.bnb> <output.json> --input-script <script.json> --sample <name-or-index>\n" &
     "       bony golden-gen <input.bony|input.bnb> <output.json> --state-machine <name> --input-script <script.json> --sample <name-or-index>\n" &
     "       bony play <input.bony|input.bnb> --out frame.png [--t seconds] [--width px] [--height px] [--origin center|top-left]\n" &
@@ -206,6 +206,13 @@ proc loadInputSkeleton(path: string): SkeletonData =
     loadBonyBnb(readBytes(path))
   else:
     loadBonyJson(readFile(path))
+
+
+proc loadInputAsset(path: string): BonyAsset =
+  if path.toLowerAscii.endsWith(".bnb"):
+    loadBonyBnbAsset(readBytes(path))
+  else:
+    loadBonyJsonAsset(readFile(path))
 
 
 proc applyViewportTransform(batches: seq[DrawBatch]; width, height: int): seq[DrawBatch] =
@@ -1776,6 +1783,13 @@ proc selectStateMachine(machines: openArray[StateMachine]; name: string): StateM
   raise newBonyLoadError(unknownRequiredReference, "unknown state machine: " & name)
 
 
+proc selectAnimation(animations: openArray[AnimationClip]; name: string): AnimationClip =
+  for clip in animations:
+    if clip.name == name:
+      return clip
+  raise newBonyLoadError(unknownRequiredReference, "unknown animation: " & name)
+
+
 proc applyScriptInputs(runtime: var StateMachineRuntime; inputs: openArray[ScriptInput]) =
   for input in inputs:
     case input.kind
@@ -2460,6 +2474,7 @@ proc writeNumericGolden(args: seq[string]) =
     quit(usage(), QuitFailure)
   var time = 0.0
   var timeSet = false
+  var animationName = ""
   var stateMachine = ""
   var inputScript = ""
   var sampleSelector = ""
@@ -2471,6 +2486,11 @@ proc writeNumericGolden(args: seq[string]) =
         quit(usage(), QuitFailure)
       time = parseFloatArg(args[index + 1], "--t")
       timeSet = true
+      index += 2
+    of "--animation":
+      if index + 1 >= args.len:
+        quit(usage(), QuitFailure)
+      animationName = args[index + 1]
       index += 2
     of "--state-machine":
       if index + 1 >= args.len:
@@ -2490,6 +2510,11 @@ proc writeNumericGolden(args: seq[string]) =
     else:
       quit(usage(), QuitFailure)
   if stateMachine.len != 0 or inputScript.len != 0 or sampleSelector.len != 0:
+    if animationName.len != 0:
+      raise newBonyLoadError(
+        schemaViolation,
+        "--animation cannot be combined with --state-machine, --input-script, or --sample",
+      )
     if inputScript.len == 0:
       raise newBonyLoadError(schemaViolation, "golden-gen script execution requires --input-script")
     if sampleSelector.len == 0:
@@ -2524,6 +2549,18 @@ proc writeNumericGolden(args: seq[string]) =
         setup.activeSkin,
         children = setup.children,
       ))
+    return
+
+  if animationName.len != 0:
+    let asset = loadInputAsset(args[0])
+    let clip = selectAnimation(asset.animations, animationName)
+    var dataRef = new(SkeletonData)
+    dataRef[] = asset.skeleton
+    var animation = animationState(dataRef, 1)
+    animation.setAnimation(0, clip)
+    animation.update(time)
+    let posed = asset.skeleton.applyRenderablePose(animation.sample())
+    writeFile(args[1], numericGoldenJson(posed, time, animationEvents = animation.events))
     return
 
   requireSetupPoseTime(time)
