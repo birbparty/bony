@@ -3212,6 +3212,9 @@ spec "bony package":
     let dbAnimatedBnbPath = "/tmp/bony_cli_harness_db_animated.bnb"
     let dbAnimatedRoundTripPath = "/tmp/bony_cli_harness_db_animated_roundtrip.bony"
     let dbAnimatedGoldenPath = "/tmp/bony_cli_harness_db_animated_golden.json"
+    let dbAnimatedBnbGoldenPath = "/tmp/bony_cli_harness_db_animated_bnb_golden.json"
+    let dbAnimatedRejectedGoldenPath = "/tmp/bony_cli_harness_db_animated_rejected_golden.json"
+    let dbAnimatedUnknownGoldenPath = "/tmp/bony_cli_harness_db_animated_unknown_golden.json"
     let dbUnsupportedAnimPath = "/tmp/bony_cli_harness_db_unsupported_anim.json"
     let dbUnsupportedAnimOutPath = "/tmp/bony_cli_harness_db_unsupported_anim.bony"
     let dbSetupOnlySkipsAnimPath = "/tmp/bony_cli_harness_db_setup_skips_anim.json"
@@ -3224,6 +3227,8 @@ spec "bony package":
                  dbRejectDisplayXformPath, dbRejectDisplayXformOutPath,
                  dbAnimatedPath, dbAnimatedOutPath, dbAnimatedPreserveOutPath,
                  dbAnimatedBnbPath, dbAnimatedRoundTripPath, dbAnimatedGoldenPath,
+                 dbAnimatedBnbGoldenPath, dbAnimatedRejectedGoldenPath,
+                 dbAnimatedUnknownGoldenPath,
                  dbUnsupportedAnimPath, dbUnsupportedAnimOutPath,
                  dbSetupOnlySkipsAnimPath, dbSetupOnlySkipsAnimOutPath,
                  dbZeroDurationAnimPath, dbZeroDurationAnimOutPath]:
@@ -3461,12 +3466,23 @@ spec "bony package":
       cliPath,
       ["golden-gen", dbAnimatedPreserveOutPath, dbAnimatedGoldenPath, "--animation", "all_channels", "--t", "0.5"],
     )
+    let animatedBnbGolden = runProcess(
+      cliPath,
+      ["golden-gen", dbAnimatedBnbPath, dbAnimatedBnbGoldenPath, "--animation", "all_channels", "--t", "0.5"],
+    )
     let animatedGoldenWithoutContext = runProcess(
       cliPath,
-      ["golden-gen", dbAnimatedPreserveOutPath, dbAnimatedGoldenPath, "--t", "0.5"],
+      ["golden-gen", dbAnimatedPreserveOutPath, dbAnimatedRejectedGoldenPath, "--t", "0.5"],
+    )
+    let animatedGoldenUnknownClip = runProcess(
+      cliPath,
+      ["golden-gen", dbAnimatedPreserveOutPath, dbAnimatedUnknownGoldenPath, "--animation", "missing_clip", "--t", "0.5"],
     )
     let animatedGoldenJson =
       if fileExists(dbAnimatedGoldenPath): parseJson(readFile(dbAnimatedGoldenPath))
+      else: newJObject()
+    let animatedBnbGoldenJson =
+      if fileExists(dbAnimatedBnbGoldenPath): parseJson(readFile(dbAnimatedBnbGoldenPath))
       else: newJObject()
 
     var allChannelsName = ""
@@ -3522,14 +3538,55 @@ spec "bony package":
     var rtSlideXs: seq[float64]
     var rtSlideYs: seq[float64]
     var animatedGoldenBoneCount = -1
+    var animatedGoldenTime = -1.0
     var animatedGoldenRootTx = -9999.0
     var animatedGoldenRootTy = -9999.0
+    var animatedGoldenChildA = -9999.0
+    var animatedGoldenChildB = -9999.0
+    var animatedGoldenChildC = -9999.0
+    var animatedGoldenChildD = -9999.0
+    var animatedGoldenChildTx = -9999.0
+    var animatedGoldenChildTy = -9999.0
+    var animatedBnbGoldenBoneCount = -1
+    var animatedBnbGoldenTime = -1.0
+    var animatedBnbGoldenRootTx = -9999.0
+    var animatedBnbGoldenRootTy = -9999.0
+    var animatedBnbGoldenChildA = -9999.0
+    var animatedBnbGoldenChildB = -9999.0
+    var animatedBnbGoldenChildC = -9999.0
+    var animatedBnbGoldenChildD = -9999.0
+    var animatedBnbGoldenChildTx = -9999.0
+    var animatedBnbGoldenChildTy = -9999.0
+    if animatedGoldenJson.hasKey("time"):
+      animatedGoldenTime = animatedGoldenJson["time"].getFloat()
     if animatedGoldenJson.hasKey("bones") and animatedGoldenJson["bones"].kind == JArray:
       animatedGoldenBoneCount = animatedGoldenJson["bones"].elems.len
       for bone in animatedGoldenJson["bones"].elems:
         if bone.hasKey("name") and bone["name"].getStr() == "root":
           animatedGoldenRootTx = bone["world"]["tx"].getFloat()
           animatedGoldenRootTy = bone["world"]["ty"].getFloat()
+        elif bone.hasKey("name") and bone["name"].getStr() == "child":
+          animatedGoldenChildA = bone["world"]["a"].getFloat()
+          animatedGoldenChildB = bone["world"]["b"].getFloat()
+          animatedGoldenChildC = bone["world"]["c"].getFloat()
+          animatedGoldenChildD = bone["world"]["d"].getFloat()
+          animatedGoldenChildTx = bone["world"]["tx"].getFloat()
+          animatedGoldenChildTy = bone["world"]["ty"].getFloat()
+    if animatedBnbGoldenJson.hasKey("time"):
+      animatedBnbGoldenTime = animatedBnbGoldenJson["time"].getFloat()
+    if animatedBnbGoldenJson.hasKey("bones") and animatedBnbGoldenJson["bones"].kind == JArray:
+      animatedBnbGoldenBoneCount = animatedBnbGoldenJson["bones"].elems.len
+      for bone in animatedBnbGoldenJson["bones"].elems:
+        if bone.hasKey("name") and bone["name"].getStr() == "root":
+          animatedBnbGoldenRootTx = bone["world"]["tx"].getFloat()
+          animatedBnbGoldenRootTy = bone["world"]["ty"].getFloat()
+        elif bone.hasKey("name") and bone["name"].getStr() == "child":
+          animatedBnbGoldenChildA = bone["world"]["a"].getFloat()
+          animatedBnbGoldenChildB = bone["world"]["b"].getFloat()
+          animatedBnbGoldenChildC = bone["world"]["c"].getFloat()
+          animatedBnbGoldenChildD = bone["world"]["d"].getFloat()
+          animatedBnbGoldenChildTx = bone["world"]["tx"].getFloat()
+          animatedBnbGoldenChildTy = bone["world"]["ty"].getFloat()
     if preservedAnimatedAsset.animations.len >= 2:
       let allChannels = preservedAnimatedAsset.animations[0]
       allChannelsName = allChannels.name
@@ -3817,11 +3874,33 @@ spec "bony package":
       dbAnimatedJsonToBnb.exitCode == 0
       dbAnimatedBnbToJson.exitCode == 0
       animatedGolden.exitCode == 0
+      animatedBnbGolden.exitCode == 0
       animatedGoldenWithoutContext.exitCode != 0
       animatedGoldenWithoutContext.output.contains("--t is reserved")
+      not fileExists(dbAnimatedRejectedGoldenPath)
+      animatedGoldenUnknownClip.exitCode != 0
+      animatedGoldenUnknownClip.output.contains("unknown animation: missing_clip")
+      not fileExists(dbAnimatedUnknownGoldenPath)
+      closeTo(animatedGoldenTime, 0.5)
       animatedGoldenBoneCount == 2
       closeTo(animatedGoldenRootTx, 17.0)
       closeTo(animatedGoldenRootTy, -24.0)
+      closeTo(animatedGoldenChildA, 2.8526931902892088)
+      closeTo(animatedGoldenChildB, -2.606805302750525)
+      closeTo(animatedGoldenChildC, 2.1171916904428425)
+      closeTo(animatedGoldenChildD, 5.012637114579177)
+      closeTo(animatedGoldenChildTx, 17.630207252958858)
+      closeTo(animatedGoldenChildTy, -29.813629850888823)
+      closeTo(animatedBnbGoldenTime, 0.5)
+      animatedBnbGoldenBoneCount == 2
+      closeTo(animatedBnbGoldenRootTx, 17.0)
+      closeTo(animatedBnbGoldenRootTy, -24.0)
+      closeTo(animatedBnbGoldenChildA, 2.8526931902892088)
+      closeTo(animatedBnbGoldenChildB, -2.606805302750525)
+      closeTo(animatedBnbGoldenChildC, 2.1171916904428425)
+      closeTo(animatedBnbGoldenChildD, 5.012637114579177)
+      closeTo(animatedBnbGoldenChildTx, 17.630207252958858)
+      closeTo(animatedBnbGoldenChildTy, -29.813629850888823)
       preservedAnimatedAsset.animations.len == 2
       roundTrippedAnimatedAsset.animations.len == 2
       allChannelsName == "all_channels"
@@ -3932,6 +4011,8 @@ spec "bony package":
                  dbRejectDisplayXformPath, dbRejectDisplayXformOutPath,
                  dbAnimatedPath, dbAnimatedOutPath, dbAnimatedPreserveOutPath,
                  dbAnimatedBnbPath, dbAnimatedRoundTripPath, dbAnimatedGoldenPath,
+                 dbAnimatedBnbGoldenPath, dbAnimatedRejectedGoldenPath,
+                 dbAnimatedUnknownGoldenPath,
                  dbUnsupportedAnimPath, dbUnsupportedAnimOutPath,
                  dbSetupOnlySkipsAnimPath, dbSetupOnlySkipsAnimOutPath,
                  dbZeroDurationAnimPath, dbZeroDurationAnimOutPath]:

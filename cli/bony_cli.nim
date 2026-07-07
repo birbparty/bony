@@ -2511,7 +2511,10 @@ proc writeNumericGolden(args: seq[string]) =
       quit(usage(), QuitFailure)
   if stateMachine.len != 0 or inputScript.len != 0 or sampleSelector.len != 0:
     if animationName.len != 0:
-      raise newBonyLoadError(schemaViolation, "--animation cannot be combined with --input-script")
+      raise newBonyLoadError(
+        schemaViolation,
+        "--animation cannot be combined with --state-machine, --input-script, or --sample",
+      )
     if inputScript.len == 0:
       raise newBonyLoadError(schemaViolation, "golden-gen script execution requires --input-script")
     if sampleSelector.len == 0:
