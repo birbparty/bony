@@ -7,6 +7,7 @@ import 'deform.dart';
 import 'drawbatch_clipping.dart';
 import 'ik.dart';
 import 'model.dart';
+import 'numeric_guards.dart' show distance, lerp, radToDeg;
 import 'physics_constraint.dart';
 import 'transform_constraint.dart';
 
@@ -295,12 +296,6 @@ double _shortestAngleDelta(double fromAngle, double toAngle) {
   return delta;
 }
 
-double _distance(_Point a, _Point b) => math.sqrt(
-      (b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y),
-    );
-
-double _lerp(double a, double b, double mix) => a + (b - a) * mix;
-
 // --- M5-IK evaluation helpers (mirror runtime-nim/src/bony/transform.nim) ---
 //
 // Kind-agnostic prep for the IK evaluation pass (`_applyRuntimeIk`, added in a
@@ -309,13 +304,10 @@ double _lerp(double a, double b, double mix) => a + (b - a) * mix;
 /// World rotation of an affine transform, in degrees (transform.nim:349).
 /// The world x-axis is (a, b), so the rotation is atan2(b, a).
 double worldRotationDegrees(Affine2 world) =>
-    math.atan2(world.b, world.a) * 180.0 / math.pi;
+    radToDeg(math.atan2(world.b, world.a));
 
-/// Euclidean distance between two IK points (transform.nim:353). Distinct from
-/// [_distance] only in operating over the world-space [IkPoint] the solvers use.
-double ikDistance(IkPoint a, IkPoint b) => math.sqrt(
-      (b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y),
-    );
+/// Euclidean distance between two IK points (transform.nim:353).
+double ikDistance(IkPoint a, IkPoint b) => distance(a.x, a.y, b.x, b.y);
 
 HelperPoint helperPoint(double x, double y) => HelperPoint(x: x, y: y);
 
@@ -546,7 +538,7 @@ double _tangentAngle(_Point tangent, [double fallbackAngle = 0.0]) {
       _basisEpsilon) {
     return fallbackAngle;
   }
-  return math.atan2(tangent.y, tangent.x) * 180.0 / math.pi;
+  return radToDeg(math.atan2(tangent.y, tangent.x));
 }
 
 _ArcLengthTable _buildPathArcLengthTable(_Cubic curve) {
@@ -561,7 +553,7 @@ _ArcLengthTable _buildPathArcLengthTable(_Cubic curve) {
   for (var index = 1; index <= _pathArcLengthSamples; index++) {
     final current = _evaluateCubic(curve, index / _pathArcLengthSamples);
     samples[index] = current;
-    total += _distance(previous, current);
+    total += distance(previous.x, previous.y, current.x, current.y);
     distances[index] = total;
     previous = current;
   }
@@ -588,8 +580,8 @@ _PathSample _samplePathByDistance(
   final segmentTangent =
       _Point(endPoint.x - startPoint.x, endPoint.y - startPoint.y);
   return _PathSample(
-    _Point(_lerp(startPoint.x, endPoint.x, segmentMix),
-        _lerp(startPoint.y, endPoint.y, segmentMix)),
+    _Point(lerp(startPoint.x, endPoint.x, segmentMix),
+        lerp(startPoint.y, endPoint.y, segmentMix)),
     _tangentAngle(_cubicTangent(curve, u), _tangentAngle(segmentTangent)),
     clampedDistance,
   );

@@ -16,6 +16,16 @@
 import 'dart:math' as math;
 
 import 'deform.dart' show quantizeF32;
+import 'numeric_guards.dart'
+    show
+        degToRad,
+        distance,
+        hypot,
+        lerp,
+        radToDeg,
+        requireFinite,
+        requireMix,
+        requireNonNegative;
 
 /// FABRIK forward/backward reaching iteration count (ik.nim:8).
 const int fabrikIterations = 8;
@@ -25,10 +35,6 @@ const double fabrikTolerance = 1e-4;
 
 /// Below this a segment/target distance is treated as degenerate (ik.nim:10).
 const double _solverEpsilon = 1e-12;
-
-double _radToDeg(double radians) => radians * 180.0 / math.pi;
-
-double _degToRad(double degrees) => degrees * math.pi / 180.0;
 
 /// A 2D point in world space used by the solvers.
 class IkPoint {
@@ -84,44 +90,14 @@ class ChainIkResult {
 /// Solver-input constructor that quantizes BOTH coordinates through float32.
 /// For hand-authored solver unit tests only — the runtime path constructs
 /// points directly via [IkPoint] without quantization (see file header).
-IkPoint ikPoint(double x, double y) =>
-    IkPoint(quantizeF32(x), quantizeF32(y));
-
-double _requireFinite(double value, String context) {
-  if (value.isNaN || value.isInfinite) {
-    throw FormatException('$context must be finite');
-  }
-  return value;
-}
-
-double _requireNonNegative(double value, String context) {
-  final result = _requireFinite(value, context);
-  if (result < 0.0) {
-    throw FormatException('$context must be non-negative');
-  }
-  return result;
-}
-
-double _requireMix(double value) {
-  final result = _requireFinite(value, 'ik.mix');
-  if (result < 0.0 || result > 1.0) {
-    throw const FormatException('ik.mix must be in [0, 1]');
-  }
-  return result;
-}
+IkPoint ikPoint(double x, double y) => IkPoint(quantizeF32(x), quantizeF32(y));
 
 IkPoint _requirePoint(IkPoint point, String context) => IkPoint(
-      _requireFinite(point.x, '$context.x'),
-      _requireFinite(point.y, '$context.y'),
+      requireFinite(point.x, '$context.x'),
+      requireFinite(point.y, '$context.y'),
     );
 
 double _clampUnit(double value) => math.max(-1.0, math.min(1.0, value));
-
-double _lerp(double a, double b, double mix) => a + (b - a) * mix;
-
-double _hypot(double dx, double dy) => math.sqrt(dx * dx + dy * dy);
-
-double _pointDistance(IkPoint a, IkPoint b) => _hypot(b.x - a.x, b.y - a.y);
 
 ({double x, double y}) _direction(
   IkPoint fromPoint,
@@ -130,7 +106,7 @@ double _pointDistance(IkPoint a, IkPoint b) => _hypot(b.x - a.x, b.y - a.y);
 ) {
   final dx = toPoint.x - fromPoint.x;
   final dy = toPoint.y - fromPoint.y;
-  final distance = _hypot(dx, dy);
+  final distance = hypot(dx, dy);
   if (distance > _solverEpsilon) {
     return (x: dx / distance, y: dy / distance);
   }
@@ -149,14 +125,14 @@ OneBoneIkResult solveOneBoneIk(
 }) {
   final safeOrigin = _requirePoint(origin, 'ik.origin');
   final safeTarget = _requirePoint(target, 'ik.target');
-  final storedLength = _requireNonNegative(length, 'ik.length');
-  final storedMix = _requireMix(mix);
-  final baseRotation = _requireFinite(currentRotation, 'ik.currentRotation');
-  final targetRotation = _radToDeg(
+  final storedLength = requireNonNegative(length, 'ik.length');
+  final storedMix = requireMix(mix, 'ik.mix');
+  final baseRotation = requireFinite(currentRotation, 'ik.currentRotation');
+  final targetRotation = radToDeg(
     math.atan2(safeTarget.y - safeOrigin.y, safeTarget.x - safeOrigin.x),
   );
-  final rotation = _lerp(baseRotation, targetRotation, storedMix);
-  final radians = _degToRad(rotation);
+  final rotation = lerp(baseRotation, targetRotation, storedMix);
+  final radians = degToRad(rotation);
   final endPoint = IkPoint(
     safeOrigin.x + math.cos(radians) * storedLength,
     safeOrigin.y + math.sin(radians) * storedLength,
@@ -180,17 +156,17 @@ TwoBoneIkResult solveTwoBoneIk(
 }) {
   final safeOrigin = _requirePoint(origin, 'ik.origin');
   final safeTarget = _requirePoint(target, 'ik.target');
-  final l1 = _requireNonNegative(parentLength, 'ik.parentLength');
-  final l2 = _requireNonNegative(childLength, 'ik.childLength');
-  final storedMix = _requireMix(mix);
-  final currentParent = _requireFinite(parentRotation, 'ik.parentRotation');
-  final currentChild = _requireFinite(childRotation, 'ik.childRotation');
-  final safeBendSign = _requireFinite(bendSign, 'ik.bendSign');
+  final l1 = requireNonNegative(parentLength, 'ik.parentLength');
+  final l2 = requireNonNegative(childLength, 'ik.childLength');
+  final storedMix = requireMix(mix, 'ik.mix');
+  final currentParent = requireFinite(parentRotation, 'ik.parentRotation');
+  final currentChild = requireFinite(childRotation, 'ik.childRotation');
+  final safeBendSign = requireFinite(bendSign, 'ik.bendSign');
   final sign = safeBendSign < 0.0 ? -1.0 : 1.0;
 
   final tx = safeTarget.x - safeOrigin.x;
   final ty = safeTarget.y - safeOrigin.y;
-  final d = _hypot(tx, ty);
+  final d = hypot(tx, ty);
   final denominator = 2.0 * l1 * l2;
   final solvedChild = denominator <= _solverEpsilon
       ? 0.0
@@ -199,11 +175,11 @@ TwoBoneIkResult solveTwoBoneIk(
   final k2 = l2 * math.sin(solvedChild);
   final solvedParent = math.atan2(ty, tx) - math.atan2(k2, k1);
 
-  final resultParent = _lerp(currentParent, _radToDeg(solvedParent), storedMix);
-  final resultChild = _lerp(currentChild, _radToDeg(solvedChild), storedMix);
+  final resultParent = lerp(currentParent, radToDeg(solvedParent), storedMix);
+  final resultChild = lerp(currentChild, radToDeg(solvedChild), storedMix);
 
-  final parentRadians = _degToRad(resultParent);
-  final childRadians = _degToRad(resultParent + resultChild);
+  final parentRadians = degToRad(resultParent);
+  final childRadians = degToRad(resultParent + resultChild);
   final midPoint = IkPoint(
     safeOrigin.x + math.cos(parentRadians) * l1,
     safeOrigin.y + math.sin(parentRadians) * l1,
@@ -233,7 +209,7 @@ ChainIkResult solveChainIk(
       'ik chain length count must equal point count minus one',
     );
   }
-  final storedMix = _requireMix(mix);
+  final storedMix = requireMix(mix, 'ik.mix');
   final safeTarget = _requirePoint(target, 'ik.target');
   final resultPoints = <IkPoint>[
     for (var index = 0; index < points.length; index++)
@@ -247,16 +223,15 @@ ChainIkResult solveChainIk(
   var totalLength = 0.0;
   final solvedLengths = <double>[
     for (var index = 0; index < lengths.length; index++)
-      _requireNonNegative(lengths[index], 'ik.length[$index]'),
+      requireNonNegative(lengths[index], 'ik.length[$index]'),
   ];
   for (final length in solvedLengths) {
     totalLength += length;
   }
 
   final root = safePoints[0];
-  final targetAngle =
-      math.atan2(safeTarget.y - root.y, safeTarget.x - root.x);
-  final rootToTarget = _pointDistance(root, safeTarget);
+  final targetAngle = math.atan2(safeTarget.y - root.y, safeTarget.x - root.x);
+  final rootToTarget = distance(root.x, root.y, safeTarget.x, safeTarget.y);
   if (rootToTarget > totalLength) {
     final angle = targetAngle;
     for (var index = 1; index < resultPoints.length; index++) {
@@ -269,7 +244,12 @@ ChainIkResult solveChainIk(
     var hasDegenerateSegment = false;
     for (var index = 0; index < resultPoints.length - 1; index++) {
       if (solvedLengths[index] > _solverEpsilon &&
-          _pointDistance(resultPoints[index], resultPoints[index + 1]) <=
+          distance(
+                resultPoints[index].x,
+                resultPoints[index].y,
+                resultPoints[index + 1].x,
+                resultPoints[index + 1].y,
+              ) <=
               _solverEpsilon) {
         hasDegenerateSegment = true;
         break;
@@ -332,7 +312,12 @@ ChainIkResult solveChainIk(
         );
       }
 
-      if (_pointDistance(resultPoints[resultPoints.length - 1], safeTarget) <=
+      if (distance(
+            resultPoints[resultPoints.length - 1].x,
+            resultPoints[resultPoints.length - 1].y,
+            safeTarget.x,
+            safeTarget.y,
+          ) <=
           fabrikTolerance) {
         break;
       }
@@ -342,8 +327,8 @@ ChainIkResult solveChainIk(
   for (var index = 0; index < safePoints.length; index++) {
     final original = safePoints[index];
     resultPoints[index] = IkPoint(
-      _lerp(original.x, resultPoints[index].x, storedMix),
-      _lerp(original.y, resultPoints[index].y, storedMix),
+      lerp(original.x, resultPoints[index].x, storedMix),
+      lerp(original.y, resultPoints[index].y, storedMix),
     );
   }
   // Segment angles are derived AFTER the mix blend (mirroring Nim), so with
@@ -353,7 +338,7 @@ ChainIkResult solveChainIk(
     final current = resultPoints[index];
     final next = resultPoints[index + 1];
     rotations.add(
-      _radToDeg(math.atan2(next.y - current.y, next.x - current.x)),
+      radToDeg(math.atan2(next.y - current.y, next.x - current.x)),
     );
   }
   return ChainIkResult(resultPoints, rotations);
