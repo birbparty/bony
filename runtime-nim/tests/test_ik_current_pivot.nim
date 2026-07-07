@@ -9,8 +9,6 @@
 
 include "../src/bony/transform.nim"
 
-import std/tables
-
 proc worldRot(a: Affine2): float64 = worldRotationDegrees(a)
 
 block anchorsAtCurrentPivotNotRest:
@@ -26,7 +24,7 @@ block anchorsAtCurrentPivotNotRest:
     ],
     ikConstraints = @[ikConstraintData("ik", "goal", @["arm0"])],
   )
-  let indexes = data.boneIndexes()
+  let indexes = boneIndexByName(data.bones)
   var locals: seq[LocalTransform]
   for b in data.bones:
     locals.add b.local
@@ -69,7 +67,7 @@ block twoBoneReachesLiveTargetFromMovedParent:
     ],
     ikConstraints = @[ikConstraintData("ik", "goal", @["arm0", "arm1"])],
   )
-  let indexes = data.boneIndexes()
+  let indexes = boneIndexByName(data.bones)
   var locals: seq[LocalTransform]
   for b in data.bones:
     locals.add b.local

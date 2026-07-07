@@ -92,10 +92,6 @@ type
     data*: ref SkeletonData
     events*: seq[DispatchedEvent]
 
-proc clamp01(value: float64): float64 =
-  min(1.0, max(0.0, value))
-
-
 proc wrappedTime(entry: TrackEntry): float64 =
   if entry.loop and entry.clip.duration > 0:
     entry.time mod entry.clip.duration

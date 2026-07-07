@@ -143,7 +143,6 @@ proc worldForBone(parent: Affine2; bone: BoneData; hasParent: bool): Affine2 =
 
 
 proc pathByName(data: SkeletonData): Table[string, PathAttachmentData]
-proc boneIndexes(data: SkeletonData): Table[string, int]
 proc applyRuntimePathConstraint(
   data: SkeletonData;
   path: PathConstraintData;
@@ -197,7 +196,7 @@ proc computeWorldsAndLocals(
         hasRuntimeConstraints = true
         break
   if hasRuntimeConstraints:
-    let indexes = data.boneIndexes()
+    let indexes = boneIndexByName(data.bones)
     let attachments = data.pathByName()
     let cache = buildRuntimeConstraintUpdateCache(data, activation)
     var locals: seq[LocalTransform]
@@ -272,13 +271,6 @@ proc computeWorldTransforms*(data: SkeletonData): seq[Affine2] =
   ## Pure world-transform pass (no time, no mutable state). Used by setup-pose /
   ## t=0 callers and every existing M1-M9 golden. Unchanged by physics work.
   computeWorldTransforms(data, "default")
-
-
-proc transformPoint(world: Affine2; x, y: float64): tuple[x: float64, y: float64] =
-  (
-    x: world.a * x + world.c * y + world.tx,
-    y: world.b * x + world.d * y + world.ty,
-  )
 
 
 proc composeAffine(parent, child: Affine2): Affine2 =
@@ -515,12 +507,6 @@ proc pathByName(data: SkeletonData): Table[string, PathAttachmentData] =
   result = initTable[string, PathAttachmentData]()
   for attachment in data.pathAttachments:
     result[attachment.name] = attachment
-
-
-proc boneIndexes(data: SkeletonData): Table[string, int] =
-  result = initTable[string, int]()
-  for index, bone in data.bones:
-    result[bone.name] = index
 
 
 proc pathCubicInWorld(attachment: PathAttachmentData; targetWorld: Affine2): PathCubic =
@@ -992,7 +978,7 @@ proc advancePhysics*(
       $data.physicsConstraints.len & ")")
 
   var (worlds, locals) = computeWorldsAndLocals(data, activation)
-  let indexes = data.boneIndexes()
+  let indexes = boneIndexByName(data.bones)
 
   # Deterministic physics-stage order (docs/constraint-total-order.md). Reads the
   # constrained bone's live local channels as targets, integrates each enabled
