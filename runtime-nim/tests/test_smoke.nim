@@ -3207,11 +3207,15 @@ spec "bony package":
     let dbRejectDisplayXformOutPath = "/tmp/bony_cli_harness_db_reject_disp_xform.bony"
     let dbAnimatedPath = "/tmp/bony_cli_harness_db_animated.json"
     let dbAnimatedOutPath = "/tmp/bony_cli_harness_db_animated.bony"
+    let dbAnimatedPreserveOutPath = "/tmp/bony_cli_harness_db_animated_preserve.bony"
+    let dbUnsupportedAnimPath = "/tmp/bony_cli_harness_db_unsupported_anim.json"
+    let dbUnsupportedAnimOutPath = "/tmp/bony_cli_harness_db_unsupported_anim.bony"
     for path in [cliPath, skePath, dbOutPath, dbBnbPath, dbRoundTripPath,
                  dbRejectMeshPath, dbRejectMeshOutPath,
                  dbRejectBadParentPath, dbRejectBadParentOutPath,
                  dbRejectDisplayXformPath, dbRejectDisplayXformOutPath,
-                 dbAnimatedPath, dbAnimatedOutPath]:
+                 dbAnimatedPath, dbAnimatedOutPath, dbAnimatedPreserveOutPath,
+                 dbUnsupportedAnimPath, dbUnsupportedAnimOutPath]:
       if fileExists(path):
         removeFile(path)
 
@@ -3332,7 +3336,12 @@ spec "bony package":
       "frameRate": 24,
       "name": "animated_arm",
       "bone": [{"name": "root"}],
-      "animation": [{"name": "idle", "duration": 0}]
+      "animation": [{"name": "idle", "duration": 12, "bone": [
+        {"name": "root", "translateFrame": [
+          {"duration": 12, "x": 4, "y": -3, "tweenEasing": 0},
+          {"duration": 0}
+        ]}
+      ]}]
     }
   ]
 }
@@ -3341,6 +3350,37 @@ spec "bony package":
       cliPath,
       ["import-dragonbones", dbAnimatedPath, dbAnimatedOutPath, "--setup-only"],
     )
+    let setupOnlyAnimatedAsset =
+      if fileExists(dbAnimatedOutPath): loadBonyJsonAsset(readFile(dbAnimatedOutPath))
+      else: bonyAsset(skeletonData(skeletonHeader("err", "0"), @[boneData("err", "")]))
+    let importedAnimatedPreserved = runProcess(
+      cliPath,
+      ["import-dragonbones", dbAnimatedPath, dbAnimatedPreserveOutPath],
+    )
+    let preservedAnimatedAsset =
+      if fileExists(dbAnimatedPreserveOutPath): loadBonyJsonAsset(readFile(dbAnimatedPreserveOutPath))
+      else: bonyAsset(skeletonData(skeletonHeader("err", "0"), @[boneData("err", "")]))
+
+    writeFile(dbUnsupportedAnimPath, """{
+  "version": "5.6.300.1",
+  "name": "db_unsupported_anim",
+  "armature": [
+    {
+      "type": "Armature",
+      "frameRate": 24,
+      "name": "unsupported_anim_arm",
+      "bone": [{"name": "root"}],
+      "animation": [{"name": "empty", "duration": 0}]
+    }
+  ]
+}
+""")
+    writeFile(dbUnsupportedAnimOutPath, "sentinel output")
+    let rejectedUnsupportedAnim = runProcess(
+      cliPath,
+      ["import-dragonbones", dbUnsupportedAnimPath, dbUnsupportedAnimOutPath],
+    )
+    let rejectedUnsupportedAnimOutput = readFile(dbUnsupportedAnimOutPath)
 
     then:
       compileResult.exitCode == 0
@@ -3382,12 +3422,27 @@ spec "bony package":
       not rejectedDisplayXformLeftPartial
       importedAnimated.exitCode == 0
       importedAnimated.output.contains("--setup-only: animation suppressed")
+      setupOnlyAnimatedAsset.animations.len == 0
+      importedAnimatedPreserved.exitCode == 0
+      importedAnimatedPreserved.output.strip() == ""
+      preservedAnimatedAsset.animations.len == 1
+      preservedAnimatedAsset.animations[0].name == "idle"
+      closeTo(preservedAnimatedAsset.animations[0].duration, 0.5)
+      preservedAnimatedAsset.animations[0].boneTimelines.len == 1
+      preservedAnimatedAsset.animations[0].boneTimelines[0].kind == translateTimeline
+      rejectedUnsupportedAnim.exitCode != 0
+      rejectedUnsupportedAnim.output.contains("unsupportedFeature")
+      rejectedUnsupportedAnim.output.contains("target=animation[empty]")
+      rejectedUnsupportedAnim.output.contains("capability=animation")
+      not rejectedUnsupportedAnim.output.contains("Traceback")
+      rejectedUnsupportedAnimOutput == "sentinel output"
 
     for path in [cliPath, skePath, dbOutPath, dbBnbPath, dbRoundTripPath,
                  dbRejectMeshPath, dbRejectMeshOutPath,
                  dbRejectBadParentPath, dbRejectBadParentOutPath,
                  dbRejectDisplayXformPath, dbRejectDisplayXformOutPath,
-                 dbAnimatedPath, dbAnimatedOutPath]:
+                 dbAnimatedPath, dbAnimatedOutPath, dbAnimatedPreserveOutPath,
+                 dbUnsupportedAnimPath, dbUnsupportedAnimOutPath]:
       if fileExists(path):
         removeFile(path)
 
