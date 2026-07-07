@@ -6,7 +6,7 @@
 
 import std/math
 
-import bony/model
+import bony/constraints/common
 
 const
   pathArcLengthSamples* = 32
@@ -34,25 +34,6 @@ type
     distance*: float64
 
 
-proc requireFinite(value: float64; context: string): float64 =
-  if classify(value) in {fcNan, fcInf, fcNegInf}:
-    raise newBonyLoadError(numericOutOfRange, context & " must be finite")
-  value
-
-
-proc requireUnit(value: float64; context: string): float64 =
-  result = requireFinite(value, context)
-  if result < 0.0 or result > 1.0:
-    raise newBonyLoadError(schemaViolation, context & " must be in [0, 1]")
-
-
-proc requirePoint(point: PathPoint; context: string): PathPoint =
-  PathPoint(
-    x: requireFinite(point.x, context & ".x"),
-    y: requireFinite(point.y, context & ".y"),
-  )
-
-
 proc pathPoint*(x, y: float64): PathPoint =
   PathPoint(x: requireFinite(x, "path.x"), y: requireFinite(y, "path.y"))
 
@@ -64,14 +45,6 @@ proc pathCubic*(p0, p1, p2, p3: PathPoint): PathCubic =
     p2: requirePoint(p2, "path.p2"),
     p3: requirePoint(p3, "path.p3"),
   )
-
-
-proc lerp(a, b, mix: float64): float64 =
-  a + (b - a) * mix
-
-
-proc pointDistance(a, b: PathPoint): float64 =
-  hypot(b.x - a.x, b.y - a.y)
 
 
 proc evaluateCubicPath*(curve: PathCubic; u: float64): PathPoint =
