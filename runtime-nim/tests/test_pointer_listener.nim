@@ -1,6 +1,14 @@
 import bony
 
 
+proc raisesBonyLoadError(action: proc(); kind: BonyLoadErrorKind): bool =
+  try:
+    action()
+    false
+  except BonyLoadError as exc:
+    exc.kind == kind
+
+
 proc closeWithin(actual, expected, tolerance: float64): bool =
   abs(actual - expected) <= tolerance
 
@@ -140,5 +148,33 @@ block pointerDispatchMutatesInputsAndOrdersEvents:
   doAssert runtime.events[1].listener == "idle_exit"
   doAssert runtime.events[2].listener == "idle_to_active"
   doAssert runtime.events[3].listener == "active_enter"
+
+
+block directPointerListenerRejectsMismatchedInputKind:
+  let data = pointerFixture()
+  let idle = animationClip(data, "idle")
+  let layer = stateMachineLayer("main", @[stateMachineState("idle", idle)])
+  doAssert raisesBonyLoadError(
+    proc() =
+      discard stateMachine(
+        "ui_machine",
+        @[layer],
+        inputs = @[stateMachineBoolInput("pressed")],
+        listeners = @[
+          StateMachineListener(
+            name: "bad_move",
+            kind: pointerMoveListener,
+            slot: "point_slot",
+            targetKind: pointHelperTarget,
+            hitRadius: 2.0,
+            target: "tip",
+            input: "pressed",
+            inputKind: numberInput,
+            numberValue: 7.0,
+          ),
+        ],
+      ),
+    schemaViolation,
+  )
 
 echo "pointer helper listener tests passed"

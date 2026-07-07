@@ -65,20 +65,27 @@ type
 
   StateMachineListener* = object
     name*: string
-    kind*: StateMachineListenerKind
-    layer*: string
-    fromState*: string
-    toState*: string
-    slot*: string
-    targetKind*: PointerHelperTargetKind
-    target*: string
-    hitRadius*: float64
-    hasHitRadius*: bool
-    input*: string
-    boolValue*: bool
-    hasBoolValue*: bool
-    numberValue*: float64
-    hasNumberValue*: bool
+    case kind*: StateMachineListenerKind
+    of stateEnterListener, stateExitListener, transitionListener:
+      layer*: string
+      fromState*: string
+      toState*: string
+    of pointerDownListener, pointerUpListener, pointerEnterListener, pointerExitListener, pointerMoveListener:
+      slot*: string
+      target*: string
+      case targetKind*: PointerHelperTargetKind
+      of pointHelperTarget:
+        hitRadius*: float64
+      of boundingBoxHelperTarget:
+        discard
+      input*: string
+      case inputKind*: StateMachineInputKind
+      of boolInput:
+        boolValue*: bool
+      of numberInput:
+        numberValue*: float64
+      of triggerInput:
+        discard
 
   StateMachineListenerEvent* = object
     listener*: string
@@ -375,20 +382,105 @@ proc stateMachinePointerListener*(
 ): StateMachineListener =
   if not kind.isPointerListenerKind:
     raise newBonyLoadError(schemaViolation, "state-machine pointer listener kind is not a pointer kind")
-  result = StateMachineListener(
-    name: name,
-    kind: kind,
-    slot: slot,
-    targetKind: targetKind,
-    target: target,
-    hitRadius: hitRadius,
-    hasHitRadius: hasHitRadius,
-    input: input,
-    boolValue: boolValue,
-    hasBoolValue: hasBoolValue,
-    numberValue: numberValue,
-    hasNumberValue: hasNumberValue,
-  )
+  if hasBoolValue and hasNumberValue:
+    raise newBonyLoadError(schemaViolation, "state-machine pointer listener must not contain both bool and number values")
+  let inputKind =
+    if hasBoolValue:
+      boolInput
+    elif hasNumberValue:
+      numberInput
+    else:
+      triggerInput
+  template buildPointerListener(pointerKind: untyped): StateMachineListener =
+    case targetKind
+    of pointHelperTarget:
+      if not hasHitRadius:
+        raise newBonyLoadError(schemaViolation, "state-machine pointer point listener hitRadius is required")
+      case inputKind
+      of boolInput:
+        StateMachineListener(
+          name: name,
+          kind: pointerKind,
+          slot: slot,
+          targetKind: pointHelperTarget,
+          hitRadius: hitRadius,
+          target: target,
+          input: input,
+          inputKind: boolInput,
+          boolValue: boolValue,
+        )
+      of numberInput:
+        StateMachineListener(
+          name: name,
+          kind: pointerKind,
+          slot: slot,
+          targetKind: pointHelperTarget,
+          hitRadius: hitRadius,
+          target: target,
+          input: input,
+          inputKind: numberInput,
+          numberValue: numberValue,
+        )
+      of triggerInput:
+        StateMachineListener(
+          name: name,
+          kind: pointerKind,
+          slot: slot,
+          targetKind: pointHelperTarget,
+          hitRadius: hitRadius,
+          target: target,
+          input: input,
+          inputKind: triggerInput,
+        )
+    of boundingBoxHelperTarget:
+      if hasHitRadius:
+        raise newBonyLoadError(schemaViolation, "state-machine pointer bounding-box listener must not have hitRadius")
+      case inputKind
+      of boolInput:
+        StateMachineListener(
+          name: name,
+          kind: pointerKind,
+          slot: slot,
+          targetKind: boundingBoxHelperTarget,
+          target: target,
+          input: input,
+          inputKind: boolInput,
+          boolValue: boolValue,
+        )
+      of numberInput:
+        StateMachineListener(
+          name: name,
+          kind: pointerKind,
+          slot: slot,
+          targetKind: boundingBoxHelperTarget,
+          target: target,
+          input: input,
+          inputKind: numberInput,
+          numberValue: numberValue,
+        )
+      of triggerInput:
+        StateMachineListener(
+          name: name,
+          kind: pointerKind,
+          slot: slot,
+          targetKind: boundingBoxHelperTarget,
+          target: target,
+          input: input,
+          inputKind: triggerInput,
+        )
+  case kind
+  of pointerDownListener:
+    result = buildPointerListener(pointerDownListener)
+  of pointerUpListener:
+    result = buildPointerListener(pointerUpListener)
+  of pointerEnterListener:
+    result = buildPointerListener(pointerEnterListener)
+  of pointerExitListener:
+    result = buildPointerListener(pointerExitListener)
+  of pointerMoveListener:
+    result = buildPointerListener(pointerMoveListener)
+  of stateEnterListener, stateExitListener, transitionListener:
+    raise newBonyLoadError(schemaViolation, "state-machine pointer listener kind is not a pointer kind")
   validateName(result.name, "state-machine listener")
   validateName(result.slot, "state-machine pointer listener slot")
   validateName(result.target, "state-machine pointer listener target")
@@ -478,7 +570,6 @@ proc hasTransition(layer: StateMachineLayer; fromState, toState: string): bool =
 
 proc normalizeListener(machine: StateMachine; listener: StateMachineListener): StateMachineListener =
   validateName(listener.name, "state-machine listener")
-  result = StateMachineListener(name: listener.name, kind: listener.kind)
   case listener.kind
   of stateEnterListener:
     let layer = machine.resolveListenerLayer(listener)
@@ -486,16 +577,24 @@ proc normalizeListener(machine: StateMachine; listener: StateMachineListener): S
       raise newBonyLoadError(schemaViolation, "state-machine enter listener must not have a from state")
     validateName(listener.toState, "state-machine listener state")
     discard layer.stateByName(listener.toState)
-    result.layer = listener.layer
-    result.toState = listener.toState
+    result = StateMachineListener(
+      name: listener.name,
+      kind: stateEnterListener,
+      layer: listener.layer,
+      toState: listener.toState,
+    )
   of stateExitListener:
     let layer = machine.resolveListenerLayer(listener)
     validateName(listener.fromState, "state-machine listener state")
     if listener.toState.len != 0:
       raise newBonyLoadError(schemaViolation, "state-machine exit listener must not have a to state")
     discard layer.stateByName(listener.fromState)
-    result.layer = listener.layer
-    result.fromState = listener.fromState
+    result = StateMachineListener(
+      name: listener.name,
+      kind: stateExitListener,
+      layer: listener.layer,
+      fromState: listener.fromState,
+    )
   of transitionListener:
     let layer = machine.resolveListenerLayer(listener)
     validateName(listener.fromState, "state-machine listener from")
@@ -504,49 +603,71 @@ proc normalizeListener(machine: StateMachine; listener: StateMachineListener): S
     discard layer.stateByName(listener.toState)
     if not layer.hasTransition(listener.fromState, listener.toState):
       raise newBonyLoadError(unknownRequiredReference, "unknown state-machine transition listener target")
-    result.layer = listener.layer
-    result.fromState = listener.fromState
-    result.toState = listener.toState
+    result = StateMachineListener(
+      name: listener.name,
+      kind: transitionListener,
+      layer: listener.layer,
+      fromState: listener.fromState,
+      toState: listener.toState,
+    )
   of pointerDownListener, pointerUpListener, pointerEnterListener, pointerExitListener, pointerMoveListener:
-    if listener.layer.len != 0 or listener.fromState.len != 0 or listener.toState.len != 0:
-      raise newBonyLoadError(schemaViolation, "state-machine pointer listener must not have lifecycle state fields")
     validateName(listener.slot, "state-machine pointer listener slot")
     validateName(listener.target, "state-machine pointer listener target")
     validateName(listener.input, "state-machine pointer listener input")
-    result.slot = listener.slot
-    result.targetKind = listener.targetKind
-    result.target = listener.target
-    result.input = listener.input
     let input = machine.inputByName(listener.input)
-    case input.kind
-    of boolInput:
-      if not listener.hasBoolValue:
-        raise newBonyLoadError(schemaViolation, "state-machine pointer bool listener value is required")
-      if listener.hasNumberValue:
-        raise newBonyLoadError(schemaViolation, "state-machine pointer bool listener must not have a number value")
-      result.boolValue = listener.boolValue
-      result.hasBoolValue = true
-    of numberInput:
-      if listener.hasBoolValue:
-        raise newBonyLoadError(schemaViolation, "state-machine pointer number listener must not have a bool value")
-      if not listener.hasNumberValue:
-        raise newBonyLoadError(schemaViolation, "state-machine pointer number listener value is required")
-      result.numberValue = quantizeF32(listener.numberValue, "stateMachine.pointerListener.value")
-      result.hasNumberValue = true
-    of triggerInput:
-      if listener.hasBoolValue or listener.hasNumberValue:
-        raise newBonyLoadError(schemaViolation, "state-machine pointer trigger listener must not have a value")
+    if listener.inputKind != input.kind:
+      raise newBonyLoadError(
+        schemaViolation,
+        "state-machine pointer listener input kind mismatch: " & listener.input,
+      )
+    var hitRadius = 0.0
+    var hasHitRadius = false
     case listener.targetKind
     of pointHelperTarget:
-      if not listener.hasHitRadius:
-        raise newBonyLoadError(schemaViolation, "state-machine pointer point listener hitRadius is required")
-      result.hitRadius = quantizeF32(listener.hitRadius, "stateMachine.pointerListener.hitRadius")
-      if result.hitRadius < 0.0:
+      hitRadius = quantizeF32(listener.hitRadius, "stateMachine.pointerListener.hitRadius")
+      if hitRadius < 0.0:
         raise newBonyLoadError(schemaViolation, "state-machine pointer point listener hitRadius must be non-negative")
-      result.hasHitRadius = true
+      hasHitRadius = true
     of boundingBoxHelperTarget:
-      if listener.hasHitRadius:
-        raise newBonyLoadError(schemaViolation, "state-machine pointer bounding-box listener must not have hitRadius")
+      discard
+    case listener.inputKind
+    of boolInput:
+      result = stateMachinePointerListener(
+        listener.name,
+        listener.kind,
+        listener.slot,
+        listener.targetKind,
+        listener.target,
+        listener.input,
+        hitRadius = hitRadius,
+        hasHitRadius = hasHitRadius,
+        boolValue = listener.boolValue,
+        hasBoolValue = true,
+      )
+    of numberInput:
+      result = stateMachinePointerListener(
+        listener.name,
+        listener.kind,
+        listener.slot,
+        listener.targetKind,
+        listener.target,
+        listener.input,
+        hitRadius = hitRadius,
+        hasHitRadius = hasHitRadius,
+        numberValue = quantizeF32(listener.numberValue, "stateMachine.pointerListener.value"),
+        hasNumberValue = true,
+      )
+    of triggerInput:
+      result = stateMachinePointerListener(
+        listener.name,
+        listener.kind,
+        listener.slot,
+        listener.targetKind,
+        listener.target,
+        listener.input,
+        hitRadius = hitRadius,
+        hasHitRadius = hasHitRadius,
+      )
 
 
 proc normalizeMachine(machine: StateMachine): StateMachine =
@@ -952,10 +1073,10 @@ proc addPointerEvent(
     target: listener.target,
     input: listener.input,
     inputKind: input.kind,
-    boolValue: listener.boolValue,
-    hasBoolValue: listener.hasBoolValue,
-    numberValue: listener.numberValue,
-    hasNumberValue: listener.hasNumberValue,
+    boolValue: if listener.inputKind == boolInput: listener.boolValue else: false,
+    hasBoolValue: listener.inputKind == boolInput,
+    numberValue: if listener.inputKind == numberInput: listener.numberValue else: 0.0,
+    hasNumberValue: listener.inputKind == numberInput,
     triggerValue: input.kind == triggerInput,
     pointerX: pointerX,
     pointerY: pointerY,
