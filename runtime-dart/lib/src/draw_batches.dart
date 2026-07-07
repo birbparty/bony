@@ -16,8 +16,11 @@ DrawVertex _vertex(Affine2 world, double lx, double ly, double u, double v) {
 /// Build draw batches for the setup pose, with M7 deformers applied at
 /// default parameter values (mirroring the Nim CLI golden-gen pipeline).
 ///
-/// Each slot with a non-empty attachment that resolves to a region becomes one
-/// [DrawBatch] with 4 vertices and 6 indices (two triangles).
+/// Slots with visible region or mesh attachments emit [DrawBatch] geometry.
+/// Slots that resolve to nested rig attachments emit child batches only through
+/// nested composition. Helper, path, and clipping attachments do not emit base
+/// geometry here, though clipping attachments are consumed by the later
+/// clipping pass.
 /// Linear-blend skinning for a mesh attachment's setup vertices, ported fresh to
 /// match the Nim `skinMeshVertices` formula and evaluation order
 /// (docs/mesh-attachment-contract.md) so both runtimes agree within 1e-4:
@@ -119,15 +122,8 @@ _DrawBatchBuild _buildDrawBatchBuild(
     boneIndex[data.bones[i].name] = i;
   }
   final activation = data.activeSkinMembership(activeSkin);
-  final regionMap = <String, RegionAttachment>{
-    for (final r in data.regions) r.name: r,
-  };
-  final meshMap = <String, MeshAttachment>{
-    for (final m in data.meshAttachments) m.name: m,
-  };
-  final nestedMap = <String, NestedRigAttachment>{
-    if (composeNested)
-      for (final n in data.nestedRigAttachments) n.name: n,
+  final attachmentMap = <String, Attachment>{
+    for (final attachment in data.allAttachments) attachment.name: attachment,
   };
   // Transient deform-timeline overrides staged on the posed skeleton by
   // applyPose, keyed by slot name + mesh attachment (the mixer produces one
@@ -164,15 +160,33 @@ _DrawBatchBuild _buildDrawBatchBuild(
         activeSkin, slot.name, slot.attachment);
     resolvedSlotAttachment[slot.name] = attachment;
     if (attachment.isEmpty) continue;
-    final region = regionMap[attachment];
-    if (region == null) {
-      // A slot may instead reference a mesh. Attachment names are cross-collection
-      // unique (load-validated), so a non-region name resolves to at most one mesh.
-      // Skin its vertices (FK for unweighted, linear-blend for weighted) and emit
-      // one batch in this slot's draw-order position, with metadata mirroring the
-      // region path and the Nim reference (docs/mesh-attachment-contract.md).
-      final mesh = meshMap[attachment];
-      if (mesh != null) {
+    switch (attachmentMap[attachment]) {
+      case RegionAttachment region:
+        final world = worlds[slotBoneIndex];
+        final hw = region.width * 0.5;
+        final hh = region.height * 0.5;
+        baseBatches.add(DrawBatch(
+          slot: slot.name,
+          bone: slot.bone,
+          attachment: attachment,
+          blendMode: 'normal',
+          texturePage: region.texturePage,
+          clipId: '',
+          world: world,
+          vertices: [
+            _vertex(world, -hw, -hh, region.u0, region.v0),
+            _vertex(world, hw, -hh, region.u1, region.v0),
+            _vertex(world, hw, hh, region.u1, region.v1),
+            _vertex(world, -hw, hh, region.u0, region.v1),
+          ],
+          indices: [0, 1, 2, 2, 3, 0],
+        ));
+        batchSlotIndex.add(slotIdx);
+        batchClipPerTriangle.add(false);
+      case MeshAttachment mesh:
+        // Skin mesh vertices (FK for unweighted, linear-blend for weighted) and
+        // emit one batch in this slot's draw-order position, with metadata
+        // mirroring the region path and the Nim reference.
         if (!meshInfluencesAreActive(mesh)) continue;
         final world = worlds[slotBoneIndex];
         var meshVerts = _skinMeshVertices(worlds, boneIndex, slot.bone, mesh);
@@ -209,10 +223,8 @@ _DrawBatchBuild _buildDrawBatchBuild(
         ));
         batchSlotIndex.add(slotIdx);
         batchClipPerTriangle.add(true);
-        continue;
-      }
-      final nested = nestedMap[attachment];
-      if (nested != null) {
+      case NestedRigAttachment nested:
+        if (!composeNested) continue;
         if (activeIds.contains(nested.skeleton)) {
           throw FormatException(
               'cycleDetected: nested rig composition cycle detected for skeleton: ${nested.skeleton}');
@@ -244,31 +256,13 @@ _DrawBatchBuild _buildDrawBatchBuild(
           batchSlotIndex.add(slotIdx);
           batchClipPerTriangle.add(childBuild.batchClipPerTriangle[childIndex]);
         }
-      }
-      continue;
+      case PathAttachment():
+      case PointAttachment():
+      case BoundingBoxAttachment():
+      case ClippingAttachment():
+      case null:
+        continue;
     }
-
-    final world = worlds[slotBoneIndex];
-    final hw = region.width * 0.5;
-    final hh = region.height * 0.5;
-    baseBatches.add(DrawBatch(
-      slot: slot.name,
-      bone: slot.bone,
-      attachment: attachment,
-      blendMode: 'normal',
-      texturePage: region.texturePage,
-      clipId: '',
-      world: world,
-      vertices: [
-        _vertex(world, -hw, -hh, region.u0, region.v0),
-        _vertex(world, hw, -hh, region.u1, region.v0),
-        _vertex(world, hw, hh, region.u1, region.v1),
-        _vertex(world, -hw, hh, region.u0, region.v1),
-      ],
-      indices: [0, 1, 2, 2, 3, 0],
-    ));
-    batchSlotIndex.add(slotIdx);
-    batchClipPerTriangle.add(false);
   }
 
   List<DrawBatch> visibleBatches;
