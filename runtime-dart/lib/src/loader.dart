@@ -1093,6 +1093,7 @@ void _validateAttachments(SkeletonData data, _ValidationRegistry registry) {
   for (var i = 0; i < data.regions.length; i++) {
     final r = data.regions[i];
     final ctx = 'regions[$i]';
+    if (r.name.isEmpty) throw FormatException('$ctx.name must not be empty');
     if (r.width < 0 || r.height < 0) {
       throw FormatException('$ctx dimensions must be non-negative');
     }
@@ -1220,6 +1221,7 @@ void _validateAttachments(SkeletonData data, _ValidationRegistry registry) {
   for (var i = 0; i < data.nestedRigAttachments.length; i++) {
     final n = data.nestedRigAttachments[i];
     final ctx = 'nestedRigAttachments[$i]';
+    if (n.name.isEmpty) throw FormatException('$ctx.name must not be empty');
     if (n.skeleton.isEmpty) {
       throw FormatException('$ctx.skeleton must not be empty');
     }
