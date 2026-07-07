@@ -2,6 +2,7 @@
 
 import std/math
 
+import bony/constraints/common
 import bony/model
 
 const
@@ -34,41 +35,8 @@ proc ikPoint*(x, y: float64): IkPoint =
   IkPoint(x: quantizeF32(x, "ik.x"), y: quantizeF32(y, "ik.y"))
 
 
-proc requireFinite(value: float64; context: string): float64 =
-  if classify(value) in {fcNan, fcInf, fcNegInf}:
-    raise newBonyLoadError(numericOutOfRange, context & " must be finite")
-  value
-
-
-proc requireNonNegative(value: float64; context: string): float64 =
-  result = requireFinite(value, context)
-  if result < 0.0:
-    raise newBonyLoadError(schemaViolation, context & " must be non-negative")
-
-
-proc requireMix(value: float64): float64 =
-  result = requireFinite(value, "ik.mix")
-  if result < 0.0 or result > 1.0:
-    raise newBonyLoadError(schemaViolation, "ik.mix must be in [0, 1]")
-
-
-proc requirePoint(point: IkPoint; context: string): IkPoint =
-  IkPoint(
-    x: requireFinite(point.x, context & ".x"),
-    y: requireFinite(point.y, context & ".y"),
-  )
-
-
 proc clampUnit(value: float64): float64 =
   max(-1.0, min(1.0, value))
-
-
-proc lerp(a, b, mix: float64): float64 =
-  a + (b - a) * mix
-
-
-proc pointDistance(a, b: IkPoint): float64 =
-  hypot(b.x - a.x, b.y - a.y)
 
 
 proc direction(fromPoint, toPoint: IkPoint; fallbackAngle: float64): tuple[x, y: float64] =
@@ -91,7 +59,7 @@ proc solveOneBoneIk*(
   let safeOrigin = requirePoint(origin, "ik.origin")
   let safeTarget = requirePoint(target, "ik.target")
   let storedLength = requireNonNegative(length, "ik.length")
-  let storedMix = requireMix(mix)
+  let storedMix = requireUnit(mix, "ik.mix")
   let baseRotation = requireFinite(currentRotation, "ik.currentRotation")
   let targetRotation = radToDeg(arctan2(safeTarget.y - safeOrigin.y, safeTarget.x - safeOrigin.x))
   result.rotation = lerp(baseRotation, targetRotation, storedMix)
@@ -114,7 +82,7 @@ proc solveTwoBoneIk*(
   let safeTarget = requirePoint(target, "ik.target")
   let l1 = requireNonNegative(parentLength, "ik.parentLength")
   let l2 = requireNonNegative(childLength, "ik.childLength")
-  let storedMix = requireMix(mix)
+  let storedMix = requireUnit(mix, "ik.mix")
   let currentParent = requireFinite(parentRotation, "ik.parentRotation")
   let currentChild = requireFinite(childRotation, "ik.childRotation")
   let safeBendSign = requireFinite(bendSign, "ik.bendSign")
@@ -157,7 +125,7 @@ proc solveChainIk*(points: openArray[IkPoint]; lengths: openArray[float64]; targ
     raise newBonyLoadError(schemaViolation, "ik chain needs at least two points")
   if lengths.len != points.len - 1:
     raise newBonyLoadError(schemaViolation, "ik chain length count must equal point count minus one")
-  let storedMix = requireMix(mix)
+  let storedMix = requireUnit(mix, "ik.mix")
   let safeTarget = requirePoint(target, "ik.target")
   var safePoints = newSeq[IkPoint](points.len)
   for index, point in points:
