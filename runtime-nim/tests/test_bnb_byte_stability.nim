@@ -52,8 +52,195 @@ proc currentModelFixture(): SkeletonData =
     @[pathConstraintData("follow", "child", "root", "curve", order = -1)],
   )
 
+proc extendedScalarAssetFixture(): BonyAsset =
+  let bones = @[
+    boneData("root", ""),
+    boneData("tip", "root", localTransform(x = 2.0, y = 1.0), skinRequired = true),
+  ]
+  let meshBase = skeletonData(skeletonHeader("extended", "1.2.3"), bones)
+  let cloth = unweightedMeshAttachment(
+    meshBase,
+    "cloth",
+    @[meshUv(0.0, 0.0), meshUv(1.0, 0.0), meshUv(0.0, 1.0)],
+    @[0'u16, 1'u16, 2'u16],
+    @[unweightedMeshVertex(0.0, 0.0), unweightedMeshVertex(1.0, 0.0), unweightedMeshVertex(0.0, 1.0)],
+  )
+  let angle = parameterAxis("angle", -1.0, 1.0, 0.25)
+  let warp = WarpLattice(
+    rows: 2'u32,
+    cols: 2'u32,
+    minX: -1.0,
+    minY: -1.0,
+    maxX: 1.0,
+    maxY: 1.0,
+    controlPoints: @[
+      deformerPoint(-1.0, -1.0),
+      deformerPoint(1.0, -1.0),
+      deformerPoint(-1.0, 1.0),
+      deformerPoint(1.0, 1.0),
+    ],
+  )
+  let skeleton = skeletonData(
+    skeletonHeader("extended", "1.2.3"),
+    bones,
+    slots = @[
+      slotData("maskSlot", "root", "mask"),
+      slotData("regionSlot", "root", "body"),
+      slotData("meshSlot", "root", "cloth"),
+      slotData("hitSlot", "tip", "hit"),
+      slotData("boxSlot", "tip", "bounds"),
+    ],
+    regions = @[regionAttachment("body", 2.0, 3.0)],
+    pathAttachments = @[pathAttachmentData("curve", 0.0, 0.0, 1.0, 0.0, 1.5, 1.0, 2.0, 1.0)],
+    paths = @[pathConstraintData(
+      "follow", "tip", "root", "curve",
+      skinRequired = true,
+      hasPosition = true,
+      position = 0.0,
+      hasTranslateMix = true,
+      translateMix = 1.0,
+      hasRotateMix = true,
+      rotateMix = 0.0,
+    )],
+    parameters = @[angle],
+    deformers = @[
+      DeformerRecord(
+        deformer: warpDeformer("warp", warp),
+        keyformBlend: keyformBlend(
+          @[angle],
+          @[
+            pointKeyform(@[parameterSample(angle, -1.0)], warp.controlPoints),
+            pointKeyform(@[parameterSample(angle, 1.0)], warp.controlPoints),
+          ],
+        ),
+      ),
+    ],
+    ikConstraints = @[ikConstraintData(
+      "ik",
+      "root",
+      @["tip"],
+      skinRequired = true,
+      hasMix = true,
+      mix = 1.0,
+      hasBendPositive = true,
+      bendPositive = true,
+    )],
+    transformConstraints = @[transformConstraintData(
+      "tc",
+      "tip",
+      "root",
+      skinRequired = true,
+      hasTranslateMix = true,
+      translateMix = 1.0,
+      hasRotateMix = true,
+      rotateMix = 1.0,
+      hasScaleMix = true,
+      scaleMix = 1.0,
+      hasShearMix = true,
+      shearMix = 1.0,
+    )],
+    physicsConstraints = @[physicsConstraintData(
+      "pc",
+      "tip",
+      {pcX, pcRotate},
+      skinRequired = true,
+      hasInertia = true,
+      inertia = 0.0,
+      hasStrength = true,
+      strength = 0.0,
+      hasDamping = true,
+      damping = 0.0,
+      hasMass = true,
+      mass = 1.0,
+      hasGravity = true,
+      gravity = 0.0,
+      hasWind = true,
+      wind = 0.0,
+      hasMix = true,
+      mix = 1.0,
+    )],
+    clippingAttachments = @[clipAttachmentData("mask", @[0.0, -1.0, 2.0, -1.0, 2.0, 2.0, 0.0, 2.0], "meshSlot")],
+    meshAttachments = @[cloth],
+    skins = @[
+      skinData(
+        "default",
+        @[
+          skinEntryData("maskSlot", "mask", "mask"),
+          skinEntryData("regionSlot", "body", "body"),
+          skinEntryData("meshSlot", "cloth", "cloth"),
+          skinEntryData("hitSlot", "hit", "hit"),
+          skinEntryData("boxSlot", "bounds", "bounds"),
+        ],
+        bones = @["tip"],
+        ikConstraints = @["ik"],
+        transformConstraints = @["tc"],
+        pathConstraints = @["follow"],
+        physicsConstraints = @["pc"],
+      ),
+    ],
+    pointAttachments = @[pointAttachmentData("hit", 1.0, 0.0, 0.0)],
+    boundingBoxAttachments = @[boundingBoxAttachmentData("bounds", @[-1.0, -1.0, 1.0, -1.0, 1.0, 1.0])],
+    nestedRigAttachments = @[nestedRigAttachmentData("nested", "childSkeleton", skin = "default", animation = "idle")],
+  )
+  let deform = deformTimeline("default", "meshSlot", cloth, @[deformKeyframe(0.0, 0'u32, @[meshDelta(0.0, 0.0)])])
+  let idle = animationClip(skeleton, "idle", deformTimelines = @[deform])
+  let machine = stateMachine(
+    "machine",
+    @[
+      stateMachineLayer(
+        "main",
+        @[
+          stateMachineState("idle", idle),
+          stateMachineBlendState("blend", "level", @[stateMachineBlendClip(idle, 0.0)]),
+        ],
+        initialState = "blend",
+        transitions = @[
+          stateMachineTransition("idle", "blend", @[stateMachineNumberCondition("level", numberEqualsCondition, 0.0)]),
+          stateMachineTransition("blend", "idle", @[stateMachineBoolCondition("pressed", true)]),
+        ],
+      ),
+    ],
+    inputs = @[
+      stateMachineBoolInput("pressed"),
+      stateMachineNumberInput("level"),
+      stateMachineTriggerInput("pulse"),
+    ],
+    listeners = @[
+      stateMachineStateEnterListener("enter_blend", "main", "blend"),
+      stateMachineTransitionListener("idle_to_blend", "main", "idle", "blend"),
+      stateMachinePointerListener(
+        "press_false",
+        pointerDownListener,
+        "hitSlot",
+        pointHelperTarget,
+        "hit",
+        "pressed",
+        hitRadius = 0.0,
+        hasHitRadius = true,
+        boolValue = false,
+        hasBoolValue = true,
+      ),
+      stateMachinePointerListener(
+        "level_zero",
+        pointerMoveListener,
+        "hitSlot",
+        pointHelperTarget,
+        "hit",
+        "level",
+        hitRadius = 0.0,
+        hasHitRadius = true,
+        numberValue = 0.0,
+        hasNumberValue = true,
+      ),
+    ],
+  )
+  bonyAsset(skeleton, @[idle], @[machine])
+
 proc viaJson(bytes: openArray[byte]): seq[byte] =
   toBonyBnb(loadBonyJson(toBonyJson(loadKnownBonyBnb(bytes))))
+
+proc viaJsonAsset(bytes: openArray[byte]): seq[byte] =
+  toBonyBnb(loadBonyJsonAsset(toBonyJson(loadKnownBonyBnbAsset(bytes))))
 
 proc readBytes(path: string): seq[byte] =
   let content = readFile(path)
@@ -92,6 +279,21 @@ proc readPropertyKeys(input: openArray[byte]; index: var int): seq[uint64] =
     doAssert byteLength <= uint64(input.len - index), "property byteLength exceeds input"
     result.add propertyKey
     index += int(byteLength)
+
+type ObjectPropertyShape = tuple[typeKey: uint64, propertyKeys: seq[uint64]]
+
+proc objectPropertyShapes(bytes: openArray[byte]): seq[ObjectPropertyShape] =
+  var index = 0
+  let header = bytes.readHeader(index)
+  doAssert header.flags == bnbStringTableFlag
+  discard bytes.readToc(index)
+  discard bytes.readStringTable(index)
+  while true:
+    let typeKey = bytes.readVaruint(index)
+    if typeKey == 0:
+      break
+    result.add (typeKey: typeKey, propertyKeys: bytes.readPropertyKeys(index))
+  doAssert index == bytes.len, "shape inspection must consume canonical .bnb"
 
 proc inspectCanonicalCurrentModel(bytes: openArray[byte]) =
   var index = 0
@@ -169,6 +371,61 @@ proc inspectCanonicalCurrentModel(bytes: openArray[byte]) =
   doAssert bytes.readPropertyKeys(index) == @[1'u64, 1012'u64, 4000'u64, 4001'u64, 4002'u64]
   doAssert bytes.readVaruint(index) == 0
   doAssert index == bytes.len, "canonical .bnb must not contain trailing bytes"
+
+proc inspectExtendedScalarAsset(bytes: openArray[byte]) =
+  let actual = objectPropertyShapes(bytes)
+  let expected: seq[ObjectPropertyShape] = @[
+    (1'u64, @[1'u64, 2'u64]),
+    (2'u64, @[1'u64]),
+    (2'u64, @[1'u64, 3'u64, 1000'u64, 1001'u64, 4027'u64]),
+    (1000'u64, @[1'u64, 1012'u64, 1013'u64]),
+    (1000'u64, @[1'u64, 1012'u64, 1013'u64]),
+    (1000'u64, @[1'u64, 1012'u64, 1013'u64]),
+    (1000'u64, @[1'u64, 1012'u64, 1013'u64]),
+    (1000'u64, @[1'u64, 1012'u64, 1013'u64]),
+    (1001'u64, @[1'u64, 1014'u64, 1015'u64]),
+    (1002'u64, @[1'u64, 1000'u64, 1001'u64, 1002'u64]),
+    (1003'u64, @[1'u64, 3000'u64]),
+    (4001'u64, @[1'u64, 4003'u64, 4004'u64, 4005'u64, 4006'u64, 4007'u64, 4008'u64, 4009'u64, 4010'u64]),
+    (3000'u64, @[1'u64, 3000'u64, 3001'u64]),
+    (3001'u64, @[1'u64, 3003'u64, 3004'u64, 3005'u64]),
+    (3005'u64, @[1'u64, 3012'u64, 3013'u64, 3014'u64]),
+    (4002'u64, @[1'u64, 4000'u64, 4014'u64, 4015'u64, 4016'u64, 4027'u64]),
+    (4003'u64, @[1'u64, 1012'u64, 4000'u64, 4012'u64, 4013'u64, 4017'u64, 4018'u64, 4027'u64]),
+    (4000'u64, @[1'u64, 1012'u64, 4000'u64, 4001'u64, 4011'u64, 4012'u64, 4013'u64, 4027'u64]),
+    (4004'u64, @[1'u64, 1012'u64, 4019'u64, 4020'u64, 4021'u64, 4022'u64, 4023'u64, 4024'u64, 4025'u64, 4026'u64, 4027'u64]),
+    (3003'u64, @[1'u64, 4028'u64, 4029'u64, 4030'u64, 4031'u64, 4032'u64]),
+    (3004'u64, @[1011'u64, 3010'u64, 3011'u64]),
+    (3004'u64, @[1011'u64, 3010'u64, 3011'u64]),
+    (3004'u64, @[1011'u64, 3010'u64, 3011'u64]),
+    (3004'u64, @[1011'u64, 3010'u64, 3011'u64]),
+    (3004'u64, @[1011'u64, 3010'u64, 3011'u64]),
+    (6000'u64, @[1'u64, 6000'u64, 6001'u64, 6002'u64]),
+    (6001'u64, @[6010'u64, 6012'u64]),
+    (6002'u64, @[6022'u64, 6023'u64, 6024'u64, 6025'u64, 6026'u64]),
+    (6004'u64, @[6040'u64, 6041'u64]),
+    (6005'u64, @[6042'u64, 6043'u64]),
+    (6005'u64, @[6042'u64, 6043'u64]),
+    (2000'u64, @[1'u64]),
+    (3002'u64, @[1011'u64, 3006'u64, 3007'u64, 3008'u64, 3009'u64]),
+    (7000'u64, @[1'u64]),
+    (7001'u64, @[1'u64, 7000'u64]),
+    (7001'u64, @[1'u64, 7000'u64]),
+    (7001'u64, @[1'u64, 7000'u64]),
+    (7002'u64, @[1'u64, 7010'u64]),
+    (7003'u64, @[1'u64, 7020'u64, 7021'u64]),
+    (7003'u64, @[1'u64, 7020'u64, 7023'u64]),
+    (7004'u64, @[7030'u64, 7031'u64]),
+    (7005'u64, @[7040'u64, 7041'u64]),
+    (7006'u64, @[7050'u64, 7051'u64, 7053'u64]),
+    (7005'u64, @[7040'u64, 7041'u64]),
+    (7006'u64, @[7050'u64, 7051'u64]),
+    (7007'u64, @[1'u64, 7060'u64, 7061'u64, 7063'u64]),
+    (7007'u64, @[1'u64, 7060'u64, 7061'u64, 7062'u64, 7063'u64]),
+    (7007'u64, @[1'u64, 7060'u64, 7064'u64, 7065'u64, 7066'u64, 7067'u64, 7068'u64, 7070'u64]),
+    (7007'u64, @[1'u64, 7060'u64, 7064'u64, 7065'u64, 7066'u64, 7067'u64, 7069'u64, 7070'u64]),
+  ]
+  doAssert actual == expected, $actual
 
 proc expectEmitRejectsInvalidUnicode() =
   try:
@@ -311,5 +568,9 @@ expectCliRoundTrip(canonical)
 let minimal = toBonyBnb(skeletonData(skeletonHeader("minimal", "0.1.0"), @[boneData("root", "")]))
 expectStable("default omission fixture", minimal)
 expectEmitRejectsInvalidUnicode()
+
+let extendedAsset = toBonyBnb(extendedScalarAssetFixture())
+doAssert viaJsonAsset(extendedAsset) == extendedAsset, "extended scalar asset changed after bnb->json->bnb"
+inspectExtendedScalarAsset(extendedAsset)
 
 echo ".bnb byte-stability gate passed"
