@@ -6,7 +6,7 @@
 #   1. the codegen format check (sources <-> generated agree),
 #   2. the Python codegen unit tests,
 #   3. the Nim runtime model COMPILE check (fast fail on library errors), and
-#   4. the Nim runtime UNIT TESTS (smoke + cli-pose + ik-current-pivot), and
+#   4. the Nim runtime unit and conformance tests, and
 #   5. the Dart runtime UNIT TESTS.
 #
 # Step 4 is gated here deliberately — not just the `nim check` compile in step 3.

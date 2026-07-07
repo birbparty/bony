@@ -3,6 +3,7 @@ nimblecache/
 htmldocs/
 runtime-dart/.dart_tool/
 runtime-nim/tests/test_*
+!runtime-nim/tests/test_*.*
 !runtime-nim/tests/*.nim
 runtime-nim/tests/*.exe
 runtime-nim/bench_perf
