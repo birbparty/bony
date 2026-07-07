@@ -20,7 +20,6 @@ import bony/mesh/attachments
 import bony/mesh/clipping
 import bony/mesh/drawbatch_clipping
 import bony/mesh/deform
-import bony/mesh/sequences
 import bony/mesh/skinning
 import bony/model
 import bony/jsonio
@@ -46,7 +45,6 @@ export keyforms
 export parameter_timelines
 export parameters
 export deform
-export sequences
 export skinning
 export mixer
 export timelines

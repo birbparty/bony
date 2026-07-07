@@ -35,6 +35,14 @@ runtime-only bug fixes that don't touch the wire format.
 
 Current: `0.1.0` in both packages.
 
+Pre-1.0 package APIs may still remove unsupported experimental helpers when they
+are not part of the serialized format contract. In particular,
+`runtime-nim/src/bony/mesh/sequences.nim` and its root-exported
+`AttachmentSequence` frame-name helpers were removed during the 0.1.x line
+because the wire/schema surface only defines slot sequence timeline keyframes;
+there is no attachment-sequence `count`/`start`/`digits`/`setupIndex` feature to
+preserve.
+
 ### Spec document version
 
 The spec document version is a human-facing label that tracks the format version.
