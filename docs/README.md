@@ -93,6 +93,16 @@ validation, and (where applicable) the deterministic runtime algorithm.
 
 ---
 
+## Runtime API Policies
+
+Current runtime API policy notes for implemented public surfaces.
+
+| Document | Scope |
+|----------|-------|
+| [runtime-dart-writer-policy.md](runtime-dart-writer-policy.md) | Dart public writer surface: canonical `.bony` JSON output and read-only `.bnb` policy |
+
+---
+
 ## Importer Design Notes
 
 Informational notes on importer targets. Clean-room designs from bony spec and
@@ -134,7 +144,6 @@ Design notes for future runtime targets. No implementation in v1.
 
 | Document | Scope |
 |----------|-------|
-| [runtime-dart-writer-policy.md](runtime-dart-writer-policy.md) | Dart public writer surface: canonical `.bony` JSON output and read-only `.bnb` policy |
 | [csharp-runtime-design.md](csharp-runtime-design.md) | C# managed runtime: Unity/Godot embedder seams, codegen strategy, conformance-vector compatibility |
 
 ---

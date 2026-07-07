@@ -3,9 +3,9 @@
 This note records the runtime-dart writer surface after the public deterministic
 `.bony` JSON writer change.
 
-## Public Writer Surface
+## Supported Writer Surface
 
-The Dart runtime exposes `writeBonyJson(SkeletonData data)` from
+The supported Dart writer entrypoint is `writeBonyJson(SkeletonData data)` from
 `package:bony/bony.dart`.
 
 `writeBonyJson` validates an already-constructed `SkeletonData` with the same
@@ -13,6 +13,12 @@ structural rules used by the JSON and binary loaders, then emits canonical
 `.bony` JSON. The writer is intended for deterministic authoring output,
 downstream tool handoff, and byte-parity checks against Nim canonical JSON
 fixtures.
+
+`package:bony/bony.dart` currently exports the writer module, so lower-level
+canonical JSON helpers and writer exception types are visible to package users.
+Those helpers exist to implement and test the canonical writer. They do not
+define additional supported writer workflows, and they do not provide `.bnb`
+binary emission.
 
 The Dart runtime also continues to expose loaders for both supported serialized
 inputs:
