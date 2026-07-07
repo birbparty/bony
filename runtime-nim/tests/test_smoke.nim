@@ -3209,6 +3209,8 @@ spec "bony package":
     let dbAnimatedPath = "/tmp/bony_cli_harness_db_animated.json"
     let dbAnimatedOutPath = "/tmp/bony_cli_harness_db_animated.bony"
     let dbAnimatedPreserveOutPath = "/tmp/bony_cli_harness_db_animated_preserve.bony"
+    let dbAnimatedBnbPath = "/tmp/bony_cli_harness_db_animated.bnb"
+    let dbAnimatedRoundTripPath = "/tmp/bony_cli_harness_db_animated_roundtrip.bony"
     let dbUnsupportedAnimPath = "/tmp/bony_cli_harness_db_unsupported_anim.json"
     let dbUnsupportedAnimOutPath = "/tmp/bony_cli_harness_db_unsupported_anim.bony"
     let dbSetupOnlySkipsAnimPath = "/tmp/bony_cli_harness_db_setup_skips_anim.json"
@@ -3220,6 +3222,7 @@ spec "bony package":
                  dbRejectBadParentPath, dbRejectBadParentOutPath,
                  dbRejectDisplayXformPath, dbRejectDisplayXformOutPath,
                  dbAnimatedPath, dbAnimatedOutPath, dbAnimatedPreserveOutPath,
+                 dbAnimatedBnbPath, dbAnimatedRoundTripPath,
                  dbUnsupportedAnimPath, dbUnsupportedAnimOutPath,
                  dbSetupOnlySkipsAnimPath, dbSetupOnlySkipsAnimOutPath,
                  dbZeroDurationAnimPath, dbZeroDurationAnimOutPath]:
@@ -3448,6 +3451,11 @@ spec "bony package":
     let preservedAnimatedCanonical =
       if preservedAnimatedJson.len > 0: toBonyJson(loadBonyJsonAsset(preservedAnimatedJson))
       else: ""
+    let dbAnimatedJsonToBnb = runProcess(cliPath, ["json-to-bnb", dbAnimatedPreserveOutPath, dbAnimatedBnbPath])
+    let dbAnimatedBnbToJson = runProcess(cliPath, ["bnb-to-json", dbAnimatedBnbPath, dbAnimatedRoundTripPath])
+    let roundTrippedAnimatedAsset =
+      if fileExists(dbAnimatedRoundTripPath): loadBonyJsonAsset(readFile(dbAnimatedRoundTripPath))
+      else: bonyAsset(skeletonData(skeletonHeader("err", "0"), @[boneData("err", "")]))
 
     var allChannelsName = ""
     var allChannelsDuration = -1.0
@@ -3480,6 +3488,27 @@ spec "bony package":
     var slideBoneRestRotation = 0.0
     var slideBoneRestScaleX = 0.0
     var slideBoneRestScaleY = 0.0
+    var rtAllChannelsName = ""
+    var rtAllChannelsDuration = -1.0
+    var rtAllChannelsTimelineCount = -1
+    var rtTranslateTarget = ""
+    var rtTranslateTimes: seq[float64]
+    var rtTranslateXs: seq[float64]
+    var rtTranslateYs: seq[float64]
+    var rtRotateTarget = ""
+    var rtRotateTimes: seq[float64]
+    var rtRotateValues: seq[float64]
+    var rtScaleTarget = ""
+    var rtScaleTimes: seq[float64]
+    var rtScaleXs: seq[float64]
+    var rtScaleYs: seq[float64]
+    var rtSlideName = ""
+    var rtSlideDuration = -1.0
+    var rtSlideTimelineCount = -1
+    var rtSlideTarget = ""
+    var rtSlideTimes: seq[float64]
+    var rtSlideXs: seq[float64]
+    var rtSlideYs: seq[float64]
     if preservedAnimatedAsset.animations.len >= 2:
       let allChannels = preservedAnimatedAsset.animations[0]
       allChannelsName = allChannels.name
@@ -3527,6 +3556,41 @@ spec "bony package":
           slideBoneRestRotation = bone.local.rotation
           slideBoneRestScaleX = bone.local.scaleX
           slideBoneRestScaleY = bone.local.scaleY
+    if roundTrippedAnimatedAsset.animations.len >= 2:
+      let allChannels = roundTrippedAnimatedAsset.animations[0]
+      rtAllChannelsName = allChannels.name
+      rtAllChannelsDuration = allChannels.duration
+      rtAllChannelsTimelineCount = allChannels.boneTimelines.len
+      for timeline in allChannels.boneTimelines:
+        if timeline.target == "root" and timeline.kind == translateTimeline:
+          rtTranslateTarget = timeline.target
+          for key in timeline.vectorKeys:
+            rtTranslateTimes.add key.time
+            rtTranslateXs.add key.x
+            rtTranslateYs.add key.y
+        elif timeline.target == "root" and timeline.kind == rotateTimeline:
+          rtRotateTarget = timeline.target
+          for key in timeline.scalarKeys:
+            rtRotateTimes.add key.time
+            rtRotateValues.add key.value
+        elif timeline.target == "root" and timeline.kind == scaleTimeline:
+          rtScaleTarget = timeline.target
+          for key in timeline.vectorKeys:
+            rtScaleTimes.add key.time
+            rtScaleXs.add key.x
+            rtScaleYs.add key.y
+
+      let slideOnly = roundTrippedAnimatedAsset.animations[1]
+      rtSlideName = slideOnly.name
+      rtSlideDuration = slideOnly.duration
+      rtSlideTimelineCount = slideOnly.boneTimelines.len
+      for timeline in slideOnly.boneTimelines:
+        if timeline.target == "child" and timeline.kind == translateTimeline:
+          rtSlideTarget = timeline.target
+          for key in timeline.vectorKeys:
+            rtSlideTimes.add key.time
+            rtSlideXs.add key.x
+            rtSlideYs.add key.y
 
     writeFile(dbUnsupportedAnimPath, """{
   "version": "5.6.300.1",
@@ -3729,51 +3793,93 @@ spec "bony package":
       importedAnimatedPreserved.output.strip() == ""
       preservedAnimatedJson.contains("\"animations\"")
       preservedAnimatedCanonical == preservedAnimatedJson
+      dbAnimatedJsonToBnb.exitCode == 0
+      dbAnimatedBnbToJson.exitCode == 0
       preservedAnimatedAsset.animations.len == 2
+      roundTrippedAnimatedAsset.animations.len == 2
       allChannelsName == "all_channels"
+      rtAllChannelsName == "all_channels"
       closeTo(allChannelsDuration, 1.0)
+      closeTo(rtAllChannelsDuration, 1.0)
       allChannelsTimelineCount == 3
+      rtAllChannelsTimelineCount == 3
       translateTarget == "root"
+      rtTranslateTarget == "root"
       translateTimes.len == 3
+      rtTranslateTimes.len == 3
       closeTo(translateTimes[0], 0.0)
       closeTo(translateTimes[1], 0.5)
       closeTo(translateTimes[2], 1.0)
+      closeTo(rtTranslateTimes[0], 0.0)
+      closeTo(rtTranslateTimes[1], 0.5)
+      closeTo(rtTranslateTimes[2], 1.0)
       closeTo(translateXs[0], 15.0)
       closeTo(translateYs[0], -18.0)
       closeTo(translateXs[1], 17.0)
       closeTo(translateYs[1], -24.0)
       closeTo(translateXs[2], 10.0)
       closeTo(translateYs[2], -20.0)
+      closeTo(rtTranslateXs[0], 15.0)
+      closeTo(rtTranslateYs[0], -18.0)
+      closeTo(rtTranslateXs[1], 17.0)
+      closeTo(rtTranslateYs[1], -24.0)
+      closeTo(rtTranslateXs[2], 10.0)
+      closeTo(rtTranslateYs[2], -20.0)
       translateCurveX == @[linearCurve, steppedCurve, steppedCurve]
       translateCurveY == @[linearCurve, steppedCurve, steppedCurve]
       rotateTarget == "root"
+      rtRotateTarget == "root"
       rotateTimes.len == 2
+      rtRotateTimes.len == 2
       closeTo(rotateTimes[0], 0.0)
       closeTo(rotateTimes[1], 1.0)
+      closeTo(rtRotateTimes[0], 0.0)
+      closeTo(rtRotateTimes[1], 1.0)
       closeTo(rotateValues[0], -45.0)
       closeTo(rotateValues[1], -30.0)
+      closeTo(rtRotateValues[0], -45.0)
+      closeTo(rtRotateValues[1], -30.0)
       rotateCurves == @[linearCurve, steppedCurve]
       scaleTarget == "root"
+      rtScaleTarget == "root"
       scaleTimes.len == 2
+      rtScaleTimes.len == 2
       closeTo(scaleTimes[0], 0.0)
       closeTo(scaleTimes[1], 1.0)
+      closeTo(rtScaleTimes[0], 0.0)
+      closeTo(rtScaleTimes[1], 1.0)
       closeTo(scaleXs[0], 3.0)
       closeTo(scaleYs[0], 1.5)
       closeTo(scaleXs[1], 2.0)
       closeTo(scaleYs[1], 3.0)
+      closeTo(rtScaleXs[0], 3.0)
+      closeTo(rtScaleYs[0], 1.5)
+      closeTo(rtScaleXs[1], 2.0)
+      closeTo(rtScaleYs[1], 3.0)
       scaleCurveX == @[linearCurve, steppedCurve]
       scaleCurveY == @[linearCurve, steppedCurve]
       slideName == "slide_only"
+      rtSlideName == "slide_only"
       closeTo(slideDuration, 0.5)
+      closeTo(rtSlideDuration, 0.5)
       slideTimelineCount == 1
+      rtSlideTimelineCount == 1
       slideTarget == "child"
+      rtSlideTarget == "child"
       slideTimes.len == 2
+      rtSlideTimes.len == 2
       closeTo(slideTimes[0], 0.0)
       closeTo(slideTimes[1], 0.5)
+      closeTo(rtSlideTimes[0], 0.0)
+      closeTo(rtSlideTimes[1], 0.5)
       closeTo(slideXs[0], 5.0)
       closeTo(slideYs[0], 1.0)
       closeTo(slideXs[1], 1.0)
       closeTo(slideYs[1], -2.0)
+      closeTo(rtSlideXs[0], 5.0)
+      closeTo(rtSlideYs[0], 1.0)
+      closeTo(rtSlideXs[1], 1.0)
+      closeTo(rtSlideYs[1], -2.0)
       closeTo(slideBoneRestX, 1.0)
       closeTo(slideBoneRestY, -2.0)
       closeTo(slideBoneRestRotation, -6.0)
@@ -3798,6 +3904,7 @@ spec "bony package":
                  dbRejectBadParentPath, dbRejectBadParentOutPath,
                  dbRejectDisplayXformPath, dbRejectDisplayXformOutPath,
                  dbAnimatedPath, dbAnimatedOutPath, dbAnimatedPreserveOutPath,
+                 dbAnimatedBnbPath, dbAnimatedRoundTripPath,
                  dbUnsupportedAnimPath, dbUnsupportedAnimOutPath,
                  dbSetupOnlySkipsAnimPath, dbSetupOnlySkipsAnimOutPath,
                  dbZeroDurationAnimPath, dbZeroDurationAnimOutPath]:
