@@ -969,11 +969,18 @@ proc validateDbChannelDurations(
 
 
 proc validateDbAnimationChannels(anim: DbAnimation; boneNames: HashSet[string]) =
+  var seenBones = initHashSet[string]()
   for bone in anim.bones:
     let target = "animation[" & anim.name & "].bone[" & bone.name & "]"
     if bone.name notin boneNames:
       raiseDb("invalidReference", bone.name, "bone",
         "animation references unknown bone: " & bone.name)
+    if bone.name in seenBones:
+      # Duplicate entries would emit conflicting timelines for the same
+      # target/kind, which the mixer resolves last-writer-wins — a silent drop.
+      raiseDb("schemaViolation", target, "bone",
+        "duplicate bone entry in animation: " & bone.name)
+    seenBones.incl(bone.name)
 
     var translateDurations: seq[int]
     for frame in bone.translateFrames:
@@ -1176,8 +1183,16 @@ proc parseDbArmature(node: JsonNode; index: int; parseAnimations = true): DbArma
       raiseDb("schemaViolation", target, "animation", "expected animation array")
     result.hasAnimation = node["animation"].elems.len > 0
     if parseAnimations:
+      # The bony JSON loader rejects duplicate animation names, so admitting
+      # them here would write an output file our own tooling cannot load.
+      var animNames = initHashSet[string]()
       for ai, animNode in node["animation"].elems:
-        result.animations.add parseDbAnimation(animNode, ai, boneNames)
+        let anim = parseDbAnimation(animNode, ai, boneNames)
+        if anim.name in animNames:
+          raiseDb("schemaViolation", "animation[" & anim.name & "]", "name",
+            "duplicate animation name: " & anim.name)
+        animNames.incl(anim.name)
+        result.animations.add anim
 
 
 proc parseDbSkeleton(text: string; parseAnimations = true): DbArmature =

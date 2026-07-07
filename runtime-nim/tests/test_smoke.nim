@@ -3849,6 +3849,24 @@ spec "bony package":
       ),
       "unsupportedFeature", "target=bone[0].transform", "capability=negativeScale",
     )
+    recordDbReject(
+      "duplicate_bone_entry",
+      dbArmatureJson("""{"name": "bad", "duration": 0, "bone": [
+        {"name": "root", "translateFrame": [{"duration": 0}]},
+        {"name": "root", "translateFrame": [{"duration": 0}]}
+      ]}"""),
+      "schemaViolation", "target=animation[bad].bone[root]", "capability=bone",
+    )
+    recordDbReject(
+      "duplicate_animation_name",
+      dbArmatureJson("""{"name": "bad", "duration": 0, "bone": [
+        {"name": "root", "translateFrame": [{"duration": 0}]}
+      ]},
+      {"name": "bad", "duration": 0, "bone": [
+        {"name": "root", "translateFrame": [{"duration": 0}]}
+      ]}"""),
+      "schemaViolation", "target=animation[bad]", "capability=name",
+    )
     for field in ["fadeInTime", "playTimes", "blendType", "type", "frame", "ffd"]:
       let value =
         if field in ["blendType", "type"]:
