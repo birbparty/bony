@@ -599,7 +599,7 @@ spec "dragonbones import smoke coverage":
           {"duration": 0}
         ]}
       ]}"""),
-      "schemaViolation", "target=animation[bad].bone[root].translateFrame[0]", "capability=curve",
+      "unsupportedFeature", "target=animation[bad].bone[root].translateFrame[0]", "capability=curve",
     )
     recordDbReject(
       "clockwise",
