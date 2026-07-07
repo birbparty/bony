@@ -16,8 +16,11 @@ DrawVertex _vertex(Affine2 world, double lx, double ly, double u, double v) {
 /// Build draw batches for the setup pose, with M7 deformers applied at
 /// default parameter values (mirroring the Nim CLI golden-gen pipeline).
 ///
-/// Each slot with a non-empty attachment that resolves to a region becomes one
-/// [DrawBatch] with 4 vertices and 6 indices (two triangles).
+/// Slots with visible region or mesh attachments emit [DrawBatch] geometry.
+/// Slots that resolve to nested rig attachments emit child batches only through
+/// nested composition. Helper, path, and clipping attachments do not emit base
+/// geometry here, though clipping attachments are consumed by the later
+/// clipping pass.
 /// Linear-blend skinning for a mesh attachment's setup vertices, ported fresh to
 /// match the Nim `skinMeshVertices` formula and evaluation order
 /// (docs/mesh-attachment-contract.md) so both runtimes agree within 1e-4:

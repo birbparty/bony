@@ -87,6 +87,10 @@ class SkeletonData {
   /// Nim reference seam (docs/deform-timeline-contract.md).
   final List<DeformOverride> deformOverrides;
 
+  /// All concrete attachment records. Loader validation keeps slot-visible
+  /// attachment names unambiguous across render/helper/clip/nested families;
+  /// callers that key this iterable by name rely on that invariant. Path
+  /// attachments are included for family exhaustiveness, not slot visibility.
   Iterable<Attachment> get allAttachments sync* {
     yield* regions;
     yield* pathAttachments;
