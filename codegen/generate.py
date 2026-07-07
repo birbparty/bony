@@ -12,7 +12,7 @@ import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -113,6 +113,38 @@ class SourceError(ValueError):
 class Line:
     indent: int
     text: str
+
+
+@dataclass(frozen=True)
+class TargetLangSpec:
+    comment_prefix: str
+    declarations: tuple[str, ...]
+    registry_version_line: Callable[[int], str]
+    backing_types_start: str
+    backing_types_end: str
+    type_key_prefix_lines: Callable[[list[dict[str, Any]]], list[str]]
+    type_keys_start: str
+    type_keys_end: str
+    property_key_prefix_lines: Callable[[list[dict[str, Any]]], list[str]]
+    property_keys_start: str
+    property_keys_end: str
+    object_specs_start: str
+    object_specs_end: str
+    property_defaults_start: str
+    property_defaults_end: str
+    required_properties_start: str
+    required_properties_end: str
+    object_properties_literal: Callable[[list[str]], str]
+    json_text_literal: Callable[[Any], str]
+    string_literal: Callable[[str], str]
+    bool_literal: Callable[[bool], str]
+    backing_type_record: Callable[[dict[str, Any]], str]
+    type_key_record: Callable[[dict[str, Any]], str]
+    property_key_record: Callable[[dict[str, Any]], str]
+    object_spec_record: Callable[[dict[str, Any], str], str]
+    property_default_record: Callable[[str, str, str, str, str, str], str]
+    required_property_record: Callable[[dict[str, Any], str], str]
+    trailer: tuple[str, ...]
 
 
 def load_yaml_subset(path: Path) -> Any:
@@ -511,6 +543,34 @@ def validate_default_value(object_id: str, property_id: str, backing_type: str, 
         raise SourceError(f"{where} has unsupported backing type {backing_type}")
 
 
+def build_root_properties(
+    type_keys: list[dict[str, Any]],
+    *,
+    hidden: set[str] | None = None,
+    collection_overrides: dict[str, str] | None = None,
+) -> tuple[dict[str, Any], list[str]]:
+    hidden_ids = hidden or set()
+    overrides = collection_overrides or {}
+    root_properties: dict[str, Any] = {}
+    required_root: list[str] = []
+    for entry in type_keys:
+        object_id = entry["id"]
+        if object_id in hidden_ids:
+            continue
+        if object_id == "skeleton":
+            root_properties["skeleton"] = {"$ref": "#/$defs/skeleton"}
+            required_root.append("skeleton")
+            continue
+        collection_id = overrides.get(object_id, object_id + "s")
+        root_properties[collection_id] = {
+            "type": "array",
+            "items": {"$ref": f"#/$defs/{object_id}"},
+        }
+        if object_id == "bone":
+            required_root.append(collection_id)
+    return root_properties, required_root
+
+
 def generate_schema(registry: dict[str, Any], defaults: dict[str, Any]) -> str:
     schema = json.loads(generate_wire_schema(registry, defaults))
     schema["$id"] = "https://bony.local/spec/bony.schema.json"
@@ -520,8 +580,6 @@ def generate_schema(registry: dict[str, Any], defaults: dict[str, Any]) -> str:
     )
     schema["$defs"].update(canonical_json_overrides())
 
-    root_properties: dict[str, Any] = {}
-    required_root: list[str] = []
     hidden_binary_children = {
         "boneTimeline",
         "slotTimeline",
@@ -542,21 +600,11 @@ def generate_schema(registry: dict[str, Any], defaults: dict[str, Any]) -> str:
         "animationClip": "animations",
         "stateMachine": "stateMachines",
     }
-    for entry in require_list(registry, "typeKeys"):
-        object_id = entry["id"]
-        if object_id in hidden_binary_children:
-            continue
-        if object_id == "skeleton":
-            root_properties["skeleton"] = {"$ref": "#/$defs/skeleton"}
-            required_root.append("skeleton")
-            continue
-        collection_id = root_collection_overrides.get(object_id, object_id + "s")
-        root_properties[collection_id] = {
-            "type": "array",
-            "items": {"$ref": f"#/$defs/{object_id}"},
-        }
-        if object_id == "bone":
-            required_root.append(collection_id)
+    root_properties, required_root = build_root_properties(
+        require_list(registry, "typeKeys"),
+        hidden=hidden_binary_children,
+        collection_overrides=root_collection_overrides,
+    )
 
     if "skins" in root_properties:
         root_properties["skins"]["minItems"] = 1
@@ -605,21 +653,7 @@ def generate_wire_schema(registry: dict[str, Any], defaults: dict[str, Any]) -> 
         ):
             definitions[object_id]["allOf"] = transform_constraint_schema()
 
-    root_properties: dict[str, Any] = {}
-    required_root: list[str] = []
-    for entry in type_keys:
-        object_id = entry["id"]
-        if object_id == "skeleton":
-            root_properties["skeleton"] = {"$ref": "#/$defs/skeleton"}
-            required_root.append("skeleton")
-        else:
-            collection_id = object_id + "s"
-            root_properties[collection_id] = {
-                "type": "array",
-                "items": {"$ref": f"#/$defs/{object_id}"},
-            }
-            if object_id == "bone":
-                required_root.append(collection_id)
+    root_properties, required_root = build_root_properties(type_keys)
 
     schema: dict[str, Any] = {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -1305,7 +1339,7 @@ def transform_constraint_schema() -> list[dict[str, Any]]:
     return constraints
 
 
-def generate_nim(registry: dict[str, Any], defaults: dict[str, Any]) -> str:
+def emit_runtime_metadata(registry: dict[str, Any], defaults: dict[str, Any], spec: TargetLangSpec) -> str:
     backing_types = require_list(registry, "backingTypes")
     type_keys = require_list(registry, "typeKeys")
     property_keys = require_list(registry, "propertyKeys")
@@ -1313,53 +1347,24 @@ def generate_nim(registry: dict[str, Any], defaults: dict[str, Any]) -> str:
     object_defaults = require_list(defaults, "objectDefaults")
     required_properties = require_list(defaults, "requiredProperties")
     lines = [
-        "## Generated by codegen/generate.py; do not edit by hand.",
+        f"{spec.comment_prefix} Generated by codegen/generate.py; do not edit by hand.",
         "",
-        "type",
-        "  BonyBackingType* = object",
-        "    id*: string",
-        "    code*: uint8",
-        "  BonyTypeKey* = object",
-        "    id*: string",
-        "    key*: uint64",
-        "  BonyPropertyKey* = object",
-        "    id*: string",
-        "    key*: uint64",
-        "    backingType*: string",
-        "  BonyObjectSpec* = object",
-        "    typeId*: string",
-        "    properties*: seq[string]",
-        "  BonyPropertyDefault* = object",
-        "    objectId*: string",
-        "    propertyId*: string",
-        "    equality*: string",
-        "    value*: string",
-        "    omitWhenDefault*: bool",
-        "    applyOnLoad*: bool",
-        "  BonyRequiredProperty* = object",
-        "    objectId*: string",
-        "    propertyId*: string",
-        "    reason*: string",
-        "",
-        "const bonyRegistryVersion* = " + str(registry["registryVersion"]),
-        "const bonyBackingTypes* = [",
     ]
+    lines.extend(spec.declarations)
+    lines.extend([spec.registry_version_line(registry["registryVersion"]), spec.backing_types_start])
     for entry in backing_types:
-        lines.append(f'  BonyBackingType(id: "{entry["id"]}", code: {entry["code"]}.uint8),')
-    lines.extend(["]", "const bonyTypeKeys* = ["])
+        lines.append(spec.backing_type_record(entry))
+    lines.extend([spec.backing_types_end, *spec.type_key_prefix_lines(type_keys), spec.type_keys_start])
     for entry in type_keys:
-        lines.append(f'  BonyTypeKey(id: "{entry["id"]}", key: {entry["key"]}.uint64),')
-    lines.extend(["]", "const bonyPropertyKeys* = ["])
+        lines.append(spec.type_key_record(entry))
+    lines.extend([spec.type_keys_end, *spec.property_key_prefix_lines(property_keys), spec.property_keys_start])
     for entry in property_keys:
-        lines.append(
-            f'  BonyPropertyKey(id: "{entry["id"]}", key: {entry["key"]}.uint64, '
-            f'backingType: "{entry["backingType"]}"),'
-        )
-    lines.extend(["]", "let bonyObjectSpecs*: seq[BonyObjectSpec] = @["])
+        lines.append(spec.property_key_record(entry))
+    lines.extend([spec.property_keys_end, spec.object_specs_start])
     for entry in objects:
-        properties = ", ".join(nim_string_literal(property_id) for property_id in entry["properties"])
-        lines.append(f'  BonyObjectSpec(typeId: "{entry["type"]}", properties: @[{properties}]),')
-    lines.extend(["]", "const bonyPropertyDefaults* = ["])
+        properties = spec.object_properties_literal(entry["properties"])
+        lines.append(spec.object_spec_record(entry, properties))
+    lines.extend([spec.object_specs_end, spec.property_defaults_start])
     for entry in object_defaults:
         object_id = entry["object"]
         for property_id, default in entry.get("properties", {}).items():
@@ -1367,21 +1372,100 @@ def generate_nim(registry: dict[str, Any], defaults: dict[str, Any]) -> str:
                 property_backing_type(registry, property_id)
             )
             lines.append(
-                f'  BonyPropertyDefault(objectId: "{object_id}", propertyId: "{property_id}", '
-                f'equality: "{equality}", '
-                f'value: "{nim_json_text(default["value"])}", '
-                f'omitWhenDefault: {generated_bool(default["omitWhenDefault"])}, '
-                f'applyOnLoad: {generated_bool(default["applyOnLoad"])}),'
+                spec.property_default_record(
+                    object_id,
+                    property_id,
+                    equality,
+                    spec.json_text_literal(default["value"]),
+                    spec.bool_literal(default["omitWhenDefault"]),
+                    spec.bool_literal(default["applyOnLoad"]),
+                )
             )
-    lines.extend(["]", "const bonyRequiredProperties* = ["])
+    lines.extend([spec.property_defaults_end, spec.required_properties_start])
     for entry in required_properties:
-        lines.append(
-            f'  BonyRequiredProperty(objectId: "{entry["object"]}", propertyId: "{entry["property"]}", '
-            f'reason: "{escape_string(entry["reason"])}"),'
-        )
-    lines.extend(
-        [
-            "]",
+        lines.append(spec.required_property_record(entry, spec.string_literal(entry["reason"])))
+    lines.extend([spec.required_properties_end, *spec.trailer])
+    return "\n".join(lines)
+
+
+def generate_nim(registry: dict[str, Any], defaults: dict[str, Any]) -> str:
+    spec = TargetLangSpec(
+        comment_prefix="##",
+        declarations=(
+            "type",
+            "  BonyBackingType* = object",
+            "    id*: string",
+            "    code*: uint8",
+            "  BonyTypeKey* = object",
+            "    id*: string",
+            "    key*: uint64",
+            "  BonyPropertyKey* = object",
+            "    id*: string",
+            "    key*: uint64",
+            "    backingType*: string",
+            "  BonyObjectSpec* = object",
+            "    typeId*: string",
+            "    properties*: seq[string]",
+            "  BonyPropertyDefault* = object",
+            "    objectId*: string",
+            "    propertyId*: string",
+            "    equality*: string",
+            "    value*: string",
+            "    omitWhenDefault*: bool",
+            "    applyOnLoad*: bool",
+            "  BonyRequiredProperty* = object",
+            "    objectId*: string",
+            "    propertyId*: string",
+            "    reason*: string",
+            "",
+        ),
+        registry_version_line=lambda version: f"const bonyRegistryVersion* = {version}",
+        backing_types_start="const bonyBackingTypes* = [",
+        backing_types_end="]",
+        type_key_prefix_lines=lambda _entries: [],
+        type_keys_start="const bonyTypeKeys* = [",
+        type_keys_end="]",
+        property_key_prefix_lines=lambda _entries: [],
+        property_keys_start="const bonyPropertyKeys* = [",
+        property_keys_end="]",
+        object_specs_start="let bonyObjectSpecs*: seq[BonyObjectSpec] = @[",
+        object_specs_end="]",
+        property_defaults_start="const bonyPropertyDefaults* = [",
+        property_defaults_end="]",
+        required_properties_start="const bonyRequiredProperties* = [",
+        required_properties_end="]",
+        object_properties_literal=lambda properties: "@["
+        + ", ".join(nim_string_literal(property_id) for property_id in properties)
+        + "]",
+        json_text_literal=lambda value: nim_string_literal(canonical_json_value(value)),
+        string_literal=nim_string_literal,
+        bool_literal=generated_bool,
+        backing_type_record=lambda entry: (
+            f"  BonyBackingType(id: {nim_string_literal(entry['id'])}, code: {entry['code']}.uint8),"
+        ),
+        type_key_record=lambda entry: (
+            f"  BonyTypeKey(id: {nim_string_literal(entry['id'])}, key: {entry['key']}.uint64),"
+        ),
+        property_key_record=lambda entry: (
+            f"  BonyPropertyKey(id: {nim_string_literal(entry['id'])}, key: {entry['key']}.uint64, "
+            f"backingType: {nim_string_literal(entry['backingType'])}),"
+        ),
+        object_spec_record=lambda entry, properties: (
+            f"  BonyObjectSpec(typeId: {nim_string_literal(entry['type'])}, properties: {properties}),"
+        ),
+        property_default_record=lambda object_id, property_id, equality, value, omit, apply: (
+            f"  BonyPropertyDefault(objectId: {nim_string_literal(object_id)}, "
+            f"propertyId: {nim_string_literal(property_id)}, "
+            f"equality: {nim_string_literal(equality)}, "
+            f"value: {value}, "
+            f"omitWhenDefault: {omit}, "
+            f"applyOnLoad: {apply}),"
+        ),
+        required_property_record=lambda entry, reason: (
+            f"  BonyRequiredProperty(objectId: {nim_string_literal(entry['object'])}, "
+            f"propertyId: {nim_string_literal(entry['property'])}, reason: {reason}),"
+        ),
+        trailer=(
             "",
             "proc bonyObjectSpec*(typeId: string): BonyObjectSpec =",
             "  for spec in bonyObjectSpecs:",
@@ -1391,139 +1475,141 @@ def generate_nim(registry: dict[str, Any], defaults: dict[str, Any]) -> str:
             "",
             "proc encodeBonyObject*(typeId: string) =",
             "  discard bonyObjectSpec(typeId)",
-            "  raise newException(CatchableError, "
-            "\"generated encodeBonyObject has no registered fields yet\")",
+            "  raise newException(CatchableError, \"generated encodeBonyObject has no registered fields yet\")",
             "",
             "proc decodeBonyObject*(typeId: string) =",
             "  discard bonyObjectSpec(typeId)",
-            "  raise newException(CatchableError, "
-            "\"generated decodeBonyObject has no registered fields yet\")",
+            "  raise newException(CatchableError, \"generated decodeBonyObject has no registered fields yet\")",
             "",
-        ]
+        ),
     )
-    return "\n".join(lines)
+    return emit_runtime_metadata(registry, defaults, spec)
 
 
 def generate_dart(registry: dict[str, Any], defaults: dict[str, Any]) -> str:
-    backing_types = require_list(registry, "backingTypes")
     type_keys = require_list(registry, "typeKeys")
     property_keys = require_list(registry, "propertyKeys")
-    objects = require_list(registry, "objects")
-    object_defaults = require_list(defaults, "objectDefaults")
-    required_properties = require_list(defaults, "requiredProperties")
     type_const_names = dart_const_names(type_keys, "bonyTypeKey", "type key")
     property_const_names = dart_const_names(property_keys, "bonyPropertyKey", "property key")
-    lines = [
-        "// Generated by codegen/generate.py; do not edit by hand.",
-        "",
-        "class BonyBackingType {",
-        "  const BonyBackingType({required this.id, required this.code});",
-        "  final String id;",
-        "  final int code;",
-        "}",
-        "",
-        "class BonyTypeKey {",
-        "  const BonyTypeKey({required this.id, required this.key});",
-        "  final String id;",
-        "  final int key;",
-        "}",
-        "",
-        "class BonyPropertyKey {",
-        "  const BonyPropertyKey({",
-        "    required this.id,",
-        "    required this.key,",
-        "    required this.backingType,",
-        "  });",
-        "  final String id;",
-        "  final int key;",
-        "  final String backingType;",
-        "}",
-        "",
-        "class BonyObjectSpec {",
-        "  const BonyObjectSpec({required this.typeId, required this.properties});",
-        "  final String typeId;",
-        "  final List<String> properties;",
-        "}",
-        "",
-        "class BonyPropertyDefault {",
-        "  const BonyPropertyDefault({",
-        "    required this.objectId,",
-        "    required this.propertyId,",
-        "    required this.equality,",
-        "    required this.value,",
-        "    required this.omitWhenDefault,",
-        "    required this.applyOnLoad,",
-        "  });",
-        "  final String objectId;",
-        "  final String propertyId;",
-        "  final String equality;",
-        "  final String value;",
-        "  final bool omitWhenDefault;",
-        "  final bool applyOnLoad;",
-        "}",
-        "",
-        "class BonyRequiredProperty {",
-        "  const BonyRequiredProperty({",
-        "    required this.objectId,",
-        "    required this.propertyId,",
-        "    required this.reason,",
-        "  });",
-        "  final String objectId;",
-        "  final String propertyId;",
-        "  final String reason;",
-        "}",
-        "",
-        f"const int bonyRegistryVersion = {registry['registryVersion']};",
-        "const List<BonyBackingType> bonyBackingTypes = [",
-    ]
-    for entry in backing_types:
-        lines.append(f"  BonyBackingType(id: '{entry['id']}', code: {entry['code']}),")
-    lines.extend(["];", "", "// Registry-derived type keys for compile-time loader use."])
-    for entry in type_keys:
-        lines.append(f"const int {type_const_names[entry['id']]} = {entry['key']};")
-    lines.extend(["", "const List<BonyTypeKey> bonyTypeKeys = ["])
-    for entry in type_keys:
-        lines.append(
-            f"  BonyTypeKey(id: '{entry['id']}', "
-            f"key: {type_const_names[entry['id']]}),"
-        )
-    lines.extend(["];", "", "// Registry-derived property keys for compile-time loader use."])
-    for entry in property_keys:
-        lines.append(f"const int {property_const_names[entry['id']]} = {entry['key']};")
-    lines.extend(["", "const List<BonyPropertyKey> bonyPropertyKeys = ["])
-    for entry in property_keys:
-        lines.append(
-            f"  BonyPropertyKey(id: '{entry['id']}', "
+    spec = TargetLangSpec(
+        comment_prefix="//",
+        declarations=(
+            "class BonyBackingType {",
+            "  const BonyBackingType({required this.id, required this.code});",
+            "  final String id;",
+            "  final int code;",
+            "}",
+            "",
+            "class BonyTypeKey {",
+            "  const BonyTypeKey({required this.id, required this.key});",
+            "  final String id;",
+            "  final int key;",
+            "}",
+            "",
+            "class BonyPropertyKey {",
+            "  const BonyPropertyKey({",
+            "    required this.id,",
+            "    required this.key,",
+            "    required this.backingType,",
+            "  });",
+            "  final String id;",
+            "  final int key;",
+            "  final String backingType;",
+            "}",
+            "",
+            "class BonyObjectSpec {",
+            "  const BonyObjectSpec({required this.typeId, required this.properties});",
+            "  final String typeId;",
+            "  final List<String> properties;",
+            "}",
+            "",
+            "class BonyPropertyDefault {",
+            "  const BonyPropertyDefault({",
+            "    required this.objectId,",
+            "    required this.propertyId,",
+            "    required this.equality,",
+            "    required this.value,",
+            "    required this.omitWhenDefault,",
+            "    required this.applyOnLoad,",
+            "  });",
+            "  final String objectId;",
+            "  final String propertyId;",
+            "  final String equality;",
+            "  final String value;",
+            "  final bool omitWhenDefault;",
+            "  final bool applyOnLoad;",
+            "}",
+            "",
+            "class BonyRequiredProperty {",
+            "  const BonyRequiredProperty({",
+            "    required this.objectId,",
+            "    required this.propertyId,",
+            "    required this.reason,",
+            "  });",
+            "  final String objectId;",
+            "  final String propertyId;",
+            "  final String reason;",
+            "}",
+            "",
+        ),
+        registry_version_line=lambda version: f"const int bonyRegistryVersion = {version};",
+        backing_types_start="const List<BonyBackingType> bonyBackingTypes = [",
+        backing_types_end="];",
+        type_key_prefix_lines=lambda entries: [
+            "",
+            "// Registry-derived type keys for compile-time loader use.",
+            *[f"const int {type_const_names[entry['id']]} = {entry['key']};" for entry in entries],
+            "",
+        ],
+        type_keys_start="const List<BonyTypeKey> bonyTypeKeys = [",
+        type_keys_end="];",
+        property_key_prefix_lines=lambda entries: [
+            "",
+            "// Registry-derived property keys for compile-time loader use.",
+            *[f"const int {property_const_names[entry['id']]} = {entry['key']};" for entry in entries],
+            "",
+        ],
+        property_keys_start="const List<BonyPropertyKey> bonyPropertyKeys = [",
+        property_keys_end="];",
+        object_specs_start="const List<BonyObjectSpec> bonyObjectSpecs = [",
+        object_specs_end="];",
+        property_defaults_start="const List<BonyPropertyDefault> bonyPropertyDefaults = [",
+        property_defaults_end="];",
+        required_properties_start="const List<BonyRequiredProperty> bonyRequiredProperties = [",
+        required_properties_end="];",
+        object_properties_literal=lambda properties: "["
+        + ", ".join(dart_string_literal(property_id) for property_id in properties)
+        + "]",
+        json_text_literal=lambda value: dart_string_literal(canonical_json_value(value)),
+        string_literal=dart_string_literal,
+        bool_literal=generated_bool,
+        backing_type_record=lambda entry: (
+            f"  BonyBackingType(id: {dart_registry_string_literal(entry['id'])}, code: {entry['code']}),"
+        ),
+        type_key_record=lambda entry: (
+            f"  BonyTypeKey(id: {dart_registry_string_literal(entry['id'])}, key: {type_const_names[entry['id']]}),"
+        ),
+        property_key_record=lambda entry: (
+            f"  BonyPropertyKey(id: {dart_registry_string_literal(entry['id'])}, "
             f"key: {property_const_names[entry['id']]}, "
-            f"backingType: '{entry['backingType']}'),"
-        )
-    lines.extend(["];", "const List<BonyObjectSpec> bonyObjectSpecs = ["])
-    for entry in objects:
-        properties = ", ".join(dart_string_literal(property_id) for property_id in entry["properties"])
-        lines.append(f"  BonyObjectSpec(typeId: '{entry['type']}', properties: [{properties}]),")
-    lines.extend(["];", "const List<BonyPropertyDefault> bonyPropertyDefaults = ["])
-    for entry in object_defaults:
-        object_id = entry["object"]
-        for property_id, default in entry.get("properties", {}).items():
-            equality = default.get("equality") or inferred_equality_mode(
-                property_backing_type(registry, property_id)
-            )
-            lines.append(
-                f"  BonyPropertyDefault(objectId: '{object_id}', propertyId: '{property_id}', "
-                f"equality: '{equality}', "
-                f"value: {dart_string_literal(canonical_json_value(default['value']))}, "
-                f"omitWhenDefault: {generated_bool(default['omitWhenDefault'])}, "
-                f"applyOnLoad: {generated_bool(default['applyOnLoad'])}),"
-            )
-    lines.extend(["];", "const List<BonyRequiredProperty> bonyRequiredProperties = ["])
-    for entry in required_properties:
-        lines.append(
-            f"  BonyRequiredProperty(objectId: '{entry['object']}', propertyId: '{entry['property']}', "
-            f"reason: {dart_string_literal(entry['reason'])}),"
-        )
-    lines.extend(
-        [
-            "];",
+            f"backingType: {dart_registry_string_literal(entry['backingType'])}),"
+        ),
+        object_spec_record=lambda entry, properties: (
+            f"  BonyObjectSpec(typeId: {dart_registry_string_literal(entry['type'])}, properties: {properties}),"
+        ),
+        property_default_record=lambda object_id, property_id, equality, value, omit, apply: (
+            f"  BonyPropertyDefault(objectId: {dart_registry_string_literal(object_id)}, "
+            f"propertyId: {dart_registry_string_literal(property_id)}, "
+            f"equality: {dart_registry_string_literal(equality)}, "
+            f"value: {value}, "
+            f"omitWhenDefault: {omit}, "
+            f"applyOnLoad: {apply}),"
+        ),
+        required_property_record=lambda entry, reason: (
+            f"  BonyRequiredProperty(objectId: {dart_registry_string_literal(entry['object'])}, "
+            f"propertyId: {dart_registry_string_literal(entry['property'])}, reason: {reason}),"
+        ),
+        trailer=(
             "",
             "BonyObjectSpec bonyObjectSpec(String typeId) {",
             "  return bonyObjectSpecs.firstWhere(",
@@ -1542,9 +1628,9 @@ def generate_dart(registry: dict[str, Any], defaults: dict[str, Any]) -> str:
             "  throw UnsupportedError('generated decodeBonyObject has no registered fields yet');",
             "}",
             "",
-        ]
+        ),
     )
-    return "\n".join(lines)
+    return emit_runtime_metadata(registry, defaults, spec)
 
 
 def property_backing_type(registry: dict[str, Any], property_id: str) -> str:
@@ -1572,6 +1658,10 @@ def nim_string_literal(value: str) -> str:
 
 def dart_string_literal(value: str) -> str:
     return json.dumps(value).replace("$", r"\$")
+
+
+def dart_registry_string_literal(value: str) -> str:
+    return "'" + escape_string(value) + "'"
 
 
 def dart_const_suffix(identifier: str) -> str:

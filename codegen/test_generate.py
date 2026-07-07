@@ -415,6 +415,26 @@ class GeneratorValidationTests(unittest.TestCase):
         self.assertNotIn("timelineKeys", schema["$defs"]["boneTimeline"]["properties"])
         self.assertIn("keyframes", schema["$defs"]["boneTimeline"]["properties"])
 
+    def test_build_root_properties_applies_hidden_ids_and_collection_overrides(self) -> None:
+        type_keys = [
+            {"id": "skeleton"},
+            {"id": "bone"},
+            {"id": "animationClip"},
+            {"id": "stateMachineInput"},
+        ]
+
+        properties, required = generate.build_root_properties(
+            type_keys,
+            hidden={"stateMachineInput"},
+            collection_overrides={"animationClip": "animations"},
+        )
+
+        self.assertEqual(required, ["skeleton", "bones"])
+        self.assertEqual(properties["skeleton"], {"$ref": "#/$defs/skeleton"})
+        self.assertEqual(properties["bones"]["items"], {"$ref": "#/$defs/bone"})
+        self.assertEqual(properties["animations"]["items"], {"$ref": "#/$defs/animationClip"})
+        self.assertNotIn("stateMachineInputs", properties)
+
     def test_project_schema_constrains_ik_mix_to_unit_range(self) -> None:
         # Regression guard for the frozen IK format (ik-format-freeze.md §7-C1):
         # ikConstraint.mix must carry [0, 1] in BOTH the canonical schema (via the
