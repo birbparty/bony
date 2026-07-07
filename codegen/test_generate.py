@@ -88,6 +88,25 @@ M4_SKIN_PROPERTY_KEYS = {
     "skinTarget": 3011,
 }
 
+SCALAR_BACKINGS = {"string", "f32", "f64", "bool", "varint", "varuint"}
+
+HAND_ENFORCED_NON_SCALAR_REQUIRED_PROPERTIES = {
+    ("boundingBoxAttachment", "vertices"),
+    ("clippingAttachment", "vertices"),
+    ("meshAttachment", "meshVertices"),
+    ("meshAttachment", "meshUvs"),
+    ("meshAttachment", "meshTriangles"),
+    ("ikConstraint", "bones"),
+    ("warpLattice", "warpControlPoints"),
+    ("keyformBlend", "blendAxes"),
+    ("keyform", "blendCoordinates"),
+    ("keyform", "blendValues"),
+    ("boneTimeline", "timelineKeys"),
+    ("slotTimeline", "timelineKeys"),
+    ("deformTimeline", "deformKeys"),
+    ("eventTimeline", "eventKeys"),
+}
+
 
 def sample_registry() -> dict:
     return {
@@ -394,6 +413,8 @@ class GeneratorValidationTests(unittest.TestCase):
         nim = generate.generate_nim(registry, defaults)
 
         self.assertIn("type\n  BonyScalarKind* = enum", nim)
+        self.assertIn("proc bonyScalarIsRequired(spec: BonyScalarPropertySpec): bool =", nim)
+        self.assertIn("if spec.bonyScalarIsRequired():", nim)
         self.assertIn("const bonyBoneScalarSpecs* = [", nim)
         self.assertIn("proc encodeBoneJsonScalars*", nim)
         self.assertIn("proc decodeBoneBnbScalars*", nim)
@@ -404,6 +425,33 @@ class GeneratorValidationTests(unittest.TestCase):
         mesh_section = nim.split("const bonyMeshAttachmentScalarSpecs* = [", 1)[1].split("]", 1)[0]
         self.assertIn('propertyId: "meshWeighted"', mesh_section)
         self.assertNotIn("meshVertices", mesh_section)
+
+    def test_project_required_properties_are_covered_by_generated_or_hand_enforced_paths(self) -> None:
+        registry, defaults = self.project_sources()
+        generate.validate_sources(registry, defaults)
+        nim = generate.generate_nim(registry, defaults)
+
+        backing_by_property = {entry["id"]: entry["backingType"] for entry in registry["propertyKeys"]}
+        scalar_required: set[tuple[str, str]] = set()
+        non_scalar_required: set[tuple[str, str]] = set()
+        for entry in defaults["requiredProperties"]:
+            key = (entry["object"], entry["property"])
+            if backing_by_property[entry["property"]] in SCALAR_BACKINGS:
+                scalar_required.add(key)
+            else:
+                non_scalar_required.add(key)
+
+        self.assertEqual(non_scalar_required, HAND_ENFORCED_NON_SCALAR_REQUIRED_PROPERTIES)
+        for object_id, property_id in sorted(scalar_required):
+            with self.subTest(object=object_id, property=property_id):
+                self.assertIn(
+                    f'BonyScalarPropertySpec(objectId: "{object_id}", propertyId: "{property_id}",',
+                    nim,
+                )
+                self.assertIn(
+                    f'objectId: "{object_id}", propertyId: "{property_id}",',
+                    nim,
+                )
 
     def test_project_schema_root_orders_animations_before_state_machines(self) -> None:
         registry, defaults = self.project_sources()
