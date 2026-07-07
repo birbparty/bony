@@ -264,6 +264,7 @@ proc advancePlaying(track: var AnimationTrack; amount: float64; events: var seq[
 
 
 proc dequeueNext(track: var AnimationTrack) =
+  doAssert track.queue.len > 0
   var next = track.queue[0]
   track.queue.delete(0)
   if next.mixDuration > 0:

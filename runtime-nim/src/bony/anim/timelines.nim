@@ -943,6 +943,8 @@ proc sampleSpan[T](
   time: float64;
   mixFn: proc(storedTime: float64; current, next: T; t: float64): T;
 ): T =
+  ## Caller must pass a non-empty, time-sorted key array that has already been
+  ## validated by the owning public timeline sampler.
   let storedTime = quantizeTime(time, "sample.time")
   let index = findSpan(keys, storedTime)
   let current = keys[index]
@@ -954,6 +956,8 @@ proc sampleSpan[T](
 
 
 proc sampleSnap[T](keys: openArray[T]; time: float64): T =
+  ## Caller must pass a non-empty, time-sorted key array that has already been
+  ## validated by the owning public timeline sampler.
   keys[findSpan(keys, quantizeTime(time, "sample.time"))]
 
 
