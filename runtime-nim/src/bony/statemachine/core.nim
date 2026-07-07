@@ -1008,46 +1008,6 @@ proc normalizedRuntime(runtime: StateMachineRuntime): StateMachineRuntime =
       result.inputs.add StateMachineInputValue(name: input.name, kind: input.kind, boolValue: value.boolValue)
 
 
-proc scalarKey(value: MixedScalar): string = value.target & "\0" & $value.kind
-proc vectorKey(value: MixedVector): string = value.target & "\0" & $value.kind
-proc colorKey(value: MixedColor): string = value.target & "\0" & $value.kind
-
-
-proc scalarOrder(a, b: MixedScalar): int =
-  result = cmp(a.target, b.target)
-  if result == 0:
-    result = cmp(ord(a.kind), ord(b.kind))
-
-
-proc vectorOrder(a, b: MixedVector): int =
-  result = cmp(a.target, b.target)
-  if result == 0:
-    result = cmp(ord(a.kind), ord(b.kind))
-
-
-proc attachmentOrder(a, b: MixedAttachment): int = cmp(a.target, b.target)
-proc inheritOrder(a, b: MixedInherit): int = cmp(a.target, b.target)
-
-
-proc colorOrder(a, b: MixedColor): int =
-  result = cmp(a.target, b.target)
-  if result == 0:
-    result = cmp(ord(a.kind), ord(b.kind))
-
-
-proc color2Order(a, b: MixedColor2): int = cmp(a.target, b.target)
-proc sequenceOrder(a, b: MixedSequence): int = cmp(a.target, b.target)
-
-
-proc deformKey(value: MixedDeform): string = value.slot & "\0" & value.attachment
-
-
-proc deformOrder(a, b: MixedDeform): int =
-  result = cmp(a.slot, b.slot)
-  if result == 0:
-    result = cmp(a.attachment, b.attachment)
-
-
 proc overlayPose(base: var MixedPose; layer: MixedPose) =
   var scalars = initTable[string, MixedScalar]()
   var vectors = initTable[string, MixedVector]()
@@ -1162,46 +1122,6 @@ proc addWeightedPose(
     output.deforms = pose.deforms
 
 
-proc setupScalarValue(data: ref SkeletonData; value: MixedScalar): float64 =
-  if data.isNil:
-    return 0.0
-  for bone in data[].bones:
-    if bone.name == value.target:
-      let local = bone.local
-      case value.kind
-      of rotateTimeline: return local.rotation
-      of translateXTimeline: return local.x
-      of translateYTimeline: return local.y
-      of scaleXTimeline: return local.scaleX
-      of scaleYTimeline: return local.scaleY
-      of shearXTimeline: return local.shearX
-      of shearYTimeline: return local.shearY
-      else: return 0.0
-  0.0
-
-
-proc setupVectorValue(data: ref SkeletonData; value: MixedVector): MixedVector =
-  result = MixedVector(target: value.target, kind: value.kind)
-  if data.isNil:
-    return
-  for bone in data[].bones:
-    if bone.name == value.target:
-      let local = bone.local
-      case value.kind
-      of translateTimeline:
-        result.x = local.x
-        result.y = local.y
-      of scaleTimeline:
-        result.x = local.scaleX
-        result.y = local.scaleY
-      of shearTimeline:
-        result.x = local.shearX
-        result.y = local.shearY
-      else:
-        discard
-      return
-
-
 proc blendedPose(data: ref SkeletonData; lowPose, highPose: MixedPose; t: float64): MixedPose =
   var lowScalars = initTable[string, MixedScalar]()
   var highScalars = initTable[string, MixedScalar]()
@@ -1228,13 +1148,13 @@ proc blendedPose(data: ref SkeletonData; lowPose, highPose: MixedPose; t: float6
     highVectors[key] = value
     vectorChannels[key] = value
   for key, channel in scalarChannels:
-    let setup = setupScalarValue(data, channel)
+    let setup = setupScalar(data, channel.target, channel.kind)
     let low = if key in lowScalars: lowScalars[key].value else: setup
     let high = if key in highScalars: highScalars[key].value else: setup
     result.scalars.add MixedScalar(target: channel.target, kind: channel.kind, value: low + (high - low) * t)
   result.scalars.sort(scalarOrder)
   for key, channel in vectorChannels:
-    let setup = setupVectorValue(data, channel)
+    let setup = setupVector(data, channel.target, channel.kind)
     let low = if key in lowVectors: lowVectors[key] else: setup
     let high = if key in highVectors: highVectors[key] else: setup
     result.vectors.add MixedVector(

@@ -302,8 +302,16 @@ proc update*(state: var AnimationState; dt: float64) =
     state.tracks[trackIndex] = track
 
 
-proc scalarKey(target: string; kind: BoneTimelineKind): string = target & "\0" & $kind
-proc vectorKey(target: string; kind: BoneTimelineKind): string = target & "\0" & $kind
+proc scalarKey*(target: string; kind: BoneTimelineKind): string = target & "\0" & $kind
+proc vectorKey*(target: string; kind: BoneTimelineKind): string = target & "\0" & $kind
+proc colorKey*(target: string; kind: SlotTimelineKind): string = target & "\0" & $kind
+proc deformKey*(slot, attachment: string): string = slot & "\0" & attachment
+
+
+proc scalarKey*(value: MixedScalar): string = scalarKey(value.target, value.kind)
+proc vectorKey*(value: MixedVector): string = vectorKey(value.target, value.kind)
+proc colorKey*(value: MixedColor): string = colorKey(value.target, value.kind)
+proc deformKey*(value: MixedDeform): string = deformKey(value.slot, value.attachment)
 
 
 proc putScalar(values: var Table[string, MixedScalar]; sample: MixedScalar; blend: MixBlend; weight: float64) =
@@ -339,7 +347,7 @@ proc putVector(values: var Table[string, MixedVector]; sample: MixedVector; blen
     values[key] = MixedVector(target: sample.target, kind: sample.kind, x: base.x + sample.x * weight, y: base.y + sample.y * weight)
 
 
-proc setupScalar(data: ref SkeletonData; target: string; kind: BoneTimelineKind): float64 =
+proc setupScalar*(data: ref SkeletonData; target: string; kind: BoneTimelineKind): float64 =
   if data.isNil:
     return 0.0
   for bone in data[].bones:
@@ -357,7 +365,7 @@ proc setupScalar(data: ref SkeletonData; target: string; kind: BoneTimelineKind)
   0.0
 
 
-proc setupVector(data: ref SkeletonData; target: string; kind: BoneTimelineKind): MixedVector =
+proc setupVector*(data: ref SkeletonData; target: string; kind: BoneTimelineKind): MixedVector =
   result = MixedVector(target: target, kind: kind)
   if data.isNil:
     return
@@ -476,7 +484,7 @@ proc applyEntry(
         let sample = timeline.sampleAttachment(sampleTime)
         attachments[timeline.target] = MixedAttachment(target: timeline.target, attachment: sample.attachment)
       of rgbaTimeline, rgbTimeline, alphaTimeline:
-        colors[timeline.target & "\0" & $timeline.kind] = MixedColor(target: timeline.target, kind: timeline.kind, color: timeline.sampleColor(sampleTime).color)
+        colors[colorKey(timeline.target, timeline.kind)] = MixedColor(target: timeline.target, kind: timeline.kind, color: timeline.sampleColor(sampleTime).color)
       of rgba2Timeline:
         colors2[timeline.target] = MixedColor2(target: timeline.target, color: timeline.sampleColor2(sampleTime).color)
       of sequenceTimeline:
@@ -492,43 +500,43 @@ proc applyEntry(
         else: data[].resolveSkinAttachmentTarget(timeline.skin, timeline.slot, timeline.attachment)
       if resolvedAttachment.len == 0:
         continue
-      deforms[timeline.slot & "\0" & resolvedAttachment] = MixedDeform(
+      deforms[deformKey(timeline.slot, resolvedAttachment)] = MixedDeform(
         slot: timeline.slot,
         attachment: resolvedAttachment,
         deltas: sampleDeformDeltas(timeline, sampleTime),
       )
 
 
-proc scalarOrder(a, b: MixedScalar): int =
+proc scalarOrder*(a, b: MixedScalar): int =
   result = cmp(a.target, b.target)
   if result == 0:
     result = cmp(ord(a.kind), ord(b.kind))
 
 
-proc vectorOrder(a, b: MixedVector): int =
+proc vectorOrder*(a, b: MixedVector): int =
   result = cmp(a.target, b.target)
   if result == 0:
     result = cmp(ord(a.kind), ord(b.kind))
 
 
-proc attachmentOrder(a, b: MixedAttachment): int = cmp(a.target, b.target)
-proc inheritOrder(a, b: MixedInherit): int = cmp(a.target, b.target)
+proc attachmentOrder*(a, b: MixedAttachment): int = cmp(a.target, b.target)
+proc inheritOrder*(a, b: MixedInherit): int = cmp(a.target, b.target)
 
 
-proc deformOrder(a, b: MixedDeform): int =
+proc deformOrder*(a, b: MixedDeform): int =
   result = cmp(a.slot, b.slot)
   if result == 0:
     result = cmp(a.attachment, b.attachment)
 
 
-proc colorOrder(a, b: MixedColor): int =
+proc colorOrder*(a, b: MixedColor): int =
   result = cmp(a.target, b.target)
   if result == 0:
     result = cmp(ord(a.kind), ord(b.kind))
 
 
-proc color2Order(a, b: MixedColor2): int = cmp(a.target, b.target)
-proc sequenceOrder(a, b: MixedSequence): int = cmp(a.target, b.target)
+proc color2Order*(a, b: MixedColor2): int = cmp(a.target, b.target)
+proc sequenceOrder*(a, b: MixedSequence): int = cmp(a.target, b.target)
 
 
 proc sample*(state: AnimationState): MixedPose =
