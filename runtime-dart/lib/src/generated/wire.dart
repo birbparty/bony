@@ -68,174 +68,345 @@ const List<BonyBackingType> bonyBackingTypes = [
   BonyBackingType(id: 'bytes', code: 7),
   BonyBackingType(id: 'f64', code: 8),
 ];
+
+// Registry-derived type keys for compile-time loader use.
+const int bonyTypeKeySkeleton = 1;
+const int bonyTypeKeyBone = 2;
+const int bonyTypeKeySlot = 1000;
+const int bonyTypeKeyRegion = 1001;
+const int bonyTypeKeyPointAttachment = 1002;
+const int bonyTypeKeyBoundingBoxAttachment = 1003;
+const int bonyTypeKeyClippingAttachment = 3000;
+const int bonyTypeKeyMeshAttachment = 3001;
+const int bonyTypeKeyDeformTimeline = 3002;
+const int bonyTypeKeyPath = 4000;
+const int bonyTypeKeyPathAttachment = 4001;
+const int bonyTypeKeyIkConstraint = 4002;
+const int bonyTypeKeyTransformConstraint = 4003;
+const int bonyTypeKeyPhysicsConstraint = 4004;
+const int bonyTypeKeyParameter = 6000;
+const int bonyTypeKeyDeformer = 6001;
+const int bonyTypeKeyWarpLattice = 6002;
+const int bonyTypeKeyRotationDeformer = 6003;
+const int bonyTypeKeyKeyformBlend = 6004;
+const int bonyTypeKeyKeyform = 6005;
+const int bonyTypeKeyAnimationClip = 2000;
+const int bonyTypeKeyBoneTimeline = 2001;
+const int bonyTypeKeySlotTimeline = 2002;
+const int bonyTypeKeyEventTimeline = 2003;
+const int bonyTypeKeyStateMachine = 7000;
+const int bonyTypeKeyStateMachineInput = 7001;
+const int bonyTypeKeyStateMachineLayer = 7002;
+const int bonyTypeKeyStateMachineState = 7003;
+const int bonyTypeKeyStateMachineBlendClip = 7004;
+const int bonyTypeKeyStateMachineTransition = 7005;
+const int bonyTypeKeyStateMachineCondition = 7006;
+const int bonyTypeKeyStateMachineListener = 7007;
+const int bonyTypeKeySkin = 3003;
+const int bonyTypeKeySkinEntry = 3004;
+const int bonyTypeKeyNestedRigAttachment = 3005;
+
 const List<BonyTypeKey> bonyTypeKeys = [
-  BonyTypeKey(id: 'skeleton', key: 1),
-  BonyTypeKey(id: 'bone', key: 2),
-  BonyTypeKey(id: 'slot', key: 1000),
-  BonyTypeKey(id: 'region', key: 1001),
-  BonyTypeKey(id: 'pointAttachment', key: 1002),
-  BonyTypeKey(id: 'boundingBoxAttachment', key: 1003),
-  BonyTypeKey(id: 'clippingAttachment', key: 3000),
-  BonyTypeKey(id: 'meshAttachment', key: 3001),
-  BonyTypeKey(id: 'deformTimeline', key: 3002),
-  BonyTypeKey(id: 'path', key: 4000),
-  BonyTypeKey(id: 'pathAttachment', key: 4001),
-  BonyTypeKey(id: 'ikConstraint', key: 4002),
-  BonyTypeKey(id: 'transformConstraint', key: 4003),
-  BonyTypeKey(id: 'physicsConstraint', key: 4004),
-  BonyTypeKey(id: 'parameter', key: 6000),
-  BonyTypeKey(id: 'deformer', key: 6001),
-  BonyTypeKey(id: 'warpLattice', key: 6002),
-  BonyTypeKey(id: 'rotationDeformer', key: 6003),
-  BonyTypeKey(id: 'keyformBlend', key: 6004),
-  BonyTypeKey(id: 'keyform', key: 6005),
-  BonyTypeKey(id: 'animationClip', key: 2000),
-  BonyTypeKey(id: 'boneTimeline', key: 2001),
-  BonyTypeKey(id: 'slotTimeline', key: 2002),
-  BonyTypeKey(id: 'eventTimeline', key: 2003),
-  BonyTypeKey(id: 'stateMachine', key: 7000),
-  BonyTypeKey(id: 'stateMachineInput', key: 7001),
-  BonyTypeKey(id: 'stateMachineLayer', key: 7002),
-  BonyTypeKey(id: 'stateMachineState', key: 7003),
-  BonyTypeKey(id: 'stateMachineBlendClip', key: 7004),
-  BonyTypeKey(id: 'stateMachineTransition', key: 7005),
-  BonyTypeKey(id: 'stateMachineCondition', key: 7006),
-  BonyTypeKey(id: 'stateMachineListener', key: 7007),
-  BonyTypeKey(id: 'skin', key: 3003),
-  BonyTypeKey(id: 'skinEntry', key: 3004),
-  BonyTypeKey(id: 'nestedRigAttachment', key: 3005),
+  BonyTypeKey(id: 'skeleton', key: bonyTypeKeySkeleton),
+  BonyTypeKey(id: 'bone', key: bonyTypeKeyBone),
+  BonyTypeKey(id: 'slot', key: bonyTypeKeySlot),
+  BonyTypeKey(id: 'region', key: bonyTypeKeyRegion),
+  BonyTypeKey(id: 'pointAttachment', key: bonyTypeKeyPointAttachment),
+  BonyTypeKey(id: 'boundingBoxAttachment', key: bonyTypeKeyBoundingBoxAttachment),
+  BonyTypeKey(id: 'clippingAttachment', key: bonyTypeKeyClippingAttachment),
+  BonyTypeKey(id: 'meshAttachment', key: bonyTypeKeyMeshAttachment),
+  BonyTypeKey(id: 'deformTimeline', key: bonyTypeKeyDeformTimeline),
+  BonyTypeKey(id: 'path', key: bonyTypeKeyPath),
+  BonyTypeKey(id: 'pathAttachment', key: bonyTypeKeyPathAttachment),
+  BonyTypeKey(id: 'ikConstraint', key: bonyTypeKeyIkConstraint),
+  BonyTypeKey(id: 'transformConstraint', key: bonyTypeKeyTransformConstraint),
+  BonyTypeKey(id: 'physicsConstraint', key: bonyTypeKeyPhysicsConstraint),
+  BonyTypeKey(id: 'parameter', key: bonyTypeKeyParameter),
+  BonyTypeKey(id: 'deformer', key: bonyTypeKeyDeformer),
+  BonyTypeKey(id: 'warpLattice', key: bonyTypeKeyWarpLattice),
+  BonyTypeKey(id: 'rotationDeformer', key: bonyTypeKeyRotationDeformer),
+  BonyTypeKey(id: 'keyformBlend', key: bonyTypeKeyKeyformBlend),
+  BonyTypeKey(id: 'keyform', key: bonyTypeKeyKeyform),
+  BonyTypeKey(id: 'animationClip', key: bonyTypeKeyAnimationClip),
+  BonyTypeKey(id: 'boneTimeline', key: bonyTypeKeyBoneTimeline),
+  BonyTypeKey(id: 'slotTimeline', key: bonyTypeKeySlotTimeline),
+  BonyTypeKey(id: 'eventTimeline', key: bonyTypeKeyEventTimeline),
+  BonyTypeKey(id: 'stateMachine', key: bonyTypeKeyStateMachine),
+  BonyTypeKey(id: 'stateMachineInput', key: bonyTypeKeyStateMachineInput),
+  BonyTypeKey(id: 'stateMachineLayer', key: bonyTypeKeyStateMachineLayer),
+  BonyTypeKey(id: 'stateMachineState', key: bonyTypeKeyStateMachineState),
+  BonyTypeKey(id: 'stateMachineBlendClip', key: bonyTypeKeyStateMachineBlendClip),
+  BonyTypeKey(id: 'stateMachineTransition', key: bonyTypeKeyStateMachineTransition),
+  BonyTypeKey(id: 'stateMachineCondition', key: bonyTypeKeyStateMachineCondition),
+  BonyTypeKey(id: 'stateMachineListener', key: bonyTypeKeyStateMachineListener),
+  BonyTypeKey(id: 'skin', key: bonyTypeKeySkin),
+  BonyTypeKey(id: 'skinEntry', key: bonyTypeKeySkinEntry),
+  BonyTypeKey(id: 'nestedRigAttachment', key: bonyTypeKeyNestedRigAttachment),
 ];
+
+// Registry-derived property keys for compile-time loader use.
+const int bonyPropertyKeyName = 1;
+const int bonyPropertyKeyVersion = 2;
+const int bonyPropertyKeyParent = 3;
+const int bonyPropertyKeyX = 1000;
+const int bonyPropertyKeyY = 1001;
+const int bonyPropertyKeyRotation = 1002;
+const int bonyPropertyKeyScaleX = 1003;
+const int bonyPropertyKeyScaleY = 1004;
+const int bonyPropertyKeyShearX = 1005;
+const int bonyPropertyKeyShearY = 1006;
+const int bonyPropertyKeyInheritRotation = 1007;
+const int bonyPropertyKeyInheritScale = 1008;
+const int bonyPropertyKeyInheritReflection = 1009;
+const int bonyPropertyKeyTransformMode = 1010;
+const int bonyPropertyKeySlot = 1011;
+const int bonyPropertyKeyBone = 1012;
+const int bonyPropertyKeyAttachment = 1013;
+const int bonyPropertyKeyWidth = 1014;
+const int bonyPropertyKeyHeight = 1015;
+const int bonyPropertyKeyTexturePage = 8000;
+const int bonyPropertyKeyU0 = 8001;
+const int bonyPropertyKeyV0 = 8002;
+const int bonyPropertyKeyU1 = 8003;
+const int bonyPropertyKeyV1 = 8004;
+const int bonyPropertyKeyAlphaMode = 8005;
+const int bonyPropertyKeyVertices = 3000;
+const int bonyPropertyKeyUntilSlot = 3001;
+const int bonyPropertyKeyMeshWeighted = 3002;
+const int bonyPropertyKeyMeshVertices = 3003;
+const int bonyPropertyKeyMeshUvs = 3004;
+const int bonyPropertyKeyMeshTriangles = 3005;
+const int bonyPropertyKeyDeformSkin = 3006;
+const int bonyPropertyKeyDeformAttachment = 3007;
+const int bonyPropertyKeyDeformVertexCount = 3008;
+const int bonyPropertyKeyDeformKeys = 3009;
+const int bonyPropertyKeyTarget = 4000;
+const int bonyPropertyKeyPath = 4001;
+const int bonyPropertyKeyOrder = 4002;
+const int bonyPropertyKeyP0x = 4003;
+const int bonyPropertyKeyP0y = 4004;
+const int bonyPropertyKeyP1x = 4005;
+const int bonyPropertyKeyP1y = 4006;
+const int bonyPropertyKeyP2x = 4007;
+const int bonyPropertyKeyP2y = 4008;
+const int bonyPropertyKeyP3x = 4009;
+const int bonyPropertyKeyP3y = 4010;
+const int bonyPropertyKeyPosition = 4011;
+const int bonyPropertyKeyTranslateMix = 4012;
+const int bonyPropertyKeyRotateMix = 4013;
+const int bonyPropertyKeyBones = 4014;
+const int bonyPropertyKeyMix = 4015;
+const int bonyPropertyKeyBendPositive = 4016;
+const int bonyPropertyKeyScaleMix = 4017;
+const int bonyPropertyKeyShearMix = 4018;
+const int bonyPropertyKeyInertia = 4019;
+const int bonyPropertyKeyStrength = 4020;
+const int bonyPropertyKeyDamping = 4021;
+const int bonyPropertyKeyMass = 4022;
+const int bonyPropertyKeyGravity = 4023;
+const int bonyPropertyKeyWind = 4024;
+const int bonyPropertyKeyPhysicsMix = 4025;
+const int bonyPropertyKeyChannels = 4026;
+const int bonyPropertyKeySkinRequired = 4027;
+const int bonyPropertyKeySkinBones = 4028;
+const int bonyPropertyKeySkinIkConstraints = 4029;
+const int bonyPropertyKeySkinTransformConstraints = 4030;
+const int bonyPropertyKeySkinPathConstraints = 4031;
+const int bonyPropertyKeySkinPhysicsConstraints = 4032;
+const int bonyPropertyKeyParameterMin = 6000;
+const int bonyPropertyKeyParameterMax = 6001;
+const int bonyPropertyKeyParameterDefault = 6002;
+const int bonyPropertyKeyDeformerId = 6010;
+const int bonyPropertyKeyDeformerOrder = 6011;
+const int bonyPropertyKeyDeformerKind = 6012;
+const int bonyPropertyKeyWarpRows = 6020;
+const int bonyPropertyKeyWarpCols = 6021;
+const int bonyPropertyKeyWarpMinX = 6022;
+const int bonyPropertyKeyWarpMinY = 6023;
+const int bonyPropertyKeyWarpMaxX = 6024;
+const int bonyPropertyKeyWarpMaxY = 6025;
+const int bonyPropertyKeyWarpControlPoints = 6026;
+const int bonyPropertyKeyRotationPivotX = 6030;
+const int bonyPropertyKeyRotationPivotY = 6031;
+const int bonyPropertyKeyRotationAngleDegrees = 6032;
+const int bonyPropertyKeyRotationScaleX = 6033;
+const int bonyPropertyKeyRotationScaleY = 6034;
+const int bonyPropertyKeyRotationOpacity = 6035;
+const int bonyPropertyKeyBlendValueCount = 6040;
+const int bonyPropertyKeyBlendAxes = 6041;
+const int bonyPropertyKeyBlendCoordinates = 6042;
+const int bonyPropertyKeyBlendValues = 6043;
+const int bonyPropertyKeyBoneIndex = 2000;
+const int bonyPropertyKeyBoneTimelineKind = 2001;
+const int bonyPropertyKeySlotIndex = 2002;
+const int bonyPropertyKeySlotTimelineKind = 2003;
+const int bonyPropertyKeyTimelineKeys = 2004;
+const int bonyPropertyKeyEventKeys = 2005;
+const int bonyPropertyKeyStateMachineInputKind = 7000;
+const int bonyPropertyKeyInputDefaultBool = 7001;
+const int bonyPropertyKeyInputDefaultNumber = 7002;
+const int bonyPropertyKeyInitialStateIndex = 7010;
+const int bonyPropertyKeyStateMachineStateKind = 7020;
+const int bonyPropertyKeyStateClipIndex = 7021;
+const int bonyPropertyKeyStateLoop = 7022;
+const int bonyPropertyKeyStateBlendInputIndex = 7023;
+const int bonyPropertyKeyBlendClipAnimationIndex = 7030;
+const int bonyPropertyKeyBlendClipValue = 7031;
+const int bonyPropertyKeyBlendClipLoop = 7032;
+const int bonyPropertyKeyTransitionFromStateIndex = 7040;
+const int bonyPropertyKeyTransitionToStateIndex = 7041;
+const int bonyPropertyKeyConditionInputIndex = 7050;
+const int bonyPropertyKeyStateMachineConditionKind = 7051;
+const int bonyPropertyKeyConditionBoolValue = 7052;
+const int bonyPropertyKeyConditionNumberValue = 7053;
+const int bonyPropertyKeyStateMachineListenerKind = 7060;
+const int bonyPropertyKeyListenerLayerIndex = 7061;
+const int bonyPropertyKeyListenerFromStateIndex = 7062;
+const int bonyPropertyKeyListenerToStateIndex = 7063;
+const int bonyPropertyKeyListenerSlotIndex = 7064;
+const int bonyPropertyKeyListenerHelperKind = 7065;
+const int bonyPropertyKeyListenerHelperTarget = 7066;
+const int bonyPropertyKeyListenerInputIndex = 7067;
+const int bonyPropertyKeyListenerBoolValue = 7068;
+const int bonyPropertyKeyListenerNumberValue = 7069;
+const int bonyPropertyKeyListenerHitRadius = 7070;
+const int bonyPropertyKeySkinAttachment = 3010;
+const int bonyPropertyKeySkinTarget = 3011;
+const int bonyPropertyKeyNestedSkeleton = 3012;
+const int bonyPropertyKeyNestedSkin = 3013;
+const int bonyPropertyKeyNestedAnimation = 3014;
+
 const List<BonyPropertyKey> bonyPropertyKeys = [
-  BonyPropertyKey(id: 'name', key: 1, backingType: 'string'),
-  BonyPropertyKey(id: 'version', key: 2, backingType: 'string'),
-  BonyPropertyKey(id: 'parent', key: 3, backingType: 'string'),
-  BonyPropertyKey(id: 'x', key: 1000, backingType: 'f32'),
-  BonyPropertyKey(id: 'y', key: 1001, backingType: 'f32'),
-  BonyPropertyKey(id: 'rotation', key: 1002, backingType: 'f32'),
-  BonyPropertyKey(id: 'scaleX', key: 1003, backingType: 'f32'),
-  BonyPropertyKey(id: 'scaleY', key: 1004, backingType: 'f32'),
-  BonyPropertyKey(id: 'shearX', key: 1005, backingType: 'f32'),
-  BonyPropertyKey(id: 'shearY', key: 1006, backingType: 'f32'),
-  BonyPropertyKey(id: 'inheritRotation', key: 1007, backingType: 'bool'),
-  BonyPropertyKey(id: 'inheritScale', key: 1008, backingType: 'bool'),
-  BonyPropertyKey(id: 'inheritReflection', key: 1009, backingType: 'bool'),
-  BonyPropertyKey(id: 'transformMode', key: 1010, backingType: 'string'),
-  BonyPropertyKey(id: 'slot', key: 1011, backingType: 'string'),
-  BonyPropertyKey(id: 'bone', key: 1012, backingType: 'string'),
-  BonyPropertyKey(id: 'attachment', key: 1013, backingType: 'string'),
-  BonyPropertyKey(id: 'width', key: 1014, backingType: 'f32'),
-  BonyPropertyKey(id: 'height', key: 1015, backingType: 'f32'),
-  BonyPropertyKey(id: 'texturePage', key: 8000, backingType: 'string'),
-  BonyPropertyKey(id: 'u0', key: 8001, backingType: 'f32'),
-  BonyPropertyKey(id: 'v0', key: 8002, backingType: 'f32'),
-  BonyPropertyKey(id: 'u1', key: 8003, backingType: 'f32'),
-  BonyPropertyKey(id: 'v1', key: 8004, backingType: 'f32'),
-  BonyPropertyKey(id: 'alphaMode', key: 8005, backingType: 'string'),
-  BonyPropertyKey(id: 'vertices', key: 3000, backingType: 'bytes'),
-  BonyPropertyKey(id: 'untilSlot', key: 3001, backingType: 'string'),
-  BonyPropertyKey(id: 'meshWeighted', key: 3002, backingType: 'bool'),
-  BonyPropertyKey(id: 'meshVertices', key: 3003, backingType: 'bytes'),
-  BonyPropertyKey(id: 'meshUvs', key: 3004, backingType: 'bytes'),
-  BonyPropertyKey(id: 'meshTriangles', key: 3005, backingType: 'bytes'),
-  BonyPropertyKey(id: 'deformSkin', key: 3006, backingType: 'string'),
-  BonyPropertyKey(id: 'deformAttachment', key: 3007, backingType: 'string'),
-  BonyPropertyKey(id: 'deformVertexCount', key: 3008, backingType: 'varuint'),
-  BonyPropertyKey(id: 'deformKeys', key: 3009, backingType: 'bytes'),
-  BonyPropertyKey(id: 'target', key: 4000, backingType: 'string'),
-  BonyPropertyKey(id: 'path', key: 4001, backingType: 'string'),
-  BonyPropertyKey(id: 'order', key: 4002, backingType: 'varint'),
-  BonyPropertyKey(id: 'p0x', key: 4003, backingType: 'f64'),
-  BonyPropertyKey(id: 'p0y', key: 4004, backingType: 'f64'),
-  BonyPropertyKey(id: 'p1x', key: 4005, backingType: 'f64'),
-  BonyPropertyKey(id: 'p1y', key: 4006, backingType: 'f64'),
-  BonyPropertyKey(id: 'p2x', key: 4007, backingType: 'f64'),
-  BonyPropertyKey(id: 'p2y', key: 4008, backingType: 'f64'),
-  BonyPropertyKey(id: 'p3x', key: 4009, backingType: 'f64'),
-  BonyPropertyKey(id: 'p3y', key: 4010, backingType: 'f64'),
-  BonyPropertyKey(id: 'position', key: 4011, backingType: 'f32'),
-  BonyPropertyKey(id: 'translateMix', key: 4012, backingType: 'f32'),
-  BonyPropertyKey(id: 'rotateMix', key: 4013, backingType: 'f32'),
-  BonyPropertyKey(id: 'bones', key: 4014, backingType: 'bytes'),
-  BonyPropertyKey(id: 'mix', key: 4015, backingType: 'f32'),
-  BonyPropertyKey(id: 'bendPositive', key: 4016, backingType: 'bool'),
-  BonyPropertyKey(id: 'scaleMix', key: 4017, backingType: 'f32'),
-  BonyPropertyKey(id: 'shearMix', key: 4018, backingType: 'f32'),
-  BonyPropertyKey(id: 'inertia', key: 4019, backingType: 'f32'),
-  BonyPropertyKey(id: 'strength', key: 4020, backingType: 'f32'),
-  BonyPropertyKey(id: 'damping', key: 4021, backingType: 'f32'),
-  BonyPropertyKey(id: 'mass', key: 4022, backingType: 'f32'),
-  BonyPropertyKey(id: 'gravity', key: 4023, backingType: 'f32'),
-  BonyPropertyKey(id: 'wind', key: 4024, backingType: 'f32'),
-  BonyPropertyKey(id: 'physicsMix', key: 4025, backingType: 'f32'),
-  BonyPropertyKey(id: 'channels', key: 4026, backingType: 'varuint'),
-  BonyPropertyKey(id: 'skinRequired', key: 4027, backingType: 'bool'),
-  BonyPropertyKey(id: 'skinBones', key: 4028, backingType: 'bytes'),
-  BonyPropertyKey(id: 'skinIkConstraints', key: 4029, backingType: 'bytes'),
-  BonyPropertyKey(id: 'skinTransformConstraints', key: 4030, backingType: 'bytes'),
-  BonyPropertyKey(id: 'skinPathConstraints', key: 4031, backingType: 'bytes'),
-  BonyPropertyKey(id: 'skinPhysicsConstraints', key: 4032, backingType: 'bytes'),
-  BonyPropertyKey(id: 'parameterMin', key: 6000, backingType: 'f32'),
-  BonyPropertyKey(id: 'parameterMax', key: 6001, backingType: 'f32'),
-  BonyPropertyKey(id: 'parameterDefault', key: 6002, backingType: 'f32'),
-  BonyPropertyKey(id: 'deformerId', key: 6010, backingType: 'string'),
-  BonyPropertyKey(id: 'deformerOrder', key: 6011, backingType: 'varuint'),
-  BonyPropertyKey(id: 'deformerKind', key: 6012, backingType: 'string'),
-  BonyPropertyKey(id: 'warpRows', key: 6020, backingType: 'varuint'),
-  BonyPropertyKey(id: 'warpCols', key: 6021, backingType: 'varuint'),
-  BonyPropertyKey(id: 'warpMinX', key: 6022, backingType: 'f32'),
-  BonyPropertyKey(id: 'warpMinY', key: 6023, backingType: 'f32'),
-  BonyPropertyKey(id: 'warpMaxX', key: 6024, backingType: 'f32'),
-  BonyPropertyKey(id: 'warpMaxY', key: 6025, backingType: 'f32'),
-  BonyPropertyKey(id: 'warpControlPoints', key: 6026, backingType: 'bytes'),
-  BonyPropertyKey(id: 'rotationPivotX', key: 6030, backingType: 'f32'),
-  BonyPropertyKey(id: 'rotationPivotY', key: 6031, backingType: 'f32'),
-  BonyPropertyKey(id: 'rotationAngleDegrees', key: 6032, backingType: 'f32'),
-  BonyPropertyKey(id: 'rotationScaleX', key: 6033, backingType: 'f32'),
-  BonyPropertyKey(id: 'rotationScaleY', key: 6034, backingType: 'f32'),
-  BonyPropertyKey(id: 'rotationOpacity', key: 6035, backingType: 'f32'),
-  BonyPropertyKey(id: 'blendValueCount', key: 6040, backingType: 'varuint'),
-  BonyPropertyKey(id: 'blendAxes', key: 6041, backingType: 'bytes'),
-  BonyPropertyKey(id: 'blendCoordinates', key: 6042, backingType: 'bytes'),
-  BonyPropertyKey(id: 'blendValues', key: 6043, backingType: 'bytes'),
-  BonyPropertyKey(id: 'boneIndex', key: 2000, backingType: 'varuint'),
-  BonyPropertyKey(id: 'boneTimelineKind', key: 2001, backingType: 'varuint'),
-  BonyPropertyKey(id: 'slotIndex', key: 2002, backingType: 'varuint'),
-  BonyPropertyKey(id: 'slotTimelineKind', key: 2003, backingType: 'varuint'),
-  BonyPropertyKey(id: 'timelineKeys', key: 2004, backingType: 'bytes'),
-  BonyPropertyKey(id: 'eventKeys', key: 2005, backingType: 'bytes'),
-  BonyPropertyKey(id: 'stateMachineInputKind', key: 7000, backingType: 'varuint'),
-  BonyPropertyKey(id: 'inputDefaultBool', key: 7001, backingType: 'bool'),
-  BonyPropertyKey(id: 'inputDefaultNumber', key: 7002, backingType: 'f32'),
-  BonyPropertyKey(id: 'initialStateIndex', key: 7010, backingType: 'varuint'),
-  BonyPropertyKey(id: 'stateMachineStateKind', key: 7020, backingType: 'varuint'),
-  BonyPropertyKey(id: 'stateClipIndex', key: 7021, backingType: 'varuint'),
-  BonyPropertyKey(id: 'stateLoop', key: 7022, backingType: 'bool'),
-  BonyPropertyKey(id: 'stateBlendInputIndex', key: 7023, backingType: 'varuint'),
-  BonyPropertyKey(id: 'blendClipAnimationIndex', key: 7030, backingType: 'varuint'),
-  BonyPropertyKey(id: 'blendClipValue', key: 7031, backingType: 'f32'),
-  BonyPropertyKey(id: 'blendClipLoop', key: 7032, backingType: 'bool'),
-  BonyPropertyKey(id: 'transitionFromStateIndex', key: 7040, backingType: 'varuint'),
-  BonyPropertyKey(id: 'transitionToStateIndex', key: 7041, backingType: 'varuint'),
-  BonyPropertyKey(id: 'conditionInputIndex', key: 7050, backingType: 'varuint'),
-  BonyPropertyKey(id: 'stateMachineConditionKind', key: 7051, backingType: 'varuint'),
-  BonyPropertyKey(id: 'conditionBoolValue', key: 7052, backingType: 'bool'),
-  BonyPropertyKey(id: 'conditionNumberValue', key: 7053, backingType: 'f32'),
-  BonyPropertyKey(id: 'stateMachineListenerKind', key: 7060, backingType: 'varuint'),
-  BonyPropertyKey(id: 'listenerLayerIndex', key: 7061, backingType: 'varuint'),
-  BonyPropertyKey(id: 'listenerFromStateIndex', key: 7062, backingType: 'varuint'),
-  BonyPropertyKey(id: 'listenerToStateIndex', key: 7063, backingType: 'varuint'),
-  BonyPropertyKey(id: 'listenerSlotIndex', key: 7064, backingType: 'varuint'),
-  BonyPropertyKey(id: 'listenerHelperKind', key: 7065, backingType: 'varuint'),
-  BonyPropertyKey(id: 'listenerHelperTarget', key: 7066, backingType: 'string'),
-  BonyPropertyKey(id: 'listenerInputIndex', key: 7067, backingType: 'varuint'),
-  BonyPropertyKey(id: 'listenerBoolValue', key: 7068, backingType: 'bool'),
-  BonyPropertyKey(id: 'listenerNumberValue', key: 7069, backingType: 'f32'),
-  BonyPropertyKey(id: 'listenerHitRadius', key: 7070, backingType: 'f32'),
-  BonyPropertyKey(id: 'skinAttachment', key: 3010, backingType: 'string'),
-  BonyPropertyKey(id: 'skinTarget', key: 3011, backingType: 'string'),
-  BonyPropertyKey(id: 'nestedSkeleton', key: 3012, backingType: 'string'),
-  BonyPropertyKey(id: 'nestedSkin', key: 3013, backingType: 'string'),
-  BonyPropertyKey(id: 'nestedAnimation', key: 3014, backingType: 'string'),
+  BonyPropertyKey(id: 'name', key: bonyPropertyKeyName, backingType: 'string'),
+  BonyPropertyKey(id: 'version', key: bonyPropertyKeyVersion, backingType: 'string'),
+  BonyPropertyKey(id: 'parent', key: bonyPropertyKeyParent, backingType: 'string'),
+  BonyPropertyKey(id: 'x', key: bonyPropertyKeyX, backingType: 'f32'),
+  BonyPropertyKey(id: 'y', key: bonyPropertyKeyY, backingType: 'f32'),
+  BonyPropertyKey(id: 'rotation', key: bonyPropertyKeyRotation, backingType: 'f32'),
+  BonyPropertyKey(id: 'scaleX', key: bonyPropertyKeyScaleX, backingType: 'f32'),
+  BonyPropertyKey(id: 'scaleY', key: bonyPropertyKeyScaleY, backingType: 'f32'),
+  BonyPropertyKey(id: 'shearX', key: bonyPropertyKeyShearX, backingType: 'f32'),
+  BonyPropertyKey(id: 'shearY', key: bonyPropertyKeyShearY, backingType: 'f32'),
+  BonyPropertyKey(id: 'inheritRotation', key: bonyPropertyKeyInheritRotation, backingType: 'bool'),
+  BonyPropertyKey(id: 'inheritScale', key: bonyPropertyKeyInheritScale, backingType: 'bool'),
+  BonyPropertyKey(id: 'inheritReflection', key: bonyPropertyKeyInheritReflection, backingType: 'bool'),
+  BonyPropertyKey(id: 'transformMode', key: bonyPropertyKeyTransformMode, backingType: 'string'),
+  BonyPropertyKey(id: 'slot', key: bonyPropertyKeySlot, backingType: 'string'),
+  BonyPropertyKey(id: 'bone', key: bonyPropertyKeyBone, backingType: 'string'),
+  BonyPropertyKey(id: 'attachment', key: bonyPropertyKeyAttachment, backingType: 'string'),
+  BonyPropertyKey(id: 'width', key: bonyPropertyKeyWidth, backingType: 'f32'),
+  BonyPropertyKey(id: 'height', key: bonyPropertyKeyHeight, backingType: 'f32'),
+  BonyPropertyKey(id: 'texturePage', key: bonyPropertyKeyTexturePage, backingType: 'string'),
+  BonyPropertyKey(id: 'u0', key: bonyPropertyKeyU0, backingType: 'f32'),
+  BonyPropertyKey(id: 'v0', key: bonyPropertyKeyV0, backingType: 'f32'),
+  BonyPropertyKey(id: 'u1', key: bonyPropertyKeyU1, backingType: 'f32'),
+  BonyPropertyKey(id: 'v1', key: bonyPropertyKeyV1, backingType: 'f32'),
+  BonyPropertyKey(id: 'alphaMode', key: bonyPropertyKeyAlphaMode, backingType: 'string'),
+  BonyPropertyKey(id: 'vertices', key: bonyPropertyKeyVertices, backingType: 'bytes'),
+  BonyPropertyKey(id: 'untilSlot', key: bonyPropertyKeyUntilSlot, backingType: 'string'),
+  BonyPropertyKey(id: 'meshWeighted', key: bonyPropertyKeyMeshWeighted, backingType: 'bool'),
+  BonyPropertyKey(id: 'meshVertices', key: bonyPropertyKeyMeshVertices, backingType: 'bytes'),
+  BonyPropertyKey(id: 'meshUvs', key: bonyPropertyKeyMeshUvs, backingType: 'bytes'),
+  BonyPropertyKey(id: 'meshTriangles', key: bonyPropertyKeyMeshTriangles, backingType: 'bytes'),
+  BonyPropertyKey(id: 'deformSkin', key: bonyPropertyKeyDeformSkin, backingType: 'string'),
+  BonyPropertyKey(id: 'deformAttachment', key: bonyPropertyKeyDeformAttachment, backingType: 'string'),
+  BonyPropertyKey(id: 'deformVertexCount', key: bonyPropertyKeyDeformVertexCount, backingType: 'varuint'),
+  BonyPropertyKey(id: 'deformKeys', key: bonyPropertyKeyDeformKeys, backingType: 'bytes'),
+  BonyPropertyKey(id: 'target', key: bonyPropertyKeyTarget, backingType: 'string'),
+  BonyPropertyKey(id: 'path', key: bonyPropertyKeyPath, backingType: 'string'),
+  BonyPropertyKey(id: 'order', key: bonyPropertyKeyOrder, backingType: 'varint'),
+  BonyPropertyKey(id: 'p0x', key: bonyPropertyKeyP0x, backingType: 'f64'),
+  BonyPropertyKey(id: 'p0y', key: bonyPropertyKeyP0y, backingType: 'f64'),
+  BonyPropertyKey(id: 'p1x', key: bonyPropertyKeyP1x, backingType: 'f64'),
+  BonyPropertyKey(id: 'p1y', key: bonyPropertyKeyP1y, backingType: 'f64'),
+  BonyPropertyKey(id: 'p2x', key: bonyPropertyKeyP2x, backingType: 'f64'),
+  BonyPropertyKey(id: 'p2y', key: bonyPropertyKeyP2y, backingType: 'f64'),
+  BonyPropertyKey(id: 'p3x', key: bonyPropertyKeyP3x, backingType: 'f64'),
+  BonyPropertyKey(id: 'p3y', key: bonyPropertyKeyP3y, backingType: 'f64'),
+  BonyPropertyKey(id: 'position', key: bonyPropertyKeyPosition, backingType: 'f32'),
+  BonyPropertyKey(id: 'translateMix', key: bonyPropertyKeyTranslateMix, backingType: 'f32'),
+  BonyPropertyKey(id: 'rotateMix', key: bonyPropertyKeyRotateMix, backingType: 'f32'),
+  BonyPropertyKey(id: 'bones', key: bonyPropertyKeyBones, backingType: 'bytes'),
+  BonyPropertyKey(id: 'mix', key: bonyPropertyKeyMix, backingType: 'f32'),
+  BonyPropertyKey(id: 'bendPositive', key: bonyPropertyKeyBendPositive, backingType: 'bool'),
+  BonyPropertyKey(id: 'scaleMix', key: bonyPropertyKeyScaleMix, backingType: 'f32'),
+  BonyPropertyKey(id: 'shearMix', key: bonyPropertyKeyShearMix, backingType: 'f32'),
+  BonyPropertyKey(id: 'inertia', key: bonyPropertyKeyInertia, backingType: 'f32'),
+  BonyPropertyKey(id: 'strength', key: bonyPropertyKeyStrength, backingType: 'f32'),
+  BonyPropertyKey(id: 'damping', key: bonyPropertyKeyDamping, backingType: 'f32'),
+  BonyPropertyKey(id: 'mass', key: bonyPropertyKeyMass, backingType: 'f32'),
+  BonyPropertyKey(id: 'gravity', key: bonyPropertyKeyGravity, backingType: 'f32'),
+  BonyPropertyKey(id: 'wind', key: bonyPropertyKeyWind, backingType: 'f32'),
+  BonyPropertyKey(id: 'physicsMix', key: bonyPropertyKeyPhysicsMix, backingType: 'f32'),
+  BonyPropertyKey(id: 'channels', key: bonyPropertyKeyChannels, backingType: 'varuint'),
+  BonyPropertyKey(id: 'skinRequired', key: bonyPropertyKeySkinRequired, backingType: 'bool'),
+  BonyPropertyKey(id: 'skinBones', key: bonyPropertyKeySkinBones, backingType: 'bytes'),
+  BonyPropertyKey(id: 'skinIkConstraints', key: bonyPropertyKeySkinIkConstraints, backingType: 'bytes'),
+  BonyPropertyKey(id: 'skinTransformConstraints', key: bonyPropertyKeySkinTransformConstraints, backingType: 'bytes'),
+  BonyPropertyKey(id: 'skinPathConstraints', key: bonyPropertyKeySkinPathConstraints, backingType: 'bytes'),
+  BonyPropertyKey(id: 'skinPhysicsConstraints', key: bonyPropertyKeySkinPhysicsConstraints, backingType: 'bytes'),
+  BonyPropertyKey(id: 'parameterMin', key: bonyPropertyKeyParameterMin, backingType: 'f32'),
+  BonyPropertyKey(id: 'parameterMax', key: bonyPropertyKeyParameterMax, backingType: 'f32'),
+  BonyPropertyKey(id: 'parameterDefault', key: bonyPropertyKeyParameterDefault, backingType: 'f32'),
+  BonyPropertyKey(id: 'deformerId', key: bonyPropertyKeyDeformerId, backingType: 'string'),
+  BonyPropertyKey(id: 'deformerOrder', key: bonyPropertyKeyDeformerOrder, backingType: 'varuint'),
+  BonyPropertyKey(id: 'deformerKind', key: bonyPropertyKeyDeformerKind, backingType: 'string'),
+  BonyPropertyKey(id: 'warpRows', key: bonyPropertyKeyWarpRows, backingType: 'varuint'),
+  BonyPropertyKey(id: 'warpCols', key: bonyPropertyKeyWarpCols, backingType: 'varuint'),
+  BonyPropertyKey(id: 'warpMinX', key: bonyPropertyKeyWarpMinX, backingType: 'f32'),
+  BonyPropertyKey(id: 'warpMinY', key: bonyPropertyKeyWarpMinY, backingType: 'f32'),
+  BonyPropertyKey(id: 'warpMaxX', key: bonyPropertyKeyWarpMaxX, backingType: 'f32'),
+  BonyPropertyKey(id: 'warpMaxY', key: bonyPropertyKeyWarpMaxY, backingType: 'f32'),
+  BonyPropertyKey(id: 'warpControlPoints', key: bonyPropertyKeyWarpControlPoints, backingType: 'bytes'),
+  BonyPropertyKey(id: 'rotationPivotX', key: bonyPropertyKeyRotationPivotX, backingType: 'f32'),
+  BonyPropertyKey(id: 'rotationPivotY', key: bonyPropertyKeyRotationPivotY, backingType: 'f32'),
+  BonyPropertyKey(id: 'rotationAngleDegrees', key: bonyPropertyKeyRotationAngleDegrees, backingType: 'f32'),
+  BonyPropertyKey(id: 'rotationScaleX', key: bonyPropertyKeyRotationScaleX, backingType: 'f32'),
+  BonyPropertyKey(id: 'rotationScaleY', key: bonyPropertyKeyRotationScaleY, backingType: 'f32'),
+  BonyPropertyKey(id: 'rotationOpacity', key: bonyPropertyKeyRotationOpacity, backingType: 'f32'),
+  BonyPropertyKey(id: 'blendValueCount', key: bonyPropertyKeyBlendValueCount, backingType: 'varuint'),
+  BonyPropertyKey(id: 'blendAxes', key: bonyPropertyKeyBlendAxes, backingType: 'bytes'),
+  BonyPropertyKey(id: 'blendCoordinates', key: bonyPropertyKeyBlendCoordinates, backingType: 'bytes'),
+  BonyPropertyKey(id: 'blendValues', key: bonyPropertyKeyBlendValues, backingType: 'bytes'),
+  BonyPropertyKey(id: 'boneIndex', key: bonyPropertyKeyBoneIndex, backingType: 'varuint'),
+  BonyPropertyKey(id: 'boneTimelineKind', key: bonyPropertyKeyBoneTimelineKind, backingType: 'varuint'),
+  BonyPropertyKey(id: 'slotIndex', key: bonyPropertyKeySlotIndex, backingType: 'varuint'),
+  BonyPropertyKey(id: 'slotTimelineKind', key: bonyPropertyKeySlotTimelineKind, backingType: 'varuint'),
+  BonyPropertyKey(id: 'timelineKeys', key: bonyPropertyKeyTimelineKeys, backingType: 'bytes'),
+  BonyPropertyKey(id: 'eventKeys', key: bonyPropertyKeyEventKeys, backingType: 'bytes'),
+  BonyPropertyKey(id: 'stateMachineInputKind', key: bonyPropertyKeyStateMachineInputKind, backingType: 'varuint'),
+  BonyPropertyKey(id: 'inputDefaultBool', key: bonyPropertyKeyInputDefaultBool, backingType: 'bool'),
+  BonyPropertyKey(id: 'inputDefaultNumber', key: bonyPropertyKeyInputDefaultNumber, backingType: 'f32'),
+  BonyPropertyKey(id: 'initialStateIndex', key: bonyPropertyKeyInitialStateIndex, backingType: 'varuint'),
+  BonyPropertyKey(id: 'stateMachineStateKind', key: bonyPropertyKeyStateMachineStateKind, backingType: 'varuint'),
+  BonyPropertyKey(id: 'stateClipIndex', key: bonyPropertyKeyStateClipIndex, backingType: 'varuint'),
+  BonyPropertyKey(id: 'stateLoop', key: bonyPropertyKeyStateLoop, backingType: 'bool'),
+  BonyPropertyKey(id: 'stateBlendInputIndex', key: bonyPropertyKeyStateBlendInputIndex, backingType: 'varuint'),
+  BonyPropertyKey(id: 'blendClipAnimationIndex', key: bonyPropertyKeyBlendClipAnimationIndex, backingType: 'varuint'),
+  BonyPropertyKey(id: 'blendClipValue', key: bonyPropertyKeyBlendClipValue, backingType: 'f32'),
+  BonyPropertyKey(id: 'blendClipLoop', key: bonyPropertyKeyBlendClipLoop, backingType: 'bool'),
+  BonyPropertyKey(id: 'transitionFromStateIndex', key: bonyPropertyKeyTransitionFromStateIndex, backingType: 'varuint'),
+  BonyPropertyKey(id: 'transitionToStateIndex', key: bonyPropertyKeyTransitionToStateIndex, backingType: 'varuint'),
+  BonyPropertyKey(id: 'conditionInputIndex', key: bonyPropertyKeyConditionInputIndex, backingType: 'varuint'),
+  BonyPropertyKey(id: 'stateMachineConditionKind', key: bonyPropertyKeyStateMachineConditionKind, backingType: 'varuint'),
+  BonyPropertyKey(id: 'conditionBoolValue', key: bonyPropertyKeyConditionBoolValue, backingType: 'bool'),
+  BonyPropertyKey(id: 'conditionNumberValue', key: bonyPropertyKeyConditionNumberValue, backingType: 'f32'),
+  BonyPropertyKey(id: 'stateMachineListenerKind', key: bonyPropertyKeyStateMachineListenerKind, backingType: 'varuint'),
+  BonyPropertyKey(id: 'listenerLayerIndex', key: bonyPropertyKeyListenerLayerIndex, backingType: 'varuint'),
+  BonyPropertyKey(id: 'listenerFromStateIndex', key: bonyPropertyKeyListenerFromStateIndex, backingType: 'varuint'),
+  BonyPropertyKey(id: 'listenerToStateIndex', key: bonyPropertyKeyListenerToStateIndex, backingType: 'varuint'),
+  BonyPropertyKey(id: 'listenerSlotIndex', key: bonyPropertyKeyListenerSlotIndex, backingType: 'varuint'),
+  BonyPropertyKey(id: 'listenerHelperKind', key: bonyPropertyKeyListenerHelperKind, backingType: 'varuint'),
+  BonyPropertyKey(id: 'listenerHelperTarget', key: bonyPropertyKeyListenerHelperTarget, backingType: 'string'),
+  BonyPropertyKey(id: 'listenerInputIndex', key: bonyPropertyKeyListenerInputIndex, backingType: 'varuint'),
+  BonyPropertyKey(id: 'listenerBoolValue', key: bonyPropertyKeyListenerBoolValue, backingType: 'bool'),
+  BonyPropertyKey(id: 'listenerNumberValue', key: bonyPropertyKeyListenerNumberValue, backingType: 'f32'),
+  BonyPropertyKey(id: 'listenerHitRadius', key: bonyPropertyKeyListenerHitRadius, backingType: 'f32'),
+  BonyPropertyKey(id: 'skinAttachment', key: bonyPropertyKeySkinAttachment, backingType: 'string'),
+  BonyPropertyKey(id: 'skinTarget', key: bonyPropertyKeySkinTarget, backingType: 'string'),
+  BonyPropertyKey(id: 'nestedSkeleton', key: bonyPropertyKeyNestedSkeleton, backingType: 'string'),
+  BonyPropertyKey(id: 'nestedSkin', key: bonyPropertyKeyNestedSkin, backingType: 'string'),
+  BonyPropertyKey(id: 'nestedAnimation', key: bonyPropertyKeyNestedAnimation, backingType: 'string'),
 ];
 const List<BonyObjectSpec> bonyObjectSpecs = [
   BonyObjectSpec(typeId: 'skeleton', properties: ["name", "version"]),

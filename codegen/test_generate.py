@@ -290,11 +290,15 @@ class GeneratorValidationTests(unittest.TestCase):
         dart = generate.generate_dart(registry, defaults)
 
         for object_id, key in M3_M8_TYPE_KEYS.items():
+            dart_const = f"bonyTypeKey{generate.dart_const_suffix(object_id)}"
             self.assertIn(f'id: "{object_id}", key: {key}.uint64', nim)
-            self.assertIn(f"id: '{object_id}', key: {key}", dart)
+            self.assertIn(f"const int {dart_const} = {key};", dart)
+            self.assertIn(f"id: '{object_id}', key: {dart_const}", dart)
         for property_id, key in M3_M8_PROPERTY_KEYS.items():
+            dart_const = f"bonyPropertyKey{generate.dart_const_suffix(property_id)}"
             self.assertIn(f'id: "{property_id}", key: {key}.uint64', nim)
-            self.assertIn(f"id: '{property_id}', key: {key}", dart)
+            self.assertIn(f"const int {dart_const} = {key};", dart)
+            self.assertIn(f"id: '{property_id}', key: {dart_const}", dart)
         self.assertIn(
             'BonyObjectSpec(typeId: "boneTimeline", properties: @["boneIndex", "boneTimelineKind", "timelineKeys"])',
             nim,
@@ -478,6 +482,19 @@ class GeneratorValidationTests(unittest.TestCase):
 
     def test_dart_string_literal_escapes_interpolation(self) -> None:
         self.assertEqual(generate.dart_string_literal("price $name"), '"price \\$name"')
+
+    def test_dart_const_suffix_rejects_invalid_identifier_sources(self) -> None:
+        with self.assertRaisesRegex(generate.SourceError, "cannot form a Dart const suffix"):
+            generate.dart_const_suffix("1bad")
+
+    def test_dart_const_names_reject_generated_name_collisions(self) -> None:
+        entries = [
+            {"id": "foo", "key": 1},
+            {"id": "Foo", "key": 2},
+        ]
+
+        with self.assertRaisesRegex(generate.SourceError, "duplicate generated Dart const name"):
+            generate.dart_const_names(entries, "bonyTypeKey", "type key")
 
 
 if __name__ == "__main__":
