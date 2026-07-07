@@ -530,9 +530,24 @@ proc bonyValidateBnbScalar(specs: openArray[BonyScalarPropertySpec]; property: B
       return
   raise newException(ValueError, "unknown scalar property key: " & $property.propertyKey)
 
-proc bonyEncodeJsonScalars*(specs: openArray[BonyScalarPropertySpec]; properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+proc bonyValidateJsonScalarProperties(specs: openArray[BonyScalarPropertySpec]; properties: openArray[BonyJsonScalarProperty]) =
+  var seen: seq[string]
   for property in properties:
+    if property.propertyId in seen:
+      raise newException(ValueError, "duplicate scalar property id: " & property.propertyId)
+    seen.add property.propertyId
     bonyValidateJsonScalar(specs, property)
+
+proc bonyValidateBnbScalarProperties(specs: openArray[BonyScalarPropertySpec]; properties: openArray[BonyBnbScalarProperty]) =
+  var seen: seq[uint64]
+  for property in properties:
+    if property.propertyKey in seen:
+      raise newException(ValueError, "duplicate scalar property key: " & $property.propertyKey)
+    seen.add property.propertyKey
+    bonyValidateBnbScalar(specs, property)
+
+proc bonyEncodeJsonScalars*(specs: openArray[BonyScalarPropertySpec]; properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyValidateJsonScalarProperties(specs, properties)
   for spec in specs:
     let index = properties.bonyFindJsonScalar(spec.propertyId)
     if index < 0:
@@ -545,8 +560,7 @@ proc bonyEncodeJsonScalars*(specs: openArray[BonyScalarPropertySpec]; properties
     result.add BonyJsonScalarProperty(propertyId: spec.propertyId, value: value)
 
 proc bonyDecodeJsonScalars*(specs: openArray[BonyScalarPropertySpec]; properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
-  for property in properties:
-    bonyValidateJsonScalar(specs, property)
+  bonyValidateJsonScalarProperties(specs, properties)
   for spec in specs:
     let index = properties.bonyFindJsonScalar(spec.propertyId)
     if index >= 0:
@@ -557,8 +571,7 @@ proc bonyDecodeJsonScalars*(specs: openArray[BonyScalarPropertySpec]; properties
       raise newException(ValueError, "missing required scalar property: " & spec.objectId & "." & spec.propertyId)
 
 proc bonyEncodeBnbScalars*(specs: openArray[BonyScalarPropertySpec]; properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
-  for property in properties:
-    bonyValidateBnbScalar(specs, property)
+  bonyValidateBnbScalarProperties(specs, properties)
   for spec in specs:
     let index = properties.bonyFindBnbScalar(spec.propertyKey)
     if index < 0:
@@ -571,8 +584,7 @@ proc bonyEncodeBnbScalars*(specs: openArray[BonyScalarPropertySpec]; properties:
     result.add BonyBnbScalarProperty(propertyKey: spec.propertyKey, value: value)
 
 proc bonyDecodeBnbScalars*(specs: openArray[BonyScalarPropertySpec]; properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
-  for property in properties:
-    bonyValidateBnbScalar(specs, property)
+  bonyValidateBnbScalarProperties(specs, properties)
   for spec in specs:
     let index = properties.bonyFindBnbScalar(spec.propertyKey)
     if index >= 0:
@@ -974,6 +986,20 @@ proc encodeKeyformBlendBnbScalars*(properties: openArray[BonyBnbScalarProperty])
 proc decodeKeyformBlendBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
   bonyDecodeBnbScalars(bonyKeyformBlendScalarSpecs, properties)
 
+const bonyKeyformScalarSpecs*: array[0, BonyScalarPropertySpec] = []
+
+proc encodeKeyformJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyEncodeJsonScalars(bonyKeyformScalarSpecs, properties)
+
+proc decodeKeyformJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyDecodeJsonScalars(bonyKeyformScalarSpecs, properties)
+
+proc encodeKeyformBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyEncodeBnbScalars(bonyKeyformScalarSpecs, properties)
+
+proc decodeKeyformBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyDecodeBnbScalars(bonyKeyformScalarSpecs, properties)
+
 const bonyAnimationClipScalarSpecs* = [
   BonyScalarPropertySpec(objectId: "animationClip", propertyId: "name", propertyKey: 1.uint64, kind: bskString, required: true, hasDefault: false, defaultValue: bonyStringValue(""), equality: "exactString", omitWhenDefault: false, applyOnLoad: false),
 ]
@@ -1042,6 +1068,20 @@ proc encodeDeformTimelineBnbScalars*(properties: openArray[BonyBnbScalarProperty
 
 proc decodeDeformTimelineBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
   bonyDecodeBnbScalars(bonyDeformTimelineScalarSpecs, properties)
+
+const bonyEventTimelineScalarSpecs*: array[0, BonyScalarPropertySpec] = []
+
+proc encodeEventTimelineJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyEncodeJsonScalars(bonyEventTimelineScalarSpecs, properties)
+
+proc decodeEventTimelineJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyDecodeJsonScalars(bonyEventTimelineScalarSpecs, properties)
+
+proc encodeEventTimelineBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyEncodeBnbScalars(bonyEventTimelineScalarSpecs, properties)
+
+proc decodeEventTimelineBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyDecodeBnbScalars(bonyEventTimelineScalarSpecs, properties)
 
 const bonyStateMachineScalarSpecs* = [
   BonyScalarPropertySpec(objectId: "stateMachine", propertyId: "name", propertyKey: 1.uint64, kind: bskString, required: true, hasDefault: false, defaultValue: bonyStringValue(""), equality: "exactString", omitWhenDefault: false, applyOnLoad: false),
@@ -1252,10 +1292,12 @@ proc encodeBonyObjectJsonScalars*(typeId: string; properties: openArray[BonyJson
   of "warpLattice": encodeWarpLatticeJsonScalars(properties)
   of "rotationDeformer": encodeRotationDeformerJsonScalars(properties)
   of "keyformBlend": encodeKeyformBlendJsonScalars(properties)
+  of "keyform": encodeKeyformJsonScalars(properties)
   of "animationClip": encodeAnimationClipJsonScalars(properties)
   of "boneTimeline": encodeBoneTimelineJsonScalars(properties)
   of "slotTimeline": encodeSlotTimelineJsonScalars(properties)
   of "deformTimeline": encodeDeformTimelineJsonScalars(properties)
+  of "eventTimeline": encodeEventTimelineJsonScalars(properties)
   of "stateMachine": encodeStateMachineJsonScalars(properties)
   of "stateMachineInput": encodeStateMachineInputJsonScalars(properties)
   of "stateMachineLayer": encodeStateMachineLayerJsonScalars(properties)
@@ -1290,10 +1332,12 @@ proc decodeBonyObjectJsonScalars*(typeId: string; properties: openArray[BonyJson
   of "warpLattice": decodeWarpLatticeJsonScalars(properties)
   of "rotationDeformer": decodeRotationDeformerJsonScalars(properties)
   of "keyformBlend": decodeKeyformBlendJsonScalars(properties)
+  of "keyform": decodeKeyformJsonScalars(properties)
   of "animationClip": decodeAnimationClipJsonScalars(properties)
   of "boneTimeline": decodeBoneTimelineJsonScalars(properties)
   of "slotTimeline": decodeSlotTimelineJsonScalars(properties)
   of "deformTimeline": decodeDeformTimelineJsonScalars(properties)
+  of "eventTimeline": decodeEventTimelineJsonScalars(properties)
   of "stateMachine": decodeStateMachineJsonScalars(properties)
   of "stateMachineInput": decodeStateMachineInputJsonScalars(properties)
   of "stateMachineLayer": decodeStateMachineLayerJsonScalars(properties)
@@ -1327,10 +1371,12 @@ proc encodeBonyObjectBnbScalars*(typeKey: uint64; properties: openArray[BonyBnbS
   of 6002.uint64: encodeWarpLatticeBnbScalars(properties)
   of 6003.uint64: encodeRotationDeformerBnbScalars(properties)
   of 6004.uint64: encodeKeyformBlendBnbScalars(properties)
+  of 6005.uint64: encodeKeyformBnbScalars(properties)
   of 2000.uint64: encodeAnimationClipBnbScalars(properties)
   of 2001.uint64: encodeBoneTimelineBnbScalars(properties)
   of 2002.uint64: encodeSlotTimelineBnbScalars(properties)
   of 3002.uint64: encodeDeformTimelineBnbScalars(properties)
+  of 2003.uint64: encodeEventTimelineBnbScalars(properties)
   of 7000.uint64: encodeStateMachineBnbScalars(properties)
   of 7001.uint64: encodeStateMachineInputBnbScalars(properties)
   of 7002.uint64: encodeStateMachineLayerBnbScalars(properties)
@@ -1368,10 +1414,12 @@ proc decodeBonyObjectBnbScalars*(typeKey: uint64; properties: openArray[BonyBnbS
   of 6002.uint64: decodeWarpLatticeBnbScalars(properties)
   of 6003.uint64: decodeRotationDeformerBnbScalars(properties)
   of 6004.uint64: decodeKeyformBlendBnbScalars(properties)
+  of 6005.uint64: decodeKeyformBnbScalars(properties)
   of 2000.uint64: decodeAnimationClipBnbScalars(properties)
   of 2001.uint64: decodeBoneTimelineBnbScalars(properties)
   of 2002.uint64: decodeSlotTimelineBnbScalars(properties)
   of 3002.uint64: decodeDeformTimelineBnbScalars(properties)
+  of 2003.uint64: decodeEventTimelineBnbScalars(properties)
   of 7000.uint64: decodeStateMachineBnbScalars(properties)
   of 7001.uint64: decodeStateMachineInputBnbScalars(properties)
   of 7002.uint64: decodeStateMachineLayerBnbScalars(properties)
@@ -1390,6 +1438,8 @@ proc decodeBonyObjectBnbScalars*(typeKey: uint64; properties: openArray[BonyBnbS
 
 proc encodeBonyObject*(typeId: string) =
   discard bonyObjectSpec(typeId)
+  raise newException(CatchableError, "generated encodeBonyObject has no registered fields yet")
 
 proc decodeBonyObject*(typeId: string) =
   discard bonyObjectSpec(typeId)
+  raise newException(CatchableError, "generated decodeBonyObject has no registered fields yet")

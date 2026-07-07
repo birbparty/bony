@@ -210,6 +210,53 @@ spec "bony package":
       bonyMeshAttachmentScalarSpecs.len == 2
       not bonyMeshAttachmentScalarSpecs.anyIt(it.propertyId == "meshVertices")
 
+  it "rejects malformed generated scalar codec inputs":
+    var duplicateJsonRejected = false
+    try:
+      discard encodeBoneJsonScalars(@[
+        BonyJsonScalarProperty(propertyId: "name", value: bonyStringValue("root")),
+        BonyJsonScalarProperty(propertyId: "name", value: bonyStringValue("again")),
+      ])
+    except ValueError:
+      duplicateJsonRejected = true
+
+    var duplicateBnbRejected = false
+    try:
+      discard encodeBoneBnbScalars(@[
+        BonyBnbScalarProperty(propertyKey: 1'u64, value: bonyStringValue("root")),
+        BonyBnbScalarProperty(propertyKey: 1'u64, value: bonyStringValue("again")),
+      ])
+    except ValueError:
+      duplicateBnbRejected = true
+
+    var packedOnlyScalarRejected = false
+    try:
+      discard encodeEventTimelineJsonScalars(@[
+        BonyJsonScalarProperty(propertyId: "eventKeys", value: bonyStringValue("packed")),
+      ])
+    except ValueError:
+      packedOnlyScalarRejected = true
+
+    var legacyEncodeStubThrows = false
+    try:
+      encodeBonyObject("bone")
+    except CatchableError:
+      legacyEncodeStubThrows = true
+
+    var legacyDecodeStubThrows = false
+    try:
+      decodeBonyObject("bone")
+    except CatchableError:
+      legacyDecodeStubThrows = true
+
+    then:
+      bonyEventTimelineScalarSpecs.len == 0
+      duplicateJsonRejected
+      duplicateBnbRejected
+      packedOnlyScalarRejected
+      legacyEncodeStubThrows
+      legacyDecodeStubThrows
+
   it "encodes and rejects .bnb varints canonically":
     var bytes: seq[byte]
     bytes.writeVaruint(0)
