@@ -5,7 +5,8 @@ import 'dart:math' as math;
 import 'package:bony/src/anim.dart';
 import 'deform.dart' show quantizeF32;
 import 'model.dart';
-import 'transform.dart' show pointerHitsBoundingBoxTarget, pointerHitsPointTarget;
+import 'transform.dart'
+    show pointerHitsBoundingBoxTarget, pointerHitsPointTarget;
 
 // --- Runtime input value ---
 
@@ -400,14 +401,7 @@ class StateMachineRuntime {
     _updateAnimationEvents(data);
 
     final evalLayers = <EvaluatedStateMachineLayer>[];
-    var combined = const MixedPose(
-        scalars: [],
-        vectors: [],
-        attachments: [],
-        inherits: [],
-        colors: [],
-        colors2: [],
-        sequences: []);
+    var combined = const MixedPose.empty();
 
     for (final lr in _layers) {
       final state = _stateByName(lr.layer, lr.currentState);
@@ -419,7 +413,7 @@ class StateMachineRuntime {
         time: sampleTime,
         pose: pose,
       ));
-      combined = _overlayPose(combined, pose);
+      combined = overlayPose(combined, pose);
     }
 
     return EvaluatedStateMachine(layers: evalLayers, pose: combined);
@@ -516,15 +510,7 @@ class StateMachineRuntime {
       SkeletonData data, StateMachineState state, double time) {
     final input = getNumberInput(state.blendInput);
     final clips = state.blendClips;
-    if (clips.isEmpty)
-      return const MixedPose(
-          scalars: [],
-          vectors: [],
-          attachments: [],
-          inherits: [],
-          colors: [],
-          colors2: [],
-          sequences: []);
+    if (clips.isEmpty) return const MixedPose.empty();
     if (input <= clips.first.value) {
       return _sampleClipPose(
           data, _findClip(data, clips.first.clipName), clips.first.loop, time);
@@ -540,7 +526,7 @@ class StateMachineRuntime {
         final hiClip = _findClip(data, hi.clipName);
         final loPose = _sampleClipPose(data, loClip, lo.loop, time);
         final hiPose = _sampleClipPose(data, hiClip, hi.loop, time);
-        return _blendPoses(data, loPose, hiPose, t);
+        return blendPoses(data, loPose, hiPose, t);
       }
     }
     final last = clips.last;
@@ -641,282 +627,6 @@ MixedPose _sampleClipPose(
       : math.min(time, clip.duration);
   anim.tracks[0].current!.time = quantizeF32(wrapped);
   return anim.sample();
-}
-
-String _scalarKey(String bone, BoneTimelineKind kind) =>
-    '$bone\x00${kind.index}';
-
-// Overlay: later layer's value wins per channel key.
-MixedPose _overlayPose(MixedPose base, MixedPose overlay) {
-  final scalarMap =
-      <String, ({String bone, BoneTimelineKind kind, double value})>{};
-  for (final s in base.scalars) scalarMap[_scalarKey(s.bone, s.kind)] = s;
-  for (final s in overlay.scalars) scalarMap[_scalarKey(s.bone, s.kind)] = s;
-  final scalars = scalarMap.values.toList()
-    ..sort((a, b) {
-      final c = a.bone.compareTo(b.bone);
-      return c != 0 ? c : a.kind.index.compareTo(b.kind.index);
-    });
-
-  final vecMap =
-      <String, ({String bone, BoneTimelineKind kind, double x, double y})>{};
-  for (final v in base.vectors) vecMap['${v.bone}\x00${v.kind.index}'] = v;
-  for (final v in overlay.vectors) vecMap['${v.bone}\x00${v.kind.index}'] = v;
-  final vectors = vecMap.values.toList()
-    ..sort((a, b) {
-      final c = a.bone.compareTo(b.bone);
-      return c != 0 ? c : a.kind.index.compareTo(b.kind.index);
-    });
-
-  final attMap = <String, ({String slot, String attachment})>{};
-  for (final a in base.attachments) attMap[a.slot] = a;
-  for (final a in overlay.attachments) attMap[a.slot] = a;
-  final attachments = attMap.values.toList()
-    ..sort((a, b) => a.slot.compareTo(b.slot));
-
-  final inhMap = <String, ({String bone, InheritKeyframe value})>{};
-  for (final ih in base.inherits) inhMap[ih.bone] = ih;
-  for (final ih in overlay.inherits) inhMap[ih.bone] = ih;
-  final inherits = inhMap.values.toList()
-    ..sort((a, b) => a.bone.compareTo(b.bone));
-
-  final colMap =
-      <String, ({String slot, SlotTimelineKind kind, ColorRgba color})>{};
-  for (final c in base.colors) colMap['${c.slot}\x00${c.kind.index}'] = c;
-  for (final c in overlay.colors) colMap['${c.slot}\x00${c.kind.index}'] = c;
-  final colors = colMap.values.toList()
-    ..sort((a, b) {
-      final c = a.slot.compareTo(b.slot);
-      return c != 0 ? c : a.kind.index.compareTo(b.kind.index);
-    });
-
-  final col2Map = <String, ({String slot, ColorRgba2 color})>{};
-  for (final c in base.colors2) col2Map[c.slot] = c;
-  for (final c in overlay.colors2) col2Map[c.slot] = c;
-  final colors2 = col2Map.values.toList()
-    ..sort((a, b) => a.slot.compareTo(b.slot));
-
-  final seqMap = <String, ({String slot, SequenceKeyframe value})>{};
-  for (final s in base.sequences) seqMap[s.slot] = s;
-  for (final s in overlay.sequences) seqMap[s.slot] = s;
-  final sequences = seqMap.values.toList()
-    ..sort((a, b) => a.slot.compareTo(b.slot));
-
-  // Carry the deform channel through the overlay (later layer wins per
-  // slot+attachment key), mirroring the sibling discrete channels. Omitting it
-  // silently drops every state-machine-driven mesh deform.
-  final deformMap =
-      <String, ({String slot, String attachment, List<MeshDelta> deltas})>{};
-  for (final d in base.deforms) deformMap['${d.slot}\x00${d.attachment}'] = d;
-  for (final d in overlay.deforms)
-    deformMap['${d.slot}\x00${d.attachment}'] = d;
-  final deforms = deformMap.values.toList()
-    ..sort((a, b) {
-      final c = a.slot.compareTo(b.slot);
-      return c != 0 ? c : a.attachment.compareTo(b.attachment);
-    });
-
-  return MixedPose(
-    scalars: scalars,
-    vectors: vectors,
-    attachments: attachments,
-    inherits: inherits,
-    colors: colors,
-    colors2: colors2,
-    sequences: sequences,
-    deforms: deforms,
-  );
-}
-
-// Linear blend between two blend1d clip poses.
-// Vectors and scalars: lerp. Attachments/inherits/sequences: snap at t>=0.5.
-// Colors: per-channel lerp.
-MixedPose _blendPoses(SkeletonData data, MixedPose lo, MixedPose hi, double t) {
-  // --- Scalars ---
-  final scalarChannels = <String, ({String bone, BoneTimelineKind kind})>{};
-  for (final s in lo.scalars)
-    scalarChannels[_scalarKey(s.bone, s.kind)] = (bone: s.bone, kind: s.kind);
-  for (final s in hi.scalars)
-    scalarChannels[_scalarKey(s.bone, s.kind)] = (bone: s.bone, kind: s.kind);
-  final loScalar = {
-    for (final s in lo.scalars) _scalarKey(s.bone, s.kind): s.value
-  };
-  final hiScalar = {
-    for (final s in hi.scalars) _scalarKey(s.bone, s.kind): s.value
-  };
-
-  double setupScalar(String bone, BoneTimelineKind kind) {
-    for (final b in data.bones) {
-      if (b.name != bone) continue;
-      return switch (kind) {
-        BoneTimelineKind.rotate => b.rotation,
-        BoneTimelineKind.translateX => b.x,
-        BoneTimelineKind.translateY => b.y,
-        BoneTimelineKind.scaleX => b.scaleX,
-        BoneTimelineKind.scaleY => b.scaleY,
-        BoneTimelineKind.shearX => b.shearX,
-        BoneTimelineKind.shearY => b.shearY,
-        _ => 0.0,
-      };
-    }
-    return 0.0;
-  }
-
-  final scalars = <({String bone, BoneTimelineKind kind, double value})>[];
-  for (final entry in scalarChannels.entries) {
-    final key = entry.key;
-    final ch = entry.value;
-    final setup = setupScalar(ch.bone, ch.kind);
-    final loV = loScalar[key] ?? setup;
-    final hiV = hiScalar[key] ?? setup;
-    scalars.add((bone: ch.bone, kind: ch.kind, value: loV + (hiV - loV) * t));
-  }
-  scalars.sort((a, b) {
-    final c = a.bone.compareTo(b.bone);
-    return c != 0 ? c : a.kind.index.compareTo(b.kind.index);
-  });
-
-  // --- Vectors ---
-  final vecChannels = <String, ({String bone, BoneTimelineKind kind})>{};
-  for (final v in lo.vectors)
-    vecChannels['${v.bone}\x00${v.kind.index}'] = (bone: v.bone, kind: v.kind);
-  for (final v in hi.vectors)
-    vecChannels['${v.bone}\x00${v.kind.index}'] = (bone: v.bone, kind: v.kind);
-  final loVec = {
-    for (final v in lo.vectors) '${v.bone}\x00${v.kind.index}': (x: v.x, y: v.y)
-  };
-  final hiVec = {
-    for (final v in hi.vectors) '${v.bone}\x00${v.kind.index}': (x: v.x, y: v.y)
-  };
-
-  (double, double) setupVector(String bone, BoneTimelineKind kind) {
-    for (final b in data.bones) {
-      if (b.name != bone) continue;
-      return switch (kind) {
-        BoneTimelineKind.translate => (b.x, b.y),
-        BoneTimelineKind.scale => (b.scaleX, b.scaleY),
-        BoneTimelineKind.shear => (b.shearX, b.shearY),
-        _ => (0.0, 0.0),
-      };
-    }
-    return (0.0, 0.0);
-  }
-
-  final vectors =
-      <({String bone, BoneTimelineKind kind, double x, double y})>[];
-  for (final entry in vecChannels.entries) {
-    final key = entry.key;
-    final ch = entry.value;
-    final setup = setupVector(ch.bone, ch.kind);
-    final loV = loVec[key] ?? (x: setup.$1, y: setup.$2);
-    final hiV = hiVec[key] ?? (x: setup.$1, y: setup.$2);
-    vectors.add((
-      bone: ch.bone,
-      kind: ch.kind,
-      x: loV.x + (hiV.x - loV.x) * t,
-      y: loV.y + (hiV.y - loV.y) * t
-    ));
-  }
-  vectors.sort((a, b) {
-    final c = a.bone.compareTo(b.bone);
-    return c != 0 ? c : a.kind.index.compareTo(b.kind.index);
-  });
-
-  // --- Stepped channels (attachments, inherits, sequences): snap at t >= 0.5 ---
-  final snapPose = t >= 0.5 ? hi : lo;
-
-  final attachments = snapPose.attachments.map((a) => a).toList()
-    ..sort((a, b) => a.slot.compareTo(b.slot));
-
-  final inherits = snapPose.inherits.map((ih) => ih).toList()
-    ..sort((a, b) => a.bone.compareTo(b.bone));
-
-  final sequences = snapPose.sequences.map((s) => s).toList()
-    ..sort((a, b) => a.slot.compareTo(b.slot));
-
-  // Deforms resolve winner-take-by-track-weight (docs/deform-timeline-contract.md),
-  // like an attachment channel — the higher-weight clip's deltas win outright, never
-  // a linear blend of the two sparse delta runs. So they snap with the other stepped
-  // channels rather than lerping.
-  final deforms = snapPose.deforms.map((d) => d).toList()
-    ..sort((a, b) {
-      final c = a.slot.compareTo(b.slot);
-      return c != 0 ? c : a.attachment.compareTo(b.attachment);
-    });
-
-  // --- Colors: per-channel lerp ---
-  final colChannels = <String, ({String slot, SlotTimelineKind kind})>{};
-  for (final c in lo.colors)
-    colChannels['${c.slot}\x00${c.kind.index}'] = (slot: c.slot, kind: c.kind);
-  for (final c in hi.colors)
-    colChannels['${c.slot}\x00${c.kind.index}'] = (slot: c.slot, kind: c.kind);
-  final loCol = {
-    for (final c in lo.colors) '${c.slot}\x00${c.kind.index}': c.color
-  };
-  final hiCol = {
-    for (final c in hi.colors) '${c.slot}\x00${c.kind.index}': c.color
-  };
-
-  ColorRgba lerpColor(ColorRgba a, ColorRgba b, double f) => ColorRgba(
-        r: a.r + (b.r - a.r) * f,
-        g: a.g + (b.g - a.g) * f,
-        b: a.b + (b.b - a.b) * f,
-        a: a.a + (b.a - a.a) * f,
-      );
-
-  const _white = ColorRgba(r: 1.0, g: 1.0, b: 1.0, a: 1.0);
-  final colors = <({String slot, SlotTimelineKind kind, ColorRgba color})>[];
-  for (final entry in colChannels.entries) {
-    final key = entry.key;
-    final ch = entry.value;
-    final loC = loCol[key] ?? _white;
-    final hiC = hiCol[key] ?? _white;
-    colors.add((slot: ch.slot, kind: ch.kind, color: lerpColor(loC, hiC, t)));
-  }
-  colors.sort((a, b) {
-    final c = a.slot.compareTo(b.slot);
-    return c != 0 ? c : a.kind.index.compareTo(b.kind.index);
-  });
-
-  // rgba2 channels
-  final col2Channels = <String, String>{};
-  for (final c in lo.colors2) col2Channels[c.slot] = c.slot;
-  for (final c in hi.colors2) col2Channels[c.slot] = c.slot;
-  final loCol2 = {for (final c in lo.colors2) c.slot: c.color};
-  final hiCol2 = {for (final c in hi.colors2) c.slot: c.color};
-
-  const _defaultColor2 = ColorRgba2(
-    light: ColorRgba(r: 1.0, g: 1.0, b: 1.0, a: 1.0),
-    darkR: 0.0,
-    darkG: 0.0,
-    darkB: 0.0,
-  );
-  final colors2 = <({String slot, ColorRgba2 color})>[];
-  for (final slot in col2Channels.keys) {
-    final loC = loCol2[slot] ?? _defaultColor2;
-    final hiC = hiCol2[slot] ?? _defaultColor2;
-    colors2.add((
-      slot: slot,
-      color: ColorRgba2(
-        light: lerpColor(loC.light, hiC.light, t),
-        darkR: loC.darkR + (hiC.darkR - loC.darkR) * t,
-        darkG: loC.darkG + (hiC.darkG - loC.darkG) * t,
-        darkB: loC.darkB + (hiC.darkB - loC.darkB) * t,
-      ),
-    ));
-  }
-  colors2.sort((a, b) => a.slot.compareTo(b.slot));
-
-  return MixedPose(
-    scalars: scalars,
-    vectors: vectors,
-    attachments: attachments,
-    inherits: inherits,
-    colors: colors,
-    colors2: colors2,
-    sequences: sequences,
-    deforms: deforms,
-  );
 }
 
 // --- Factory ---
