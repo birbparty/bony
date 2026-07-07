@@ -938,31 +938,34 @@ proc findSpan*[T](keys: openArray[T]; time: float64): int =
   keys.len - 1
 
 
-proc sample*(timeline: BoneTimeline; time: float64): ScalarKeyframe =
-  validateBoneTimeline(timeline, "bone timeline")
-  if not timeline.kind.isScalarBoneTimeline:
-    raise newBonyLoadError(schemaViolation, "bone timeline does not contain scalar keys")
+proc sampleSpan[T](
+  keys: openArray[T];
+  time: float64;
+  mixFn: proc(storedTime: float64; current, next: T; t: float64): T;
+): T =
+  ## Caller must pass a non-empty, time-sorted key array that has already been
+  ## validated by the owning public timeline sampler.
   let storedTime = quantizeTime(time, "sample.time")
-  let index = findSpan(timeline.scalarKeys, storedTime)
-  let current = timeline.scalarKeys[index]
-  if index == timeline.scalarKeys.high or storedTime <= current.time:
+  let index = findSpan(keys, storedTime)
+  let current = keys[index]
+  if index == keys.high or storedTime <= current.time:
     return current
-  let next = timeline.scalarKeys[index + 1]
+  let next = keys[index + 1]
   let t = (storedTime - current.time) / (next.time - current.time)
+  mixFn(storedTime, current, next, t)
+
+
+proc sampleSnap[T](keys: openArray[T]; time: float64): T =
+  ## Caller must pass a non-empty, time-sorted key array that has already been
+  ## validated by the owning public timeline sampler.
+  keys[findSpan(keys, quantizeTime(time, "sample.time"))]
+
+
+proc mixScalarKey(storedTime: float64; current, next: ScalarKeyframe; t: float64): ScalarKeyframe =
   scalarKeyframe(storedTime, mix(current.curve, current.value, next.value, t), current.curve)
 
 
-proc sampleVector*(timeline: BoneTimeline; time: float64): Vector2Keyframe =
-  validateBoneTimeline(timeline, "bone timeline")
-  if not timeline.kind.isVectorBoneTimeline:
-    raise newBonyLoadError(schemaViolation, "bone timeline does not contain vector keys")
-  let storedTime = quantizeTime(time, "sample.time")
-  let index = findSpan(timeline.vectorKeys, storedTime)
-  let current = timeline.vectorKeys[index]
-  if index == timeline.vectorKeys.high or storedTime <= current.time:
-    return current
-  let next = timeline.vectorKeys[index + 1]
-  let t = (storedTime - current.time) / (next.time - current.time)
+proc mixVectorKey(storedTime: float64; current, next: Vector2Keyframe; t: float64): Vector2Keyframe =
   vector2Keyframe(
     storedTime,
     mix(current.curveX, current.x, next.x, t),
@@ -972,31 +975,7 @@ proc sampleVector*(timeline: BoneTimeline; time: float64): Vector2Keyframe =
   )
 
 
-proc sampleInherit*(timeline: BoneTimeline; time: float64): InheritKeyframe =
-  validateBoneTimeline(timeline, "bone timeline")
-  if timeline.kind != inheritTimeline:
-    raise newBonyLoadError(schemaViolation, "bone timeline does not contain inherit keys")
-  timeline.inheritKeys[findSpan(timeline.inheritKeys, quantizeTime(time, "sample.time"))]
-
-
-proc sampleAttachment*(timeline: SlotTimeline; time: float64): AttachmentKeyframe =
-  validateSlotTimeline(timeline, "slot timeline")
-  if timeline.kind != attachmentTimeline:
-    raise newBonyLoadError(schemaViolation, "slot timeline does not contain attachment keys")
-  timeline.attachmentKeys[findSpan(timeline.attachmentKeys, quantizeTime(time, "sample.time"))]
-
-
-proc sampleColor*(timeline: SlotTimeline; time: float64): ColorKeyframe =
-  validateSlotTimeline(timeline, "slot timeline")
-  if timeline.kind notin {rgbaTimeline, rgbTimeline, alphaTimeline}:
-    raise newBonyLoadError(schemaViolation, "slot timeline does not contain color keys")
-  let storedTime = quantizeTime(time, "sample.time")
-  let index = findSpan(timeline.colorKeys, storedTime)
-  let current = timeline.colorKeys[index]
-  if index == timeline.colorKeys.high or storedTime <= current.time:
-    return current
-  let next = timeline.colorKeys[index + 1]
-  let t = (storedTime - current.time) / (next.time - current.time)
+proc mixColorKey(storedTime: float64; current, next: ColorKeyframe; t: float64): ColorKeyframe =
   colorKeyframe(
     storedTime,
     colorRgba(
@@ -1009,17 +988,7 @@ proc sampleColor*(timeline: SlotTimeline; time: float64): ColorKeyframe =
   )
 
 
-proc sampleColor2*(timeline: SlotTimeline; time: float64): Color2Keyframe =
-  validateSlotTimeline(timeline, "slot timeline")
-  if timeline.kind != rgba2Timeline:
-    raise newBonyLoadError(schemaViolation, "slot timeline does not contain rgba2 keys")
-  let storedTime = quantizeTime(time, "sample.time")
-  let index = findSpan(timeline.color2Keys, storedTime)
-  let current = timeline.color2Keys[index]
-  if index == timeline.color2Keys.high or storedTime <= current.time:
-    return current
-  let next = timeline.color2Keys[index + 1]
-  let t = (storedTime - current.time) / (next.time - current.time)
+proc mixColor2Key(storedTime: float64; current, next: Color2Keyframe; t: float64): Color2Keyframe =
   color2Keyframe(
     storedTime,
     colorRgba2(
@@ -1037,11 +1006,53 @@ proc sampleColor2*(timeline: SlotTimeline; time: float64): Color2Keyframe =
   )
 
 
+proc sample*(timeline: BoneTimeline; time: float64): ScalarKeyframe =
+  validateBoneTimeline(timeline, "bone timeline")
+  if not timeline.kind.isScalarBoneTimeline:
+    raise newBonyLoadError(schemaViolation, "bone timeline does not contain scalar keys")
+  sampleSpan(timeline.scalarKeys, time, mixScalarKey)
+
+
+proc sampleVector*(timeline: BoneTimeline; time: float64): Vector2Keyframe =
+  validateBoneTimeline(timeline, "bone timeline")
+  if not timeline.kind.isVectorBoneTimeline:
+    raise newBonyLoadError(schemaViolation, "bone timeline does not contain vector keys")
+  sampleSpan(timeline.vectorKeys, time, mixVectorKey)
+
+
+proc sampleInherit*(timeline: BoneTimeline; time: float64): InheritKeyframe =
+  validateBoneTimeline(timeline, "bone timeline")
+  if timeline.kind != inheritTimeline:
+    raise newBonyLoadError(schemaViolation, "bone timeline does not contain inherit keys")
+  sampleSnap(timeline.inheritKeys, time)
+
+
+proc sampleAttachment*(timeline: SlotTimeline; time: float64): AttachmentKeyframe =
+  validateSlotTimeline(timeline, "slot timeline")
+  if timeline.kind != attachmentTimeline:
+    raise newBonyLoadError(schemaViolation, "slot timeline does not contain attachment keys")
+  sampleSnap(timeline.attachmentKeys, time)
+
+
+proc sampleColor*(timeline: SlotTimeline; time: float64): ColorKeyframe =
+  validateSlotTimeline(timeline, "slot timeline")
+  if timeline.kind notin {rgbaTimeline, rgbTimeline, alphaTimeline}:
+    raise newBonyLoadError(schemaViolation, "slot timeline does not contain color keys")
+  sampleSpan(timeline.colorKeys, time, mixColorKey)
+
+
+proc sampleColor2*(timeline: SlotTimeline; time: float64): Color2Keyframe =
+  validateSlotTimeline(timeline, "slot timeline")
+  if timeline.kind != rgba2Timeline:
+    raise newBonyLoadError(schemaViolation, "slot timeline does not contain rgba2 keys")
+  sampleSpan(timeline.color2Keys, time, mixColor2Key)
+
+
 proc sampleSequenceKey*(timeline: SlotTimeline; time: float64): SequenceKeyframe =
   validateSlotTimeline(timeline, "slot timeline")
   if timeline.kind != sequenceTimeline:
     raise newBonyLoadError(schemaViolation, "slot timeline does not contain sequence keys")
-  timeline.sequenceKeys[findSpan(timeline.sequenceKeys, quantizeTime(time, "sample.time"))]
+  sampleSnap(timeline.sequenceKeys, time)
 
 
 proc resolveSequenceIndex(baseIndex, elapsedFrames, frameCount: uint32; mode: SequenceMode): uint32 =

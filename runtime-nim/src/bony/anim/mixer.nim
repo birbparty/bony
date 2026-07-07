@@ -66,6 +66,16 @@ type
     sequences*: seq[MixedSequence]
     deforms*: seq[MixedDeform]
 
+  MixAccumulator = object
+    scalars: Table[string, MixedScalar]
+    vectors: Table[string, MixedVector]
+    attachments: Table[string, MixedAttachment]
+    inherits: Table[string, MixedInherit]
+    colors: Table[string, MixedColor]
+    colors2: Table[string, MixedColor2]
+    sequences: Table[string, MixedSequence]
+    deforms: Table[string, MixedDeform]
+
   TrackEntry* = object
     clip*: AnimationClip
     loop*: bool
@@ -253,13 +263,25 @@ proc advancePlaying(track: var AnimationTrack; amount: float64; events: var seq[
     events.dispatchEvents(trackIndex, track.current, startTime, track.current.time)
 
 
+proc dequeueNext(track: var AnimationTrack) =
+  doAssert track.queue.len > 0
+  var next = track.queue[0]
+  track.queue.delete(0)
+  if next.mixDuration > 0:
+    track.previous = track.current
+    track.hasPrevious = true
+  else:
+    track.hasPrevious = false
+  track.current = next
+  track.hasCurrent = true
+
+
 proc update*(state: var AnimationState; dt: float64) =
   let step = quantizeF32(dt, "animation.dt")
   if step < 0:
     raise newBonyLoadError(schemaViolation, "animation.dt must be non-negative")
   state.events.setLen(0)
-  for trackIndex in 0 ..< state.tracks.len:
-    var track = state.tracks[trackIndex]
+  for trackIndex, track in state.tracks.mpairs:
     if not track.hasCurrent:
       continue
     let scaled = step * track.timeScale
@@ -271,31 +293,14 @@ proc update*(state: var AnimationState; dt: float64) =
         let beforeSwitch = max(0.0, track.queue[0].delay - track.current.time)
         track.advancePlaying(beforeSwitch, state.events, trackIndex)
         remaining = quantizeF32(remaining - beforeSwitch, "track.remaining")
-        var next = track.queue[0]
-        track.queue.delete(0)
-        if next.mixDuration > 0:
-          track.previous = track.current
-          track.hasPrevious = true
-        else:
-          track.hasPrevious = false
-        track.current = next
-        track.hasCurrent = true
+        track.dequeueNext()
         track.advancePlaying(remaining, state.events, trackIndex)
         remaining = 0
       else:
         track.advancePlaying(remaining, state.events, trackIndex)
         remaining = 0
     if remaining == 0 and track.queue.len > 0 and track.current.time >= track.queue[0].delay:
-      var next = track.queue[0]
-      track.queue.delete(0)
-      if next.mixDuration > 0:
-        track.previous = track.current
-        track.hasPrevious = true
-      else:
-        track.hasPrevious = false
-      track.current = next
-      track.hasCurrent = true
-    state.tracks[trackIndex] = track
+      track.dequeueNext()
 
 
 # Shared MixedPose identity helpers and deterministic ordering comparators.
@@ -447,16 +452,22 @@ proc sequenceFrameCount(data: ref SkeletonData; target: string): uint32 =
   max(count, 1'u32)
 
 
+proc initMixAccumulator(): MixAccumulator =
+  MixAccumulator(
+    scalars: initTable[string, MixedScalar](),
+    vectors: initTable[string, MixedVector](),
+    attachments: initTable[string, MixedAttachment](),
+    inherits: initTable[string, MixedInherit](),
+    colors: initTable[string, MixedColor](),
+    colors2: initTable[string, MixedColor2](),
+    sequences: initTable[string, MixedSequence](),
+    deforms: initTable[string, MixedDeform](),
+  )
+
+
 proc applyEntry(
   data: ref SkeletonData;
-  scalars: var Table[string, MixedScalar];
-  vectors: var Table[string, MixedVector];
-  attachments: var Table[string, MixedAttachment];
-  inherits: var Table[string, MixedInherit];
-  colors: var Table[string, MixedColor];
-  colors2: var Table[string, MixedColor2];
-  sequences: var Table[string, MixedSequence];
-  deforms: var Table[string, MixedDeform];
+  acc: var MixAccumulator;
   entry: TrackEntry;
   track: AnimationTrack;
   weight: float64;
@@ -467,27 +478,27 @@ proc applyEntry(
     case timeline.kind
     of translateTimeline, scaleTimeline, shearTimeline:
       let sample = timeline.sampleVector(sampleTime)
-      vectors.putVectorWithSetup(data, MixedVector(target: timeline.target, kind: timeline.kind, x: sample.x, y: sample.y), entry.blend, finalWeight)
+      acc.vectors.putVectorWithSetup(data, MixedVector(target: timeline.target, kind: timeline.kind, x: sample.x, y: sample.y), entry.blend, finalWeight)
     of inheritTimeline:
       if finalWeight >= track.mixAttachmentThreshold:
-        inherits[timeline.target] = MixedInherit(target: timeline.target, value: timeline.sampleInherit(sampleTime))
+        acc.inherits[timeline.target] = MixedInherit(target: timeline.target, value: timeline.sampleInherit(sampleTime))
     else:
       let sample = timeline.sample(sampleTime)
-      scalars.putScalarWithSetup(data, MixedScalar(target: timeline.target, kind: timeline.kind, value: sample.value), entry.blend, finalWeight)
+      acc.scalars.putScalarWithSetup(data, MixedScalar(target: timeline.target, kind: timeline.kind, value: sample.value), entry.blend, finalWeight)
   if finalWeight >= track.mixAttachmentThreshold:
     for timeline in entry.clip.slotTimelines:
       case timeline.kind
       of attachmentTimeline:
         let sample = timeline.sampleAttachment(sampleTime)
-        attachments[timeline.target] = MixedAttachment(target: timeline.target, attachment: sample.attachment)
+        acc.attachments[timeline.target] = MixedAttachment(target: timeline.target, attachment: sample.attachment)
       of rgbaTimeline, rgbTimeline, alphaTimeline:
-        colors[colorKey(timeline.target, timeline.kind)] = MixedColor(target: timeline.target, kind: timeline.kind, color: timeline.sampleColor(sampleTime).color)
+        acc.colors[colorKey(timeline.target, timeline.kind)] = MixedColor(target: timeline.target, kind: timeline.kind, color: timeline.sampleColor(sampleTime).color)
       of rgba2Timeline:
-        colors2[timeline.target] = MixedColor2(target: timeline.target, color: timeline.sampleColor2(sampleTime).color)
+        acc.colors2[timeline.target] = MixedColor2(target: timeline.target, color: timeline.sampleColor2(sampleTime).color)
       of sequenceTimeline:
         let sample = timeline.sampleSequenceKey(sampleTime)
         let frameCount = max(sequenceFrameCount(data, timeline.target), sample.index + 1'u32)
-        sequences[timeline.target] = MixedSequence(target: timeline.target, value: timeline.sampleSequence(sampleTime, frameCount))
+        acc.sequences[timeline.target] = MixedSequence(target: timeline.target, value: timeline.sampleSequence(sampleTime, frameCount))
     # A deform timeline resolves like an attachment channel: thresholded /
     # winner-take-by-track-weight, NOT weight-blended (see the "Cross-track
     # mixing" section of docs/deform-timeline-contract.md).
@@ -497,27 +508,33 @@ proc applyEntry(
         else: data[].resolveSkinAttachmentTarget(timeline.skin, timeline.slot, timeline.attachment)
       if resolvedAttachment.len == 0:
         continue
-      deforms[deformKey(timeline.slot, resolvedAttachment)] = MixedDeform(
+      acc.deforms[deformKey(timeline.slot, resolvedAttachment)] = MixedDeform(
         slot: timeline.slot,
         attachment: resolvedAttachment,
         deltas: sampleDeformDeltas(timeline, sampleTime),
       )
 
 
-proc scalarOrder*(a, b: MixedScalar): int =
+proc byTarget[T](a, b: T): int =
+  cmp(a.target, b.target)
+
+
+proc byTargetThenKind[T](a, b: T): int =
   result = cmp(a.target, b.target)
   if result == 0:
     result = cmp(ord(a.kind), ord(b.kind))
+
+
+proc scalarOrder*(a, b: MixedScalar): int =
+  byTargetThenKind(a, b)
 
 
 proc vectorOrder*(a, b: MixedVector): int =
-  result = cmp(a.target, b.target)
-  if result == 0:
-    result = cmp(ord(a.kind), ord(b.kind))
+  byTargetThenKind(a, b)
 
 
-proc attachmentOrder*(a, b: MixedAttachment): int = cmp(a.target, b.target)
-proc inheritOrder*(a, b: MixedInherit): int = cmp(a.target, b.target)
+proc attachmentOrder*(a, b: MixedAttachment): int = byTarget(a, b)
+proc inheritOrder*(a, b: MixedInherit): int = byTarget(a, b)
 
 
 proc deformOrder*(a, b: MixedDeform): int =
@@ -527,55 +544,36 @@ proc deformOrder*(a, b: MixedDeform): int =
 
 
 proc colorOrder*(a, b: MixedColor): int =
-  result = cmp(a.target, b.target)
-  if result == 0:
-    result = cmp(ord(a.kind), ord(b.kind))
+  byTargetThenKind(a, b)
 
 
-proc color2Order*(a, b: MixedColor2): int = cmp(a.target, b.target)
-proc sequenceOrder*(a, b: MixedSequence): int = cmp(a.target, b.target)
+proc color2Order*(a, b: MixedColor2): int = byTarget(a, b)
+proc sequenceOrder*(a, b: MixedSequence): int = byTarget(a, b)
+
+
+proc drain[K, V](values: Table[K, V]; output: var seq[V]; order: proc(a, b: V): int) =
+  for value in values.values:
+    output.add value
+  output.sort(order)
 
 
 proc sample*(state: AnimationState): MixedPose =
-  var scalars = initTable[string, MixedScalar]()
-  var vectors = initTable[string, MixedVector]()
-  var attachments = initTable[string, MixedAttachment]()
-  var inherits = initTable[string, MixedInherit]()
-  var colors = initTable[string, MixedColor]()
-  var colors2 = initTable[string, MixedColor2]()
-  var sequences = initTable[string, MixedSequence]()
-  var deforms = initTable[string, MixedDeform]()
+  var acc = initMixAccumulator()
   for track in state.tracks:
     if not track.hasCurrent:
       continue
     let mixWeight = track.currentMixWeight
     if track.hasPrevious:
-      applyEntry(state.data, scalars, vectors, attachments, inherits, colors, colors2, sequences, deforms, track.previous, track, 1.0 - mixWeight)
-    applyEntry(state.data, scalars, vectors, attachments, inherits, colors, colors2, sequences, deforms, track.current, track, mixWeight)
-  for value in scalars.values:
-    result.scalars.add value
-  result.scalars.sort(scalarOrder)
-  for value in vectors.values:
-    result.vectors.add value
-  result.vectors.sort(vectorOrder)
-  for value in attachments.values:
-    result.attachments.add value
-  result.attachments.sort(attachmentOrder)
-  for value in inherits.values:
-    result.inherits.add value
-  result.inherits.sort(inheritOrder)
-  for value in colors.values:
-    result.colors.add value
-  result.colors.sort(colorOrder)
-  for value in colors2.values:
-    result.colors2.add value
-  result.colors2.sort(color2Order)
-  for value in sequences.values:
-    result.sequences.add value
-  result.sequences.sort(sequenceOrder)
-  for value in deforms.values:
-    result.deforms.add value
-  result.deforms.sort(deformOrder)
+      applyEntry(state.data, acc, track.previous, track, 1.0 - mixWeight)
+    applyEntry(state.data, acc, track.current, track, mixWeight)
+  drain(acc.scalars, result.scalars, scalarOrder)
+  drain(acc.vectors, result.vectors, vectorOrder)
+  drain(acc.attachments, result.attachments, attachmentOrder)
+  drain(acc.inherits, result.inherits, inheritOrder)
+  drain(acc.colors, result.colors, colorOrder)
+  drain(acc.colors2, result.colors2, color2Order)
+  drain(acc.sequences, result.sequences, sequenceOrder)
+  drain(acc.deforms, result.deforms, deformOrder)
 
 
 proc applyPose*(data: SkeletonData; pose: MixedPose): SkeletonData =

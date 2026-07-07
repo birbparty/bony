@@ -284,6 +284,37 @@ spec "parameter and timeline smoke coverage":
       closeTo(sampled.value, 45)
       timeline.scalarKeys[1].time == quantizeF32(1.0)
 
+  it "preserves scalar sample boundary and stepped key semantics":
+    let linear = boneScalarTimeline(
+      "root",
+      rotateTimeline,
+      @[
+        scalarKeyframe(0.25, 10.0),
+        scalarKeyframe(1.25, 20.0),
+      ],
+    )
+    let before = linear.sample(0.0)
+    let exact = linear.sample(0.25)
+    let between = linear.sample(0.75)
+    let stepped = boneScalarTimeline(
+      "root",
+      rotateTimeline,
+      @[
+        scalarKeyframe(0.25, 10.0, steppedTimelineCurve),
+        scalarKeyframe(1.25, 20.0),
+      ],
+    ).sample(0.75)
+
+    then:
+      before.time == 0.25
+      before.value == 10.0
+      exact.time == 0.25
+      exact.value == 10.0
+      between.time == quantizeF32(0.75)
+      between.value == 15.0
+      stepped.time == quantizeF32(0.75)
+      stepped.value == 10.0
+
   it "rejects unsorted timeline keyframes":
     then:
       raisesBonyLoadError(
