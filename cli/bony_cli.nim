@@ -7,6 +7,7 @@ import pixie
 
 import atlas_packer
 import auto_weights
+import json_schema
 
 
 proc usage(): string =
@@ -23,8 +24,16 @@ proc usage(): string =
     "       bony auto-weights <input.json> <output.json>"
 
 type
-  LottieDiagnostic = object of CatchableError
-    code*: string
+  CliDiagnosticKind = enum
+    cliSchemaViolation = "schemaViolation"
+    cliUnsupportedFeature = "unsupportedFeature"
+    cliInvalidReference = "invalidReference"
+    cliCycleDetected = "cycleDetected"
+    cliMissingAsset = "missingAsset"
+    cliUnsupportedVersion = "unsupportedVersion"
+
+  CliDiagnostic = object of CatchableError
+    kind*: CliDiagnosticKind
     target*: string
     capability*: string
 
@@ -129,26 +138,46 @@ type
     sequenceMode: SequenceMode
 
 
-proc newLottieDiagnostic(code, target, capability, message: string): ref LottieDiagnostic =
+proc newCliDiagnostic(kind: CliDiagnosticKind; target, capability, message: string): ref CliDiagnostic =
   new(result)
-  result.code = code
+  result.kind = kind
   result.target = target
   result.capability = capability
   result.msg = message
 
 
-proc raiseLottie(code, target, capability, message: string) =
-  raise newLottieDiagnostic(code, target, capability, message)
+proc raiseCli(kind: CliDiagnosticKind; target, capability, message: string) =
+  raise newCliDiagnostic(kind, target, capability, message)
 
 
-proc lottieMessage(exc: ref LottieDiagnostic): string =
-  result = exc.code
+proc cliMessage(exc: ref CliDiagnostic): string =
+  result = $exc.kind
   if exc.target.len > 0:
     result.add " target=" & exc.target
   if exc.capability.len > 0:
     result.add " capability=" & exc.capability
   if exc.msg.len > 0:
     result.add " " & exc.msg
+
+
+proc raiseLottie(kind: CliDiagnosticKind; target, capability, message: string) =
+  raiseCli(kind, target, capability, message)
+
+
+proc raiseDb(kind: CliDiagnosticKind; target, capability, message: string) =
+  raiseCli(kind, target, capability, message)
+
+
+proc raiseLottieSchema(target, capability, message: string) =
+  raiseLottie(cliSchemaViolation, target, capability, message)
+
+
+proc raiseDbSchema(target, capability, message: string) =
+  raiseDb(cliSchemaViolation, target, capability, message)
+
+
+proc raiseBonySchema(target, capability, message: string) =
+  raise newBonyLoadError(schemaViolation, message)
 
 
 proc readBytes(path: string): seq[byte] =
@@ -238,64 +267,37 @@ proc applyViewportTransform(batches: seq[DrawBatch]; width, height: int): seq[Dr
 
 
 proc validateKeys(node: JsonNode; allowed: openArray[string]; target: string) =
-  if node.kind != JObject:
-    raiseLottie("schemaViolation", target, "object", "expected object")
-  for key in node.keys:
-    var found = false
-    for allowedKey in allowed:
-      if key == allowedKey:
-        found = true
-        break
-    if not found:
-      raiseLottie("schemaViolation", target, "unknownKey", "unknown key: " & key)
+  json_schema.validateKeys(node, allowed, target, raiseLottieSchema)
 
 
 proc requireObject(node: JsonNode; target: string): JsonNode =
-  if node.kind != JObject:
-    raiseLottie("schemaViolation", target, "object", "expected object")
-  node
+  json_schema.requireObject(node, target, raiseLottieSchema)
 
 
 proc requireArray(node: JsonNode; target: string): JsonNode =
-  if node.kind != JArray:
-    raiseLottie("schemaViolation", target, "array", "expected array")
-  node
+  json_schema.requireArray(node, target, raiseLottieSchema)
 
 
 proc requireField(node: JsonNode; key, target: string): JsonNode =
-  if not node.hasKey(key):
-    raiseLottie("schemaViolation", target, key, "missing required field: " & key)
-  node[key]
+  json_schema.requireField(node, key, target, raiseLottieSchema)
 
 
 proc finiteNumber(node: JsonNode; target, capability: string): float64 =
-  if node.kind notin {JInt, JFloat}:
-    raiseLottie("schemaViolation", target, capability, "expected number")
-  result = node.getFloat()
-  if classify(result) in {fcNan, fcInf, fcNegInf}:
-    raiseLottie("schemaViolation", target, capability, "expected finite number")
+  json_schema.requireNumber(node, target, capability, raiseLottieSchema)
 
 
 proc positiveInt(node: JsonNode; target, capability: string): int =
-  if node.kind != JInt:
-    raiseLottie("schemaViolation", target, capability, "expected integer")
-  result = node.getInt()
-  if result <= 0:
-    raiseLottie("schemaViolation", target, capability, "expected positive integer")
+  json_schema.requirePositiveInt(node, target, capability, raiseLottieSchema)
 
 
 proc optionalString(node: JsonNode; key, defaultValue, target: string): string =
-  if not node.hasKey(key):
-    return defaultValue
-  if node[key].kind != JString:
-    raiseLottie("schemaViolation", target, key, "expected string")
-  node[key].getStr()
+  json_schema.optionalString(node, key, defaultValue, target, raiseLottieSchema)
 
 
 proc requiredString(node: JsonNode; key, target: string): string =
   let value = optionalString(node, key, "", target)
   if value.len == 0:
-    raiseLottie("schemaViolation", target, key, "expected non-empty string")
+    raiseLottie(cliSchemaViolation, target, key, "expected non-empty string")
   value
 
 
@@ -310,7 +312,7 @@ proc optionalParentReference(node: JsonNode; key, target: string): tuple[name: s
     result.index = node[key].getInt()
     result.isIndex = true
   else:
-    raiseLottie("schemaViolation", target, key, "expected string or integer")
+    raiseLottie(cliSchemaViolation, target, key, "expected string or integer")
 
 
 proc pathIsSafeRelative(path: string): bool =
@@ -328,14 +330,14 @@ proc requireVector2(node: JsonNode; target, capability: string; defaultX, defaul
   if node.kind == JArray:
     for item in node.elems:
       if item.kind in {JObject, JArray}:
-        raiseLottie("unsupportedFeature", target, capability, "animated channels are not supported in Tier 1")
+        raiseLottie(cliUnsupportedFeature, target, capability, "animated channels are not supported in Tier 1")
     if node.elems.len != 2:
-      raiseLottie("schemaViolation", target, capability, "expected [x, y]")
+      raiseLottie(cliSchemaViolation, target, capability, "expected [x, y]")
     return (
       finiteNumber(node.elems[0], target, capability),
       finiteNumber(node.elems[1], target, capability),
     )
-  raiseLottie("unsupportedFeature", target, capability, "animated channels are not supported in Tier 1")
+  raiseLottie(cliUnsupportedFeature, target, capability, "animated channels are not supported in Tier 1")
 
 
 proc requireScalar(node: JsonNode; target, capability: string; defaultValue: float64): float64 =
@@ -343,7 +345,7 @@ proc requireScalar(node: JsonNode; target, capability: string; defaultValue: flo
     return defaultValue
   if node.kind in {JInt, JFloat}:
     return finiteNumber(node, target, capability)
-  raiseLottie("unsupportedFeature", target, capability, "animated channels are not supported in Tier 1")
+  raiseLottie(cliUnsupportedFeature, target, capability, "animated channels are not supported in Tier 1")
 
 
 proc parseTransform(node: JsonNode; target: string): LottieTransform =
@@ -358,7 +360,7 @@ proc parseTransform(node: JsonNode; target: string): LottieTransform =
   let rotation = requireScalar(if transform.hasKey("rotation"): transform["rotation"] else: nil, target, "rotation", 0.0)
   let opacity = requireScalar(if transform.hasKey("opacity"): transform["opacity"] else: nil, target, "opacity", 100.0)
   if opacity != 100.0:
-    raiseLottie("unsupportedFeature", target, "opacity", "non-default opacity is not serializable in Tier 1")
+    raiseLottie(cliUnsupportedFeature, target, "opacity", "non-default opacity is not serializable in Tier 1")
   result = LottieTransform(
     anchorX: anchor.x,
     anchorY: anchor.y,
@@ -381,12 +383,12 @@ proc parseAssets(root: JsonNode; assetsDir: string): Table[string, LottieAsset] 
     validateKeys(asset, ["id", "path", "w", "h"], target)
     let id = requiredString(asset, "id", target)
     if id in result:
-      raiseLottie("schemaViolation", target, "duplicateAsset", "duplicate asset id: " & id)
+      raiseLottie(cliSchemaViolation, target, "duplicateAsset", "duplicate asset id: " & id)
     let path = requiredString(asset, "path", target)
     if not path.pathIsSafeRelative:
-      raiseLottie("schemaViolation", target, "assetPath", "asset path must be safe and relative")
+      raiseLottie(cliSchemaViolation, target, "assetPath", "asset path must be safe and relative")
     if assetsDir.len > 0 and not fileExists(assetsDir / path):
-      raiseLottie("invalidReference", target, "assetPath", "missing external image file: " & path)
+      raiseLottie(cliInvalidReference, target, "assetPath", "missing external image file: " & path)
     result[id] = LottieAsset(
       id: id,
       path: path,
@@ -415,18 +417,18 @@ proc parseLayer(
   result.name = layerObject.layerName(index)
   result.kind = requiredString(layerObject, "kind", target)
   if result.kind != "image":
-    raiseLottie("unsupportedFeature", target, result.kind, "only image layers are supported in Tier 1")
+    raiseLottie(cliUnsupportedFeature, target, result.kind, "only image layers are supported in Tier 1")
   let blend = optionalString(layerObject, "blend", "normal", target)
   if blend != "normal":
-    raiseLottie("unsupportedFeature", target, "blend", "only normal blend is supported in Tier 1")
+    raiseLottie(cliUnsupportedFeature, target, "blend", "only normal blend is supported in Tier 1")
   let compIn = finiteNumber(requireField(composition, "ip", "composition"), "composition", "ip")
   let compOut = finiteNumber(requireField(composition, "op", "composition"), "composition", "op")
   let layerIn = if layerObject.hasKey("in"): finiteNumber(layerObject["in"], target, "in") else: compIn
   let layerOut = if layerObject.hasKey("out"): finiteNumber(layerObject["out"], target, "out") else: compOut
   if layerIn != compIn or layerOut != compOut:
-    raiseLottie("unsupportedFeature", target, "visibility", "visibility intervals are not supported in Tier 1")
+    raiseLottie(cliUnsupportedFeature, target, "visibility", "visibility intervals are not supported in Tier 1")
   if layerObject.hasKey("shapes"):
-    raiseLottie("unsupportedFeature", target, "shape", "shape layers require Tier 2")
+    raiseLottie(cliUnsupportedFeature, target, "shape", "shape layers require Tier 2")
 
   let parent = optionalParentReference(layerObject, "parent", target)
   result.parent = parent.name
@@ -434,21 +436,21 @@ proc parseLayer(
   result.parentIsIndex = parent.isIndex
   result.transform = parseTransform(if layerObject.hasKey("transform"): layerObject["transform"] else: nil, target)
   if not layerObject.hasKey("image"):
-    raiseLottie("schemaViolation", target, "image", "image layer requires image payload")
+    raiseLottie(cliSchemaViolation, target, "image", "image layer requires image payload")
   let image = requireObject(layerObject["image"], target & ".image")
   validateKeys(image, ["asset", "anchor", "size"], target & ".image")
   result.imageAsset = requiredString(image, "asset", target & ".image")
   if result.imageAsset notin assets:
-    raiseLottie("invalidReference", target, "asset", "unknown image asset: " & result.imageAsset)
+    raiseLottie(cliInvalidReference, target, "asset", "unknown image asset: " & result.imageAsset)
   let asset = assets[result.imageAsset]
   if image.hasKey("anchor"):
     let anchor = requireVector2(image["anchor"], target, "image.anchor", 0.0, 0.0)
     if anchor.x != 0.0 or anchor.y != 0.0:
-      raiseLottie("unsupportedFeature", target, "image.anchor", "image payload anchor is not supported in Tier 1")
+      raiseLottie(cliUnsupportedFeature, target, "image.anchor", "image payload anchor is not supported in Tier 1")
   if image.hasKey("size"):
     let size = requireVector2(image["size"], target, "image.size", asset.width, asset.height)
     if size.x <= 0.0 or size.y <= 0.0:
-      raiseLottie("schemaViolation", target, "image.size", "image size must be positive")
+      raiseLottie(cliSchemaViolation, target, "image.size", "image size must be positive")
     result.width = size.x
     result.height = size.y
   else:
@@ -461,37 +463,37 @@ proc parseLottieComposition(text, assetsDir: string): LottieComposition =
   try:
     root = parseJson(text)
   except JsonParsingError as exc:
-    raiseLottie("schemaViolation", "composition", "json", "invalid JSON: " & exc.msg)
+    raiseLottie(cliSchemaViolation, "composition", "json", "invalid JSON: " & exc.msg)
   let compositionObject = requireObject(root, "composition")
   validateKeys(compositionObject, ["w", "h", "fr", "ip", "op", "assets", "layers"], "composition")
   result.width = positiveInt(requireField(compositionObject, "w", "composition"), "composition", "w")
   result.height = positiveInt(requireField(compositionObject, "h", "composition"), "composition", "h")
   result.frameRate = finiteNumber(requireField(compositionObject, "fr", "composition"), "composition", "fr")
   if result.frameRate <= 0.0:
-    raiseLottie("schemaViolation", "composition", "fr", "frame rate must be positive")
+    raiseLottie(cliSchemaViolation, "composition", "fr", "frame rate must be positive")
   result.inFrame = finiteNumber(requireField(compositionObject, "ip", "composition"), "composition", "ip")
   result.outFrame = finiteNumber(requireField(compositionObject, "op", "composition"), "composition", "op")
   if result.outFrame <= result.inFrame:
-    raiseLottie("schemaViolation", "composition", "duration", "op must be greater than ip")
+    raiseLottie(cliSchemaViolation, "composition", "duration", "op must be greater than ip")
   if not compositionObject.hasKey("layers"):
-    raiseLottie("schemaViolation", "composition", "layers", "layers are required")
+    raiseLottie(cliSchemaViolation, "composition", "layers", "layers are required")
   let assets = parseAssets(compositionObject, assetsDir)
   let layers = requireArray(compositionObject["layers"], "layers")
   var names = initHashSet[string]()
   for index, item in layers.elems:
     let layer = parseLayer(item, index, compositionObject, assets)
     if layer.name in names:
-      raiseLottie("schemaViolation", "layers[" & $index & "]", "duplicateName", "duplicate layer name: " & layer.name)
+      raiseLottie(cliSchemaViolation, "layers[" & $index & "]", "duplicateName", "duplicate layer name: " & layer.name)
     names.incl(layer.name)
     result.layers.add layer
   if result.layers.len == 0:
-    raiseLottie("schemaViolation", "composition", "layers", "at least one layer is required")
+    raiseLottie(cliSchemaViolation, "composition", "layers", "at least one layer is required")
   for index, layer in result.layers:
     if layer.parentIsIndex:
       if layer.parentIndex >= 0 and layer.parentIndex < result.layers.len:
         result.layers[index].parent = result.layers[layer.parentIndex].name
       else:
-        raiseLottie("invalidReference", "layers[" & $index & "]", "parent", "unknown parent index: " & $layer.parentIndex)
+        raiseLottie(cliInvalidReference, "layers[" & $index & "]", "parent", "unknown parent index: " & $layer.parentIndex)
       continue
     if layer.parent.len == 0:
       continue
@@ -505,7 +507,7 @@ proc parseLottieComposition(text, assetsDir: string): LottieComposition =
       if parseInt(layer.parent, parentIndex) == layer.parent.len and parentIndex >= 0 and parentIndex < result.layers.len:
         result.layers[index].parent = result.layers[parentIndex].name
       else:
-        raiseLottie("invalidReference", "layers[" & $index & "]", "parent", "unknown parent: " & layer.parent)
+        raiseLottie(cliInvalidReference, "layers[" & $index & "]", "parent", "unknown parent: " & layer.parent)
   var parentByName = initTable[string, string]()
   for layer in result.layers:
     parentByName[layer.name] = layer.parent
@@ -514,7 +516,7 @@ proc parseLottieComposition(text, assetsDir: string): LottieComposition =
     var current = layer.name
     while current.len > 0:
       if current in seen:
-        raiseLottie("cycleDetected", layer.name, "parent", "parent graph contains a cycle")
+        raiseLottie(cliCycleDetected, layer.name, "parent", "parent graph contains a cycle")
       seen.incl current
       current = parentByName.getOrDefault(current, "")
 
@@ -531,11 +533,11 @@ proc appendLottieBone(
   if layer.name in emitted:
     return
   if layer.name in visiting:
-    raiseLottie("cycleDetected", layer.name, "parent", "parent graph contains a cycle")
+    raiseLottie(cliCycleDetected, layer.name, "parent", "parent graph contains a cycle")
   visiting.incl layer.name
   if layer.parent.len > 0:
     if layer.parent notin nameToIndex:
-      raiseLottie("invalidReference", layer.name, "parent", "unknown parent: " & layer.parent)
+      raiseLottie(cliInvalidReference, layer.name, "parent", "unknown parent: " & layer.parent)
     appendLottieBone(nameToIndex[layer.parent], composition, nameToIndex, visiting, emitted, bones)
   let parent = if layer.parent.len == 0: "composition" else: layer.parent
   let angle = degToRad(layer.transform.rotation)
@@ -599,18 +601,18 @@ proc importLottie(args: seq[string]) =
         quit(usage(), QuitFailure)
       origin = args[index + 1]
       if origin notin validOrigins:
-        raiseLottie("schemaViolation", "cli", "origin", originErrMsg)
+        raiseLottie(cliSchemaViolation, "cli", "origin", originErrMsg)
       index += 2
     of "--reject-shapes":
       index += 1
     of "--rasterize-shapes":
-      raiseLottie("unsupportedFeature", "cli", "rasterize-shapes", "shape rasterization requires Tier 2")
+      raiseLottie(cliUnsupportedFeature, "cli", "rasterize-shapes", "shape rasterization requires Tier 2")
     of "--atlas-out":
-      raiseLottie("unsupportedFeature", "cli", "atlas", "atlas output requires Tier 2")
+      raiseLottie(cliUnsupportedFeature, "cli", "atlas", "atlas output requires Tier 2")
     else:
       quit(usage(), QuitFailure)
   if assetsDir.len == 0:
-    raiseLottie("schemaViolation", "cli", "assets-dir", "--assets-dir is required")
+    raiseLottie(cliSchemaViolation, "cli", "assets-dir", "--assets-dir is required")
   let composition = parseLottieComposition(readFile(inputPath), assetsDir)
   let data = composition.toSkeletonData(origin)
   writeFile(outputPath, toBonyJson(data))
@@ -623,11 +625,6 @@ proc importLottie(args: seq[string]) =
 # parser boundary and must not appear in bony runtime objects.
 
 type
-  DbDiagnostic = object of CatchableError
-    dbCode*: string
-    dbTarget*: string
-    dbCapability*: string
-
   DbTransform = object
     x: float64
     y: float64
@@ -709,78 +706,48 @@ type
     hasAnimation: bool
 
 
-proc newDbDiagnostic(code, target, capability, message: string): ref DbDiagnostic =
-  new(result)
-  result.dbCode = code
-  result.dbTarget = target
-  result.dbCapability = capability
-  result.msg = message
-
-
-proc raiseDb(code, target, capability, message: string) =
-  raise newDbDiagnostic(code, target, capability, message)
-
-
-proc dbMessage(exc: ref DbDiagnostic): string =
-  result = exc.dbCode
-  if exc.dbTarget.len > 0:
-    result.add " target=" & exc.dbTarget
-  if exc.dbCapability.len > 0:
-    result.add " capability=" & exc.dbCapability
-  if exc.msg.len > 0:
-    result.add " " & exc.msg
-
-
 proc dbOptFloat(node: JsonNode; key: string; defaultVal: float64; target: string): float64 =
   if not node.hasKey(key):
     return defaultVal
   let v = node[key]
-  if v.kind notin {JInt, JFloat}:
-    raiseDb("schemaViolation", target, key, "expected number for " & key)
-  let f = v.getFloat()
-  if classify(f) in {fcNan, fcInf, fcNegInf}:
-    raiseDb("schemaViolation", target, key, key & " must be finite")
-  f
+  json_schema.requireNumber(v, target, key, raiseDbSchema,
+    message = "expected number for " & key,
+    finiteMessage = key & " must be finite")
 
 
 proc dbRequireString(node: JsonNode; key, target: string): string =
-  if not node.hasKey(key):
-    raiseDb("schemaViolation", target, key, "missing required field: " & key)
-  if node[key].kind != JString:
-    raiseDb("schemaViolation", target, key, "expected string for " & key)
-  let s = node[key].getStr()
+  let value = json_schema.requireField(node, key, target, raiseDbSchema)
+  if value.kind != JString:
+    raiseDb(cliSchemaViolation, target, key, "expected string for " & key)
+  let s = value.getStr()
   if s.len == 0:
-    raiseDb("schemaViolation", target, key, "required field must be non-empty: " & key)
+    raiseDb(cliSchemaViolation, target, key, "required field must be non-empty: " & key)
   s
 
 
 proc dbOptString(node: JsonNode; key, defaultVal, target: string): string =
-  if not node.hasKey(key):
-    return defaultVal
-  if node[key].kind != JString:
-    raiseDb("schemaViolation", target, key, "expected string for " & key)
-  node[key].getStr()
+  json_schema.optionalString(node, key, defaultVal, target, raiseDbSchema,
+    message = "expected string for " & key)
 
 
 proc dbRequirePositiveInt(node: JsonNode; key, target: string): int =
-  if not node.hasKey(key):
-    raiseDb("schemaViolation", target, key, "missing required field: " & key)
-  if node[key].kind != JInt:
-    raiseDb("schemaViolation", target, key, "expected integer for " & key)
-  let v = node[key].getInt()
-  if v <= 0:
-    raiseDb("schemaViolation", target, key, key & " must be positive")
-  v
+  json_schema.requirePositiveInt(
+    json_schema.requireField(node, key, target, raiseDbSchema),
+    target,
+    key,
+    raiseDbSchema,
+    message = "expected integer for " & key,
+    positiveMessage = key & " must be positive",
+  )
 
 
 proc dbRequireNonNegativeInt(node: JsonNode; key, target: string): int =
-  if not node.hasKey(key):
-    raiseDb("schemaViolation", target, key, "missing required field: " & key)
-  if node[key].kind != JInt:
-    raiseDb("schemaViolation", target, key, "expected integer for " & key)
-  let v = node[key].getInt()
+  let value = json_schema.requireField(node, key, target, raiseDbSchema)
+  if value.kind != JInt:
+    raiseDb(cliSchemaViolation, target, key, "expected integer for " & key)
+  let v = value.getInt()
   if v < 0:
-    raiseDb("schemaViolation", target, key, key & " must be non-negative")
+    raiseDb(cliSchemaViolation, target, key, key & " must be non-negative")
   v
 
 
@@ -788,7 +755,7 @@ proc dbOptInt(node: JsonNode; key: string; defaultVal: int; target: string): int
   if not node.hasKey(key):
     return defaultVal
   if node[key].kind != JInt:
-    raiseDb("schemaViolation", target, key, "expected integer for " & key)
+    raiseDb(cliSchemaViolation, target, key, "expected integer for " & key)
   node[key].getInt()
 
 
@@ -798,45 +765,43 @@ proc dbOptNullableFloat(node: JsonNode; key: string; target: string): tuple[pres
   let v = node[key]
   if v.kind == JNull:
     return (false, 0.0)
-  if v.kind notin {JInt, JFloat}:
-    raiseDb("schemaViolation", target, key, "expected number or null for " & key)
-  let f = v.getFloat()
-  if classify(f) in {fcNan, fcInf, fcNegInf}:
-    raiseDb("schemaViolation", target, key, key & " must be finite")
+  let f = json_schema.requireNumber(v, target, key, raiseDbSchema,
+    message = "expected number or null for " & key,
+    finiteMessage = key & " must be finite")
   (true, f)
 
 
 proc parseDbFrameEase(node: JsonNode; target: string): DbFrameEase =
   let (hasTween, tween) = dbOptNullableFloat(node, "tweenEasing", target)
   if hasTween and tween != 0.0:
-    raiseDb("unsupportedFeature", target, "tweenEasing",
+    raiseDb(cliUnsupportedFeature, target, "tweenEasing",
       "non-zero tweenEasing not supported in Tier 1")
   result.hasTweenEasing = hasTween
   result.tweenEasing = tween
   if node.hasKey("curve"):
     if node["curve"].kind != JArray:
-      raiseDb("schemaViolation", target, "curve", "expected array for curve")
+      raiseDb(cliSchemaViolation, target, "curve", "expected array for curve")
     if node["curve"].elems.len != 4:
-      raiseDb("schemaViolation", target, "curve", "curve must contain exactly four numbers")
+      raiseDb(cliSchemaViolation, target, "curve", "curve must contain exactly four numbers")
     result.hasCurve = true
     for ci, item in node["curve"].elems:
       if item.kind notin {JInt, JFloat}:
-        raiseDb("schemaViolation", target & ".curve[" & $ci & "]", "curve",
+        raiseDb(cliSchemaViolation, target & ".curve[" & $ci & "]", "curve",
           "expected number in curve")
       let f = item.getFloat()
       if classify(f) in {fcNan, fcInf, fcNegInf}:
-        raiseDb("schemaViolation", target & ".curve[" & $ci & "]", "curve",
+        raiseDb(cliSchemaViolation, target & ".curve[" & $ci & "]", "curve",
           "curve value must be finite")
       result.curve.add f
-    raiseDb("unsupportedFeature", target, "curve", "Bezier curve easing not supported in Tier 1")
+    raiseDb(cliUnsupportedFeature, target, "curve", "Bezier curve easing not supported in Tier 1")
 
 
 proc parseDbTransform(node: JsonNode; target: string): DbTransform =
   if node.kind != JObject:
-    raiseDb("schemaViolation", target, "transform", "expected object for TransformObject")
+    raiseDb(cliSchemaViolation, target, "transform", "expected object for TransformObject")
   for key in node.keys:
     if key notin ["x", "y", "skX", "skY", "scX", "scY"]:
-      raiseDb("schemaViolation", target, key, "unknown key in TransformObject: " & key)
+      raiseDb(cliSchemaViolation, target, key, "unknown key in TransformObject: " & key)
   result.x = dbOptFloat(node, "x", 0.0, target)
   result.y = dbOptFloat(node, "y", 0.0, target)
   result.skX = dbOptFloat(node, "skX", 0.0, target)
@@ -844,35 +809,35 @@ proc parseDbTransform(node: JsonNode; target: string): DbTransform =
   result.scX = dbOptFloat(node, "scX", 1.0, target)
   result.scY = dbOptFloat(node, "scY", 1.0, target)
   if result.scX == 0.0:
-    raiseDb("schemaViolation", target, "scX", "scX must not be zero")
+    raiseDb(cliSchemaViolation, target, "scX", "scX must not be zero")
   if result.scY == 0.0:
-    raiseDb("schemaViolation", target, "scY", "scY must not be zero")
+    raiseDb(cliSchemaViolation, target, "scY", "scY must not be zero")
   if result.scX < 0.0 or result.scY < 0.0:
-    raiseDb("unsupportedFeature", target, "negativeScale", "negative scale not supported in Tier 1")
+    raiseDb(cliUnsupportedFeature, target, "negativeScale", "negative scale not supported in Tier 1")
 
 
 proc parseDbDisplay(node: JsonNode; index: int; slotName: string): DbDisplay =
   let target = "skin.slot[" & slotName & "].display[" & $index & "]"
   if node.kind != JObject:
-    raiseDb("schemaViolation", target, "object", "expected display object")
+    raiseDb(cliSchemaViolation, target, "object", "expected display object")
   result.name = dbRequireString(node, "name", target)
   let typStr = dbOptString(node, "type", "image", target)
   case typStr
   of "image":
     result.kind = dbkImage
   of "mesh":
-    raiseDb("unsupportedFeature", target, "mesh", "mesh displays not supported in Tier 1")
+    raiseDb(cliUnsupportedFeature, target, "mesh", "mesh displays not supported in Tier 1")
   of "boundingBox":
-    raiseDb("unsupportedFeature", target, "boundingBox", "bounding-box displays not supported in Tier 1")
+    raiseDb(cliUnsupportedFeature, target, "boundingBox", "bounding-box displays not supported in Tier 1")
   else:
-    raiseDb("unsupportedFeature", target, typStr, "display type not supported in Tier 1: " & typStr)
+    raiseDb(cliUnsupportedFeature, target, typStr, "display type not supported in Tier 1: " & typStr)
   if node.hasKey("transform"):
     if node["transform"].kind != JObject:
-      raiseDb("schemaViolation", target, "transform", "expected transform object")
+      raiseDb(cliSchemaViolation, target, "transform", "expected transform object")
     let t = parseDbTransform(node["transform"], target & ".transform")
     if t.x != 0.0 or t.y != 0.0 or t.skX != 0.0 or t.skY != 0.0 or
        t.scX != 1.0 or t.scY != 1.0:
-      raiseDb("unsupportedFeature", target, "displayTransform",
+      raiseDb(cliUnsupportedFeature, target, "displayTransform",
         "non-identity display transform not supported in Tier 1")
     result.transform = t
   else:
@@ -882,10 +847,10 @@ proc parseDbDisplay(node: JsonNode; index: int; slotName: string): DbDisplay =
 proc parseDbTranslateFrame(node: JsonNode; index: int; boneName, animName: string): DbTranslateFrame =
   let target = "animation[" & animName & "].bone[" & boneName & "].translateFrame[" & $index & "]"
   if node.kind != JObject:
-    raiseDb("schemaViolation", target, "object", "expected translateFrame object")
+    raiseDb(cliSchemaViolation, target, "object", "expected translateFrame object")
   for key in node.keys:
     if key notin ["duration", "x", "y", "tweenEasing", "curve"]:
-      raiseDb("schemaViolation", target, key, "unknown key in translateFrame: " & key)
+      raiseDb(cliSchemaViolation, target, key, "unknown key in translateFrame: " & key)
   result.duration = dbRequireNonNegativeInt(node, "duration", target)
   result.x = dbOptFloat(node, "x", 0.0, target)
   result.y = dbOptFloat(node, "y", 0.0, target)
@@ -895,18 +860,18 @@ proc parseDbTranslateFrame(node: JsonNode; index: int; boneName, animName: strin
 proc parseDbRotateFrame(node: JsonNode; index: int; boneName, animName: string): DbRotateFrame =
   let target = "animation[" & animName & "].bone[" & boneName & "].rotateFrame[" & $index & "]"
   if node.kind != JObject:
-    raiseDb("schemaViolation", target, "object", "expected rotateFrame object")
+    raiseDb(cliSchemaViolation, target, "object", "expected rotateFrame object")
   for key in node.keys:
     if key notin ["duration", "rotate", "clockwise", "tweenEasing", "curve"]:
-      raiseDb("schemaViolation", target, key, "unknown key in rotateFrame: " & key)
+      raiseDb(cliSchemaViolation, target, key, "unknown key in rotateFrame: " & key)
   result.duration = dbRequireNonNegativeInt(node, "duration", target)
   result.rotate = dbOptFloat(node, "rotate", 0.0, target)
   if node.hasKey("clockwise"):
     result.hasClockwise = true
     result.clockwise = dbOptInt(node, "clockwise", 0, target)
     if result.clockwise notin [0, 1]:
-      raiseDb("schemaViolation", target, "clockwise", "clockwise must be 0 or 1")
-    raiseDb("unsupportedFeature", target, "clockwise",
+      raiseDb(cliSchemaViolation, target, "clockwise", "clockwise must be 0 or 1")
+    raiseDb(cliUnsupportedFeature, target, "clockwise",
       "clockwise rotation hints not supported in Tier 1")
   result.easing = parseDbFrameEase(node, target)
 
@@ -914,10 +879,10 @@ proc parseDbRotateFrame(node: JsonNode; index: int; boneName, animName: string):
 proc parseDbScaleFrame(node: JsonNode; index: int; boneName, animName: string): DbScaleFrame =
   let target = "animation[" & animName & "].bone[" & boneName & "].scaleFrame[" & $index & "]"
   if node.kind != JObject:
-    raiseDb("schemaViolation", target, "object", "expected scaleFrame object")
+    raiseDb(cliSchemaViolation, target, "object", "expected scaleFrame object")
   for key in node.keys:
     if key notin ["duration", "x", "y", "tweenEasing", "curve"]:
-      raiseDb("schemaViolation", target, key, "unknown key in scaleFrame: " & key)
+      raiseDb(cliSchemaViolation, target, key, "unknown key in scaleFrame: " & key)
   result.duration = dbRequireNonNegativeInt(node, "duration", target)
   result.x = dbOptFloat(node, "x", 1.0, target)
   result.y = dbOptFloat(node, "y", 1.0, target)
@@ -927,24 +892,24 @@ proc parseDbScaleFrame(node: JsonNode; index: int; boneName, animName: string): 
 proc parseDbBoneAnimationEntry(node: JsonNode; index: int; animName: string): DbBoneAnimationEntry =
   let target = "animation[" & animName & "].bone[" & $index & "]"
   if node.kind != JObject:
-    raiseDb("schemaViolation", target, "object", "expected bone animation object")
+    raiseDb(cliSchemaViolation, target, "object", "expected bone animation object")
   for key in node.keys:
     if key notin ["name", "translateFrame", "rotateFrame", "scaleFrame"]:
-      raiseDb("schemaViolation", target, key, "unknown key in bone animation: " & key)
+      raiseDb(cliSchemaViolation, target, key, "unknown key in bone animation: " & key)
   result.name = dbRequireString(node, "name", target)
   if node.hasKey("translateFrame"):
     if node["translateFrame"].kind != JArray:
-      raiseDb("schemaViolation", target, "translateFrame", "expected translateFrame array")
+      raiseDb(cliSchemaViolation, target, "translateFrame", "expected translateFrame array")
     for fi, frame in node["translateFrame"].elems:
       result.translateFrames.add parseDbTranslateFrame(frame, fi, result.name, animName)
   if node.hasKey("rotateFrame"):
     if node["rotateFrame"].kind != JArray:
-      raiseDb("schemaViolation", target, "rotateFrame", "expected rotateFrame array")
+      raiseDb(cliSchemaViolation, target, "rotateFrame", "expected rotateFrame array")
     for fi, frame in node["rotateFrame"].elems:
       result.rotateFrames.add parseDbRotateFrame(frame, fi, result.name, animName)
   if node.hasKey("scaleFrame"):
     if node["scaleFrame"].kind != JArray:
-      raiseDb("schemaViolation", target, "scaleFrame", "expected scaleFrame array")
+      raiseDb(cliSchemaViolation, target, "scaleFrame", "expected scaleFrame array")
     for fi, frame in node["scaleFrame"].elems:
       result.scaleFrames.add parseDbScaleFrame(frame, fi, result.name, animName)
 
@@ -957,13 +922,13 @@ proc validateDbChannelDurations(
   if durations.len == 0:
     return
   if durations[^1] != 0:
-    raiseDb("schemaViolation", target, channelName,
+    raiseDb(cliSchemaViolation, target, channelName,
       channelName & " must end with a zero-duration terminator frame")
   var total = 0
   for duration in durations:
     total += duration
   if total != animationDuration:
-    raiseDb("schemaViolation", target, channelName,
+    raiseDb(cliSchemaViolation, target, channelName,
       channelName & " duration sum " & $total &
       " does not match animation duration " & $animationDuration)
 
@@ -973,12 +938,12 @@ proc validateDbAnimationChannels(anim: DbAnimation; boneNames: HashSet[string]) 
   for bone in anim.bones:
     let target = "animation[" & anim.name & "].bone[" & bone.name & "]"
     if bone.name notin boneNames:
-      raiseDb("invalidReference", bone.name, "bone",
+      raiseDb(cliInvalidReference, bone.name, "bone",
         "animation references unknown bone: " & bone.name)
     if bone.name in seenBones:
       # Duplicate entries would emit conflicting timelines for the same
       # target/kind, which the mixer resolves last-writer-wins — a silent drop.
-      raiseDb("schemaViolation", target, "bone",
+      raiseDb(cliSchemaViolation, target, "bone",
         "duplicate bone entry in animation: " & bone.name)
     seenBones.incl(bone.name)
 
@@ -1001,24 +966,24 @@ proc validateDbAnimationChannels(anim: DbAnimation; boneNames: HashSet[string]) 
 proc parseDbAnimation(node: JsonNode; index: int; boneNames: HashSet[string]): DbAnimation =
   let target = "animation[" & $index & "]"
   if node.kind != JObject:
-    raiseDb("schemaViolation", target, "object", "expected animation object")
+    raiseDb(cliSchemaViolation, target, "object", "expected animation object")
   for key in node.keys:
     if key in ["fadeInTime", "playTimes", "blendType", "type", "frame", "ffd"]:
-      raiseDb("unsupportedFeature", target, key,
+      raiseDb(cliUnsupportedFeature, target, key,
         "animation field not supported in Tier 1: " & key)
     if key notin ["name", "duration", "bone", "slot"]:
-      raiseDb("schemaViolation", target, key, "unknown key in animation: " & key)
+      raiseDb(cliSchemaViolation, target, key, "unknown key in animation: " & key)
   result.name = dbRequireString(node, "name", target)
   result.duration = dbRequireNonNegativeInt(node, "duration", target)
   if node.hasKey("bone"):
     if node["bone"].kind != JArray:
-      raiseDb("schemaViolation", target, "bone", "expected bone animation array")
+      raiseDb(cliSchemaViolation, target, "bone", "expected bone animation array")
     for bi, boneNode in node["bone"].elems:
       result.bones.add parseDbBoneAnimationEntry(boneNode, bi, result.name)
   if node.hasKey("slot") and node["slot"].kind != JArray:
-    raiseDb("schemaViolation", target, "slot", "expected slot animation array")
+    raiseDb(cliSchemaViolation, target, "slot", "expected slot animation array")
   if node.hasKey("slot") and node["slot"].elems.len > 0:
-    raiseDb("unsupportedFeature", target, "slot",
+    raiseDb(cliUnsupportedFeature, target, "slot",
       "slot animation channels not supported in Tier 1")
   validateDbAnimationChannels(result, boneNames)
 
@@ -1026,11 +991,11 @@ proc parseDbAnimation(node: JsonNode; index: int; boneNames: HashSet[string]): D
 proc parseDbSkinSlotEntry(node: JsonNode; index: int; skinName: string): DbSkinSlotEntry =
   let target = "skin[" & skinName & "].slot[" & $index & "]"
   if node.kind != JObject:
-    raiseDb("schemaViolation", target, "object", "expected skin slot object")
+    raiseDb(cliSchemaViolation, target, "object", "expected skin slot object")
   result.slotName = dbRequireString(node, "name", target)
   if node.hasKey("display"):
     if node["display"].kind != JArray:
-      raiseDb("schemaViolation", target, "display", "expected display array")
+      raiseDb(cliSchemaViolation, target, "display", "expected display array")
     for di, disp in node["display"].elems:
       result.displays.add parseDbDisplay(disp, di, result.slotName)
 
@@ -1038,11 +1003,11 @@ proc parseDbSkinSlotEntry(node: JsonNode; index: int; skinName: string): DbSkinS
 proc parseDbSkin(node: JsonNode; index: int): DbSkin =
   let target = "skin[" & $index & "]"
   if node.kind != JObject:
-    raiseDb("schemaViolation", target, "object", "expected skin object")
+    raiseDb(cliSchemaViolation, target, "object", "expected skin object")
   result.name = dbOptString(node, "name", "", target)
   if node.hasKey("slot"):
     if node["slot"].kind != JArray:
-      raiseDb("schemaViolation", target, "slot", "expected slot array")
+      raiseDb(cliSchemaViolation, target, "slot", "expected slot array")
     for si, slotNode in node["slot"].elems:
       result.slotEntries.add parseDbSkinSlotEntry(slotNode, si, result.name)
 
@@ -1050,17 +1015,17 @@ proc parseDbSkin(node: JsonNode; index: int): DbSkin =
 proc parseDbSlot(node: JsonNode; index: int): DbSlotEntry =
   let target = "slot[" & $index & "]"
   if node.kind != JObject:
-    raiseDb("schemaViolation", target, "object", "expected slot object")
+    raiseDb(cliSchemaViolation, target, "object", "expected slot object")
   result.name = dbRequireString(node, "name", target)
   result.parent = dbRequireString(node, "parent", target)
   let di = dbOptInt(node, "displayIndex", 0, target)
   if di < 0:
-    raiseDb("unsupportedFeature", target, "displayIndex",
+    raiseDb(cliUnsupportedFeature, target, "displayIndex",
       "displayIndex -1 (hidden slot) not supported in Tier 1")
   result.displayIndex = di
   let blendMode = dbOptString(node, "blendMode", "normal", target)
   if blendMode != "normal":
-    raiseDb("unsupportedFeature", target, "blendMode",
+    raiseDb(cliUnsupportedFeature, target, "blendMode",
       "blend mode not supported in Tier 1: " & blendMode)
   result.blendMode = blendMode
 
@@ -1068,12 +1033,12 @@ proc parseDbSlot(node: JsonNode; index: int): DbSlotEntry =
 proc parseDbBone(node: JsonNode; index: int): DbBoneEntry =
   let target = "bone[" & $index & "]"
   if node.kind != JObject:
-    raiseDb("schemaViolation", target, "object", "expected bone object")
+    raiseDb(cliSchemaViolation, target, "object", "expected bone object")
   result.name = dbRequireString(node, "name", target)
   result.parent = dbOptString(node, "parent", "", target)
   if node.hasKey("transform"):
     if node["transform"].kind != JObject:
-      raiseDb("schemaViolation", target, "transform", "expected transform object")
+      raiseDb(cliSchemaViolation, target, "transform", "expected transform object")
     result.transform = parseDbTransform(node["transform"], target & ".transform")
   else:
     result.transform = DbTransform(scX: 1.0, scY: 1.0)
@@ -1084,12 +1049,12 @@ proc validateAndSortBones(bones: seq[DbBoneEntry]; armatureName: string): seq[Db
   var allNames = initHashSet[string]()
   for bone in bones:
     if bone.name in allNames:
-      raiseDb("schemaViolation", armatureName, "bone.name", "duplicate bone name: " & bone.name)
+      raiseDb(cliSchemaViolation, armatureName, "bone.name", "duplicate bone name: " & bone.name)
     allNames.incl(bone.name)
 
   for bone in bones:
     if bone.parent.len > 0 and bone.parent notin allNames:
-      raiseDb("invalidReference", bone.name, "parent", "unknown parent bone: " & bone.parent)
+      raiseDb(cliInvalidReference, bone.name, "parent", "unknown parent bone: " & bone.parent)
 
   # Count roots (bones with no parent).
   var roots: seq[string] = @[]
@@ -1097,9 +1062,9 @@ proc validateAndSortBones(bones: seq[DbBoneEntry]; armatureName: string): seq[Db
     if bone.parent.len == 0:
       roots.add(bone.name)
   if roots.len == 0:
-    raiseDb("schemaViolation", armatureName, "root", "armature must have exactly one root bone")
+    raiseDb(cliSchemaViolation, armatureName, "root", "armature must have exactly one root bone")
   if roots.len > 1:
-    raiseDb("schemaViolation", armatureName, "root",
+    raiseDb(cliSchemaViolation, armatureName, "root",
       "armature has multiple root bones: " & roots.join(", "))
 
   # Cycle check via path-following.
@@ -1111,7 +1076,7 @@ proc validateAndSortBones(bones: seq[DbBoneEntry]; armatureName: string): seq[Db
     var current = bone.name
     while current.len > 0:
       if current in seen:
-        raiseDb("cycleDetected", bone.name, "parent", "bone parent chain contains a cycle")
+        raiseDb(cliCycleDetected, bone.name, "parent", "bone parent chain contains a cycle")
       seen.incl(current)
       current = parentMap.getOrDefault(current, "")
 
@@ -1130,30 +1095,30 @@ proc validateAndSortBones(bones: seq[DbBoneEntry]; armatureName: string): seq[Db
         next.add(bone)
     pending = next
     if pending.len == before:
-      raiseDb("cycleDetected", armatureName, "parent", "bone ordering cycle detected")
+      raiseDb(cliCycleDetected, armatureName, "parent", "bone ordering cycle detected")
   ordered
 
 
 proc parseDbArmature(node: JsonNode; index: int; parseAnimations = true): DbArmature =
   let target = "armature[" & $index & "]"
   if node.kind != JObject:
-    raiseDb("schemaViolation", target, "object", "expected armature object")
+    raiseDb(cliSchemaViolation, target, "object", "expected armature object")
   result.name = dbRequireString(node, "name", target)
   result.frameRate = dbRequirePositiveInt(node, "frameRate", target)
   let typStr = dbRequireString(node, "type", target)
   if typStr != "Armature":
-    raiseDb("unsupportedFeature", target, "type",
+    raiseDb(cliUnsupportedFeature, target, "type",
       "armature type not supported: " & typStr & " (only \"Armature\" is supported)")
   if not node.hasKey("bone"):
-    raiseDb("schemaViolation", target, "bone", "missing required field: bone")
+    raiseDb(cliSchemaViolation, target, "bone", "missing required field: bone")
   if node["bone"].kind != JArray:
-    raiseDb("schemaViolation", target, "bone", "expected bone array")
+    raiseDb(cliSchemaViolation, target, "bone", "expected bone array")
 
   var rawBones: seq[DbBoneEntry] = @[]
   for bi, boneNode in node["bone"].elems:
     rawBones.add parseDbBone(boneNode, bi)
   if rawBones.len == 0:
-    raiseDb("schemaViolation", target, "bone", "armature must have at least one bone")
+    raiseDb(cliSchemaViolation, target, "bone", "armature must have at least one bone")
   result.bones = validateAndSortBones(rawBones, result.name)
   var boneNames = initHashSet[string]()
   for bone in result.bones:
@@ -1169,7 +1134,7 @@ proc parseDbArmature(node: JsonNode; index: int; parseAnimations = true): DbArma
           found = true
           break
       if not found:
-        raiseDb("invalidReference", slotEntry.name, "parent",
+        raiseDb(cliInvalidReference, slotEntry.name, "parent",
           "slot parent bone not found: " & slotEntry.parent)
       result.slots.add slotEntry
 
@@ -1180,7 +1145,7 @@ proc parseDbArmature(node: JsonNode; index: int; parseAnimations = true): DbArma
 
   if node.hasKey("animation"):
     if node["animation"].kind != JArray:
-      raiseDb("schemaViolation", target, "animation", "expected animation array")
+      raiseDb(cliSchemaViolation, target, "animation", "expected animation array")
     result.hasAnimation = node["animation"].elems.len > 0
     if parseAnimations:
       # The bony JSON loader rejects duplicate animation names, so admitting
@@ -1189,7 +1154,7 @@ proc parseDbArmature(node: JsonNode; index: int; parseAnimations = true): DbArma
       for ai, animNode in node["animation"].elems:
         let anim = parseDbAnimation(animNode, ai, boneNames)
         if anim.name in animNames:
-          raiseDb("schemaViolation", "animation[" & anim.name & "]", "name",
+          raiseDb(cliSchemaViolation, "animation[" & anim.name & "]", "name",
             "duplicate animation name: " & anim.name)
         animNames.incl(anim.name)
         result.animations.add anim
@@ -1201,24 +1166,24 @@ proc parseDbSkeleton(text: string; parseAnimations = true): DbArmature =
   try:
     root = parseJson(text)
   except JsonParsingError as exc:
-    raiseDb("schemaViolation", "skeleton", "json", "invalid JSON: " & exc.msg)
+    raiseDb(cliSchemaViolation, "skeleton", "json", "invalid JSON: " & exc.msg)
   if root.kind != JObject:
-    raiseDb("schemaViolation", "skeleton", "object", "expected top-level object")
+    raiseDb(cliSchemaViolation, "skeleton", "object", "expected top-level object")
   if not root.hasKey("version"):
-    raiseDb("schemaViolation", "skeleton", "version", "missing required field: version")
+    raiseDb(cliSchemaViolation, "skeleton", "version", "missing required field: version")
   if root["version"].kind != JString:
-    raiseDb("schemaViolation", "skeleton", "version", "version must be a string")
+    raiseDb(cliSchemaViolation, "skeleton", "version", "version must be a string")
   let version = root["version"].getStr()
   if not version.startsWith("5."):
-    raiseDb("unsupportedVersion", "skeleton", "version",
+    raiseDb(cliUnsupportedVersion, "skeleton", "version",
       "unsupported DragonBones version: " & version & " (only 5.x is supported)")
   if not root.hasKey("armature"):
-    raiseDb("schemaViolation", "skeleton", "armature", "missing required field: armature")
+    raiseDb(cliSchemaViolation, "skeleton", "armature", "missing required field: armature")
   if root["armature"].kind != JArray:
-    raiseDb("schemaViolation", "skeleton", "armature", "armature must be an array")
+    raiseDb(cliSchemaViolation, "skeleton", "armature", "armature must be an array")
   let armatures = root["armature"].elems
   if armatures.len == 0:
-    raiseDb("schemaViolation", "skeleton", "armature", "armature array must not be empty")
+    raiseDb(cliSchemaViolation, "skeleton", "armature", "armature array must not be empty")
   # Return first armature; caller emits multipleArmatures diagnostic if needed.
   result = parseDbArmature(armatures[0], 0, parseAnimations)
 
@@ -1278,12 +1243,12 @@ proc resolveImageDims(displayName, assetsDir: string): tuple[w, h: float64] =
   let ext = if '.' in displayName: "" else: ".png"
   let path = assetsDir / displayName & ext
   if not fileExists(path):
-    raiseDb("missingAsset", displayName, "assetPath", "image not found under --assets-dir: " & path)
+    raiseDb(cliMissingAsset, displayName, "assetPath", "image not found under --assets-dir: " & path)
   try:
     let img = decodeImage(readFile(path))
     result = (float64(img.width), float64(img.height))
   except PixieError:
-    raiseDb("missingAsset", displayName, "assetPath", "could not decode image: " & path)
+    raiseDb(cliMissingAsset, displayName, "assetPath", "could not decode image: " & path)
 
 
 proc armatureToSkeletonData(
@@ -1324,14 +1289,14 @@ proc armatureToSkeletonData(
       if skinEntry.displays.len > 0:
         let di = dbSlot.displayIndex
         if di >= skinEntry.displays.len:
-          raiseDb("schemaViolation", dbSlot.name, "displayIndex",
+          raiseDb(cliSchemaViolation, dbSlot.name, "displayIndex",
             "displayIndex " & $di & " out of range (display count: " & $skinEntry.displays.len & ")")
         let display = skinEntry.displays[di]
         attachmentName = display.name
         if attachmentName notin regionNames:
           var w, h: float64
           if assetsDir.len == 0:
-            raiseDb("missingAsset", display.name, "assetPath",
+            raiseDb(cliMissingAsset, display.name, "assetPath",
               "--assets-dir required to resolve image: " & display.name)
           else:
             (w, h) = resolveImageDims(display.name, assetsDir)
@@ -1344,7 +1309,7 @@ proc armatureToSkeletonData(
           if assetsDir.len > 0:
             (w, h) = resolveImageDims(display.name, assetsDir)
           if assetsDir.len > 0 and (w, h) != prev:
-            raiseDb("schemaViolation", display.name, "regionDims",
+            raiseDb(cliSchemaViolation, display.name, "regionDims",
               "display name reused with conflicting dimensions: " & display.name)
     slots.add slotData(dbSlot.name, dbSlot.parent, attachmentName)
 
@@ -1373,7 +1338,7 @@ proc ensureDbEmittableFrameTime(
   frameIndex, frameCount, duration: int;
 ) =
   if duration == 0 and frameIndex != frameCount - 1:
-    raiseDb("schemaViolation", "animation[" & animName & "].bone[" & boneName & "]",
+    raiseDb(cliSchemaViolation, "animation[" & animName & "].bone[" & boneName & "]",
       channelName, channelName & " contains a zero-duration frame before the terminator")
 
 
@@ -1400,7 +1365,7 @@ proc dbTranslateTimeline(
       frameOffset += frame.duration
     result = boneVectorTimeline(bone.name, translateTimeline, keys)
   except BonyLoadError as exc:
-    raiseDb("schemaViolation", target, "translateFrame", exc.msg)
+    raiseDb(cliSchemaViolation, target, "translateFrame", exc.msg)
 
 
 proc dbRotateTimeline(
@@ -1423,7 +1388,7 @@ proc dbRotateTimeline(
       frameOffset += frame.duration
     result = boneScalarTimeline(bone.name, rotateTimeline, keys)
   except BonyLoadError as exc:
-    raiseDb("schemaViolation", target, "rotateFrame", exc.msg)
+    raiseDb(cliSchemaViolation, target, "rotateFrame", exc.msg)
 
 
 proc dbScaleTimeline(
@@ -1449,7 +1414,7 @@ proc dbScaleTimeline(
       frameOffset += frame.duration
     result = boneVectorTimeline(bone.name, scaleTimeline, keys)
   except BonyLoadError as exc:
-    raiseDb("schemaViolation", target, "scaleFrame", exc.msg)
+    raiseDb(cliSchemaViolation, target, "scaleFrame", exc.msg)
 
 
 proc addDbAnimationClip(
@@ -1470,12 +1435,12 @@ proc addDbAnimationClip(
       timelines.add dbScaleTimeline(bone, anim.name, animBone.scaleFrames, armature.frameRate)
 
   if timelines.len == 0:
-    raiseDb("unsupportedFeature", "animation[" & anim.name & "]", "animation",
+    raiseDb(cliUnsupportedFeature, "animation[" & anim.name & "]", "animation",
       "animation has no supported Tier 1 bone timelines")
   try:
     clips.add animationClip(data, anim.name, timelines)
   except BonyLoadError as exc:
-    raiseDb("schemaViolation", "animation[" & anim.name & "]", "animation", exc.msg)
+    raiseDb(cliSchemaViolation, "animation[" & anim.name & "]", "animation", exc.msg)
 
 
 proc dbAnimationsToClips(armature: DbArmature; data: SkeletonData): seq[AnimationClip] =
@@ -1605,15 +1570,13 @@ proc validateBonyKeys(node: JsonNode; allowed: openArray[string]; context: strin
 
 
 proc requireScriptObject(node: JsonNode; context: string): JsonNode =
-  if node.kind != JObject:
-    raise newBonyLoadError(schemaViolation, context & " must be an object")
-  node
+  json_schema.requireObject(node, context, raiseBonySchema,
+    message = context & " must be an object")
 
 
 proc requireScriptArray(node: JsonNode; context: string): JsonNode =
-  if node.kind != JArray:
-    raise newBonyLoadError(schemaViolation, context & " must be an array")
-  node
+  json_schema.requireArray(node, context, raiseBonySchema,
+    message = context & " must be an array")
 
 
 proc scriptString(node: JsonNode; key, context: string; required = false): string =
@@ -1621,29 +1584,32 @@ proc scriptString(node: JsonNode; key, context: string; required = false): strin
     if required:
       raise newBonyLoadError(schemaViolation, context & "." & key & " is required")
     return ""
-  if node[key].kind != JString:
-    raise newBonyLoadError(schemaViolation, context & "." & key & " must be a string")
-  result = node[key].getStr()
+  result = json_schema.optionalString(node, key, "", context, raiseBonySchema,
+    message = context & "." & key & " must be a string")
   if required and result.len == 0:
     raise newBonyLoadError(schemaViolation, context & "." & key & " must not be empty")
 
 
 proc scriptTime(node: JsonNode; key, context: string): float64 =
-  if not node.hasKey(key):
-    raise newBonyLoadError(schemaViolation, context & "." & key & " is required")
-  if node[key].kind notin {JInt, JFloat}:
-    raise newBonyLoadError(schemaViolation, context & "." & key & " must be a number")
-  result = quantizeF32(node[key].getFloat(), context & "." & key)
+  let value = json_schema.requireField(node, key, context, raiseBonySchema,
+    message = context & "." & key & " is required")
+  result = quantizeF32(
+    json_schema.requireNumberType(value, context, key, raiseBonySchema,
+      message = context & "." & key & " must be a number"),
+    context & "." & key,
+  )
   if result < 0:
     raise newBonyLoadError(schemaViolation, context & "." & key & " must be non-negative")
 
 
 proc scriptFloat(node: JsonNode; key, context: string): float64 =
-  if not node.hasKey(key):
-    raise newBonyLoadError(schemaViolation, context & "." & key & " is required")
-  if node[key].kind notin {JInt, JFloat}:
-    raise newBonyLoadError(schemaViolation, context & "." & key & " must be a number")
-  quantizeF32(node[key].getFloat(), context & "." & key)
+  let value = json_schema.requireField(node, key, context, raiseBonySchema,
+    message = context & "." & key & " is required")
+  quantizeF32(
+    json_schema.requireNumberType(value, context, key, raiseBonySchema,
+      message = context & "." & key & " must be a number"),
+    context & "." & key,
+  )
 
 
 proc scriptSafeRelativeAsset(value, context: string) =
@@ -2786,8 +2752,8 @@ proc autoWeightsCmd(args: seq[string]) =
   except JsonParsingError as exc:
     raise newBonyLoadError(schemaViolation, "invalid JSON in " & inputPath & ": " & exc.msg)
 
-  if doc.kind != JObject:
-    raise newBonyLoadError(schemaViolation, "auto-weights input must be a JSON object")
+  discard json_schema.requireObject(doc, "auto-weights input", raiseBonySchema,
+    message = "auto-weights input must be a JSON object")
 
   let fmt = doc.getOrDefault("format")
   if fmt == nil or fmt.kind != JString or fmt.getStr() != "bony.auto-weights-input.v1":
@@ -2795,24 +2761,41 @@ proc autoWeightsCmd(args: seq[string]) =
       "auto-weights input must have format = \"bony.auto-weights-input.v1\"")
 
   # Parse bones
-  let bonesNode = doc.getOrDefault("bones")
-  if bonesNode == nil or bonesNode.kind != JArray or bonesNode.elems.len == 0:
+  let bonesNode = json_schema.requireArray(
+    json_schema.requireField(doc, "bones", "auto-weights input", raiseBonySchema,
+      message = "auto-weights input: bones must be a non-empty array"),
+    "auto-weights input",
+    raiseBonySchema,
+    message = "auto-weights input: bones must be a non-empty array",
+  )
+  if bonesNode.elems.len == 0:
     raise newBonyLoadError(schemaViolation, "auto-weights input: bones must be a non-empty array")
   var bones: seq[AutoWeightsBone]
   for i, bn in bonesNode.elems:
     let ctx = "bones[" & $i & "]"
-    if bn.kind != JObject:
-      raise newBonyLoadError(schemaViolation, ctx & " must be an object")
-    let name = bn.getOrDefault("name")
-    if name == nil or name.kind != JString or name.getStr().len == 0:
+    let boneObj = json_schema.requireObject(bn, ctx, raiseBonySchema,
+      message = ctx & " must be an object")
+    let name = json_schema.requireField(boneObj, "name", ctx, raiseBonySchema,
+      message = ctx & ".name must be a non-empty string")
+    if name.kind != JString or name.getStr().len == 0:
       raise newBonyLoadError(schemaViolation, ctx & ".name must be a non-empty string")
-    let wx = bn.getOrDefault("worldX")
-    let wy = bn.getOrDefault("worldY")
-    if wx == nil or wx.kind notin {JInt, JFloat}:
-      raise newBonyLoadError(schemaViolation, ctx & ".worldX must be a number")
-    if wy == nil or wy.kind notin {JInt, JFloat}:
-      raise newBonyLoadError(schemaViolation, ctx & ".worldY must be a number")
-    bones.add AutoWeightsBone(name: name.getStr(), worldX: wx.getFloat(), worldY: wy.getFloat())
+    let wx = json_schema.requireNumberType(
+      json_schema.requireField(boneObj, "worldX", ctx, raiseBonySchema,
+        message = ctx & ".worldX must be a number"),
+      ctx,
+      "worldX",
+      raiseBonySchema,
+      message = ctx & ".worldX must be a number",
+    )
+    let wy = json_schema.requireNumberType(
+      json_schema.requireField(boneObj, "worldY", ctx, raiseBonySchema,
+        message = ctx & ".worldY must be a number"),
+      ctx,
+      "worldY",
+      raiseBonySchema,
+      message = ctx & ".worldY must be a number",
+    )
+    bones.add AutoWeightsBone(name: name.getStr(), worldX: wx, worldY: wy)
 
   # Validate unique bone names
   var boneNames = initHashSet[string]()
@@ -2822,35 +2805,66 @@ proc autoWeightsCmd(args: seq[string]) =
     boneNames.incl(bone.name)
 
   # Parse vertices
-  let vertsNode = doc.getOrDefault("vertices")
-  if vertsNode == nil or vertsNode.kind != JArray or vertsNode.elems.len == 0:
+  let vertsNode = json_schema.requireArray(
+    json_schema.requireField(doc, "vertices", "auto-weights input", raiseBonySchema,
+      message = "auto-weights input: vertices must be a non-empty array"),
+    "auto-weights input",
+    raiseBonySchema,
+    message = "auto-weights input: vertices must be a non-empty array",
+  )
+  if vertsNode.elems.len == 0:
     raise newBonyLoadError(schemaViolation, "auto-weights input: vertices must be a non-empty array")
   var verts: seq[AutoWeightsVertex]
   for i, vn in vertsNode.elems:
     let ctx = "vertices[" & $i & "]"
-    if vn.kind != JObject:
-      raise newBonyLoadError(schemaViolation, ctx & " must be an object")
-    let vx = vn.getOrDefault("x")
-    let vy = vn.getOrDefault("y")
-    if vx == nil or vx.kind notin {JInt, JFloat}:
-      raise newBonyLoadError(schemaViolation, ctx & ".x must be a number")
-    if vy == nil or vy.kind notin {JInt, JFloat}:
-      raise newBonyLoadError(schemaViolation, ctx & ".y must be a number")
-    verts.add AutoWeightsVertex(worldX: vx.getFloat(), worldY: vy.getFloat())
+    let vertObj = json_schema.requireObject(vn, ctx, raiseBonySchema,
+      message = ctx & " must be an object")
+    let vx = json_schema.requireNumberType(
+      json_schema.requireField(vertObj, "x", ctx, raiseBonySchema,
+        message = ctx & ".x must be a number"),
+      ctx,
+      "x",
+      raiseBonySchema,
+      message = ctx & ".x must be a number",
+    )
+    let vy = json_schema.requireNumberType(
+      json_schema.requireField(vertObj, "y", ctx, raiseBonySchema,
+        message = ctx & ".y must be a number"),
+      ctx,
+      "y",
+      raiseBonySchema,
+      message = ctx & ".y must be a number",
+    )
+    verts.add AutoWeightsVertex(worldX: vx, worldY: vy)
 
   # Parse optional parameters
   var maxInfluences = defaultMaxInfluences
   var epsilon = defaultEpsilon
   let maxInfNode = doc.getOrDefault("maxInfluences")
   if maxInfNode != nil:
-    if maxInfNode.kind != JInt or maxInfNode.getInt() < 1 or maxInfNode.getInt() > 255:
+    let parsedMaxInfluences = json_schema.requirePositiveInt(
+      maxInfNode,
+      "auto-weights input",
+      "maxInfluences",
+      raiseBonySchema,
+      message = "maxInfluences must be an integer in 1..255",
+      positiveMessage = "maxInfluences must be an integer in 1..255",
+    )
+    if parsedMaxInfluences > 255:
       raise newBonyLoadError(schemaViolation, "maxInfluences must be an integer in 1..255")
-    maxInfluences = maxInfNode.getInt()
+    maxInfluences = parsedMaxInfluences
   let epsNode = doc.getOrDefault("epsilon")
   if epsNode != nil:
-    if epsNode.kind notin {JInt, JFloat} or epsNode.getFloat() <= 0.0:
+    let parsedEpsilon = json_schema.requireNumberType(
+      epsNode,
+      "auto-weights input",
+      "epsilon",
+      raiseBonySchema,
+      message = "epsilon must be a positive number",
+    )
+    if parsedEpsilon <= 0.0:
       raise newBonyLoadError(schemaViolation, "epsilon must be a positive number")
-    epsilon = epsNode.getFloat()
+    epsilon = parsedEpsilon
 
   let weighted = autoWeightVertices(bones, verts, maxInfluences, epsilon)
 
@@ -2905,10 +2919,8 @@ proc main() =
       autoWeightsCmd(args[1 .. ^1])
     else:
       quit(usage(), QuitFailure)
-  except DbDiagnostic as exc:
-    quit("bony: " & exc.dbMessage, QuitFailure)
-  except LottieDiagnostic as exc:
-    quit("bony: " & exc.lottieMessage, QuitFailure)
+  except CliDiagnostic as exc:
+    quit("bony: " & exc.cliMessage, QuitFailure)
   except BonyLoadError as exc:
     quit("bony: " & exc.msg, QuitFailure)
   except IOError as exc:
