@@ -58,4 +58,4 @@ test:
 	$(MAKE) dart-test
 
 dart-test:
-	cd runtime-dart && dart test
+	cd runtime-dart && flutter test
