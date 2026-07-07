@@ -25,7 +25,6 @@ BUILD_POLICY_PATHS = [
     ROOT / "runtime-dart" / "pubspec.yaml",
     ROOT / "runtime-dart" / "pubspec.lock",
 ]
-BUILD_POLICY_TEXT_SUFFIXES = {".lock", ".nim", ".nimble", ".py", ".yaml", ".yml"}
 PRIOR_ART_RUNTIME_TERMS = [
     "spine",
     "esoteric",
@@ -259,11 +258,19 @@ def assert_dart_lock_provenance(lock_text: str) -> None:
         if source == "hosted":
             allowed_version, allowed_sha256 = DART_LOCK_ALLOWLIST[name]
             if version != allowed_version or sha256 != allowed_sha256:
-                fail(f"Dart hosted package {name} lock changed; {dart_allowlist_refresh_hint()}")
+                fail(
+                    f"Dart hosted package {name} lock changed; "
+                    f"expected=({allowed_version}, {allowed_sha256}) "
+                    f"actual=({version}, {sha256}). {dart_allowlist_refresh_hint()}"
+                )
         elif source == "sdk":
             allowed_version = DART_SDK_LOCK_ALLOWLIST[name]
             if version != allowed_version:
-                fail(f"Dart SDK package {name} lock changed; {dart_allowlist_refresh_hint()}")
+                fail(
+                    f"Dart SDK package {name} lock changed; "
+                    f"expected={allowed_version} actual={version}. "
+                    f"{dart_allowlist_refresh_hint()}"
+                )
 
 
 def assert_bddy_provenance(scan_text: str) -> None:
@@ -327,18 +334,25 @@ def build_policy_files() -> list[Path]:
             files.extend(
                 child
                 for child in path.rglob("*")
-                if child.is_file()
-                and "__pycache__" not in child.parts
-                and child.suffix in BUILD_POLICY_TEXT_SUFFIXES
+                if child.is_file() and "__pycache__" not in child.parts
             )
         elif path.exists():
             files.append(path)
     return sorted(files)
 
 
+def read_policy_text(path: Path) -> str | None:
+    try:
+        return path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return None
+
+
 def assert_no_forbidden_runtime_fetches() -> None:
     for path in build_policy_files():
-        text = path.read_text(encoding="utf-8")
+        text = read_policy_text(path)
+        if text is None:
+            continue
         for line_number, line in enumerate(text.splitlines(), start=1):
             lower_line = line.lower()
             if not NETWORK_FETCH_PATTERN.search(line):
