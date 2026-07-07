@@ -487,12 +487,12 @@ proc appendStateMachinesJson(result: var string; machines: openArray[StateMachin
             result.addStringField("slot", listener.slot, indent + 4, lFirst)
             result.addStringField("targetKind", pointerHelperTargetKindName(listener.targetKind), indent + 4, lFirst)
             result.addStringField("target", listener.target, indent + 4, lFirst)
-            if listener.hasHitRadius:
+            if listener.targetKind == pointHelperTarget:
               result.addNumberField("hitRadius", listener.hitRadius, indent + 4, lFirst)
             result.addStringField("input", listener.input, indent + 4, lFirst)
-            if listener.hasBoolValue:
+            if listener.inputKind == boolInput:
               result.addBoolField("value", listener.boolValue, indent + 4, lFirst)
-            elif listener.hasNumberValue:
+            elif listener.inputKind == numberInput:
               result.addNumberField("value", listener.numberValue, indent + 4, lFirst)
           result.add "\n"
           result.addIndent(indent + 3)

@@ -1670,11 +1670,11 @@ proc buildObjectRecords(asset: BonyAsset; table: var BnbStringTable; toc: var Ta
           bnbScalarString(listenerHelperTargetKey, listener.target))
         properties.addBnbScalarProperty(toc, table,
           bnbScalarUint(listenerInputIndexKey, uint64(inputIndexes.requiredIndex(listener.input, "stateMachineListener.input"))))
-        if listener.hasBoolValue:
+        if listener.inputKind == boolInput:
           properties.addBnbScalarProperty(toc, table, bnbScalarBool(listenerBoolValueKey, listener.boolValue))
-        if listener.hasNumberValue:
+        if listener.inputKind == numberInput:
           properties.addBnbScalarProperty(toc, table, bnbScalarFloat(listenerNumberValueKey, listener.numberValue))
-        if listener.hasHitRadius:
+        if listener.targetKind == pointHelperTarget:
           properties.addBnbScalarProperty(toc, table, bnbScalarFloat(listenerHitRadiusKey, listener.hitRadius))
       result.add BnbObjectRecord(typeKey: stateMachineListenerTypeKey, properties: properties)
 

@@ -7971,17 +7971,15 @@ spec "bony package":
       asset.stateMachines[0].listeners[0].targetKind == pointHelperTarget
       asset.stateMachines[0].listeners[0].slot == "tip_slot"
       asset.stateMachines[0].listeners[0].target == "tip"
-      asset.stateMachines[0].listeners[0].hasHitRadius
       asset.stateMachines[0].listeners[0].hitRadius == 4.0
-      asset.stateMachines[0].listeners[0].hasBoolValue
+      asset.stateMachines[0].listeners[0].inputKind == boolInput
       asset.stateMachines[0].listeners[0].boolValue == false
       asset.stateMachines[0].listeners[1].kind == pointerMoveListener
       asset.stateMachines[0].listeners[1].targetKind == boundingBoxHelperTarget
-      asset.stateMachines[0].listeners[1].hasNumberValue
+      asset.stateMachines[0].listeners[1].inputKind == numberInput
       asset.stateMachines[0].listeners[1].numberValue == 0.25
       asset.stateMachines[0].listeners[2].kind == pointerUpListener
-      not asset.stateMachines[0].listeners[2].hasBoolValue
-      not asset.stateMachines[0].listeners[2].hasNumberValue
+      asset.stateMachines[0].listeners[2].inputKind == triggerInput
       fromBnb.stateMachines[0].listeners[0].kind == pointerDownListener
       fromBnb.stateMachines[0].listeners[1].target == "button_hit"
       jsonRoundTrip.stateMachines[0].listeners[2].input == "fire"
