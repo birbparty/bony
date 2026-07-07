@@ -656,12 +656,49 @@ type
     displayIndex: int
     blendMode: string
 
+  DbFrameEase = object
+    hasTweenEasing: bool
+    tweenEasing: float64
+    hasCurve: bool
+    curve: seq[float64]
+
+  DbTranslateFrame = object
+    duration: int
+    x: float64
+    y: float64
+    easing: DbFrameEase
+
+  DbRotateFrame = object
+    duration: int
+    rotate: float64
+    hasClockwise: bool
+    clockwise: int
+    easing: DbFrameEase
+
+  DbScaleFrame = object
+    duration: int
+    x: float64
+    y: float64
+    easing: DbFrameEase
+
+  DbBoneAnimationEntry = object
+    name: string
+    translateFrames: seq[DbTranslateFrame]
+    rotateFrames: seq[DbRotateFrame]
+    scaleFrames: seq[DbScaleFrame]
+
+  DbAnimation = object
+    name: string
+    duration: int
+    bones: seq[DbBoneAnimationEntry]
+
   DbArmature = object
     name: string
     frameRate: int
     bones: seq[DbBoneEntry]
     slots: seq[DbSlotEntry]
     skins: seq[DbSkin]
+    animations: seq[DbAnimation]
     hasAnimation: bool
 
 
@@ -729,12 +766,62 @@ proc dbRequirePositiveInt(node: JsonNode; key, target: string): int =
   v
 
 
+proc dbRequireNonNegativeInt(node: JsonNode; key, target: string): int =
+  if not node.hasKey(key):
+    raiseDb("schemaViolation", target, key, "missing required field: " & key)
+  if node[key].kind != JInt:
+    raiseDb("schemaViolation", target, key, "expected integer for " & key)
+  let v = node[key].getInt()
+  if v < 0:
+    raiseDb("schemaViolation", target, key, key & " must be non-negative")
+  v
+
+
 proc dbOptInt(node: JsonNode; key: string; defaultVal: int; target: string): int =
   if not node.hasKey(key):
     return defaultVal
   if node[key].kind != JInt:
     raiseDb("schemaViolation", target, key, "expected integer for " & key)
   node[key].getInt()
+
+
+proc dbOptNullableFloat(node: JsonNode; key: string; target: string): tuple[present: bool; value: float64] =
+  if not node.hasKey(key):
+    return (false, 0.0)
+  let v = node[key]
+  if v.kind == JNull:
+    return (false, 0.0)
+  if v.kind notin {JInt, JFloat}:
+    raiseDb("schemaViolation", target, key, "expected number or null for " & key)
+  let f = v.getFloat()
+  if classify(f) in {fcNan, fcInf, fcNegInf}:
+    raiseDb("schemaViolation", target, key, key & " must be finite")
+  (true, f)
+
+
+proc parseDbFrameEase(node: JsonNode; target: string): DbFrameEase =
+  let (hasTween, tween) = dbOptNullableFloat(node, "tweenEasing", target)
+  if hasTween and tween != 0.0:
+    raiseDb("unsupportedFeature", target, "tweenEasing",
+      "non-zero tweenEasing not supported in Tier 1")
+  result.hasTweenEasing = hasTween
+  result.tweenEasing = tween
+  if node.hasKey("curve"):
+    if node["curve"].kind != JArray:
+      raiseDb("schemaViolation", target, "curve", "expected array for curve")
+    if node["curve"].elems.len != 4:
+      raiseDb("schemaViolation", target, "curve", "curve must contain exactly four numbers")
+    result.hasCurve = true
+    for ci, item in node["curve"].elems:
+      if item.kind notin {JInt, JFloat}:
+        raiseDb("schemaViolation", target & ".curve[" & $ci & "]", "curve",
+          "expected number in curve")
+      let f = item.getFloat()
+      if classify(f) in {fcNan, fcInf, fcNegInf}:
+        raiseDb("schemaViolation", target & ".curve[" & $ci & "]", "curve",
+          "curve value must be finite")
+      result.curve.add f
+    raiseDb("unsupportedFeature", target, "curve", "Bezier curve easing not supported in Tier 1")
 
 
 proc parseDbTransform(node: JsonNode; target: string): DbTransform =
@@ -783,6 +870,141 @@ proc parseDbDisplay(node: JsonNode; index: int; slotName: string): DbDisplay =
     result.transform = t
   else:
     result.transform = DbTransform(scX: 1.0, scY: 1.0)
+
+
+proc parseDbTranslateFrame(node: JsonNode; index: int; boneName, animName: string): DbTranslateFrame =
+  let target = "animation[" & animName & "].bone[" & boneName & "].translateFrame[" & $index & "]"
+  if node.kind != JObject:
+    raiseDb("schemaViolation", target, "object", "expected translateFrame object")
+  for key in node.keys:
+    if key notin ["duration", "x", "y", "tweenEasing", "curve"]:
+      raiseDb("schemaViolation", target, key, "unknown key in translateFrame: " & key)
+  result.duration = dbRequireNonNegativeInt(node, "duration", target)
+  result.x = dbOptFloat(node, "x", 0.0, target)
+  result.y = dbOptFloat(node, "y", 0.0, target)
+  result.easing = parseDbFrameEase(node, target)
+
+
+proc parseDbRotateFrame(node: JsonNode; index: int; boneName, animName: string): DbRotateFrame =
+  let target = "animation[" & animName & "].bone[" & boneName & "].rotateFrame[" & $index & "]"
+  if node.kind != JObject:
+    raiseDb("schemaViolation", target, "object", "expected rotateFrame object")
+  for key in node.keys:
+    if key notin ["duration", "rotate", "clockwise", "tweenEasing", "curve"]:
+      raiseDb("schemaViolation", target, key, "unknown key in rotateFrame: " & key)
+  result.duration = dbRequireNonNegativeInt(node, "duration", target)
+  result.rotate = dbOptFloat(node, "rotate", 0.0, target)
+  if node.hasKey("clockwise"):
+    result.hasClockwise = true
+    result.clockwise = dbOptInt(node, "clockwise", 0, target)
+    if result.clockwise notin [0, 1]:
+      raiseDb("schemaViolation", target, "clockwise", "clockwise must be 0 or 1")
+    raiseDb("unsupportedFeature", target, "clockwise",
+      "clockwise rotation hints not supported in Tier 1")
+  result.easing = parseDbFrameEase(node, target)
+
+
+proc parseDbScaleFrame(node: JsonNode; index: int; boneName, animName: string): DbScaleFrame =
+  let target = "animation[" & animName & "].bone[" & boneName & "].scaleFrame[" & $index & "]"
+  if node.kind != JObject:
+    raiseDb("schemaViolation", target, "object", "expected scaleFrame object")
+  for key in node.keys:
+    if key notin ["duration", "x", "y", "tweenEasing", "curve"]:
+      raiseDb("schemaViolation", target, key, "unknown key in scaleFrame: " & key)
+  result.duration = dbRequireNonNegativeInt(node, "duration", target)
+  result.x = dbOptFloat(node, "x", 1.0, target)
+  result.y = dbOptFloat(node, "y", 1.0, target)
+  result.easing = parseDbFrameEase(node, target)
+
+
+proc parseDbBoneAnimationEntry(node: JsonNode; index: int; animName: string): DbBoneAnimationEntry =
+  let target = "animation[" & animName & "].bone[" & $index & "]"
+  if node.kind != JObject:
+    raiseDb("schemaViolation", target, "object", "expected bone animation object")
+  for key in node.keys:
+    if key notin ["name", "translateFrame", "rotateFrame", "scaleFrame"]:
+      raiseDb("schemaViolation", target, key, "unknown key in bone animation: " & key)
+  result.name = dbRequireString(node, "name", target)
+  if node.hasKey("translateFrame"):
+    if node["translateFrame"].kind != JArray:
+      raiseDb("schemaViolation", target, "translateFrame", "expected translateFrame array")
+    for fi, frame in node["translateFrame"].elems:
+      result.translateFrames.add parseDbTranslateFrame(frame, fi, result.name, animName)
+  if node.hasKey("rotateFrame"):
+    if node["rotateFrame"].kind != JArray:
+      raiseDb("schemaViolation", target, "rotateFrame", "expected rotateFrame array")
+    for fi, frame in node["rotateFrame"].elems:
+      result.rotateFrames.add parseDbRotateFrame(frame, fi, result.name, animName)
+  if node.hasKey("scaleFrame"):
+    if node["scaleFrame"].kind != JArray:
+      raiseDb("schemaViolation", target, "scaleFrame", "expected scaleFrame array")
+    for fi, frame in node["scaleFrame"].elems:
+      result.scaleFrames.add parseDbScaleFrame(frame, fi, result.name, animName)
+
+
+proc validateDbChannelDurations(
+  channelName, target: string;
+  animationDuration: int;
+  durations: openArray[int];
+) =
+  if durations.len == 0:
+    return
+  if durations[^1] != 0:
+    raiseDb("schemaViolation", target, channelName,
+      channelName & " must end with a zero-duration terminator frame")
+  var total = 0
+  for duration in durations:
+    total += duration
+  if total != animationDuration:
+    raiseDb("schemaViolation", target, channelName,
+      channelName & " duration sum " & $total &
+      " does not match animation duration " & $animationDuration)
+
+
+proc validateDbAnimationChannels(anim: DbAnimation; boneNames: HashSet[string]) =
+  for bone in anim.bones:
+    let target = "animation[" & anim.name & "].bone[" & bone.name & "]"
+    if bone.name notin boneNames:
+      raiseDb("invalidReference", bone.name, "bone",
+        "animation references unknown bone: " & bone.name)
+
+    var translateDurations: seq[int]
+    for frame in bone.translateFrames:
+      translateDurations.add frame.duration
+    validateDbChannelDurations("translateFrame", target, anim.duration, translateDurations)
+
+    var rotateDurations: seq[int]
+    for frame in bone.rotateFrames:
+      rotateDurations.add frame.duration
+    validateDbChannelDurations("rotateFrame", target, anim.duration, rotateDurations)
+
+    var scaleDurations: seq[int]
+    for frame in bone.scaleFrames:
+      scaleDurations.add frame.duration
+    validateDbChannelDurations("scaleFrame", target, anim.duration, scaleDurations)
+
+
+proc parseDbAnimation(node: JsonNode; index: int; boneNames: HashSet[string]): DbAnimation =
+  let target = "animation[" & $index & "]"
+  if node.kind != JObject:
+    raiseDb("schemaViolation", target, "object", "expected animation object")
+  for key in node.keys:
+    if key notin ["name", "duration", "bone", "slot", "fadeInTime", "playTimes",
+                  "blendType", "type", "frame", "ffd"]:
+      raiseDb("schemaViolation", target, key, "unknown key in animation: " & key)
+  result.name = dbRequireString(node, "name", target)
+  result.duration = dbRequirePositiveInt(node, "duration", target)
+  if node.hasKey("bone"):
+    if node["bone"].kind != JArray:
+      raiseDb("schemaViolation", target, "bone", "expected bone animation array")
+    for bi, boneNode in node["bone"].elems:
+      result.bones.add parseDbBoneAnimationEntry(boneNode, bi, result.name)
+  if node.hasKey("slot") and node["slot"].kind != JArray:
+    raiseDb("schemaViolation", target, "slot", "expected slot animation array")
+  if node.hasKey("slot") and node["slot"].elems.len > 0:
+    raiseDb("unsupportedFeature", target, "slot",
+      "slot animation channels not supported in Tier 1")
+  validateDbAnimationChannels(result, boneNames)
 
 
 proc parseDbSkinSlotEntry(node: JsonNode; index: int; skinName: string): DbSkinSlotEntry =
@@ -896,7 +1118,7 @@ proc validateAndSortBones(bones: seq[DbBoneEntry]; armatureName: string): seq[Db
   ordered
 
 
-proc parseDbArmature(node: JsonNode; index: int): DbArmature =
+proc parseDbArmature(node: JsonNode; index: int; parseAnimations = true): DbArmature =
   let target = "armature[" & $index & "]"
   if node.kind != JObject:
     raiseDb("schemaViolation", target, "object", "expected armature object")
@@ -917,6 +1139,9 @@ proc parseDbArmature(node: JsonNode; index: int): DbArmature =
   if rawBones.len == 0:
     raiseDb("schemaViolation", target, "bone", "armature must have at least one bone")
   result.bones = validateAndSortBones(rawBones, result.name)
+  var boneNames = initHashSet[string]()
+  for bone in result.bones:
+    boneNames.incl(bone.name)
 
   if node.hasKey("slot") and node["slot"].kind == JArray:
     for si, slotNode in node["slot"].elems:
@@ -937,12 +1162,16 @@ proc parseDbArmature(node: JsonNode; index: int): DbArmature =
       let skin = parseDbSkin(skinNode, ski)
       result.skins.add skin
 
-  result.hasAnimation = node.hasKey("animation") and
-    node["animation"].kind == JArray and
-    node["animation"].elems.len > 0
+  if node.hasKey("animation"):
+    if node["animation"].kind != JArray:
+      raiseDb("schemaViolation", target, "animation", "expected animation array")
+    result.hasAnimation = node["animation"].elems.len > 0
+    if parseAnimations:
+      for ai, animNode in node["animation"].elems:
+        result.animations.add parseDbAnimation(animNode, ai, boneNames)
 
 
-proc parseDbSkeleton(text: string): DbArmature =
+proc parseDbSkeleton(text: string; parseAnimations = true): DbArmature =
   # Returns the first armature; caller handles multi-armature policy.
   var root: JsonNode
   try:
@@ -967,7 +1196,7 @@ proc parseDbSkeleton(text: string): DbArmature =
   if armatures.len == 0:
     raiseDb("schemaViolation", "skeleton", "armature", "armature array must not be empty")
   # Return first armature; caller emits multipleArmatures diagnostic if needed.
-  result = parseDbArmature(armatures[0], 0)
+  result = parseDbArmature(armatures[0], 0, parseAnimations)
 
 
 proc countArmatures(text: string): int =
@@ -1134,7 +1363,7 @@ proc importDragonbones(args: seq[string]) =
     else:
       stderr.writeLine(msg)
 
-  let armature = parseDbSkeleton(text)
+  let armature = parseDbSkeleton(text, parseAnimations = not setupOnly)
   if setupOnly and armature.hasAnimation:
     stderr.writeLine("bony: --setup-only: animation suppressed for " & armature.name)
   let data = armatureToSkeletonData(armature, assetsDir)
