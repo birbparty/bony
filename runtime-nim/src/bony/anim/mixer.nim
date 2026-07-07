@@ -302,6 +302,7 @@ proc update*(state: var AnimationState; dt: float64) =
     state.tracks[trackIndex] = track
 
 
+# Shared MixedPose identity helpers and deterministic ordering comparators.
 proc scalarKey*(target: string; kind: BoneTimelineKind): string = target & "\0" & $kind
 proc vectorKey*(target: string; kind: BoneTimelineKind): string = target & "\0" & $kind
 proc colorKey*(target: string; kind: SlotTimelineKind): string = target & "\0" & $kind
@@ -604,11 +605,11 @@ proc applyPose*(data: SkeletonData; pose: MixedPose): SkeletonData =
 
   var scalarLookup = initTable[string, float64]()
   for value in pose.scalars:
-    scalarLookup[value.target & "\0" & $value.kind] = value.value
+    scalarLookup[value.scalarKey] = value.value
 
   var vectorLookup = initTable[string, MixedVector]()
   for value in pose.vectors:
-    vectorLookup[value.target & "\0" & $value.kind] = value
+    vectorLookup[value.vectorKey] = value
 
   var inheritLookup = initTable[string, InheritKeyframe]()
   for value in pose.inherits:
@@ -619,10 +620,10 @@ proc applyPose*(data: SkeletonData; pose: MixedPose): SkeletonData =
     attachmentLookup[value.target] = value.attachment
 
   proc scalarValue(bone: BoneData; kind: BoneTimelineKind; setup: float64): float64 =
-    scalarLookup.getOrDefault(bone.name & "\0" & $kind, setup)
+    scalarLookup.getOrDefault(scalarKey(bone.name, kind), setup)
 
   proc vectorValue(bone: BoneData; kind: BoneTimelineKind): tuple[found: bool; x, y: float64] =
-    let key = bone.name & "\0" & $kind
+    let key = vectorKey(bone.name, kind)
     if key in vectorLookup:
       let value = vectorLookup[key]
       return (true, value.x, value.y)
