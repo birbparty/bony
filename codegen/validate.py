@@ -28,6 +28,7 @@ def validate_sources(registry: dict[str, Any], defaults: dict[str, Any]) -> None
     type_keys = require_list(registry, "typeKeys")
     property_keys = require_list(registry, "propertyKeys")
     objects = require_list(registry, "objects")
+    ordinal_enums = require_list(registry, "ordinalEnums")
 
     seen_type_keys: set[int] = set()
     seen_type_ids: set[str] = set()
@@ -82,6 +83,25 @@ def validate_sources(registry: dict[str, Any], defaults: dict[str, Any]) -> None
             if property_id not in property_by_id:
                 raise SourceError(f"object {object_id} references unknown property {property_id}")
         object_properties[object_id] = set(properties)
+
+    seen_ordinal_enum_ids: set[str] = set()
+    for entry in ordinal_enums:
+        enum_id = required(entry, "id", "ordinalEnums entry")
+        values = entry.get("values")
+        if not isinstance(enum_id, str) or not enum_id:
+            raise SourceError("ordinalEnums id must be a non-empty string")
+        if enum_id in seen_ordinal_enum_ids:
+            raise SourceError(f"duplicate ordinalEnums entry: {enum_id}")
+        if not isinstance(values, list) or not values:
+            raise SourceError(f"ordinalEnums {enum_id} values must be a non-empty list")
+        seen_values: set[str] = set()
+        for value in values:
+            if not isinstance(value, str) or not value:
+                raise SourceError(f"ordinalEnums {enum_id} values must be non-empty strings")
+            if value in seen_values:
+                raise SourceError(f"ordinalEnums {enum_id} has duplicate value {value}")
+            seen_values.add(value)
+        seen_ordinal_enum_ids.add(enum_id)
 
     defaulted_by_object: dict[str, set[str]] = {}
     for entry in require_list(defaults, "objectDefaults"):

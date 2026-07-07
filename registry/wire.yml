@@ -119,6 +119,14 @@ backingTypes:
     code: 8
     skipRule: skip 8 little-endian bytes
 
+ordinalEnums:
+  - id: physicsChannel
+    doc: Canonical PhysicsChannel order; ordinals define physicsConstraint.channels bit positions.
+    values: [x, y, rotate, scaleX, shearX]
+  - id: deformerKind
+    doc: Canonical DeformerKind order across runtimes; current wire storage remains string-backed.
+    values: [warp, rotation]
+
 tocSkipContract:
   status: resolved
   ownerBead: bony-uq1

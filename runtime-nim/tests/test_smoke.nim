@@ -1,5 +1,11 @@
 include smoke_support
 
+proc ordinalEnumValues(id: string): seq[string] =
+  for entry in bonyOrdinalEnums:
+    if entry.id == id:
+      return entry.values
+  raise newException(ValueError, "missing generated ordinal enum: " & id)
+
 spec "bony package":
   it "exposes version":
     then:
@@ -41,6 +47,34 @@ spec "bony package":
       bonyPropertyDefaults.anyIt(it.objectId == "region" and it.propertyId == "v1" and it.value == "1.0")
       bonyPropertyDefaults.anyIt(it.objectId == "region" and it.propertyId == "alphaMode" and it.value == "\"straight\"")
       bonyRequiredProperties.len == 91
+      bonyOrdinalEnums.len == 2
+      ordinalEnumValues("physicsChannel") == @["x", "y", "rotate", "scaleX", "shearX"]
+      ordinalEnumValues("deformerKind") == @["warp", "rotation"]
+
+  it "keeps generated ordinal contracts aligned with runtime enums":
+    var physicsChannels: seq[string]
+    for channel in PhysicsChannel:
+      physicsChannels.add case channel
+        of pcX: "x"
+        of pcY: "y"
+        of pcRotate: "rotate"
+        of pcScaleX: "scaleX"
+        of pcShearX: "shearX"
+
+    var deformerKinds: seq[string]
+    for kind in DeformerKind:
+      deformerKinds.add case kind
+        of warpDeformerKind: "warp"
+        of rotationDeformerKind: "rotation"
+
+    then:
+      physicsChannels == ordinalEnumValues("physicsChannel")
+      ord(pcX) == 0
+      ord(pcY) == 1
+      ord(pcRotate) == 2
+      ord(pcScaleX) == 3
+      ord(pcShearX) == 4
+      deformerKinds == ordinalEnumValues("deformerKind")
 
   it "exports generated scalar JSON and BNB codec helpers":
     let decoded = decodeBoneJsonScalars(@[

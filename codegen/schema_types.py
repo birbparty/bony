@@ -55,6 +55,8 @@ class TargetLangSpec:
     property_defaults_end: str
     required_properties_start: str
     required_properties_end: str
+    ordinal_enums_start: str
+    ordinal_enums_end: str
     object_properties_literal: Callable[[list[str]], str]
     json_text_literal: Callable[[Any], str]
     string_literal: Callable[[str], str]
@@ -65,4 +67,5 @@ class TargetLangSpec:
     object_spec_record: Callable[[dict[str, Any], str], str]
     property_default_record: Callable[[str, str, str, str, str, str], str]
     required_property_record: Callable[[dict[str, Any], str], str]
+    ordinal_enum_record: Callable[[dict[str, Any], str], str]
     trailer: tuple[str, ...]

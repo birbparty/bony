@@ -1,6 +1,24 @@
 import 'package:test/test.dart';
 import 'package:bony/bony.dart';
 
+List<String> ordinalEnumValues(String id) => bonyOrdinalEnums
+    .firstWhere((entry) => entry.id == id,
+        orElse: () => throw StateError('missing generated ordinal enum: $id'))
+    .values;
+
+String physicsChannelId(PhysicsChannel channel) => switch (channel) {
+      PhysicsChannel.x => 'x',
+      PhysicsChannel.y => 'y',
+      PhysicsChannel.rotate => 'rotate',
+      PhysicsChannel.scaleX => 'scaleX',
+      PhysicsChannel.shearX => 'shearX',
+    };
+
+String deformerKindId(DeformerKind kind) => switch (kind) {
+      DeformerKind.warp => 'warp',
+      DeformerKind.rotation => 'rotation',
+    };
+
 void main() {
   test('exposes version', () {
     expect(bonyVersion, '0.1.0');
@@ -121,5 +139,21 @@ void main() {
             d.value == '"straight"'),
         isTrue);
     expect(bonyRequiredProperties, hasLength(91));
+    expect(bonyOrdinalEnums, hasLength(2));
+    expect(ordinalEnumValues('physicsChannel'),
+        ['x', 'y', 'rotate', 'scaleX', 'shearX']);
+    expect(ordinalEnumValues('deformerKind'), ['warp', 'rotation']);
+  });
+
+  test('keeps generated ordinal contracts aligned with runtime enums', () {
+    expect(PhysicsChannel.values.map(physicsChannelId).toList(),
+        ordinalEnumValues('physicsChannel'));
+    expect(PhysicsChannel.x.index, 0);
+    expect(PhysicsChannel.y.index, 1);
+    expect(PhysicsChannel.rotate.index, 2);
+    expect(PhysicsChannel.scaleX.index, 3);
+    expect(PhysicsChannel.shearX.index, 4);
+    expect(DeformerKind.values.map(deformerKindId).toList(),
+        ordinalEnumValues('deformerKind'));
   });
 }

@@ -22,6 +22,7 @@ def emit_runtime_metadata(registry: dict[str, Any], defaults: dict[str, Any], sp
     type_keys = require_list(registry, "typeKeys")
     property_keys = require_list(registry, "propertyKeys")
     objects = require_list(registry, "objects")
+    ordinal_enums = require_list(registry, "ordinalEnums")
     object_defaults = require_list(defaults, "objectDefaults")
     required_properties = require_list(defaults, "requiredProperties")
     lines = [
@@ -62,7 +63,11 @@ def emit_runtime_metadata(registry: dict[str, Any], defaults: dict[str, Any], sp
     lines.extend([spec.property_defaults_end, spec.required_properties_start])
     for entry in required_properties:
         lines.append(spec.required_property_record(entry, spec.string_literal(entry["reason"])))
-    lines.extend([spec.required_properties_end, *spec.trailer])
+    lines.extend([spec.required_properties_end, spec.ordinal_enums_start])
+    for entry in ordinal_enums:
+        values = spec.object_properties_literal(entry["values"])
+        lines.append(spec.ordinal_enum_record(entry, values))
+    lines.extend([spec.ordinal_enums_end, *spec.trailer])
     return "\n".join(lines)
 
 
@@ -419,6 +424,9 @@ def generate_nim(registry: dict[str, Any], defaults: dict[str, Any]) -> str:
             "    objectId*: string",
             "    propertyId*: string",
             "    reason*: string",
+            "  BonyOrdinalEnum* = object",
+            "    id*: string",
+            "    values*: seq[string]",
             "",
         ),
         registry_version_line=lambda version: f"const bonyRegistryVersion* = {version}",
@@ -436,6 +444,8 @@ def generate_nim(registry: dict[str, Any], defaults: dict[str, Any]) -> str:
         property_defaults_end="]",
         required_properties_start="const bonyRequiredProperties* = [",
         required_properties_end="]",
+        ordinal_enums_start="let bonyOrdinalEnums*: seq[BonyOrdinalEnum] = @[",
+        ordinal_enums_end="]",
         object_properties_literal=lambda properties: "@["
         + ", ".join(nim_string_literal(property_id) for property_id in properties)
         + "]",
@@ -466,6 +476,9 @@ def generate_nim(registry: dict[str, Any], defaults: dict[str, Any]) -> str:
         required_property_record=lambda entry, reason: (
             f"  BonyRequiredProperty(objectId: {nim_string_literal(entry['object'])}, "
             f"propertyId: {nim_string_literal(entry['property'])}, reason: {reason}),"
+        ),
+        ordinal_enum_record=lambda entry, values: (
+            f"  BonyOrdinalEnum(id: {nim_string_literal(entry['id'])}, values: {values}),"
         ),
         trailer=(
             "",
@@ -553,6 +566,12 @@ def generate_dart(registry: dict[str, Any], defaults: dict[str, Any]) -> str:
             "  final String reason;",
             "}",
             "",
+            "class BonyOrdinalEnum {",
+            "  const BonyOrdinalEnum({required this.id, required this.values});",
+            "  final String id;",
+            "  final List<String> values;",
+            "}",
+            "",
         ),
         registry_version_line=lambda version: f"const int bonyRegistryVersion = {version};",
         backing_types_start="const List<BonyBackingType> bonyBackingTypes = [",
@@ -579,6 +598,8 @@ def generate_dart(registry: dict[str, Any], defaults: dict[str, Any]) -> str:
         property_defaults_end="];",
         required_properties_start="const List<BonyRequiredProperty> bonyRequiredProperties = [",
         required_properties_end="];",
+        ordinal_enums_start="const List<BonyOrdinalEnum> bonyOrdinalEnums = [",
+        ordinal_enums_end="];",
         object_properties_literal=lambda properties: "["
         + ", ".join(dart_string_literal(property_id) for property_id in properties)
         + "]",
@@ -610,6 +631,9 @@ def generate_dart(registry: dict[str, Any], defaults: dict[str, Any]) -> str:
         required_property_record=lambda entry, reason: (
             f"  BonyRequiredProperty(objectId: {dart_registry_string_literal(entry['object'])}, "
             f"propertyId: {dart_registry_string_literal(entry['property'])}, reason: {reason}),"
+        ),
+        ordinal_enum_record=lambda entry, values: (
+            f"  BonyOrdinalEnum(id: {dart_registry_string_literal(entry['id'])}, values: {values}),"
         ),
         trailer=(
             "",
