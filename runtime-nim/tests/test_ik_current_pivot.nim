@@ -7,7 +7,9 @@
 # (via include) with a hand-set `worlds` array in which the chain root's parent
 # has been moved, so current-pivot vs rest-anchor produce opposite results.
 
-include "../src/bony/transform.nim"
+import std/tables
+
+include "../src/bony/transform/runtime_constraints.nim"
 
 proc worldRot(a: Affine2): float64 = worldRotationDegrees(a)
 
