@@ -941,26 +941,142 @@ void _validateConvexPolygonVertices(List<double> vertices, String ctx) {
   }
 }
 
-void _validate(SkeletonData data) {
-  if (data.header.name.isEmpty) {
-    throw const FormatException('skeleton.name must not be empty');
-  }
+enum _AttachmentKind {
+  region,
+  clipping,
+  mesh,
+  point,
+  boundingBox,
+  nestedRig,
+}
 
+class _ValidationRegistry {
   final boneNames = <String>{};
+  final boneParentByName = <String, String>{};
+  final regionNames = <String>{};
+  final clipNames = <String>{};
+  final meshNames = <String>{};
+  final pointNames = <String>{};
+  final boundingBoxNames = <String>{};
+  final nestedRigNames = <String>{};
+  final slotNames = <String>{};
+  final pathAttachmentNames = <String>{};
+  final pathNames = <String>{};
+  final ikNames = <String>{};
+  final transformNames = <String>{};
+  final physicsNames = <String>{};
+  final animationNames = <String>{};
+
+  bool containsSlotAttachment(String name) =>
+      regionNames.contains(name) ||
+      clipNames.contains(name) ||
+      meshNames.contains(name) ||
+      pointNames.contains(name) ||
+      boundingBoxNames.contains(name) ||
+      nestedRigNames.contains(name);
+
+  int slotAttachmentTargetMatches(String name) {
+    var matches = 0;
+    if (regionNames.contains(name)) matches++;
+    if (clipNames.contains(name)) matches++;
+    if (meshNames.contains(name)) matches++;
+    if (pointNames.contains(name)) matches++;
+    if (boundingBoxNames.contains(name)) matches++;
+    if (nestedRigNames.contains(name)) matches++;
+    return matches;
+  }
+}
+
+void _registerAttachmentName(
+  _ValidationRegistry registry,
+  String name,
+  _AttachmentKind kind,
+  String ctx,
+) {
+  if (name.isEmpty) throw FormatException('$ctx.name must not be empty');
+  switch (kind) {
+    case _AttachmentKind.region:
+      if (!registry.regionNames.add(name)) {
+        throw FormatException('duplicate region name: $name');
+      }
+    case _AttachmentKind.clipping:
+      if (!registry.clipNames.add(name)) {
+        throw FormatException('duplicate clipping attachment name: $name');
+      }
+      if (registry.regionNames.contains(name)) {
+        throw FormatException(
+            'clipping attachment name collides with a region attachment name: '
+            '$name');
+      }
+    case _AttachmentKind.mesh:
+      if (!registry.meshNames.add(name)) {
+        throw FormatException('duplicate mesh attachment name: $name');
+      }
+      if (registry.regionNames.contains(name)) {
+        throw FormatException(
+            'mesh attachment name collides with a region attachment name: '
+            '$name');
+      }
+      if (registry.clipNames.contains(name)) {
+        throw FormatException(
+            'mesh attachment name collides with a clipping attachment name: '
+            '$name');
+      }
+    case _AttachmentKind.point:
+      if (!registry.pointNames.add(name)) {
+        throw FormatException('duplicate point attachment name: $name');
+      }
+      if (registry.regionNames.contains(name) ||
+          registry.clipNames.contains(name) ||
+          registry.meshNames.contains(name)) {
+        throw FormatException(
+            'point attachment name collides with another slot attachment name: '
+            '$name');
+      }
+    case _AttachmentKind.boundingBox:
+      if (!registry.boundingBoxNames.add(name)) {
+        throw FormatException('duplicate bounding-box attachment name: $name');
+      }
+      if (registry.regionNames.contains(name) ||
+          registry.clipNames.contains(name) ||
+          registry.meshNames.contains(name) ||
+          registry.pointNames.contains(name)) {
+        throw FormatException(
+            'bounding-box attachment name collides with another slot attachment name: '
+            '$name');
+      }
+    case _AttachmentKind.nestedRig:
+      if (!registry.nestedRigNames.add(name)) {
+        throw FormatException('duplicate nested rig attachment name: $name');
+      }
+      if (registry.regionNames.contains(name) ||
+          registry.clipNames.contains(name) ||
+          registry.meshNames.contains(name) ||
+          registry.pointNames.contains(name) ||
+          registry.boundingBoxNames.contains(name)) {
+        throw FormatException(
+            'nested rig attachment name collides with another slot attachment name: '
+            '$name');
+      }
+  }
+}
+
+void _validateBones(SkeletonData data, _ValidationRegistry registry) {
   final seenBones = <String>{};
   for (var i = 0; i < data.bones.length; i++) {
     final b = data.bones[i];
     final ctx = 'bones[$i]';
     if (b.name.isEmpty) throw FormatException('$ctx.name must not be empty');
-    if (!boneNames.add(b.name)) {
+    if (!registry.boneNames.add(b.name)) {
       throw FormatException('duplicate bone name: ${b.name}');
     }
+    registry.boneParentByName[b.name] = b.parent;
   }
   // Second pass: parent ordering (parent must appear before child).
   for (var i = 0; i < data.bones.length; i++) {
     final b = data.bones[i];
     if (b.parent.isNotEmpty) {
-      if (!boneNames.contains(b.parent)) {
+      if (!registry.boneNames.contains(b.parent)) {
         throw FormatException('unknown parent bone: ${b.parent}');
       }
       if (!seenBones.contains(b.parent)) {
@@ -971,8 +1087,9 @@ void _validate(SkeletonData data) {
     }
     seenBones.add(b.name);
   }
+}
 
-  final regionNames = <String>{};
+void _validateAttachments(SkeletonData data, _ValidationRegistry registry) {
   for (var i = 0; i < data.regions.length; i++) {
     final r = data.regions[i];
     final ctx = 'regions[$i]';
@@ -1005,27 +1122,16 @@ void _validate(SkeletonData data) {
       throw FormatException(
           '$ctx.texturePage is required for region texture metadata');
     }
-    if (!regionNames.add(r.name)) {
-      throw FormatException('duplicate region name: ${r.name}');
-    }
+    _registerAttachmentName(registry, r.name, _AttachmentKind.region, ctx);
   }
 
   // Clipping attachment names share the slot.attachment namespace with regions
   // (a slot may reference either). Mirrors the Nim loader's widened check and
   // the region/clip name-collision guard (runtime-nim/src/bony/model.nim).
-  final clipNames = <String>{};
   for (var i = 0; i < data.clippingAttachments.length; i++) {
     final c = data.clippingAttachments[i];
     final ctx = 'clippingAttachments[$i]';
-    if (c.name.isEmpty) throw FormatException('$ctx.name must not be empty');
-    if (!clipNames.add(c.name)) {
-      throw FormatException('duplicate clipping attachment name: ${c.name}');
-    }
-    if (regionNames.contains(c.name)) {
-      throw FormatException(
-          'clipping attachment name collides with a region attachment name: '
-          '${c.name}');
-    }
+    _registerAttachmentName(registry, c.name, _AttachmentKind.clipping, ctx);
     _validateConvexPolygonVertices(c.vertices, ctx);
   }
 
@@ -1033,24 +1139,10 @@ void _validate(SkeletonData data) {
   // and clips. Mirror the Nim loader's cross-collection uniqueness guard
   // (runtime-nim/src/bony/model.nim): a mesh name must not collide with a region
   // or clip name.
-  final meshNames = <String>{};
   for (var i = 0; i < data.meshAttachments.length; i++) {
     final m = data.meshAttachments[i];
     final ctx = 'meshAttachments[$i]';
-    if (m.name.isEmpty) throw FormatException('$ctx.name must not be empty');
-    if (!meshNames.add(m.name)) {
-      throw FormatException('duplicate mesh attachment name: ${m.name}');
-    }
-    if (regionNames.contains(m.name)) {
-      throw FormatException(
-          'mesh attachment name collides with a region attachment name: '
-          '${m.name}');
-    }
-    if (clipNames.contains(m.name)) {
-      throw FormatException(
-          'mesh attachment name collides with a clipping attachment name: '
-          '${m.name}');
-    }
+    _registerAttachmentName(registry, m.name, _AttachmentKind.mesh, ctx);
     // Geometry/reference invariants (a)-(g), ported from Nim
     // validateMeshAttachment (runtime-nim/src/bony/model.nim) so a malformed mesh
     // that Nim rejects at load is rejected here too — not accepted silently or
@@ -1092,7 +1184,7 @@ void _validate(SkeletonData data) {
           if (influence.weight < 0.0) {
             throw FormatException('$ctx influence weight must be non-negative');
           }
-          if (!boneNames.contains(influence.bone)) {
+          if (!registry.boneNames.contains(influence.bone)) {
             throw FormatException(
                 'unknown mesh influence bone: ${influence.bone}');
           }
@@ -1110,47 +1202,22 @@ void _validate(SkeletonData data) {
     }
   }
 
-  final pointNames = <String>{};
   for (var i = 0; i < data.pointAttachments.length; i++) {
     final p = data.pointAttachments[i];
     final ctx = 'pointAttachments[$i]';
-    if (p.name.isEmpty) throw FormatException('$ctx.name must not be empty');
-    if (!pointNames.add(p.name)) {
-      throw FormatException('duplicate point attachment name: ${p.name}');
-    }
-    if (regionNames.contains(p.name) ||
-        clipNames.contains(p.name) ||
-        meshNames.contains(p.name)) {
-      throw FormatException(
-          'point attachment name collides with another slot attachment name: '
-          '${p.name}');
-    }
+    _registerAttachmentName(registry, p.name, _AttachmentKind.point, ctx);
     if (!p.x.isFinite || !p.y.isFinite || !p.rotation.isFinite) {
       throw FormatException('$ctx transform fields must be finite');
     }
   }
 
-  final boundingBoxNames = <String>{};
   for (var i = 0; i < data.boundingBoxAttachments.length; i++) {
     final b = data.boundingBoxAttachments[i];
     final ctx = 'boundingBoxAttachments[$i]';
-    if (b.name.isEmpty) throw FormatException('$ctx.name must not be empty');
-    if (!boundingBoxNames.add(b.name)) {
-      throw FormatException(
-          'duplicate bounding-box attachment name: ${b.name}');
-    }
-    if (regionNames.contains(b.name) ||
-        clipNames.contains(b.name) ||
-        meshNames.contains(b.name) ||
-        pointNames.contains(b.name)) {
-      throw FormatException(
-          'bounding-box attachment name collides with another slot attachment name: '
-          '${b.name}');
-    }
+    _registerAttachmentName(registry, b.name, _AttachmentKind.boundingBox, ctx);
     _validateConvexPolygonVertices(b.vertices, ctx);
   }
 
-  final nestedRigNames = <String>{};
   for (var i = 0; i < data.nestedRigAttachments.length; i++) {
     final n = data.nestedRigAttachments[i];
     final ctx = 'nestedRigAttachments[$i]';
@@ -1158,47 +1225,39 @@ void _validate(SkeletonData data) {
     if (n.skeleton.isEmpty) {
       throw FormatException('$ctx.skeleton must not be empty');
     }
-    if (!nestedRigNames.add(n.name)) {
-      throw FormatException('duplicate nested rig attachment name: ${n.name}');
-    }
-    if (regionNames.contains(n.name) ||
-        clipNames.contains(n.name) ||
-        meshNames.contains(n.name) ||
-        pointNames.contains(n.name) ||
-        boundingBoxNames.contains(n.name)) {
-      throw FormatException(
-          'nested rig attachment name collides with another slot attachment name: '
-          '${n.name}');
-    }
+    _registerAttachmentName(registry, n.name, _AttachmentKind.nestedRig, ctx);
   }
+}
 
-  final slotNames = <String>{};
+List<String> _validateSlots(SkeletonData data, _ValidationRegistry registry) {
   final resolvedSlotAttachments = List<String>.filled(data.slots.length, '');
   for (var i = 0; i < data.slots.length; i++) {
     final s = data.slots[i];
     final ctx = 'slots[$i]';
     if (s.name.isEmpty) throw FormatException('$ctx.name must not be empty');
-    if (!boneNames.contains(s.bone)) {
+    if (!registry.boneNames.contains(s.bone)) {
       throw FormatException('unknown slot bone: ${s.bone}');
     }
     if (data.skins.isEmpty &&
         s.attachment.isNotEmpty &&
-        !regionNames.contains(s.attachment) &&
-        !clipNames.contains(s.attachment) &&
-        !meshNames.contains(s.attachment) &&
-        !pointNames.contains(s.attachment) &&
-        !boundingBoxNames.contains(s.attachment) &&
-        !nestedRigNames.contains(s.attachment)) {
+        !registry.containsSlotAttachment(s.attachment)) {
       throw FormatException('unknown slot attachment: ${s.attachment}');
     }
     if (data.skins.isEmpty) {
       resolvedSlotAttachments[i] = s.attachment;
     }
-    if (!slotNames.add(s.name)) {
+    if (!registry.slotNames.add(s.name)) {
       throw FormatException('duplicate slot name: ${s.name}');
     }
   }
+  return resolvedSlotAttachments;
+}
 
+void _validateSkins(
+  SkeletonData data,
+  _ValidationRegistry registry,
+  List<String> resolvedSlotAttachments,
+) {
   if (data.skins.isNotEmpty) {
     final skinNames = <String>{};
     var defaultCount = 0;
@@ -1227,7 +1286,7 @@ void _validate(SkeletonData data) {
         if (entry.target.isEmpty) {
           throw FormatException('$entryCtx.target must not be empty');
         }
-        if (!slotNames.contains(entry.slot)) {
+        if (!registry.slotNames.contains(entry.slot)) {
           throw FormatException('unknown skin entry slot: ${entry.slot}');
         }
         final localKey = '${entry.slot}\x00${entry.attachment}';
@@ -1236,13 +1295,8 @@ void _validate(SkeletonData data) {
               'duplicate skin entry: ${skin.name}/${entry.slot}/${entry.attachment}');
         }
 
-        var targetMatches = 0;
-        if (regionNames.contains(entry.target)) targetMatches++;
-        if (clipNames.contains(entry.target)) targetMatches++;
-        if (meshNames.contains(entry.target)) targetMatches++;
-        if (pointNames.contains(entry.target)) targetMatches++;
-        if (boundingBoxNames.contains(entry.target)) targetMatches++;
-        if (nestedRigNames.contains(entry.target)) targetMatches++;
+        final targetMatches =
+            registry.slotAttachmentTargetMatches(entry.target);
         if (targetMatches == 0) {
           throw FormatException('unknown skin entry target: ${entry.target}');
         }
@@ -1272,7 +1326,12 @@ void _validate(SkeletonData data) {
       resolvedSlotAttachments[i] = target;
     }
   }
+}
 
+void _validateClipRanges(
+  SkeletonData data,
+  List<String> resolvedSlotAttachments,
+) {
   // Clipping range + no-overlap validation (mirror the Nim loader). A clip's
   // range starts at the slot that references it and runs through untilSlot
   // inclusive (else to the end of draw order); untilSlot must name a known slot
@@ -1319,67 +1378,63 @@ void _validate(SkeletonData data) {
       activeName = attachment;
     }
   }
+}
 
-  final pathAttachmentNames = <String>{};
+void _validateConstraints(SkeletonData data, _ValidationRegistry registry) {
   for (var i = 0; i < data.pathAttachments.length; i++) {
     final pa = data.pathAttachments[i];
     final ctx = 'pathAttachments[$i]';
     if (pa.name.isEmpty) throw FormatException('$ctx.name must not be empty');
-    if (!pathAttachmentNames.add(pa.name)) {
+    if (!registry.pathAttachmentNames.add(pa.name)) {
       throw FormatException('duplicate path attachment name: ${pa.name}');
     }
   }
 
-  final pathNames = <String>{};
   for (var i = 0; i < data.paths.length; i++) {
     final p = data.paths[i];
     final ctx = 'paths[$i]';
     if (p.name.isEmpty) throw FormatException('$ctx.name must not be empty');
-    if (!boneNames.contains(p.bone)) {
+    if (!registry.boneNames.contains(p.bone)) {
       throw FormatException('unknown path constraint bone: ${p.bone}');
     }
-    if (!boneNames.contains(p.target)) {
+    if (!registry.boneNames.contains(p.target)) {
       throw FormatException('unknown path constraint target: ${p.target}');
     }
-    if (!pathAttachmentNames.contains(p.path)) {
+    if (!registry.pathAttachmentNames.contains(p.path)) {
       throw FormatException('unknown path constraint path: ${p.path}');
     }
-    if (!pathNames.add(p.name)) {
+    if (!registry.pathNames.add(p.name)) {
       throw FormatException('duplicate path constraint name: ${p.name}');
     }
   }
 
   // IK constraint validation, mirroring runtime-nim (model.nim). Applied on both
   // the JSON and .bnb load paths so Dart rejects exactly what Nim rejects.
-  final ikNames = <String>{};
-  final boneParentByName = <String, String>{
-    for (final b in data.bones) b.name: b.parent,
-  };
   for (var i = 0; i < data.ikConstraints.length; i++) {
     final ik = data.ikConstraints[i];
     final ctx = 'ikConstraints[$i]';
     if (ik.name.isEmpty) throw FormatException('$ctx.name must not be empty');
-    if (!ikNames.add(ik.name)) {
+    if (!registry.ikNames.add(ik.name)) {
       throw FormatException('duplicate ik constraint name: ${ik.name}');
     }
     if (ik.bones.isEmpty) {
       throw FormatException('$ctx.bones must not be empty');
     }
     for (final boneName in ik.bones) {
-      if (!boneNames.contains(boneName)) {
+      if (!registry.boneNames.contains(boneName)) {
         throw FormatException('unknown ik constraint bone: $boneName');
       }
     }
     // The chain must be contiguous root->tip: each bone after the first is the
     // direct child of the preceding one.
     for (var c = 1; c < ik.bones.length; c++) {
-      if (boneParentByName[ik.bones[c]] != ik.bones[c - 1]) {
+      if (registry.boneParentByName[ik.bones[c]] != ik.bones[c - 1]) {
         throw FormatException(
             '$ctx.bones must form a contiguous parent-to-child chain '
             '(root to tip): ${ik.bones[c]} is not a child of ${ik.bones[c - 1]}');
       }
     }
-    if (!boneNames.contains(ik.target)) {
+    if (!registry.boneNames.contains(ik.target)) {
       throw FormatException('unknown ik constraint target: ${ik.target}');
     }
     final mix = ik.mix;
@@ -1390,18 +1445,17 @@ void _validate(SkeletonData data) {
 
   // Transform constraint validation, mirroring runtime-nim (model.nim): unique
   // name, known bone/target refs, each present mix finite and in [0, 1].
-  final transformNames = <String>{};
   for (var i = 0; i < data.transformConstraints.length; i++) {
     final tc = data.transformConstraints[i];
     final ctx = 'transformConstraints[$i]';
     if (tc.name.isEmpty) throw FormatException('$ctx.name must not be empty');
-    if (!transformNames.add(tc.name)) {
+    if (!registry.transformNames.add(tc.name)) {
       throw FormatException('duplicate transform constraint name: ${tc.name}');
     }
-    if (!boneNames.contains(tc.bone)) {
+    if (!registry.boneNames.contains(tc.bone)) {
       throw FormatException('unknown transform constraint bone: ${tc.bone}');
     }
-    if (!boneNames.contains(tc.target)) {
+    if (!registry.boneNames.contains(tc.target)) {
       throw FormatException(
           'unknown transform constraint target: ${tc.target}');
     }
@@ -1418,15 +1472,14 @@ void _validate(SkeletonData data) {
     }
   }
 
-  final physicsNames = <String>{};
   for (var i = 0; i < data.physicsConstraints.length; i++) {
     final pc = data.physicsConstraints[i];
     final ctx = 'physicsConstraints[$i]';
     if (pc.name.isEmpty) throw FormatException('$ctx.name must not be empty');
-    if (!physicsNames.add(pc.name)) {
+    if (!registry.physicsNames.add(pc.name)) {
       throw FormatException('duplicate physics constraint name: ${pc.name}');
     }
-    if (!boneNames.contains(pc.bone)) {
+    if (!registry.boneNames.contains(pc.bone)) {
       throw FormatException('unknown physics constraint bone: ${pc.bone}');
     }
     if (pc.channels.isEmpty) {
@@ -1456,7 +1509,9 @@ void _validate(SkeletonData data) {
       throw FormatException('$ctx.physicsMix must be in [0, 1]');
     }
   }
+}
 
+void _validateSkinRequired(SkeletonData data, _ValidationRegistry registry) {
   if (data.skins.isNotEmpty) {
     final requiredBones = {
       for (final b in data.bones)
@@ -1515,7 +1570,7 @@ void _validate(SkeletonData data) {
           throw FormatException(
               'non-required bone has a skinRequired ancestor: ${bone.name}');
         }
-        parent = boneParentByName[parent] ?? '';
+        parent = registry.boneParentByName[parent] ?? '';
       }
     }
 
@@ -1528,20 +1583,24 @@ void _validate(SkeletonData data) {
       final skin = data.skins[si];
       final ctx = 'skins[$si]';
       final skinBones = ensureMembership(
-          skin.bones, boneNames, requiredBones, '$ctx.bones', 'bone');
-      final skinIk = ensureMembership(skin.ikConstraints, ikNames, requiredIk,
-          '$ctx.ikConstraints', 'ikConstraint');
+          skin.bones, registry.boneNames, requiredBones, '$ctx.bones', 'bone');
+      final skinIk = ensureMembership(skin.ikConstraints, registry.ikNames,
+          requiredIk, '$ctx.ikConstraints', 'ikConstraint');
       final skinTransform = ensureMembership(
           skin.transformConstraints,
-          transformNames,
+          registry.transformNames,
           requiredTransform,
           '$ctx.transformConstraints',
           'transformConstraint');
-      final skinPath = ensureMembership(skin.pathConstraints, pathNames,
-          requiredPath, '$ctx.pathConstraints', 'pathConstraint');
+      final skinPath = ensureMembership(
+          skin.pathConstraints,
+          registry.pathNames,
+          requiredPath,
+          '$ctx.pathConstraints',
+          'pathConstraint');
       final skinPhysics = ensureMembership(
           skin.physicsConstraints,
-          physicsNames,
+          registry.physicsNames,
           requiredPhysics,
           '$ctx.physicsConstraints',
           'physicsConstraint');
@@ -1601,7 +1660,7 @@ void _validate(SkeletonData data) {
             throw FormatException(
                 "$ctx activates required bone '${bone.name}' without required ancestor '$parent'");
           }
-          parent = boneParentByName[parent] ?? '';
+          parent = registry.boneParentByName[parent] ?? '';
         }
       }
     }
@@ -1614,15 +1673,15 @@ void _validate(SkeletonData data) {
           ? defaultBones
           : {
               ...defaultBones,
-              ...ensureMembership(skin.bones, boneNames, requiredBones,
+              ...ensureMembership(skin.bones, registry.boneNames, requiredBones,
                   'skins[$si].bones', 'bone'),
             };
       final activeIk = skin.name == 'default'
           ? defaultIk
           : {
               ...defaultIk,
-              ...ensureMembership(skin.ikConstraints, ikNames, requiredIk,
-                  'skins[$si].ikConstraints', 'ikConstraint'),
+              ...ensureMembership(skin.ikConstraints, registry.ikNames,
+                  requiredIk, 'skins[$si].ikConstraints', 'ikConstraint'),
             };
       final activeTransform = skin.name == 'default'
           ? defaultTransform
@@ -1630,7 +1689,7 @@ void _validate(SkeletonData data) {
               ...defaultTransform,
               ...ensureMembership(
                   skin.transformConstraints,
-                  transformNames,
+                  registry.transformNames,
                   requiredTransform,
                   'skins[$si].transformConstraints',
                   'transformConstraint'),
@@ -1639,8 +1698,8 @@ void _validate(SkeletonData data) {
           ? defaultPath
           : {
               ...defaultPath,
-              ...ensureMembership(skin.pathConstraints, pathNames, requiredPath,
-                  'skins[$si].pathConstraints', 'pathConstraint'),
+              ...ensureMembership(skin.pathConstraints, registry.pathNames,
+                  requiredPath, 'skins[$si].pathConstraints', 'pathConstraint'),
             };
       final activePhysics = skin.name == 'default'
           ? defaultPhysics
@@ -1648,7 +1707,7 @@ void _validate(SkeletonData data) {
               ...defaultPhysics,
               ...ensureMembership(
                   skin.physicsConstraints,
-                  physicsNames,
+                  registry.physicsNames,
                   requiredPhysics,
                   'skins[$si].physicsConstraints',
                   'physicsConstraint'),
@@ -1689,26 +1748,31 @@ void _validate(SkeletonData data) {
       }
     }
   }
+}
 
+void _validateAnimations(SkeletonData data, _ValidationRegistry registry) {
+  registry.animationNames.addAll(data.animations.map((a) => a.name));
   for (var ai = 0; ai < data.animations.length; ai++) {
     final anim = data.animations[ai];
     final ctx = 'animations[$ai](${anim.name})';
     for (var bi = 0; bi < anim.boneTimelines.length; bi++) {
       final tl = anim.boneTimelines[bi];
-      if (!boneNames.contains(tl.bone)) {
+      if (!registry.boneNames.contains(tl.bone)) {
         throw FormatException(
             '$ctx.boneTimelines[$bi]: unknown bone: ${tl.bone}');
       }
     }
     for (var si = 0; si < anim.slotTimelines.length; si++) {
       final tl = anim.slotTimelines[si];
-      if (!slotNames.contains(tl.slot)) {
+      if (!registry.slotNames.contains(tl.slot)) {
         throw FormatException(
             '$ctx.slotTimelines[$si]: unknown slot: ${tl.slot}');
       }
     }
   }
+}
 
+void _validateDeformers(SkeletonData data) {
   // M7 deformer validation.
   final deformerIds = <String>{};
   final deformerOrders = <int>{};
@@ -1730,9 +1794,11 @@ void _validate(SkeletonData data) {
     switch (def) {
       case WarpDeformer(:final warp):
         if (warp.rows < 2)
-          throw FormatException('$ctx warp.rows must be >= 2, got ${warp.rows}');
+          throw FormatException(
+              '$ctx warp.rows must be >= 2, got ${warp.rows}');
         if (warp.cols < 2)
-          throw FormatException('$ctx warp.cols must be >= 2, got ${warp.cols}');
+          throw FormatException(
+              '$ctx warp.cols must be >= 2, got ${warp.cols}');
         final expectedPts = warp.rows * warp.cols;
         if (warp.controlPoints.length != expectedPts) {
           throw FormatException(
@@ -1750,9 +1816,10 @@ void _validate(SkeletonData data) {
         break;
     }
   }
+}
 
+void _validateStateMachines(SkeletonData data, _ValidationRegistry registry) {
   // M8 state machine cross-reference validation.
-  final animationNames = <String>{for (final a in data.animations) a.name};
   for (var smi = 0; smi < data.stateMachines.length; smi++) {
     final sm = data.stateMachines[smi];
     final smCtx = 'stateMachines[$smi](${sm.name})';
@@ -1770,7 +1837,7 @@ void _validate(SkeletonData data) {
         final state = layer.states[si];
         final sCtx = '$lCtx.states[$si](${state.name})';
         if (state.kind == StateMachineStateKind.clip) {
-          if (!animationNames.contains(state.clipName)) {
+          if (!registry.animationNames.contains(state.clipName)) {
             throw FormatException(
                 '$sCtx.clip references unknown animation: ${state.clipName}');
           }
@@ -1781,7 +1848,7 @@ void _validate(SkeletonData data) {
           }
           for (var bci = 0; bci < state.blendClips.length; bci++) {
             final bc = state.blendClips[bci];
-            if (!animationNames.contains(bc.clipName)) {
+            if (!registry.animationNames.contains(bc.clipName)) {
               throw FormatException(
                   '$sCtx.blendClips[$bci].clip references unknown animation: ${bc.clipName}');
             }
@@ -1860,9 +1927,10 @@ void _validate(SkeletonData data) {
                 '$lstCtx.slot references unknown slot: ${lst.slot}');
           }
           final helperExists = switch (lst.targetKind) {
-            PointerHelperTargetKind.point => pointNames.contains(lst.target),
+            PointerHelperTargetKind.point =>
+              registry.pointNames.contains(lst.target),
             PointerHelperTargetKind.boundingBox =>
-              boundingBoxNames.contains(lst.target),
+              registry.boundingBoxNames.contains(lst.target),
           };
           if (!helperExists) {
             throw FormatException(
@@ -1931,6 +1999,24 @@ void _validate(SkeletonData data) {
       }
     }
   }
+}
+
+void _validate(SkeletonData data) {
+  if (data.header.name.isEmpty) {
+    throw const FormatException('skeleton.name must not be empty');
+  }
+
+  final registry = _ValidationRegistry();
+  _validateBones(data, registry);
+  _validateAttachments(data, registry);
+  final resolvedSlotAttachments = _validateSlots(data, registry);
+  _validateSkins(data, registry, resolvedSlotAttachments);
+  _validateClipRanges(data, resolvedSlotAttachments);
+  _validateConstraints(data, registry);
+  _validateSkinRequired(data, registry);
+  _validateAnimations(data, registry);
+  _validateDeformers(data);
+  _validateStateMachines(data, registry);
 }
 
 // ===========================================================================
@@ -2964,27 +3050,37 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
           throw const FormatException('.bnb: multiple skeleton objects');
         header = SkeletonHeader(
           name: _bStr(obj, wire.bonyPropertyKeyName, strings, 'skeleton.name'),
-          version:
-              _bStr(obj, wire.bonyPropertyKeyVersion, strings, 'skeleton.version', def: '0.1.0'),
+          version: _bStr(
+              obj, wire.bonyPropertyKeyVersion, strings, 'skeleton.version',
+              def: '0.1.0'),
         );
       case wire.bonyTypeKeyBone:
         flushSkin();
         flushPending();
         bones.add(BoneData(
           name: _bStr(obj, wire.bonyPropertyKeyName, strings, 'bone.name'),
-          parent: _bStr(obj, wire.bonyPropertyKeyParent, strings, 'bone.parent', def: ''),
+          parent: _bStr(obj, wire.bonyPropertyKeyParent, strings, 'bone.parent',
+              def: ''),
           x: _bF32(obj, wire.bonyPropertyKeyX, 'bone.x', def: 0.0),
           y: _bF32(obj, wire.bonyPropertyKeyY, 'bone.y', def: 0.0),
-          rotation: _bF32(obj, wire.bonyPropertyKeyRotation, 'bone.rotation', def: 0.0),
-          scaleX: _bF32(obj, wire.bonyPropertyKeyScaleX, 'bone.scaleX', def: 1.0),
-          scaleY: _bF32(obj, wire.bonyPropertyKeyScaleY, 'bone.scaleY', def: 1.0),
-          shearX: _bF32(obj, wire.bonyPropertyKeyShearX, 'bone.shearX', def: 0.0),
-          shearY: _bF32(obj, wire.bonyPropertyKeyShearY, 'bone.shearY', def: 0.0),
-          inheritRotation: _bBool(obj, wire.bonyPropertyKeyInheritRotation, def: true),
-          inheritScale: _bBool(obj, wire.bonyPropertyKeyInheritScale, def: true),
-          inheritReflection: _bBool(obj, wire.bonyPropertyKeyInheritReflection, def: true),
-          transformMode: _bStr(
-              obj, wire.bonyPropertyKeyTransformMode, strings, 'bone.transformMode',
+          rotation: _bF32(obj, wire.bonyPropertyKeyRotation, 'bone.rotation',
+              def: 0.0),
+          scaleX:
+              _bF32(obj, wire.bonyPropertyKeyScaleX, 'bone.scaleX', def: 1.0),
+          scaleY:
+              _bF32(obj, wire.bonyPropertyKeyScaleY, 'bone.scaleY', def: 1.0),
+          shearX:
+              _bF32(obj, wire.bonyPropertyKeyShearX, 'bone.shearX', def: 0.0),
+          shearY:
+              _bF32(obj, wire.bonyPropertyKeyShearY, 'bone.shearY', def: 0.0),
+          inheritRotation:
+              _bBool(obj, wire.bonyPropertyKeyInheritRotation, def: true),
+          inheritScale:
+              _bBool(obj, wire.bonyPropertyKeyInheritScale, def: true),
+          inheritReflection:
+              _bBool(obj, wire.bonyPropertyKeyInheritReflection, def: true),
+          transformMode: _bStr(obj, wire.bonyPropertyKeyTransformMode, strings,
+              'bone.transformMode',
               def: 'normal'),
           skinRequired: _bBool(obj, wire.bonyPropertyKeySkinRequired),
         ));
@@ -2994,8 +3090,9 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
         slots.add(SlotData(
           name: _bStr(obj, wire.bonyPropertyKeyName, strings, 'slot.name'),
           bone: _bStr(obj, wire.bonyPropertyKeyBone, strings, 'slot.bone'),
-          attachment:
-              _bStr(obj, wire.bonyPropertyKeyAttachment, strings, 'slot.attachment', def: ''),
+          attachment: _bStr(
+              obj, wire.bonyPropertyKeyAttachment, strings, 'slot.attachment',
+              def: ''),
         ));
       case wire.bonyTypeKeyRegion:
         flushSkin();
@@ -3004,47 +3101,55 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
           name: _bStr(obj, wire.bonyPropertyKeyName, strings, 'region.name'),
           width: _bF32(obj, wire.bonyPropertyKeyWidth, 'region.width'),
           height: _bF32(obj, wire.bonyPropertyKeyHeight, 'region.height'),
-          texturePage: _bStr(obj, wire.bonyPropertyKeyTexturePage, strings, 'region.texturePage',
+          texturePage: _bStr(obj, wire.bonyPropertyKeyTexturePage, strings,
+              'region.texturePage',
               def: ''),
           u0: _bF32(obj, wire.bonyPropertyKeyU0, 'region.u0', def: 0.0),
           v0: _bF32(obj, wire.bonyPropertyKeyV0, 'region.v0', def: 0.0),
           u1: _bF32(obj, wire.bonyPropertyKeyU1, 'region.u1', def: 1.0),
           v1: _bF32(obj, wire.bonyPropertyKeyV1, 'region.v1', def: 1.0),
-          alphaMode: _bStr(obj, wire.bonyPropertyKeyAlphaMode, strings, 'region.alphaMode',
+          alphaMode: _bStr(
+              obj, wire.bonyPropertyKeyAlphaMode, strings, 'region.alphaMode',
               def: 'straight'),
         ));
       case wire.bonyTypeKeyPointAttachment:
         flushSkin();
         flushPending();
         pointAttachments.add(PointAttachment(
-          name: _bStr(obj, wire.bonyPropertyKeyName, strings, 'pointAttachment.name'),
+          name: _bStr(
+              obj, wire.bonyPropertyKeyName, strings, 'pointAttachment.name'),
           x: _bF32(obj, wire.bonyPropertyKeyX, 'pointAttachment.x'),
           y: _bF32(obj, wire.bonyPropertyKeyY, 'pointAttachment.y'),
-          rotation: _bF32(obj, wire.bonyPropertyKeyRotation, 'pointAttachment.rotation'),
+          rotation: _bF32(
+              obj, wire.bonyPropertyKeyRotation, 'pointAttachment.rotation'),
         ));
       case wire.bonyTypeKeyBoundingBoxAttachment:
         flushSkin();
         flushPending();
         boundingBoxAttachments.add(BoundingBoxAttachment(
-          name: _bStr(obj, wire.bonyPropertyKeyName, strings, 'boundingBoxAttachment.name'),
+          name: _bStr(obj, wire.bonyPropertyKeyName, strings,
+              'boundingBoxAttachment.name'),
           vertices: _bPolygonVertices(obj, 'boundingBoxAttachment'),
         ));
       case wire.bonyTypeKeyClippingAttachment:
         flushSkin();
         flushPending();
         clips.add(ClippingAttachment(
-          name: _bStr(obj, wire.bonyPropertyKeyName, strings, 'clippingAttachment.name'),
+          name: _bStr(obj, wire.bonyPropertyKeyName, strings,
+              'clippingAttachment.name'),
           vertices: _bPolygonVertices(obj, 'clippingAttachment'),
-          untilSlot: _bStr(
-              obj, wire.bonyPropertyKeyUntilSlot, strings, 'clippingAttachment.untilSlot',
+          untilSlot: _bStr(obj, wire.bonyPropertyKeyUntilSlot, strings,
+              'clippingAttachment.untilSlot',
               def: ''),
         ));
       case wire.bonyTypeKeyMeshAttachment:
         flushSkin();
         flushPending();
-        final meshWeighted = _bBool(obj, wire.bonyPropertyKeyMeshWeighted, def: false);
+        final meshWeighted =
+            _bBool(obj, wire.bonyPropertyKeyMeshWeighted, def: false);
         meshes.add(MeshAttachment(
-          name: _bStr(obj, wire.bonyPropertyKeyName, strings, 'meshAttachment.name'),
+          name: _bStr(
+              obj, wire.bonyPropertyKeyName, strings, 'meshAttachment.name'),
           weighted: meshWeighted,
           vertices: _bMeshVertices(obj, meshWeighted, strings),
           uvs: _bMeshUvs(obj),
@@ -3054,30 +3159,39 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
         flushSkin();
         flushPending();
         nestedRigAttachments.add(NestedRigAttachment(
-          name: _bStr(obj, wire.bonyPropertyKeyName, strings, 'nestedRigAttachment.name'),
-          skeleton: _bStr(
-              obj, wire.bonyPropertyKeyNestedSkeleton, strings, 'nestedRigAttachment.skeleton'),
-          skin: _bStr(obj, wire.bonyPropertyKeyNestedSkin, strings, 'nestedRigAttachment.skin',
+          name: _bStr(obj, wire.bonyPropertyKeyName, strings,
+              'nestedRigAttachment.name'),
+          skeleton: _bStr(obj, wire.bonyPropertyKeyNestedSkeleton, strings,
+              'nestedRigAttachment.skeleton'),
+          skin: _bStr(obj, wire.bonyPropertyKeyNestedSkin, strings,
+              'nestedRigAttachment.skin',
               def: ''),
-          animation: _bStr(
-              obj, wire.bonyPropertyKeyNestedAnimation, strings, 'nestedRigAttachment.animation',
+          animation: _bStr(obj, wire.bonyPropertyKeyNestedAnimation, strings,
+              'nestedRigAttachment.animation',
               def: ''),
         ));
       case wire.bonyTypeKeySkin:
         flushPending();
         flushSkin();
-        currentSkinName = _bStr(obj, wire.bonyPropertyKeyName, strings, 'skin.name');
-        currentSkinBones =
-            _bIndexList(obj, wire.bonyPropertyKeySkinBones, boneNames(), 'skin.bones');
+        currentSkinName =
+            _bStr(obj, wire.bonyPropertyKeyName, strings, 'skin.name');
+        currentSkinBones = _bIndexList(
+            obj, wire.bonyPropertyKeySkinBones, boneNames(), 'skin.bones');
         currentSkinIkConstraints = _bIndexList(
-            obj, wire.bonyPropertyKeySkinIkConstraints, ikNames(), 'skin.ikConstraints');
+            obj,
+            wire.bonyPropertyKeySkinIkConstraints,
+            ikNames(),
+            'skin.ikConstraints');
         currentSkinTransformConstraints = _bIndexList(
             obj,
             wire.bonyPropertyKeySkinTransformConstraints,
             transformNames(),
             'skin.transformConstraints');
         currentSkinPathConstraints = _bIndexList(
-            obj, wire.bonyPropertyKeySkinPathConstraints, pathNames(), 'skin.pathConstraints');
+            obj,
+            wire.bonyPropertyKeySkinPathConstraints,
+            pathNames(),
+            'skin.pathConstraints');
         currentSkinPhysicsConstraints = _bIndexList(
             obj,
             wire.bonyPropertyKeySkinPhysicsConstraints,
@@ -3091,9 +3205,10 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
         }
         currentSkinEntries.add(SkinEntryData(
           slot: _bStr(obj, wire.bonyPropertyKeySlot, strings, 'skinEntry.slot'),
-          attachment:
-              _bStr(obj, wire.bonyPropertyKeySkinAttachment, strings, 'skinEntry.attachment'),
-          target: _bStr(obj, wire.bonyPropertyKeySkinTarget, strings, 'skinEntry.target'),
+          attachment: _bStr(obj, wire.bonyPropertyKeySkinAttachment, strings,
+              'skinEntry.attachment'),
+          target: _bStr(
+              obj, wire.bonyPropertyKeySkinTarget, strings, 'skinEntry.target'),
         ));
       case wire.bonyTypeKeyPath:
         flushSkin();
@@ -3101,7 +3216,8 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
         paths.add(PathConstraintData(
           name: _bStr(obj, wire.bonyPropertyKeyName, strings, 'path.name'),
           bone: _bStr(obj, wire.bonyPropertyKeyBone, strings, 'path.bone'),
-          target: _bStr(obj, wire.bonyPropertyKeyTarget, strings, 'path.target'),
+          target:
+              _bStr(obj, wire.bonyPropertyKeyTarget, strings, 'path.target'),
           path: _bStr(obj, wire.bonyPropertyKeyPath, strings, 'path.path'),
           order: _bVarint(obj, wire.bonyPropertyKeyOrder, def: 0),
           skinRequired: _bBool(obj, wire.bonyPropertyKeySkinRequired),
@@ -3109,7 +3225,8 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
               ? _bF32(obj, wire.bonyPropertyKeyPosition, 'path.position')
               : null,
           translateMix: obj.props.containsKey(wire.bonyPropertyKeyTranslateMix)
-              ? _bF32(obj, wire.bonyPropertyKeyTranslateMix, 'path.translateMix')
+              ? _bF32(
+                  obj, wire.bonyPropertyKeyTranslateMix, 'path.translateMix')
               : null,
           rotateMix: obj.props.containsKey(wire.bonyPropertyKeyRotateMix)
               ? _bF32(obj, wire.bonyPropertyKeyRotateMix, 'path.rotateMix')
@@ -3119,9 +3236,11 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
         flushSkin();
         flushPending();
         ikConstraints.add(IkConstraintData(
-          name: _bStr(obj, wire.bonyPropertyKeyName, strings, 'ikConstraint.name'),
+          name: _bStr(
+              obj, wire.bonyPropertyKeyName, strings, 'ikConstraint.name'),
           bones: _bIkBones(obj, strings),
-          target: _bStr(obj, wire.bonyPropertyKeyTarget, strings, 'ikConstraint.target'),
+          target: _bStr(
+              obj, wire.bonyPropertyKeyTarget, strings, 'ikConstraint.target'),
           order: _bVarint(obj, wire.bonyPropertyKeyOrder, def: 0),
           skinRequired: _bBool(obj, wire.bonyPropertyKeySkinRequired),
           // Absent => null (mix defaults to 1.0, bendPositive to true).
@@ -3136,23 +3255,30 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
         flushSkin();
         flushPending();
         transformConstraints.add(TransformConstraintData(
-          name: _bStr(obj, wire.bonyPropertyKeyName, strings, 'transformConstraint.name'),
-          bone: _bStr(obj, wire.bonyPropertyKeyBone, strings, 'transformConstraint.bone'),
-          target: _bStr(obj, wire.bonyPropertyKeyTarget, strings, 'transformConstraint.target'),
+          name: _bStr(obj, wire.bonyPropertyKeyName, strings,
+              'transformConstraint.name'),
+          bone: _bStr(obj, wire.bonyPropertyKeyBone, strings,
+              'transformConstraint.bone'),
+          target: _bStr(obj, wire.bonyPropertyKeyTarget, strings,
+              'transformConstraint.target'),
           order: _bVarint(obj, wire.bonyPropertyKeyOrder, def: 0),
           skinRequired: _bBool(obj, wire.bonyPropertyKeySkinRequired),
           // Absent => null (each mix defaults to 1.0).
           translateMix: obj.props.containsKey(wire.bonyPropertyKeyTranslateMix)
-              ? _bF32(obj, wire.bonyPropertyKeyTranslateMix, 'transformConstraint.translateMix')
+              ? _bF32(obj, wire.bonyPropertyKeyTranslateMix,
+                  'transformConstraint.translateMix')
               : null,
           rotateMix: obj.props.containsKey(wire.bonyPropertyKeyRotateMix)
-              ? _bF32(obj, wire.bonyPropertyKeyRotateMix, 'transformConstraint.rotateMix')
+              ? _bF32(obj, wire.bonyPropertyKeyRotateMix,
+                  'transformConstraint.rotateMix')
               : null,
           scaleMix: obj.props.containsKey(wire.bonyPropertyKeyScaleMix)
-              ? _bF32(obj, wire.bonyPropertyKeyScaleMix, 'transformConstraint.scaleMix')
+              ? _bF32(obj, wire.bonyPropertyKeyScaleMix,
+                  'transformConstraint.scaleMix')
               : null,
           shearMix: obj.props.containsKey(wire.bonyPropertyKeyShearMix)
-              ? _bF32(obj, wire.bonyPropertyKeyShearMix, 'transformConstraint.shearMix')
+              ? _bF32(obj, wire.bonyPropertyKeyShearMix,
+                  'transformConstraint.shearMix')
               : null,
         ));
       case wire.bonyTypeKeyPhysicsConstraint:
@@ -3163,42 +3289,51 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
               '.bnb physicsConstraint.channels is required');
         }
         physicsConstraints.add(PhysicsConstraintData(
-          name: _bStr(obj, wire.bonyPropertyKeyName, strings, 'physicsConstraint.name'),
-          bone: _bStr(obj, wire.bonyPropertyKeyBone, strings, 'physicsConstraint.bone'),
+          name: _bStr(
+              obj, wire.bonyPropertyKeyName, strings, 'physicsConstraint.name'),
+          bone: _bStr(
+              obj, wire.bonyPropertyKeyBone, strings, 'physicsConstraint.bone'),
           // channels is an unsigned varuint bitmask (NOT the signed/zigzag
           // varint used by `order`), matching generated/wire.dart's varuint
           // backingType and the Nim writeVaruintPayload emission.
-          channels: physicsChannelsFromMask(_bVaruint(obj, wire.bonyPropertyKeyChannels)),
+          channels: physicsChannelsFromMask(
+              _bVaruint(obj, wire.bonyPropertyKeyChannels)),
           order: _bVarint(obj, wire.bonyPropertyKeyOrder, def: 0),
           skinRequired: _bBool(obj, wire.bonyPropertyKeySkinRequired),
           // Absent => null (integrator defaults: mass=1.0/physicsMix=1.0/rest 0.0).
           inertia: obj.props.containsKey(wire.bonyPropertyKeyInertia)
-              ? _bF32(obj, wire.bonyPropertyKeyInertia, 'physicsConstraint.inertia')
+              ? _bF32(
+                  obj, wire.bonyPropertyKeyInertia, 'physicsConstraint.inertia')
               : null,
           strength: obj.props.containsKey(wire.bonyPropertyKeyStrength)
-              ? _bF32(obj, wire.bonyPropertyKeyStrength, 'physicsConstraint.strength')
+              ? _bF32(obj, wire.bonyPropertyKeyStrength,
+                  'physicsConstraint.strength')
               : null,
           damping: obj.props.containsKey(wire.bonyPropertyKeyDamping)
-              ? _bF32(obj, wire.bonyPropertyKeyDamping, 'physicsConstraint.damping')
+              ? _bF32(
+                  obj, wire.bonyPropertyKeyDamping, 'physicsConstraint.damping')
               : null,
           mass: obj.props.containsKey(wire.bonyPropertyKeyMass)
               ? _bF32(obj, wire.bonyPropertyKeyMass, 'physicsConstraint.mass')
               : null,
           gravity: obj.props.containsKey(wire.bonyPropertyKeyGravity)
-              ? _bF32(obj, wire.bonyPropertyKeyGravity, 'physicsConstraint.gravity')
+              ? _bF32(
+                  obj, wire.bonyPropertyKeyGravity, 'physicsConstraint.gravity')
               : null,
           wind: obj.props.containsKey(wire.bonyPropertyKeyWind)
               ? _bF32(obj, wire.bonyPropertyKeyWind, 'physicsConstraint.wind')
               : null,
           physicsMix: obj.props.containsKey(wire.bonyPropertyKeyPhysicsMix)
-              ? _bF32(obj, wire.bonyPropertyKeyPhysicsMix, 'physicsConstraint.physicsMix')
+              ? _bF32(obj, wire.bonyPropertyKeyPhysicsMix,
+                  'physicsConstraint.physicsMix')
               : null,
         ));
       case wire.bonyTypeKeyPathAttachment:
         flushSkin();
         flushPending();
         pathAttachments.add(PathAttachment(
-          name: _bStr(obj, wire.bonyPropertyKeyName, strings, 'pathAttachment.name'),
+          name: _bStr(
+              obj, wire.bonyPropertyKeyName, strings, 'pathAttachment.name'),
           p0x: _bF64(obj, wire.bonyPropertyKeyP0x, 'pathAttachment.p0x'),
           p0y: _bF64(obj, wire.bonyPropertyKeyP0y, 'pathAttachment.p0y'),
           p1x: _bF64(obj, wire.bonyPropertyKeyP1x, 'pathAttachment.p1x'),
@@ -3212,11 +3347,15 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
       case wire.bonyTypeKeyParameter:
         flushSkin();
         flushPending();
-        final name = _bStr(obj, wire.bonyPropertyKeyName, strings, 'parameter.name');
-        final min = _bF32(obj, wire.bonyPropertyKeyParameterMin, 'parameter.min');
-        final max = _bF32(obj, wire.bonyPropertyKeyParameterMax, 'parameter.max');
+        final name =
+            _bStr(obj, wire.bonyPropertyKeyName, strings, 'parameter.name');
+        final min =
+            _bF32(obj, wire.bonyPropertyKeyParameterMin, 'parameter.min');
+        final max =
+            _bF32(obj, wire.bonyPropertyKeyParameterMax, 'parameter.max');
         final def = obj.props.containsKey(wire.bonyPropertyKeyParameterDefault)
-            ? _bF32(obj, wire.bonyPropertyKeyParameterDefault, 'parameter.default')
+            ? _bF32(
+                obj, wire.bonyPropertyKeyParameterDefault, 'parameter.default')
             : 0.0;
         final axis = ParameterAxis(
           name: name,
@@ -3229,11 +3368,15 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
       case wire.bonyTypeKeyDeformer:
         flushSkin();
         flushPending();
-        pendingId = _bStr(obj, wire.bonyPropertyKeyDeformerId, strings, 'deformer.id');
-        pendingParent =
-            _bStr(obj, wire.bonyPropertyKeyParent, strings, 'deformer.parent', def: '');
-        pendingOrder = _bVaruint(obj, wire.bonyPropertyKeyDeformerOrder, def: 0);
-        final kindStr = _bStr(obj, wire.bonyPropertyKeyDeformerKind, strings, 'deformer.kind');
+        pendingId =
+            _bStr(obj, wire.bonyPropertyKeyDeformerId, strings, 'deformer.id');
+        pendingParent = _bStr(
+            obj, wire.bonyPropertyKeyParent, strings, 'deformer.parent',
+            def: '');
+        pendingOrder =
+            _bVaruint(obj, wire.bonyPropertyKeyDeformerOrder, def: 0);
+        final kindStr = _bStr(
+            obj, wire.bonyPropertyKeyDeformerKind, strings, 'deformer.kind');
         if (kindStr == 'warp') {
           pendingKind = DeformerKind.warp;
         } else if (kindStr == 'rotation') {
@@ -3268,14 +3411,21 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
               '.bnb rotationDeformer without preceding rotation deformer');
         }
         pendingRotation = RotationDeformerData(
-          pivotX: _bF32(obj, wire.bonyPropertyKeyRotationPivotX, 'rotationDeformer.pivotX'),
-          pivotY: _bF32(obj, wire.bonyPropertyKeyRotationPivotY, 'rotationDeformer.pivotY'),
-          angleDegrees:
-              _bF32(obj, wire.bonyPropertyKeyRotationAngleDegrees, 'rotationDeformer.angleDegrees'),
-          scaleX: _bF32(obj, wire.bonyPropertyKeyRotationScaleX, 'rotationDeformer.scaleX', def: 1.0),
-          scaleY: _bF32(obj, wire.bonyPropertyKeyRotationScaleY, 'rotationDeformer.scaleY', def: 1.0),
-          opacity:
-              _bF32(obj, wire.bonyPropertyKeyRotationOpacity, 'rotationDeformer.opacity', def: 1.0),
+          pivotX: _bF32(obj, wire.bonyPropertyKeyRotationPivotX,
+              'rotationDeformer.pivotX'),
+          pivotY: _bF32(obj, wire.bonyPropertyKeyRotationPivotY,
+              'rotationDeformer.pivotY'),
+          angleDegrees: _bF32(obj, wire.bonyPropertyKeyRotationAngleDegrees,
+              'rotationDeformer.angleDegrees'),
+          scaleX: _bF32(obj, wire.bonyPropertyKeyRotationScaleX,
+              'rotationDeformer.scaleX',
+              def: 1.0),
+          scaleY: _bF32(obj, wire.bonyPropertyKeyRotationScaleY,
+              'rotationDeformer.scaleY',
+              def: 1.0),
+          opacity: _bF32(obj, wire.bonyPropertyKeyRotationOpacity,
+              'rotationDeformer.opacity',
+              def: 1.0),
         );
         geometryReady = true;
       case wire.bonyTypeKeyKeyformBlend:
@@ -3283,7 +3433,8 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
           throw const FormatException(
               '.bnb keyformBlend without preceding deformer geometry');
         }
-        pendingBlendValueCount = _bVaruint(obj, wire.bonyPropertyKeyBlendValueCount, def: 0);
+        pendingBlendValueCount =
+            _bVaruint(obj, wire.bonyPropertyKeyBlendValueCount, def: 0);
         pendingBlendAxes = _bBlendAxes(obj, strings, paramsByName);
         pendingKeyforms = [];
         blendPending = true;
@@ -3294,8 +3445,8 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
         }
         final coordVals = _bF32Array(obj, wire.bonyPropertyKeyBlendCoordinates,
             pendingBlendAxes.length, 'keyform.coordinates');
-        final values = _bF32Array(
-            obj, wire.bonyPropertyKeyBlendValues, pendingBlendValueCount, 'keyform.values');
+        final values = _bF32Array(obj, wire.bonyPropertyKeyBlendValues,
+            pendingBlendValueCount, 'keyform.values');
         final coordinates = [
           for (var i = 0; i < pendingBlendAxes.length; i++)
             ParameterSample(
@@ -3325,8 +3476,8 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
               '.bnb boneTimeline.timelineKeys is required');
         currentBoneTimelines.add(_bBoneTimelineKeys(
           bones[boneIndex].name,
-          _bBoneTimelineKind(
-              _bRequiredVaruint(obj, wire.bonyPropertyKeyBoneTimelineKind, 'boneTimeline.kind')),
+          _bBoneTimelineKind(_bRequiredVaruint(
+              obj, wire.bonyPropertyKeyBoneTimelineKind, 'boneTimeline.kind')),
           payload,
           'boneTimeline.timelineKeys',
         ));
@@ -3347,8 +3498,8 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
               '.bnb slotTimeline.timelineKeys is required');
         currentSlotTimelines.add(_bSlotTimelineKeys(
           slots[slotIndex].name,
-          _bSlotTimelineKind(
-              _bRequiredVaruint(obj, wire.bonyPropertyKeySlotTimelineKind, 'slotTimeline.kind')),
+          _bSlotTimelineKind(_bRequiredVaruint(
+              obj, wire.bonyPropertyKeySlotTimelineKind, 'slotTimeline.kind')),
           payload,
           regions,
           'slotTimeline.timelineKeys',
@@ -3377,15 +3528,17 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
         if (currentAnimationName.isEmpty)
           throw const FormatException(
               '.bnb deformTimeline without animationClip');
-        final skin = _bStr(obj, wire.bonyPropertyKeyDeformSkin, strings, 'deformTimeline.skin');
+        final skin = _bStr(obj, wire.bonyPropertyKeyDeformSkin, strings,
+            'deformTimeline.skin');
         final resolutionData = skinResolutionData();
         if (!resolutionData.hasSkin(skin)) {
           throw FormatException(
               '.bnb deformTimeline references unknown skin: $skin');
         }
-        final slot = _bStr(obj, wire.bonyPropertyKeySlot, strings, 'deformTimeline.slot');
-        final attachment = _bStr(
-            obj, wire.bonyPropertyKeyDeformAttachment, strings, 'deformTimeline.attachment');
+        final slot = _bStr(
+            obj, wire.bonyPropertyKeySlot, strings, 'deformTimeline.slot');
+        final attachment = _bStr(obj, wire.bonyPropertyKeyDeformAttachment,
+            strings, 'deformTimeline.attachment');
         final resolvedAttachment =
             resolutionData.resolveSkinAttachmentTarget(skin, slot, attachment);
         if (resolvedAttachment.isEmpty) {
@@ -3394,7 +3547,9 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
               '$skin/$slot/$attachment');
         }
         final vertexCount = _bRequiredVaruint(
-            obj, wire.bonyPropertyKeyDeformVertexCount, 'deformTimeline.vertexCount');
+            obj,
+            wire.bonyPropertyKeyDeformVertexCount,
+            'deformTimeline.vertexCount');
         MeshAttachment? mesh;
         for (final m in meshes) {
           if (m.name == resolvedAttachment) {
@@ -3429,7 +3584,8 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
         flushPending();
         flushAnimation();
         flushMachine();
-        currentMachineName = _bStr(obj, wire.bonyPropertyKeyName, strings, 'stateMachine.name');
+        currentMachineName =
+            _bStr(obj, wire.bonyPropertyKeyName, strings, 'stateMachine.name');
       case wire.bonyTypeKeyStateMachineInput:
         flushSkin();
         flushPending();
@@ -3438,8 +3594,11 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
           throw const FormatException(
               '.bnb stateMachineInput without stateMachine');
         final kindTag = _bRequiredVaruint(
-            obj, wire.bonyPropertyKeyStateMachineInputKind, 'stateMachineInput.kind');
-        final name = _bStr(obj, wire.bonyPropertyKeyName, strings, 'stateMachineInput.name');
+            obj,
+            wire.bonyPropertyKeyStateMachineInputKind,
+            'stateMachineInput.kind');
+        final name = _bStr(
+            obj, wire.bonyPropertyKeyName, strings, 'stateMachineInput.name');
         switch (kindTag) {
           case 0:
             if (obj.props.containsKey(wire.bonyPropertyKeyInputDefaultNumber)) {
@@ -3459,8 +3618,8 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
             machineInputs.add(StateMachineInput(
               name: name,
               kind: StateMachineInputKind.number,
-              defaultNumber: _bF32(
-                  obj, wire.bonyPropertyKeyInputDefaultNumber, 'stateMachineInput.defaultNumber',
+              defaultNumber: _bF32(obj, wire.bonyPropertyKeyInputDefaultNumber,
+                  'stateMachineInput.defaultNumber',
                   def: 0.0),
             ));
           case 2:
@@ -3482,27 +3641,31 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
         if (currentMachineName.isEmpty)
           throw const FormatException(
               '.bnb stateMachineLayer without stateMachine');
-        currentLayerName =
-            _bStr(obj, wire.bonyPropertyKeyName, strings, 'stateMachineLayer.name');
-        currentLayerInitialIndex = _bVaruint(obj, wire.bonyPropertyKeyInitialStateIndex);
+        currentLayerName = _bStr(
+            obj, wire.bonyPropertyKeyName, strings, 'stateMachineLayer.name');
+        currentLayerInitialIndex =
+            _bVaruint(obj, wire.bonyPropertyKeyInitialStateIndex);
       case wire.bonyTypeKeyStateMachineState:
         flushSkin();
         flushPending();
         flushTransition();
         if (currentLayerName.isEmpty)
           throw const FormatException('.bnb stateMachineState without layer');
-        final stateName =
-            _bStr(obj, wire.bonyPropertyKeyName, strings, 'stateMachineState.name');
+        final stateName = _bStr(
+            obj, wire.bonyPropertyKeyName, strings, 'stateMachineState.name');
         final kindTag = _bRequiredVaruint(
-            obj, wire.bonyPropertyKeyStateMachineStateKind, 'stateMachineState.kind');
+            obj,
+            wire.bonyPropertyKeyStateMachineStateKind,
+            'stateMachineState.kind');
         switch (kindTag) {
           case 0:
-            if (obj.props.containsKey(wire.bonyPropertyKeyStateBlendInputIndex)) {
+            if (obj.props
+                .containsKey(wire.bonyPropertyKeyStateBlendInputIndex)) {
               throw const FormatException(
                   '.bnb clip state must not contain blend input');
             }
-            final clipIndex = _bRequiredVaruint(
-                obj, wire.bonyPropertyKeyStateClipIndex, 'stateMachineState.clip');
+            final clipIndex = _bRequiredVaruint(obj,
+                wire.bonyPropertyKeyStateClipIndex, 'stateMachineState.clip');
             if (clipIndex < 0 || clipIndex >= animations.length) {
               throw const FormatException(
                   '.bnb stateMachineState.clip index is out of range');
@@ -3520,7 +3683,9 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
                   '.bnb blend1d state must not contain direct clip fields');
             }
             final inputIndex = _bRequiredVaruint(
-                obj, wire.bonyPropertyKeyStateBlendInputIndex, 'stateMachineState.blendInput');
+                obj,
+                wire.bonyPropertyKeyStateBlendInputIndex,
+                'stateMachineState.blendInput');
             if (inputIndex < 0 || inputIndex >= machineInputs.length) {
               throw const FormatException(
                   '.bnb stateMachineState.blendInput index is out of range');
@@ -3544,7 +3709,9 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
               '.bnb stateMachineBlendClip without blend1d state');
         }
         final clipIndex = _bRequiredVaruint(
-            obj, wire.bonyPropertyKeyBlendClipAnimationIndex, 'stateMachineBlendClip.animation');
+            obj,
+            wire.bonyPropertyKeyBlendClipAnimationIndex,
+            'stateMachineBlendClip.animation');
         if (clipIndex < 0 || clipIndex >= animations.length) {
           throw const FormatException(
               '.bnb stateMachineBlendClip.animation index is out of range');
@@ -3558,8 +3725,8 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
             ...previous.blendClips,
             StateMachineBlendClip(
               clipName: animations[clipIndex].name,
-              value:
-                  _bF32(obj, wire.bonyPropertyKeyBlendClipValue, 'stateMachineBlendClip.value'),
+              value: _bF32(obj, wire.bonyPropertyKeyBlendClipValue,
+                  'stateMachineBlendClip.value'),
               loop: _bBool(obj, wire.bonyPropertyKeyBlendClipLoop),
             ),
           ],
@@ -3578,8 +3745,8 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
             'stateMachineTransition.from');
         pendingTransitionTo = stateNameAt(
             currentLayerStates,
-            _bRequiredVaruint(
-                obj, wire.bonyPropertyKeyTransitionToStateIndex, 'stateMachineTransition.to'),
+            _bRequiredVaruint(obj, wire.bonyPropertyKeyTransitionToStateIndex,
+                'stateMachineTransition.to'),
             'stateMachineTransition.to');
       case wire.bonyTypeKeyStateMachineCondition:
         flushSkin();
@@ -3588,24 +3755,30 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
           throw const FormatException(
               '.bnb stateMachineCondition without transition');
         final inputIndex = _bRequiredVaruint(
-            obj, wire.bonyPropertyKeyConditionInputIndex, 'stateMachineCondition.input');
+            obj,
+            wire.bonyPropertyKeyConditionInputIndex,
+            'stateMachineCondition.input');
         if (inputIndex < 0 || inputIndex >= machineInputs.length) {
           throw const FormatException(
               '.bnb stateMachineCondition.input index is out of range');
         }
         final input = machineInputs[inputIndex];
         final kindTag = _bRequiredVaruint(
-            obj, wire.bonyPropertyKeyStateMachineConditionKind, 'stateMachineCondition.kind');
+            obj,
+            wire.bonyPropertyKeyStateMachineConditionKind,
+            'stateMachineCondition.kind');
         switch (kindTag) {
           case 0:
-            if (obj.props.containsKey(wire.bonyPropertyKeyConditionNumberValue)) {
+            if (obj.props
+                .containsKey(wire.bonyPropertyKeyConditionNumberValue)) {
               throw const FormatException(
                   '.bnb bool condition must not contain number value');
             }
             pendingConditions.add(StateMachineCondition(
               input: input.name,
               kind: StateMachineConditionKind.boolEquals,
-              boolValue: _bBool(obj, wire.bonyPropertyKeyConditionBoolValue, def: true),
+              boolValue: _bBool(obj, wire.bonyPropertyKeyConditionBoolValue,
+                  def: true),
             ));
           case 1:
             if (obj.props.containsKey(wire.bonyPropertyKeyConditionBoolValue)) {
@@ -3615,8 +3788,10 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
             pendingConditions.add(StateMachineCondition(
                 input: input.name,
                 kind: StateMachineConditionKind.numberEquals,
-                numberValue:
-                    _bF32(obj, wire.bonyPropertyKeyConditionNumberValue, 'condition.number')));
+                numberValue: _bF32(
+                    obj,
+                    wire.bonyPropertyKeyConditionNumberValue,
+                    'condition.number')));
           case 2:
             if (obj.props.containsKey(wire.bonyPropertyKeyConditionBoolValue)) {
               throw const FormatException(
@@ -3625,8 +3800,10 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
             pendingConditions.add(StateMachineCondition(
                 input: input.name,
                 kind: StateMachineConditionKind.numberGreater,
-                numberValue:
-                    _bF32(obj, wire.bonyPropertyKeyConditionNumberValue, 'condition.number')));
+                numberValue: _bF32(
+                    obj,
+                    wire.bonyPropertyKeyConditionNumberValue,
+                    'condition.number')));
           case 3:
             if (obj.props.containsKey(wire.bonyPropertyKeyConditionBoolValue)) {
               throw const FormatException(
@@ -3635,8 +3812,10 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
             pendingConditions.add(StateMachineCondition(
                 input: input.name,
                 kind: StateMachineConditionKind.numberGreaterOrEqual,
-                numberValue:
-                    _bF32(obj, wire.bonyPropertyKeyConditionNumberValue, 'condition.number')));
+                numberValue: _bF32(
+                    obj,
+                    wire.bonyPropertyKeyConditionNumberValue,
+                    'condition.number')));
           case 4:
             if (obj.props.containsKey(wire.bonyPropertyKeyConditionBoolValue)) {
               throw const FormatException(
@@ -3645,8 +3824,10 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
             pendingConditions.add(StateMachineCondition(
                 input: input.name,
                 kind: StateMachineConditionKind.numberLess,
-                numberValue:
-                    _bF32(obj, wire.bonyPropertyKeyConditionNumberValue, 'condition.number')));
+                numberValue: _bF32(
+                    obj,
+                    wire.bonyPropertyKeyConditionNumberValue,
+                    'condition.number')));
           case 5:
             if (obj.props.containsKey(wire.bonyPropertyKeyConditionBoolValue)) {
               throw const FormatException(
@@ -3655,11 +3836,14 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
             pendingConditions.add(StateMachineCondition(
                 input: input.name,
                 kind: StateMachineConditionKind.numberLessOrEqual,
-                numberValue:
-                    _bF32(obj, wire.bonyPropertyKeyConditionNumberValue, 'condition.number')));
+                numberValue: _bF32(
+                    obj,
+                    wire.bonyPropertyKeyConditionNumberValue,
+                    'condition.number')));
           case 6:
             if (obj.props.containsKey(wire.bonyPropertyKeyConditionBoolValue) ||
-                obj.props.containsKey(wire.bonyPropertyKeyConditionNumberValue)) {
+                obj.props
+                    .containsKey(wire.bonyPropertyKeyConditionNumberValue)) {
               throw const FormatException(
                   '.bnb trigger condition must not contain values');
             }
@@ -3676,13 +3860,17 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
         if (currentMachineName.isEmpty)
           throw const FormatException(
               '.bnb stateMachineListener without stateMachine');
-        final listenerName =
-            _bStr(obj, wire.bonyPropertyKeyName, strings, 'stateMachineListener.name');
+        final listenerName = _bStr(obj, wire.bonyPropertyKeyName, strings,
+            'stateMachineListener.name');
         final kindTag = _bRequiredVaruint(
-            obj, wire.bonyPropertyKeyStateMachineListenerKind, 'stateMachineListener.kind');
+            obj,
+            wire.bonyPropertyKeyStateMachineListenerKind,
+            'stateMachineListener.kind');
         StateMachineLayer listenerLayer() {
           final layerIndex = _bRequiredVaruint(
-              obj, wire.bonyPropertyKeyListenerLayerIndex, 'stateMachineListener.layer');
+              obj,
+              wire.bonyPropertyKeyListenerLayerIndex,
+              'stateMachineListener.layer');
           if (layerIndex < 0 || layerIndex >= machineLayers.length) {
             throw const FormatException(
                 '.bnb stateMachineListener.layer index is out of range');
@@ -3705,7 +3893,8 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
               throw const FormatException(
                   '.bnb lifecycle listener must not contain pointer fields');
             }
-            if (obj.props.containsKey(wire.bonyPropertyKeyListenerFromStateIndex)) {
+            if (obj.props
+                .containsKey(wire.bonyPropertyKeyListenerFromStateIndex)) {
               throw const FormatException(
                   '.bnb enter listener must not contain from state');
             }
@@ -3716,7 +3905,9 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
               toState: stateNameAt(
                   layer.states,
                   _bRequiredVaruint(
-                      obj, wire.bonyPropertyKeyListenerToStateIndex, 'stateMachineListener.to'),
+                      obj,
+                      wire.bonyPropertyKeyListenerToStateIndex,
+                      'stateMachineListener.to'),
                   'stateMachineListener.to'),
             ));
           case 1:
@@ -3725,7 +3916,8 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
               throw const FormatException(
                   '.bnb lifecycle listener must not contain pointer fields');
             }
-            if (obj.props.containsKey(wire.bonyPropertyKeyListenerToStateIndex)) {
+            if (obj.props
+                .containsKey(wire.bonyPropertyKeyListenerToStateIndex)) {
               throw const FormatException(
                   '.bnb exit listener must not contain to state');
             }
@@ -3735,7 +3927,9 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
               layer: layer.name,
               fromState: stateNameAt(
                   layer.states,
-                  _bRequiredVaruint(obj, wire.bonyPropertyKeyListenerFromStateIndex,
+                  _bRequiredVaruint(
+                      obj,
+                      wire.bonyPropertyKeyListenerFromStateIndex,
                       'stateMachineListener.from'),
                   'stateMachineListener.from'),
             ));
@@ -3751,13 +3945,17 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
               layer: layer.name,
               fromState: stateNameAt(
                   layer.states,
-                  _bRequiredVaruint(obj, wire.bonyPropertyKeyListenerFromStateIndex,
+                  _bRequiredVaruint(
+                      obj,
+                      wire.bonyPropertyKeyListenerFromStateIndex,
                       'stateMachineListener.from'),
                   'stateMachineListener.from'),
               toState: stateNameAt(
                   layer.states,
                   _bRequiredVaruint(
-                      obj, wire.bonyPropertyKeyListenerToStateIndex, 'stateMachineListener.to'),
+                      obj,
+                      wire.bonyPropertyKeyListenerToStateIndex,
+                      'stateMachineListener.to'),
                   'stateMachineListener.to'),
             ));
           case 3:
@@ -3766,25 +3964,33 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
           case 6:
           case 7:
             if (obj.props.containsKey(wire.bonyPropertyKeyListenerLayerIndex) ||
-                obj.props.containsKey(wire.bonyPropertyKeyListenerFromStateIndex) ||
-                obj.props.containsKey(wire.bonyPropertyKeyListenerToStateIndex)) {
+                obj.props
+                    .containsKey(wire.bonyPropertyKeyListenerFromStateIndex) ||
+                obj.props
+                    .containsKey(wire.bonyPropertyKeyListenerToStateIndex)) {
               throw const FormatException(
                   '.bnb pointer listener must not contain lifecycle fields');
             }
             final slotIndex = _bRequiredVaruint(
-                obj, wire.bonyPropertyKeyListenerSlotIndex, 'stateMachineListener.slot');
+                obj,
+                wire.bonyPropertyKeyListenerSlotIndex,
+                'stateMachineListener.slot');
             if (slotIndex < 0 || slotIndex >= slots.length) {
               throw const FormatException(
                   '.bnb stateMachineListener.slot index is out of range');
             }
             final inputIndex = _bRequiredVaruint(
-                obj, wire.bonyPropertyKeyListenerInputIndex, 'stateMachineListener.input');
+                obj,
+                wire.bonyPropertyKeyListenerInputIndex,
+                'stateMachineListener.input');
             if (inputIndex < 0 || inputIndex >= machineInputs.length) {
               throw const FormatException(
                   '.bnb stateMachineListener.input index is out of range');
             }
             final helperKindTag = _bRequiredVaruint(
-                obj, wire.bonyPropertyKeyListenerHelperKind, 'stateMachineListener.helperKind');
+                obj,
+                wire.bonyPropertyKeyListenerHelperKind,
+                'stateMachineListener.helperKind');
             final helperKind = switch (helperKindTag) {
               0 => PointerHelperTargetKind.point,
               1 => PointerHelperTargetKind.boundingBox,
@@ -3796,25 +4002,32 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
             double? numberValue;
             switch (input.kind) {
               case StateMachineInputKind.bool_:
-                if (!obj.props.containsKey(wire.bonyPropertyKeyListenerBoolValue)) {
+                if (!obj.props
+                    .containsKey(wire.bonyPropertyKeyListenerBoolValue)) {
                   throw const FormatException(
                       '.bnb pointer bool listener value is required');
                 }
-                if (obj.props.containsKey(wire.bonyPropertyKeyListenerNumberValue)) {
+                if (obj.props
+                    .containsKey(wire.bonyPropertyKeyListenerNumberValue)) {
                   throw const FormatException(
                       '.bnb pointer bool listener must not contain number value');
                 }
                 boolValue = _bBool(obj, wire.bonyPropertyKeyListenerBoolValue);
               case StateMachineInputKind.number:
-                if (obj.props.containsKey(wire.bonyPropertyKeyListenerBoolValue)) {
+                if (obj.props
+                    .containsKey(wire.bonyPropertyKeyListenerBoolValue)) {
                   throw const FormatException(
                       '.bnb pointer number listener must not contain bool value');
                 }
-                numberValue = _bF32(obj, wire.bonyPropertyKeyListenerNumberValue,
+                numberValue = _bF32(
+                    obj,
+                    wire.bonyPropertyKeyListenerNumberValue,
                     'stateMachineListener.numberValue');
               case StateMachineInputKind.trigger:
-                if (obj.props.containsKey(wire.bonyPropertyKeyListenerBoolValue) ||
-                    obj.props.containsKey(wire.bonyPropertyKeyListenerNumberValue)) {
+                if (obj.props
+                        .containsKey(wire.bonyPropertyKeyListenerBoolValue) ||
+                    obj.props
+                        .containsKey(wire.bonyPropertyKeyListenerNumberValue)) {
                   throw const FormatException(
                       '.bnb pointer trigger listener must not contain values');
                 }
@@ -3825,7 +4038,8 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
                 hitRadius = _bF32(obj, wire.bonyPropertyKeyListenerHitRadius,
                     'stateMachineListener.hitRadius');
               case PointerHelperTargetKind.boundingBox:
-                if (obj.props.containsKey(wire.bonyPropertyKeyListenerHitRadius)) {
+                if (obj.props
+                    .containsKey(wire.bonyPropertyKeyListenerHitRadius)) {
                   throw const FormatException(
                       '.bnb pointer bounding-box listener must not contain hitRadius');
                 }
@@ -3835,8 +4049,8 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
               kind: StateMachineListenerKind.values[kindTag],
               slot: slots[slotIndex].name,
               targetKind: helperKind,
-              target: _bStr(obj, wire.bonyPropertyKeyListenerHelperTarget, strings,
-                  'stateMachineListener.target'),
+              target: _bStr(obj, wire.bonyPropertyKeyListenerHelperTarget,
+                  strings, 'stateMachineListener.target'),
               hitRadius: hitRadius,
               input: input.name,
               boolValue: boolValue,
