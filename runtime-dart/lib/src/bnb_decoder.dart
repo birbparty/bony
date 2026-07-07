@@ -508,6 +508,21 @@ SkeletonData _bnbDecode(List<_BnbObj> objects, List<String> strings) {
         'slotTimeline.timelineKeys',
       ));
     },
+    wire.bonyTypeKeyDrawOrderTimeline: (obj) {
+      skinBuilder.flush();
+      deformerBuilder.flush();
+      animationBuilder
+          .requireActive('.bnb drawOrderTimeline without animationClip');
+      final payload = obj.props[wire.bonyPropertyKeyDrawOrderKeys];
+      if (payload == null) {
+        throw const FormatException(
+            '.bnb drawOrderTimeline.drawOrderKeys is required');
+      }
+      animationBuilder.addDrawOrderTimeline(DrawOrderTimeline(
+        keys: _bDrawOrderTimelineKeys(
+            payload, slots, 'drawOrderTimeline.drawOrderKeys'),
+      ));
+    },
     wire.bonyTypeKeyEventTimeline: (obj) {
       skinBuilder.flush();
       deformerBuilder.flush();
@@ -1151,6 +1166,7 @@ class _AnimationBuilder {
   var _name = '';
   var _boneTimelines = <BoneTimeline>[];
   var _slotTimelines = <SlotTimeline>[];
+  DrawOrderTimeline? _drawOrderTimeline;
   var _deformTimelines = <DeformTimeline>[];
   var _eventTimelines = <EventTimeline>[];
 
@@ -1163,16 +1179,18 @@ class _AnimationBuilder {
     }
     _animations.add(AnimationClip(
       name: _name,
-      duration: _animationDuration(
-          _boneTimelines, _slotTimelines, _deformTimelines, _eventTimelines),
+      duration: _animationDuration(_boneTimelines, _slotTimelines,
+          _drawOrderTimeline, _deformTimelines, _eventTimelines),
       boneTimelines: _boneTimelines,
       slotTimelines: _slotTimelines,
+      drawOrderTimeline: _drawOrderTimeline,
       deformTimelines: _deformTimelines,
       eventTimelines: _eventTimelines,
     ));
     _name = '';
     _boneTimelines = [];
     _slotTimelines = [];
+    _drawOrderTimeline = null;
     _deformTimelines = [];
     _eventTimelines = [];
   }
@@ -1188,6 +1206,14 @@ class _AnimationBuilder {
 
   void addBoneTimeline(BoneTimeline timeline) => _boneTimelines.add(timeline);
   void addSlotTimeline(SlotTimeline timeline) => _slotTimelines.add(timeline);
+  void addDrawOrderTimeline(DrawOrderTimeline timeline) {
+    if (_drawOrderTimeline != null) {
+      throw const FormatException(
+          '.bnb animationClip has duplicate drawOrderTimeline records');
+    }
+    _drawOrderTimeline = timeline;
+  }
+
   void addDeformTimeline(DeformTimeline timeline) =>
       _deformTimelines.add(timeline);
   void addEventTimeline(EventTimeline timeline) =>

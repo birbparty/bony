@@ -335,7 +335,7 @@ typeKeys:
     status: active
     milestone: M3
     ownerBead: bony-cl8.9
-    doc: Animation clip parent record; followed by owned boneTimeline, slotTimeline, deformTimeline, then eventTimeline records, in that emitted order.
+    doc: Animation clip parent record; followed by owned boneTimeline, slotTimeline, optional drawOrderTimeline, deformTimeline, then eventTimeline records, in that emitted order.
   - id: boneTimeline
     key: 2001
     status: active
@@ -354,6 +354,12 @@ typeKeys:
     milestone: M3
     ownerBead: bony-0ofc
     doc: Clip-owned (target-less) event timeline child record owned by the most recent animationClip; see docs/event-timeline-contract.md.
+  - id: drawOrderTimeline
+    key: 2004
+    status: active
+    milestone: M3
+    ownerBead: bony-s4ll.2
+    doc: Clip-owned animated draw-order timeline child record owned by the most recent animationClip; allocated in M3 as an animation timeline record, while setup draw order remains in the M2 slot/draw-batch surface.
   - id: stateMachine
     key: 7000
     status: active
@@ -1101,6 +1107,13 @@ propertyKeys:
     milestone: M3
     ownerBead: bony-0ofc
     doc: Packed event keyframe payload; see docs/event-timeline-contract.md#packed-eventtimeline-byte-layout-bnb.
+  - id: drawOrderKeys
+    key: 2006
+    backingType: bytes
+    status: active
+    milestone: M3
+    ownerBead: bony-s4ll.2
+    doc: Packed draw-order keyframe payload; see docs/draw-order-timeline-contract.md#packed-drawordertimeline-byte-layout-bnb.
   - id: stateMachineInputKind
     key: 7000
     backingType: varuint
@@ -1514,7 +1527,7 @@ objects:
   - type: animationClip
     properties:
       - name
-    doc: Animation clip parent record; followed immediately by owned boneTimeline, slotTimeline, deformTimeline, then eventTimeline records, in that order.
+    doc: Animation clip parent record; followed immediately by owned boneTimeline, slotTimeline, optional drawOrderTimeline, deformTimeline, then eventTimeline records, in that order.
   - type: boneTimeline
     properties:
       - boneIndex
@@ -1527,6 +1540,10 @@ objects:
       - slotTimelineKind
       - timelineKeys
     doc: Slot timeline child record owned by the most recent animationClip.
+  - type: drawOrderTimeline
+    properties:
+      - drawOrderKeys
+    doc: Clip-owned draw-order timeline child record owned by the most recent animationClip; carries only the packed draw-order keyframe payload.
   - type: deformTimeline
     properties:
       - deformSkin

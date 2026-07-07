@@ -1,6 +1,6 @@
 ## M3 multi-track animation mixer.
 
-import std/[algorithm, math, strutils, tables]
+import std/[algorithm, math, sets, strutils, tables]
 
 import bony/anim/timelines
 import bony/mesh/deform
@@ -65,6 +65,7 @@ type
     colors2*: seq[MixedColor2]
     sequences*: seq[MixedSequence]
     deforms*: seq[MixedDeform]
+    drawOrder*: seq[string]
 
   MixAccumulator = object
     scalars: Table[string, MixedScalar]
@@ -75,6 +76,7 @@ type
     colors2: Table[string, MixedColor2]
     sequences: Table[string, MixedSequence]
     deforms: Table[string, MixedDeform]
+    drawOrder: seq[string]
 
   TrackEntry* = object
     clip*: AnimationClip
@@ -462,6 +464,7 @@ proc initMixAccumulator(): MixAccumulator =
     colors2: initTable[string, MixedColor2](),
     sequences: initTable[string, MixedSequence](),
     deforms: initTable[string, MixedDeform](),
+    drawOrder: @[],
   )
 
 
@@ -513,6 +516,8 @@ proc applyEntry(
         attachment: resolvedAttachment,
         deltas: sampleDeformDeltas(timeline, sampleTime),
       )
+    if entry.clip.hasDrawOrderTimeline and not data.isNil:
+      acc.drawOrder = sampleDrawOrderTimeline(entry.clip.drawOrderTimeline, data[].slots, sampleTime)
 
 
 proc byTarget[T](a, b: T): int =
@@ -574,6 +579,7 @@ proc sample*(state: AnimationState): MixedPose =
   drain(acc.colors2, result.colors2, color2Order)
   drain(acc.sequences, result.sequences, sequenceOrder)
   drain(acc.deforms, result.deforms, deformOrder)
+  result.drawOrder = acc.drawOrder
 
 
 proc applyPose*(data: SkeletonData; pose: MixedPose): SkeletonData =
@@ -582,6 +588,7 @@ proc applyPose*(data: SkeletonData; pose: MixedPose): SkeletonData =
   let hasInherits = pose.inherits.len > 0
   let hasAttachments = pose.attachments.len > 0
   let hasDeforms = pose.deforms.len > 0
+  let hasDrawOrder = pose.drawOrder.len > 0
 
   # Resolve the mixed deform set into the transient per-slot/attachment dense
   # override carried on the posed SkeletonData (consumed by buildDrawBatches
@@ -590,12 +597,49 @@ proc applyPose*(data: SkeletonData; pose: MixedPose): SkeletonData =
   for value in pose.deforms:
     overrides.add DeformOverride(slot: value.slot, attachment: value.attachment, deltas: value.deltas)
 
-  if not hasScalars and not hasVectors and not hasInherits and not hasAttachments and not hasDeforms:
+  proc posedSlots(source: openArray[SlotData]): seq[SlotData] =
+    if not hasDrawOrder:
+      return @source
+    if pose.drawOrder.len != source.len:
+      raise newBonyLoadError(schemaViolation, "pose drawOrder length must match slot count")
+    var byName = initTable[string, SlotData]()
+    for slot in source:
+      byName[slot.name] = slot
+    var seen = initHashSet[string]()
+    for name in pose.drawOrder:
+      if name notin byName:
+        raise newBonyLoadError(unknownRequiredReference, "pose drawOrder references unknown slot: " & name)
+      if name in seen:
+        raise newBonyLoadError(schemaViolation, "pose drawOrder contains duplicate slot: " & name)
+      seen.incl(name)
+      result.add byName[name]
+
+  if not hasScalars and not hasVectors and not hasInherits and not hasAttachments and not hasDeforms and not hasDrawOrder:
     return data
   if not hasScalars and not hasVectors and not hasInherits and not hasAttachments:
     # Only deform overrides changed: bones/slots are untouched, so avoid a full
-    # rebuild and just stamp the override onto the input pose.
-    return data.withDeformOverrides(overrides)
+    # rebuild unless draw order changed, and stamp the override onto the input pose.
+    if not hasDrawOrder:
+      return data.withDeformOverrides(overrides)
+    return skeletonData(
+      data.header,
+      data.bones,
+      posedSlots(data.slots),
+      data.regions,
+      data.pathAttachments,
+      data.paths,
+      data.parameters,
+      data.deformers,
+      data.ikConstraints,
+      data.transformConstraints,
+      data.physicsConstraints,
+      data.clippingAttachments,
+      data.meshAttachments,
+      data.skins,
+      data.pointAttachments,
+      data.boundingBoxAttachments,
+      data.nestedRigAttachments,
+    ).withDeformOverrides(overrides)
 
   var scalarLookup = initTable[string, float64]()
   for value in pose.scalars:
@@ -656,9 +700,9 @@ proc applyPose*(data: SkeletonData; pose: MixedPose): SkeletonData =
       ),
     )
 
-  var slots: seq[SlotData]
+  var rebuiltSlots: seq[SlotData]
   for slot in data.slots:
-    slots.add slotData(
+    rebuiltSlots.add slotData(
       slot.name,
       slot.bone,
       attachmentLookup.getOrDefault(slot.name, slot.attachment),
@@ -669,7 +713,7 @@ proc applyPose*(data: SkeletonData; pose: MixedPose): SkeletonData =
   result = skeletonData(
     data.header,
     bones,
-    slots,
+    posedSlots(rebuiltSlots),
     data.regions,
     data.pathAttachments,
     data.paths,

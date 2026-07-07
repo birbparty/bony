@@ -58,6 +58,12 @@ PACKED_BYTES_METADATA: dict[str, dict[str, Any]] = {
         "structuralSchema": "base64Only",
         "validatedBy": "loader",
     },
+    "drawOrderKeys": {
+        "payload": "drawOrderTimelineKeys",
+        "layout": "docs/draw-order-timeline-contract.md#packed-drawordertimeline-byte-layout-bnb",
+        "structuralSchema": "base64Only",
+        "validatedBy": "loader",
+    },
     "skinBones": {
         "payload": "skinRequiredBoneMembership",
         "layout": "docs/skin-required-activation-contract.md#serialized-surface",
@@ -165,6 +171,7 @@ def generate_schema(registry: dict[str, Any], defaults: dict[str, Any]) -> str:
     hidden_binary_children = {
         "boneTimeline",
         "slotTimeline",
+        "drawOrderTimeline",
         "stateMachineInput",
         "stateMachineLayer",
         "stateMachineState",

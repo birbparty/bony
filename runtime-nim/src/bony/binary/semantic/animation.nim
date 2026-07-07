@@ -29,6 +29,7 @@ proc decodeAnimationObjects(
   var currentBoneTimelines: seq[BoneTimeline]
   var currentSlotTimelines: seq[SlotTimeline]
   var currentEventTimelines: seq[EventTimeline]
+  var currentDrawOrderTimeline = DrawOrderTimeline()
   var currentDeformTimelines: seq[DeformTimeline]
   var seen = initHashSet[string]()
   var meshesByName = initTable[string, MeshAttachment]()
@@ -42,12 +43,14 @@ proc decodeAnimationObjects(
       seen.incl(currentName)
       result.add animationClip(
         skeleton, currentName, currentBoneTimelines, currentSlotTimelines,
+        drawOrderTimeline = currentDrawOrderTimeline,
         eventTimelines = currentEventTimelines,
         deformTimelines = currentDeformTimelines)
       currentName = ""
       currentBoneTimelines = @[]
       currentSlotTimelines = @[]
       currentEventTimelines = @[]
+      currentDrawOrderTimeline = DrawOrderTimeline()
       currentDeformTimelines = @[]
 
   for record in objects:
@@ -92,6 +95,15 @@ proc decodeAnimationObjects(
         raise newBonyLoadError(schemaViolation, ".bnb eventTimeline.eventKeys is required")
       let keys = readEventKeys(properties[eventKeysKey], strings, "eventTimeline.eventKeys")
       currentEventTimelines.add eventTimeline(keys)
+    of drawOrderTimelineTypeKey:
+      if currentName.len == 0:
+        raise newBonyLoadError(schemaViolation, ".bnb drawOrderTimeline record without animationClip")
+      if currentDrawOrderTimeline.keys.len > 0:
+        raise newBonyLoadError(duplicateKey, ".bnb animationClip contains duplicate drawOrderTimeline records")
+      let properties = record.propertyMap([drawOrderKeysKey])
+      if drawOrderKeysKey notin properties:
+        raise newBonyLoadError(schemaViolation, ".bnb drawOrderTimeline.drawOrderKeys is required")
+      currentDrawOrderTimeline = readDrawOrderKeys(properties[drawOrderKeysKey], skeleton.slots, "drawOrderTimeline.drawOrderKeys")
     of deformTimelineTypeKey:
       if currentName.len == 0:
         raise newBonyLoadError(schemaViolation, ".bnb deformTimeline record without animationClip")

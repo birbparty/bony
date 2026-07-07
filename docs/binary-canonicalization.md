@@ -189,9 +189,13 @@ Within each group:
 - Timeline child objects are emitted immediately after their owning animation
   object. Within one animation, emit all `boneTimeline` records in loaded
   `boneTimelines` order, then all `slotTimeline` records in loaded
-  `slotTimelines` order. Keyframes for the current animation/state-machine
-  slice are packed inside `timelineKeys` bytes properties, so no separate
-  keyframe child objects are emitted in this slice.
+  `slotTimelines` order, then the optional singular `drawOrderTimeline` record,
+  then all `deformTimeline` records in loaded `deformTimelines` order, then all
+  `eventTimeline` records in loaded `eventTimelines` order. Bone and slot
+  keyframes are packed inside `timelineKeys`; draw-order keyframes are packed
+  inside `drawOrderKeys`; deform and event keyframes are packed inside
+  `deformKeys` and `eventKeys`, respectively. No separate keyframe child
+  objects are emitted.
 - State-machine child records are emitted immediately after their owning parent
   record, recursively:
   1. `stateMachine`
@@ -219,8 +223,8 @@ is emitted only in the post-EOF atlas section defined by File Section Order.
 
 ## Animation Packed Payload Traversal
 
-Animation `timelineKeys` packed `bytes` properties participate in canonical
-output even though their internal fields are not object-stream properties.
+Animation packed `bytes` properties participate in canonical output even though
+their internal fields are not object-stream properties.
 
 Rules:
 
@@ -229,6 +233,10 @@ Rules:
   [binary-animation-state-machine-object-families.md](binary-animation-state-machine-object-families.md).
 - Curve payload fields are visited as `curveKind`, then Bezier control points
   `c1x`, `c1y`, `c2x`, `c2y` only when `curveKind` is Bezier.
+- For `drawOrderKeys`, writers visit keys by ascending stored key index. Within
+  each key, visit `time`, then offset entries in setup slot order, and within
+  each offset visit `slotIndex` then signed `offset`. Writers omit entries whose
+  offset is zero; a restore-to-setup key emits `offsetCount == 0`.
 - The current animation and state-machine packed payloads use indices and
   numeric tags, not strings. If a future animation/state-machine packed payload
   includes strings, those strings must be interned at the point they are visited

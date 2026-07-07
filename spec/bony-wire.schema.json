@@ -147,6 +147,12 @@
         "$ref": "#/$defs/eventTimeline"
       }
     },
+    "drawOrderTimelines": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/drawOrderTimeline"
+      }
+    },
     "stateMachines": {
       "type": "array",
       "items": {
@@ -1310,6 +1316,25 @@
         "slotIndex",
         "slotTimelineKind",
         "timelineKeys"
+      ]
+    },
+    "drawOrderTimeline": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "drawOrderKeys": {
+          "type": "string",
+          "contentEncoding": "base64",
+          "x-bony-packedBytes": {
+            "payload": "drawOrderTimelineKeys",
+            "layout": "docs/draw-order-timeline-contract.md#packed-drawordertimeline-byte-layout-bnb",
+            "structuralSchema": "base64Only",
+            "validatedBy": "loader"
+          }
+        }
+      },
+      "required": [
+        "drawOrderKeys"
       ]
     },
     "deformTimeline": {

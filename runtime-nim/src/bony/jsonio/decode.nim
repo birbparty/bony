@@ -27,7 +27,7 @@ proc parseBonyAnimations(root: JsonNode; data: SkeletonData): Table[string, Anim
   for animIndex, animNode in animsNode.elems:
     let ctx = "animations[" & $animIndex & "]"
     let aObj = requireObject(animNode, ctx)
-    validateKnownKeys(aObj, ["name", "boneTimelines", "slotTimelines", "eventTimelines", "deformTimelines"], ctx)
+    validateKnownKeys(aObj, ["name", "boneTimelines", "slotTimelines", "drawOrderTimeline", "eventTimelines", "deformTimelines"], ctx)
     let animName = requiredString(aObj, "name", ctx)
     if animName.len == 0:
       raise newBonyLoadError(schemaViolation, ctx & ".name must not be empty")
@@ -182,6 +182,33 @@ proc parseBonyAnimations(root: JsonNode; data: SkeletonData): Table[string, Anim
           slotTimelines.add slotTimeline(slot, sequenceTimeline, sequenceKeys)
         else:
           raise newBonyLoadError(schemaViolation, stCtx & ".property unknown: " & propStr)
+    var drawOrder = DrawOrderTimeline()
+    if aObj.hasKey("drawOrderTimeline"):
+      let dotCtx = ctx & ".drawOrderTimeline"
+      let dotObj = requireObject(aObj["drawOrderTimeline"], dotCtx)
+      validateKnownKeys(dotObj, ["keyframes"], dotCtx)
+      if not dotObj.hasKey("keyframes"):
+        raise newBonyLoadError(schemaViolation, dotCtx & ".keyframes is required")
+      let kfListNode = requireArray(dotObj["keyframes"], dotCtx & ".keyframes")
+      var drawKeys: seq[DrawOrderKeyframe] = @[]
+      for kfIndex, kfNode in kfListNode.elems:
+        let kfCtx = dotCtx & ".keyframes[" & $kfIndex & "]"
+        let kfObj = requireObject(kfNode, kfCtx)
+        validateKnownKeys(kfObj, ["t", "offsets"], kfCtx)
+        let kfTime = requiredF64(kfObj, "t", kfCtx)
+        var offsets: seq[DrawOrderOffset] = @[]
+        if kfObj.hasKey("offsets"):
+          let offsetsNode = requireArray(kfObj["offsets"], kfCtx & ".offsets")
+          for offsetIndex, offsetNode in offsetsNode.elems:
+            let offsetCtx = kfCtx & ".offsets[" & $offsetIndex & "]"
+            let offsetObj = requireObject(offsetNode, offsetCtx)
+            validateKnownKeys(offsetObj, ["slot", "offset"], offsetCtx)
+            let slot = requiredString(offsetObj, "slot", offsetCtx)
+            let offset = requiredInt(offsetObj, "offset", offsetCtx)
+            if offset != 0:
+              offsets.add drawOrderOffset(slot, offset)
+        drawKeys.add drawOrderKeyframe(kfTime, offsets)
+      drawOrder = drawOrderTimeline(drawKeys)
     var deformTimelines: seq[DeformTimeline] = @[]
     if aObj.hasKey("deformTimelines"):
       let dtListNode = requireArray(aObj["deformTimelines"], ctx & ".deformTimelines")
@@ -261,7 +288,7 @@ proc parseBonyAnimations(root: JsonNode; data: SkeletonData): Table[string, Anim
           eventKeys.add eventKeyframe(kfTime, event)
         eventTimelines.add eventTimeline(eventKeys)
     result[animName] = animationClip(data, animName, boneTimelines, slotTimelines,
-      eventTimelines = eventTimelines, deformTimelines = deformTimelines)
+      drawOrderTimeline = drawOrder, eventTimelines = eventTimelines, deformTimelines = deformTimelines)
 
 
 proc parseBonyStateMachines(

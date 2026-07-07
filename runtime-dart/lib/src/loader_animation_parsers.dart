@@ -233,6 +233,7 @@ String _resolveSkinAttachmentTarget(
 
 List<AnimationClip> _parseAnimations(
   List<dynamic> anims,
+  List<SlotData> slots,
   List<MeshAttachment> meshAttachments,
   List<SkinData> skins,
 ) {
@@ -352,6 +353,48 @@ List<AnimationClip> _parseAnimations(
           if (keys.last.time > duration) duration = keys.last.time;
       }
       slotTimelines.add(tl);
+    }
+
+    DrawOrderTimeline? drawOrderTimeline;
+    final drawOrderRaw = anim['drawOrderTimeline'];
+    if (drawOrderRaw != null) {
+      if (drawOrderRaw is! Map<String, dynamic>) {
+        throw FormatException('$ctx.drawOrderTimeline must be an object');
+      }
+      final dotCtx = '$ctx.drawOrderTimeline';
+      final kfList = _required<List<dynamic>>(
+          drawOrderRaw['keyframes'], '$dotCtx.keyframes');
+      if (kfList.isEmpty) {
+        throw FormatException('$dotCtx.keyframes must not be empty');
+      }
+      final keys = <DrawOrderKeyframe>[];
+      for (var ki = 0; ki < kfList.length; ki++) {
+        final kf = kfList[ki] as Map<String, dynamic>;
+        final kfCtx = '$dotCtx.keyframes[$ki]';
+        final t = quantizeF32(_required<num>(kf['t'], '$kfCtx.t').toDouble());
+        if (!t.isFinite) {
+          throw FormatException('$kfCtx.t must be a finite f32 value');
+        }
+        if (t < 0.0) {
+          throw FormatException('$kfCtx.t must be non-negative');
+        }
+        final offsetsRaw = kf['offsets'] as List<dynamic>? ?? const [];
+        final offsets = <DrawOrderOffset>[];
+        for (var oi = 0; oi < offsetsRaw.length; oi++) {
+          final o = offsetsRaw[oi] as Map<String, dynamic>;
+          final oCtx = '$kfCtx.offsets[$oi]';
+          final slot = _required<String>(o['slot'], '$oCtx.slot');
+          final offset = _required<num>(o['offset'], '$oCtx.offset').toInt();
+          if (offset != 0) {
+            offsets.add(DrawOrderOffset(slot: slot, offset: offset));
+          }
+        }
+        keys.add(DrawOrderKeyframe(time: t, offsets: offsets));
+      }
+      _ensureStrictlyIncreasing(keys.map((k) => k.time).toList(), dotCtx);
+      drawOrderTimeline = DrawOrderTimeline(keys: keys);
+      _validateDrawOrderTimeline(drawOrderTimeline, slots, dotCtx);
+      if (keys.last.time > duration) duration = keys.last.time;
     }
 
     final deformTimelines = <DeformTimeline>[];
@@ -480,6 +523,7 @@ List<AnimationClip> _parseAnimations(
         duration: duration,
         boneTimelines: boneTimelines,
         slotTimelines: slotTimelines,
+        drawOrderTimeline: drawOrderTimeline,
         deformTimelines: deformTimelines,
         eventTimelines: eventTimelines));
   }

@@ -45,6 +45,15 @@ atlas
 Arrays keep their semantic order. Canonicalization never sorts arrays of bones,
 slots, constraints, skins, timelines, or vertices.
 
+Within an `animationClip`, the optional `drawOrderTimeline` member is emitted
+after `slotTimelines` and before `deformTimelines`, matching
+`docs/draw-order-timeline-contract.md`. Writers omit `drawOrderTimeline` when it
+is absent, and must not emit a declared-but-empty timeline. Draw-order keyframes
+emit `t` before `offsets`; `offsets` is omitted or emitted as `[]` only when the
+key restores setup order. Non-zero offset entries are emitted in setup slot
+order, and explicit zero offsets accepted by readers are omitted by canonical
+writers.
+
 JSON object keys must be valid Unicode scalar sequences. Loaders reject lone
 UTF-16 surrogate escapes and non-shortest UTF-8. No Unicode normalization is
 performed; canonically equivalent spellings remain distinct keys. Extension-key
@@ -186,3 +195,11 @@ The M6 idempotency gate must include:
   `1e-4` degrees.
 - Unknown extension keys are excluded from the core idempotency fixture set
   until extension preservation is explicitly designed.
+
+## Writer Dependency Notes
+
+The Dart canonical writer is tracked separately by the `bony-lknn` epic. Until
+that writer is complete, `drawOrderTimeline` writer round-trip acceptance is a
+documented dependency, not complete work in this draw-order timeline slice. The
+Nim canonical JSON and `.bnb` conversion paths remain the reference for
+conformance fixtures that include draw-order timelines.

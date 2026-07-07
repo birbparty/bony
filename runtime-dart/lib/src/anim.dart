@@ -275,6 +275,38 @@ List<MeshDelta> sampleDeformDeltas(DeformTimeline timeline, double time) {
   return out;
 }
 
+List<String> sampleDrawOrderTimeline(
+  DrawOrderTimeline timeline,
+  List<SlotData> setupSlots,
+  double time,
+) {
+  if (timeline.keys.isEmpty) return [for (final slot in setupSlots) slot.name];
+  DrawOrderKeyframe? active;
+  for (final key in timeline.keys) {
+    if (key.time <= time) {
+      active = key;
+    } else {
+      break;
+    }
+  }
+  if (active == null) return [for (final slot in setupSlots) slot.name];
+
+  final setupIndex = {
+    for (var i = 0; i < setupSlots.length; i++) setupSlots[i].name: i,
+  };
+  final targets = <String, int>{
+    for (var i = 0; i < setupSlots.length; i++) setupSlots[i].name: i,
+  };
+  for (final offset in active.offsets) {
+    final base = setupIndex[offset.slot];
+    if (base == null) continue;
+    targets[offset.slot] = base + offset.offset;
+  }
+  final ordered = targets.entries.toList()
+    ..sort((a, b) => a.value.compareTo(b.value));
+  return [for (final entry in ordered) entry.key];
+}
+
 // --- Mixer types ---
 
 enum MixBlend { first, replace, add }
@@ -349,6 +381,7 @@ class _MixedDeform {
 /// - `colors2`     — slot two-colour (light RGBA + dark RGB)
 /// - `sequences`   — slot sequence frame index
 /// - `deforms`     — dense mesh-deform overrides by slot+attachment
+/// - `drawOrder`   — sampled slot names in draw order
 class MixedPose {
   const MixedPose({
     required this.scalars,
@@ -359,6 +392,7 @@ class MixedPose {
     required this.colors2,
     required this.sequences,
     required this.deforms,
+    this.drawOrder,
   });
 
   const MixedPose.empty()
@@ -369,7 +403,8 @@ class MixedPose {
         colors = const [],
         colors2 = const [],
         sequences = const [],
-        deforms = const [];
+        deforms = const [],
+        drawOrder = null;
 
   final List<({String bone, BoneTimelineKind kind, double value})> scalars;
   final List<({String bone, BoneTimelineKind kind, double x, double y})>
@@ -381,6 +416,7 @@ class MixedPose {
   final List<({String slot, SequenceKeyframe value})> sequences;
   final List<({String slot, String attachment, List<MeshDelta> deltas})>
       deforms;
+  final List<String>? drawOrder;
 }
 
 String _scalarKey(String bone, BoneTimelineKind kind) =>
@@ -602,6 +638,7 @@ MixedPose overlayPose(MixedPose base, MixedPose overlay) {
       compare: (a, b) =>
           _compareDeformValues(a.slot, a.attachment, b.slot, b.attachment),
     ),
+    drawOrder: overlay.drawOrder ?? base.drawOrder,
   );
 }
 
@@ -699,6 +736,7 @@ MixedPose blendPoses(SkeletonData data, MixedPose lo, MixedPose hi, double t) {
       (a, b) =>
           _compareDeformValues(a.slot, a.attachment, b.slot, b.attachment),
     ),
+    drawOrder: snapPose.drawOrder,
   );
 }
 
@@ -1060,6 +1098,7 @@ class AnimationState {
     final colors2 = <String, _MixedColor2>{};
     final sequences = <String, _MixedSequence>{};
     final deforms = <String, _MixedDeform>{};
+    List<String>? drawOrder;
 
     for (var ti = 0; ti < tracks.length; ti++) {
       final track = tracks[ti];
@@ -1069,11 +1108,22 @@ class AnimationState {
       final mixWeight = track._currentMixWeight;
       final prev = track.previous;
       if (prev != null) {
-        _applyEntry(scalars, vectors, attachments, inherits, colors, colors2,
-            sequences, deforms, track, prev, 1.0 - mixWeight);
+        drawOrder = _applyEntry(
+            scalars,
+            vectors,
+            attachments,
+            inherits,
+            colors,
+            colors2,
+            sequences,
+            deforms,
+            drawOrder,
+            track,
+            prev,
+            1.0 - mixWeight);
       }
-      _applyEntry(scalars, vectors, attachments, inherits, colors, colors2,
-          sequences, deforms, track, cur, mixWeight);
+      drawOrder = _applyEntry(scalars, vectors, attachments, inherits, colors,
+          colors2, sequences, deforms, drawOrder, track, cur, mixWeight);
     }
 
     final scalarList = scalars.values
@@ -1137,10 +1187,11 @@ class AnimationState {
       colors2: color2List,
       sequences: sequenceList,
       deforms: deformList,
+      drawOrder: drawOrder,
     );
   }
 
-  void _applyEntry(
+  List<String>? _applyEntry(
     Map<String, _MixedScalar> scalars,
     Map<String, _MixedVector> vectors,
     Map<String, _MixedAttachment> attachments,
@@ -1149,6 +1200,7 @@ class AnimationState {
     Map<String, _MixedColor2> colors2,
     Map<String, _MixedSequence> sequences,
     Map<String, _MixedDeform> deforms,
+    List<String>? drawOrder,
     AnimationTrack track,
     TrackEntry entry,
     double weight,
@@ -1202,7 +1254,12 @@ class AnimationState {
           deltas: sampleDeformDeltas(tl, t),
         );
       }
+      final timeline = entry.clip.drawOrderTimeline;
+      if (timeline != null) {
+        drawOrder = sampleDrawOrderTimeline(timeline, data.slots, t);
+      }
     }
+    return drawOrder;
   }
 }
 
@@ -1218,6 +1275,7 @@ SkeletonData applyPose(SkeletonData data, MixedPose pose) {
   final hasInherits = pose.inherits.isNotEmpty;
   final hasAttachments = pose.attachments.isNotEmpty;
   final hasDeforms = pose.deforms.isNotEmpty;
+  final hasDrawOrder = pose.drawOrder != null;
 
   // Resolve the mixed deform set into the transient per-slot/attachment dense
   // override carried on the posed SkeletonData (consumed by buildDrawBatches
@@ -1232,18 +1290,24 @@ SkeletonData applyPose(SkeletonData data, MixedPose pose) {
       !hasVectors &&
       !hasInherits &&
       !hasAttachments &&
-      !hasDeforms) {
+      !hasDeforms &&
+      !hasDrawOrder) {
     return data;
   }
   if (!hasScalars && !hasVectors && !hasInherits && !hasAttachments) {
-    // Only deform overrides changed: bones/slots are untouched, so avoid a full
-    // rebuild and just stamp the override onto the input skeleton. Copies every
-    // field (incl. meshAttachments/clippingAttachments) so the animated mesh
-    // survives to buildDrawBatches.
+    // Only deform overrides and/or draw order changed: bones and slot
+    // attachments are untouched, so avoid a full bone rebuild and just stamp the
+    // transient override/reordered slot list onto the input skeleton.
+    final posedSlots = hasDrawOrder
+        ? [
+            for (final slotName in pose.drawOrder!)
+              data.slots.firstWhere((slot) => slot.name == slotName)
+          ]
+        : data.slots;
     return SkeletonData(
       header: data.header,
       bones: data.bones,
-      slots: data.slots,
+      slots: posedSlots,
       regions: data.regions,
       paths: data.paths,
       pathAttachments: data.pathAttachments,
@@ -1319,11 +1383,17 @@ SkeletonData applyPose(SkeletonData data, MixedPose pose) {
               : SlotData(name: s.name, bone: s.bone, attachment: att);
         }).toList()
       : data.slots;
+  final posedSlots = hasDrawOrder
+      ? [
+          for (final slotName in pose.drawOrder!)
+            animSlots.firstWhere((slot) => slot.name == slotName)
+        ]
+      : animSlots;
 
   return SkeletonData(
     header: data.header,
     bones: animBones,
-    slots: animSlots,
+    slots: posedSlots,
     regions: data.regions,
     paths: data.paths,
     pathAttachments: data.pathAttachments,

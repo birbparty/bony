@@ -228,6 +228,29 @@ class SlotTimeline {
   final List<SequenceKeyframe> sequenceKeys;
 }
 
+/// One slot offset in a clip-global draw-order keyframe. [offset] is relative
+/// to the slot's setup index; decoded keyframes must form a complete slot
+/// permutation after implicit zero offsets are included.
+class DrawOrderOffset {
+  const DrawOrderOffset({required this.slot, required this.offset});
+  final String slot;
+  final int offset;
+}
+
+/// A stepped draw-order keyframe. Empty [offsets] restores setup slot order.
+class DrawOrderKeyframe {
+  const DrawOrderKeyframe({required this.time, this.offsets = const []});
+  final double time;
+  final List<DrawOrderOffset> offsets;
+}
+
+/// A clip-owned, clip-global draw-order timeline. It has no per-slot target:
+/// each keyframe describes a full sampled slot order via setup-relative offsets.
+class DrawOrderTimeline {
+  const DrawOrderTimeline({required this.keys});
+  final List<DrawOrderKeyframe> keys;
+}
+
 /// A clip-owned, application-facing event payload. Mirrors Nim `EventData`
 /// (runtime-nim/src/bony/anim/timelines.nim:99-106). `audioPath`/`volume`/
 /// `balance` are audio metadata carried verbatim — the runtime never decodes or
@@ -276,6 +299,7 @@ class AnimationClip {
     required this.duration,
     required this.boneTimelines,
     this.slotTimelines = const [],
+    this.drawOrderTimeline,
     this.deformTimelines = const [],
     this.eventTimelines = const [],
   });
@@ -283,6 +307,7 @@ class AnimationClip {
   final double duration;
   final List<BoneTimeline> boneTimelines;
   final List<SlotTimeline> slotTimelines;
+  final DrawOrderTimeline? drawOrderTimeline;
   final List<DeformTimeline> deformTimelines;
   final List<EventTimeline> eventTimelines;
 }

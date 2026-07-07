@@ -20,6 +20,7 @@ const _bnbKnownTypes = {
   wire.bonyTypeKeyAnimationClip,
   wire.bonyTypeKeyBoneTimeline,
   wire.bonyTypeKeySlotTimeline,
+  wire.bonyTypeKeyDrawOrderTimeline,
   wire.bonyTypeKeyEventTimeline,
   wire.bonyTypeKeyDeformTimeline,
   wire.bonyTypeKeyParameter,
@@ -700,6 +701,50 @@ List<EventKeyframe> _bEventTimelineKeys(
   return keys;
 }
 
+List<DrawOrderKeyframe> _bDrawOrderTimelineKeys(
+  Uint8List payload,
+  List<SlotData> slots,
+  String ctx,
+) {
+  final c = _BnbCur(payload);
+  final count = c.readVaruint();
+  if (count == 0) {
+    throw FormatException('.bnb $ctx must contain at least one key');
+  }
+  final keys = <DrawOrderKeyframe>[];
+  for (var i = 0; i < count; i++) {
+    final time = c.readF32();
+    if (time < 0.0) {
+      throw FormatException('.bnb $ctx.time must be non-negative');
+    }
+    final offsetCount = c.readVaruint();
+    final seenSlotIndices = <int>{};
+    final offsets = <DrawOrderOffset>[];
+    for (var oi = 0; oi < offsetCount; oi++) {
+      final slotIndex = c.readVaruint();
+      if (slotIndex < 0 || slotIndex >= slots.length) {
+        throw FormatException('.bnb $ctx.slotIndex is out of range');
+      }
+      if (!seenSlotIndices.add(slotIndex)) {
+        throw FormatException('.bnb $ctx duplicate slotIndex: $slotIndex');
+      }
+      final offset = c.readVarint();
+      if (offset != 0) {
+        offsets.add(DrawOrderOffset(
+          slot: slots[slotIndex].name,
+          offset: offset,
+        ));
+      }
+    }
+    keys.add(DrawOrderKeyframe(time: time, offsets: offsets));
+  }
+  _bCheckExhausted(c, ctx);
+  _ensureStrictlyIncreasing(keys.map((k) => k.time).toList(), ctx);
+  final timeline = DrawOrderTimeline(keys: keys);
+  _validateDrawOrderTimeline(timeline, slots, '.bnb $ctx');
+  return keys;
+}
+
 List<DeformKeyframe> _bDeformTimelineKeys(
     Uint8List payload, int vertexCount, String ctx) {
   final c = _BnbCur(payload);
@@ -740,7 +785,8 @@ List<DeformKeyframe> _bDeformTimelineKeys(
 
 double _animationDuration(
     List<BoneTimeline> boneTimelines, List<SlotTimeline> slotTimelines,
-    [List<DeformTimeline> deformTimelines = const [],
+    [DrawOrderTimeline? drawOrderTimeline,
+    List<DeformTimeline> deformTimelines = const [],
     List<EventTimeline> eventTimelines = const []]) {
   var duration = 0.0;
   for (final timeline in boneTimelines) {
@@ -779,6 +825,11 @@ double _animationDuration(
     if (timeline.keys.isNotEmpty && timeline.keys.last.time > duration) {
       duration = timeline.keys.last.time;
     }
+  }
+  if (drawOrderTimeline != null &&
+      drawOrderTimeline.keys.isNotEmpty &&
+      drawOrderTimeline.keys.last.time > duration) {
+    duration = drawOrderTimeline.keys.last.time;
   }
   for (final timeline in eventTimelines) {
     if (timeline.keys.isNotEmpty && timeline.keys.last.time > duration) {

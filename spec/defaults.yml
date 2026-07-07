@@ -433,6 +433,9 @@ objectDefaults:
   - object: slotTimeline
     ownerBead: bony-cl8.9
     properties: {}
+  - object: drawOrderTimeline
+    ownerBead: bony-s4ll.2
+    properties: {}
   - object: deformTimeline
     ownerBead: bony-68lj
     properties: {}
@@ -859,6 +862,10 @@ requiredProperties:
     property: timelineKeys
     reason: Slot timelines need packed keyframe data.
     ownerBead: bony-cl8.9
+  - object: drawOrderTimeline
+    property: drawOrderKeys
+    reason: Draw-order timelines carry all keyframe data in the packed drawOrderKeys payload; it is the record's only property.
+    ownerBead: bony-s4ll.2
   - object: deformTimeline
     property: deformSkin
     reason: Deform timelines bind to a declared skin identity, with "default" as the required fallback skin.

@@ -18,6 +18,7 @@ M3_M8_OBJECTS = [
     "animationClip",
     "boneTimeline",
     "slotTimeline",
+    "drawOrderTimeline",
     "stateMachine",
     "stateMachineInput",
     "stateMachineLayer",
@@ -32,6 +33,7 @@ M3_M8_TYPE_KEYS = {
     "animationClip": 2000,
     "boneTimeline": 2001,
     "slotTimeline": 2002,
+    "drawOrderTimeline": 2004,
     "stateMachine": 7000,
     "stateMachineInput": 7001,
     "stateMachineLayer": 7002,
@@ -48,6 +50,7 @@ M3_M8_PROPERTY_KEYS = {
     "slotIndex": 2002,
     "slotTimelineKind": 2003,
     "timelineKeys": 2004,
+    "drawOrderKeys": 2006,
     "stateMachineInputKind": 7000,
     "inputDefaultBool": 7001,
     "inputDefaultNumber": 7002,
@@ -282,6 +285,24 @@ HAND_ENFORCED_NON_SCALAR_REQUIRED_PROPERTIES = {
             "'.bnb eventTimeline.eventKeys is required'",
         ],
     },
+    ("drawOrderTimeline", "drawOrderKeys"): {
+        "runtime-nim/src/bony/binary/semantic/animation.nim": [
+            "drawOrderKeysKey notin properties",
+            '".bnb drawOrderTimeline.drawOrderKeys is required"',
+        ],
+        "runtime-nim/src/bony/binary/semantic.nim": [
+            "writeDrawOrderKeys",
+            "readDrawOrderKeys",
+        ],
+        "runtime-dart/lib/src/bnb_decoder.dart": [
+            "wire.bonyPropertyKeyDrawOrderKeys",
+            "'.bnb drawOrderTimeline.drawOrderKeys is required'",
+        ],
+        "runtime-dart/lib/src/bnb_reader.dart": [
+            "_bDrawOrderTimelineKeys",
+            "_validateDrawOrderTimeline",
+        ],
+    },
 }
 
 
@@ -470,7 +491,10 @@ class GeneratorValidationTests(unittest.TestCase):
             M3_M8_PROPERTY_KEYS,
         )
         self.assertTrue(
-            all(2000 <= type_keys[key] <= 2999 for key in ["animationClip", "boneTimeline", "slotTimeline"])
+            all(
+                2000 <= type_keys[key] <= 2999
+                for key in ["animationClip", "boneTimeline", "slotTimeline", "drawOrderTimeline"]
+            )
         )
         self.assertTrue(
             all(7000 <= type_keys[key] <= 7999 for key in M3_M8_TYPE_KEYS if key.startswith("stateMachine"))
@@ -481,6 +505,7 @@ class GeneratorValidationTests(unittest.TestCase):
             "slotIndex",
             "slotTimelineKind",
             "timelineKeys",
+            "drawOrderKeys",
         }
         self.assertTrue(all(2000 <= property_keys[key] <= 2999 for key in m3_property_ids))
         self.assertTrue(
@@ -538,6 +563,10 @@ class GeneratorValidationTests(unittest.TestCase):
             nim,
         )
         self.assertIn(
+            'BonyObjectSpec(typeId: "drawOrderTimeline", properties: @["drawOrderKeys"])',
+            nim,
+        )
+        self.assertIn(
             'BonyObjectSpec(typeId: "stateMachineState", properties: @["name", "stateMachineStateKind", "stateClipIndex", "stateLoop", "stateBlendInputIndex"])',
             nim,
         )
@@ -547,6 +576,10 @@ class GeneratorValidationTests(unittest.TestCase):
         )
         self.assertIn(
             'BonyObjectSpec(typeId: \'boneTimeline\', properties: ["boneIndex", "boneTimelineKind", "timelineKeys"])',
+            dart,
+        )
+        self.assertIn(
+            'BonyObjectSpec(typeId: \'drawOrderTimeline\', properties: ["drawOrderKeys"])',
             dart,
         )
         self.assertIn(
@@ -769,6 +802,16 @@ class GeneratorValidationTests(unittest.TestCase):
         self.assertEqual(timeline_keys["x-bony-packedBytes"]["structuralSchema"], "base64Only")
         self.assertEqual(timeline_keys["x-bony-packedBytes"]["validatedBy"], "loader")
 
+        draw_order_keys = schema["$defs"]["drawOrderTimeline"]["properties"]["drawOrderKeys"]
+        self.assertEqual(draw_order_keys["contentEncoding"], "base64")
+        self.assertEqual(draw_order_keys["x-bony-packedBytes"]["payload"], "drawOrderTimelineKeys")
+        self.assertEqual(
+            draw_order_keys["x-bony-packedBytes"]["layout"],
+            "docs/draw-order-timeline-contract.md#packed-drawordertimeline-byte-layout-bnb",
+        )
+        self.assertEqual(draw_order_keys["x-bony-packedBytes"]["structuralSchema"], "base64Only")
+        self.assertEqual(draw_order_keys["x-bony-packedBytes"]["validatedBy"], "loader")
+
     def test_project_schema_keeps_packed_timeline_keys_out_of_canonical_json(self) -> None:
         registry = generate.load_yaml_subset(generate.ROOT / "registry" / "wire.yml")
         defaults = generate.load_yaml_subset(generate.ROOT / "spec" / "defaults.yml")
@@ -776,7 +819,10 @@ class GeneratorValidationTests(unittest.TestCase):
         schema = json.loads(generate.generate_schema(registry, defaults))
 
         self.assertNotIn("timelineKeys", schema["$defs"]["boneTimeline"]["properties"])
+        self.assertNotIn("drawOrderKeys", schema["$defs"]["drawOrderTimeline"]["properties"])
         self.assertIn("keyframes", schema["$defs"]["boneTimeline"]["properties"])
+        self.assertIn("drawOrderTimeline", schema["$defs"]["animationClip"]["properties"])
+        self.assertNotIn("drawOrderTimelines", schema["properties"])
 
     def test_build_root_properties_applies_hidden_ids_and_collection_overrides(self) -> None:
         type_keys = [

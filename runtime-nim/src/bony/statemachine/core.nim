@@ -1191,6 +1191,7 @@ proc overlayPose(base: var MixedPose; layer: MixedPose) =
   var colors2 = initTable[string, MixedColor2]()
   var sequences = initTable[string, MixedSequence]()
   var deforms = initTable[string, MixedDeform]()
+  var drawOrder = base.drawOrder
   for value in base.scalars:
     scalars[value.scalarKey] = value
   for value in base.vectors:
@@ -1223,6 +1224,8 @@ proc overlayPose(base: var MixedPose; layer: MixedPose) =
     sequences[value.target] = value
   for value in layer.deforms:
     deforms[value.deformKey] = value
+  if layer.drawOrder.len > 0:
+    drawOrder = layer.drawOrder
   base = MixedPose()
   for value in scalars.values:
     base.scalars.add value
@@ -1248,6 +1251,7 @@ proc overlayPose(base: var MixedPose; layer: MixedPose) =
   for value in deforms.values:
     base.deforms.add value
   base.deforms.sort(deformOrder)
+  base.drawOrder = drawOrder
 
 
 proc addWeightedPose(
@@ -1294,6 +1298,7 @@ proc addWeightedPose(
     output.inherits = pose.inherits
     output.sequences = pose.sequences
     output.deforms = pose.deforms
+    output.drawOrder = pose.drawOrder
 
 
 proc blendedPose(data: ref SkeletonData; lowPose, highPose: MixedPose; t: float64): MixedPose =
@@ -1375,6 +1380,7 @@ proc blendedPose(data: ref SkeletonData; lowPose, highPose: MixedPose; t: float6
   # Discrete channels inherit the winner's already-sorted order (set wholesale by
   # addWeightedPose's replaceDiscrete branch), so no re-sort is needed here.
   result.deforms = weighted.deforms
+  result.drawOrder = weighted.drawOrder
   for value in colors.values:
     result.colors.add value
   result.colors.sort(colorOrder)

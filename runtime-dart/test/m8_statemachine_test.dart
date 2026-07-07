@@ -1179,7 +1179,9 @@ void main() {
         '{"slot":"body","property":"sequence","keyframes":[{"t":0.0,"index":2,"delay":0.1,"mode":"loop"}]}'
         '],'
         '"deformTimelines":[{"skin":"default","slot":"meshSlot","attachment":"cloth",'
-        '"vertexCount":3,"keyframes":[{"t":0.0,"offset":0,"deltas":[{"x":2,"y":0}]}]}]'
+        '"vertexCount":3,"keyframes":[{"t":0.0,"offset":0,"deltas":[{"x":2,"y":0}]}]}],'
+        '"drawOrderTimeline":{"keyframes":[{"t":0.0,"offsets":['
+        '{"slot":"body","offset":1},{"slot":"meshSlot","offset":-1}]}]}'
         '}],'
         '"stateMachines":['
         '{"name":"blendm","inputs":[{"name":"speed","kind":"number"}],'
@@ -1205,6 +1207,7 @@ void main() {
           if (p.colors2.isEmpty) 'colors2',
           if (p.sequences.isEmpty) 'sequences',
           if (p.deforms.isEmpty) 'deforms',
+          if (p.drawOrder == null) 'drawOrder',
         ];
 
     setUpAll(() {
@@ -1243,8 +1246,9 @@ void main() {
         colors2: [],
         sequences: [],
         deforms: [],
+        drawOrder: null,
       );
-      expect(droppedChannels(empty), hasLength(8));
+      expect(droppedChannels(empty), hasLength(9));
     });
   });
 

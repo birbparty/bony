@@ -100,6 +100,7 @@ const int bonyTypeKeyAnimationClip = 2000;
 const int bonyTypeKeyBoneTimeline = 2001;
 const int bonyTypeKeySlotTimeline = 2002;
 const int bonyTypeKeyEventTimeline = 2003;
+const int bonyTypeKeyDrawOrderTimeline = 2004;
 const int bonyTypeKeyStateMachine = 7000;
 const int bonyTypeKeyStateMachineInput = 7001;
 const int bonyTypeKeyStateMachineLayer = 7002;
@@ -137,6 +138,7 @@ const List<BonyTypeKey> bonyTypeKeys = [
   BonyTypeKey(id: 'boneTimeline', key: bonyTypeKeyBoneTimeline),
   BonyTypeKey(id: 'slotTimeline', key: bonyTypeKeySlotTimeline),
   BonyTypeKey(id: 'eventTimeline', key: bonyTypeKeyEventTimeline),
+  BonyTypeKey(id: 'drawOrderTimeline', key: bonyTypeKeyDrawOrderTimeline),
   BonyTypeKey(id: 'stateMachine', key: bonyTypeKeyStateMachine),
   BonyTypeKey(id: 'stateMachineInput', key: bonyTypeKeyStateMachineInput),
   BonyTypeKey(id: 'stateMachineLayer', key: bonyTypeKeyStateMachineLayer),
@@ -248,6 +250,7 @@ const int bonyPropertyKeySlotIndex = 2002;
 const int bonyPropertyKeySlotTimelineKind = 2003;
 const int bonyPropertyKeyTimelineKeys = 2004;
 const int bonyPropertyKeyEventKeys = 2005;
+const int bonyPropertyKeyDrawOrderKeys = 2006;
 const int bonyPropertyKeyStateMachineInputKind = 7000;
 const int bonyPropertyKeyInputDefaultBool = 7001;
 const int bonyPropertyKeyInputDefaultNumber = 7002;
@@ -380,6 +383,7 @@ const List<BonyPropertyKey> bonyPropertyKeys = [
   BonyPropertyKey(id: 'slotTimelineKind', key: bonyPropertyKeySlotTimelineKind, backingType: 'varuint'),
   BonyPropertyKey(id: 'timelineKeys', key: bonyPropertyKeyTimelineKeys, backingType: 'bytes'),
   BonyPropertyKey(id: 'eventKeys', key: bonyPropertyKeyEventKeys, backingType: 'bytes'),
+  BonyPropertyKey(id: 'drawOrderKeys', key: bonyPropertyKeyDrawOrderKeys, backingType: 'bytes'),
   BonyPropertyKey(id: 'stateMachineInputKind', key: bonyPropertyKeyStateMachineInputKind, backingType: 'varuint'),
   BonyPropertyKey(id: 'inputDefaultBool', key: bonyPropertyKeyInputDefaultBool, backingType: 'bool'),
   BonyPropertyKey(id: 'inputDefaultNumber', key: bonyPropertyKeyInputDefaultNumber, backingType: 'f32'),
@@ -438,6 +442,7 @@ const List<BonyObjectSpec> bonyObjectSpecs = [
   BonyObjectSpec(typeId: 'animationClip', properties: ["name"]),
   BonyObjectSpec(typeId: 'boneTimeline', properties: ["boneIndex", "boneTimelineKind", "timelineKeys"]),
   BonyObjectSpec(typeId: 'slotTimeline', properties: ["slotIndex", "slotTimelineKind", "timelineKeys"]),
+  BonyObjectSpec(typeId: 'drawOrderTimeline', properties: ["drawOrderKeys"]),
   BonyObjectSpec(typeId: 'deformTimeline', properties: ["deformSkin", "slot", "deformAttachment", "deformVertexCount", "deformKeys"]),
   BonyObjectSpec(typeId: 'eventTimeline', properties: ["eventKeys"]),
   BonyObjectSpec(typeId: 'stateMachine', properties: ["name"]),
@@ -602,6 +607,7 @@ const List<BonyRequiredProperty> bonyRequiredProperties = [
   BonyRequiredProperty(objectId: 'slotTimeline', propertyId: 'slotIndex', reason: "Slot timelines must resolve to a loaded slot."),
   BonyRequiredProperty(objectId: 'slotTimeline', propertyId: 'slotTimelineKind', reason: "Slot timeline kind selects the packed key payload shape."),
   BonyRequiredProperty(objectId: 'slotTimeline', propertyId: 'timelineKeys', reason: "Slot timelines need packed keyframe data."),
+  BonyRequiredProperty(objectId: 'drawOrderTimeline', propertyId: 'drawOrderKeys', reason: "Draw-order timelines carry all keyframe data in the packed drawOrderKeys payload; it is the record's only property."),
   BonyRequiredProperty(objectId: 'deformTimeline', propertyId: 'deformSkin', reason: "Deform timelines bind to a declared skin identity, with \"default\" as the required fallback skin."),
   BonyRequiredProperty(objectId: 'deformTimeline', propertyId: 'slot', reason: "Deform timelines must name the slot whose attachment is deformed."),
   BonyRequiredProperty(objectId: 'deformTimeline', propertyId: 'deformAttachment', reason: "Deform timelines must name the mesh attachment they animate."),

@@ -1,6 +1,6 @@
 ## M3 bone, slot, and event timeline data structures.
 
-import std/[math, sets, tables]
+import std/[algorithm, math, sets, tables]
 
 import bony/model
 
@@ -112,6 +112,17 @@ type
   EventTimeline* = object
     keys: seq[EventKeyframe]
 
+  DrawOrderOffset* = object
+    slot*: string
+    offset*: int
+
+  DrawOrderKeyframe* = object
+    time*: float64
+    offsets*: seq[DrawOrderOffset]
+
+  DrawOrderTimeline* = object
+    keys: seq[DrawOrderKeyframe]
+
   SampledSequence* = object
     time*: float64
     baseIndex*: uint32
@@ -166,6 +177,7 @@ type
     duration: float64
     boneTimelines: seq[BoneTimeline]
     slotTimelines: seq[SlotTimeline]
+    drawOrderTimeline: DrawOrderTimeline
     eventTimelines: seq[EventTimeline]
     deformTimelines: seq[DeformTimeline]
 
@@ -231,9 +243,12 @@ proc name*(clip: AnimationClip): string = clip.name
 proc duration*(clip: AnimationClip): float64 = clip.duration
 proc boneTimelines*(clip: AnimationClip): seq[BoneTimeline] = clip.boneTimelines
 proc slotTimelines*(clip: AnimationClip): seq[SlotTimeline] = clip.slotTimelines
+proc drawOrderTimeline*(clip: AnimationClip): DrawOrderTimeline = clip.drawOrderTimeline
+proc hasDrawOrderTimeline*(clip: AnimationClip): bool = clip.drawOrderTimeline.keys.len > 0
 proc eventTimelines*(clip: AnimationClip): seq[EventTimeline] = clip.eventTimelines
 proc deformTimelines*(clip: AnimationClip): seq[DeformTimeline] = clip.deformTimelines
 proc keys*(timeline: EventTimeline): seq[EventKeyframe] = timeline.keys
+proc keys*(timeline: DrawOrderTimeline): seq[DrawOrderKeyframe] = timeline.keys
 
 proc validateTimelineTarget(target, context: string) =
   if target.len == 0:
@@ -699,6 +714,165 @@ proc eventTimeline*(keys: openArray[EventKeyframe]): EventTimeline =
   result = EventTimeline(keys: @keys)
   validateEventTimeline(result, "event timeline")
 
+proc drawOrderOffset*(slot: string; offset: int): DrawOrderOffset =
+  DrawOrderOffset(slot: slot, offset: offset)
+
+
+proc drawOrderKeyframe*(time: float64; offsets: openArray[DrawOrderOffset] = []): DrawOrderKeyframe =
+  var storedOffsets: seq[DrawOrderOffset]
+  for offset in offsets:
+    if offset.offset != 0:
+      storedOffsets.add offset
+  DrawOrderKeyframe(
+    time: quantizeTime(time, "drawOrder.key.time"),
+    offsets: storedOffsets,
+  )
+
+
+proc drawOrderTimeline*(keys: openArray[DrawOrderKeyframe]): DrawOrderTimeline =
+  requireKeys(keys.len, "draw-order timeline")
+  var prev = -Inf
+  for key in keys:
+    if key.time <= prev:
+      raise newBonyLoadError(schemaViolation, "draw-order key times must be strictly increasing")
+    prev = key.time
+  DrawOrderTimeline(keys: @keys)
+
+
+proc validateDrawOrderTimeline*(timeline: DrawOrderTimeline; slots: openArray[SlotData]; context = "drawOrderTimeline") =
+  requireKeys(timeline.keys.len, context)
+  var setupIndex = initTable[string, int]()
+  for index, slot in slots:
+    setupIndex[slot.name] = index
+  var prev = -Inf
+  for keyIndex, key in timeline.keys:
+    if key.time <= prev:
+      raise newBonyLoadError(schemaViolation, context & " key times must be strictly increasing")
+    prev = key.time
+    var offsetsBySlot = initTable[string, int]()
+    for offsetIndex, offset in key.offsets:
+      let offsetContext = context & ".keyframes[" & $keyIndex & "].offsets[" & $offsetIndex & "]"
+      if offset.slot notin setupIndex:
+        raise newBonyLoadError(unknownRequiredReference, offsetContext & ": unknown slot: " & offset.slot)
+      if offset.offset == 0:
+        continue
+      if offset.slot in offsetsBySlot:
+        raise newBonyLoadError(schemaViolation, offsetContext & ": duplicate slot: " & offset.slot)
+      offsetsBySlot[offset.slot] = offset.offset
+    var seenTargets = initTable[int, string]()
+    for slot in slots:
+      let target = setupIndex[slot.name] + offsetsBySlot.getOrDefault(slot.name, 0)
+      if target < 0 or target >= slots.len:
+        raise newBonyLoadError(schemaViolation,
+          context & ".keyframes[" & $keyIndex & "]: target index out of range for slot " &
+          slot.name & ": " & $target)
+      if target in seenTargets:
+        raise newBonyLoadError(schemaViolation,
+          context & ".keyframes[" & $keyIndex & "]: duplicate target index " & $target)
+      seenTargets[target] = slot.name
+
+
+proc sampleDrawOrderTimeline*(timeline: DrawOrderTimeline; slots: openArray[SlotData]; time: float64): seq[string]
+
+
+proc validateDrawOrderClipping*(data: SkeletonData; timeline: DrawOrderTimeline; context = "drawOrderTimeline") =
+  if data.clippingAttachments.len == 0:
+    return
+  var clipByName = initTable[string, ClipAttachmentData]()
+  for clip in data.clippingAttachments:
+    clipByName[clip.name] = clip
+
+  proc checkOrder(order: openArray[SlotData]; orderContext: string) =
+    var indexBySlot = initTable[string, int]()
+    for index, slot in order:
+      indexBySlot[slot.name] = index
+    var ranges: seq[tuple[start, finish: int; slot: string]]
+    for slot in order:
+      if slot.attachment.len == 0 or slot.attachment notin clipByName:
+        continue
+      let clip = clipByName[slot.attachment]
+      let ownIndex = indexBySlot[slot.name]
+      let endIndex =
+        if clip.untilSlot.len > 0:
+          if clip.untilSlot notin indexBySlot:
+            raise newBonyLoadError(unknownRequiredReference,
+              orderContext & ": clipping attachment " & clip.name & " untilSlot unknown: " & clip.untilSlot)
+          indexBySlot[clip.untilSlot]
+        else:
+          order.len - 1
+      if endIndex <= ownIndex:
+        raise newBonyLoadError(schemaViolation,
+          orderContext & ": clipping slot " & slot.name & " must be before untilSlot " & clip.untilSlot)
+      ranges.add (ownIndex, endIndex, slot.name)
+    ranges.sort(proc(a, b: tuple[start, finish: int; slot: string]): int = cmp(a.start, b.start))
+    var activeEnd = -1
+    var activeSlot = ""
+    for range in ranges:
+      if range.start <= activeEnd:
+        raise newBonyLoadError(schemaViolation,
+          orderContext & ": clipping range for " & range.slot & " overlaps active range for " & activeSlot)
+      activeEnd = range.finish
+      activeSlot = range.slot
+
+  checkOrder(data.slots, context & ".setup")
+  for key in timeline.keys:
+    var order: seq[SlotData]
+    let names = sampleDrawOrderTimeline(timeline, data.slots, key.time)
+    var byName = initTable[string, SlotData]()
+    for slot in data.slots:
+      byName[slot.name] = slot
+    for name in names:
+      order.add byName[name]
+    checkOrder(order, context & ".keyframes@" & $key.time)
+
+
+proc drawOrderOffsetsInSetupOrder*(key: DrawOrderKeyframe; slots: openArray[SlotData]): seq[DrawOrderOffset] =
+  var setupIndex = initTable[string, int]()
+  for index, slot in slots:
+    setupIndex[slot.name] = index
+  result = key.offsets
+  result.sort(proc(a, b: DrawOrderOffset): int =
+    result = cmp(setupIndex.getOrDefault(a.slot, high(int)), setupIndex.getOrDefault(b.slot, high(int)))
+    if result == 0:
+      result = cmp(a.slot, b.slot)
+  )
+
+
+proc sampleDrawOrderTimeline*(timeline: DrawOrderTimeline; slots: openArray[SlotData]; time: float64): seq[string] =
+  if timeline.keys.len == 0:
+    for slot in slots: result.add slot.name
+    return
+  let storedTime = quantizeF32(time, "drawOrder.sampleTime")
+  var active = -1
+  for index, key in timeline.keys:
+    if key.time <= storedTime:
+      active = index
+    else:
+      break
+  if active < 0:
+    for slot in slots: result.add slot.name
+    return
+  var setupIndex = initTable[string, int]()
+  var targets = initTable[string, int]()
+  for index, slot in slots:
+    setupIndex[slot.name] = index
+    targets[slot.name] = index
+  for offset in timeline.keys[active].offsets:
+    if offset.slot in setupIndex:
+      targets[offset.slot] = setupIndex[offset.slot] + offset.offset
+  var ordered: seq[tuple[target: int; setup: int; slot: string]]
+  for slot in slots:
+    let slotName = slot.name
+    let target = targets[slotName]
+    ordered.add (target, setupIndex[slotName], slotName)
+  ordered.sort(proc(a, b: tuple[target: int; setup: int; slot: string]): int =
+    result = cmp(a.target, b.target)
+    if result == 0:
+      result = cmp(a.setup, b.setup)
+  )
+  for item in ordered:
+    result.add item.slot
+
 
 proc deformKeyframe*(
   time: float64;
@@ -787,6 +961,7 @@ proc animationClip*(
   boneTimelines: openArray[BoneTimeline] = [];
   slotTimelines: openArray[SlotTimeline] = [];
   eventTimelines: openArray[EventTimeline] = [];
+  drawOrderTimeline: DrawOrderTimeline = DrawOrderTimeline();
   deformTimelines: openArray[DeformTimeline] = [];
 ): AnimationClip =
   if name.len == 0:
@@ -837,6 +1012,10 @@ proc animationClip*(
   for timeline in eventTimelines:
     validateEventTimeline(timeline, "event timeline")
     duration = max(duration, timeline.lastTime)
+  if drawOrderTimeline.keys.len > 0:
+    validateDrawOrderTimeline(drawOrderTimeline, data.slots)
+    validateDrawOrderClipping(data, drawOrderTimeline)
+    duration = max(duration, drawOrderTimeline.keys[^1].time)
   for timeline in deformTimelines:
     validateDeformTimeline(timeline)
     if not data.hasSkin(timeline.skin):
@@ -863,6 +1042,7 @@ proc animationClip*(
     duration: duration,
     boneTimelines: @boneTimelines,
     slotTimelines: @slotTimelines,
+    drawOrderTimeline: drawOrderTimeline,
     eventTimelines: @eventTimelines,
     deformTimelines: @deformTimelines,
   )

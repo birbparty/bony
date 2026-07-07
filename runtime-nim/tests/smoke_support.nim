@@ -60,7 +60,7 @@ proc animationFixture(): SkeletonData =
   )
 
 # Completeness-guard scaffolding (bony-bna8): a skeleton + clip that drive ALL
-# eight MixedPose channels at once, so a channel silently dropped by any pose
+# nine MixedPose channels at once, so a channel silently dropped by any pose
 # aggregator (overlayPose / addWeightedPose / blendedPose) shows up as an empty
 # field. `body` carries the slot channels (attachment swap + colors + sequence);
 # `meshSlot` shows the `cloth` mesh a deform timeline animates; `root` carries the
@@ -97,12 +97,15 @@ proc allChannelClip(data: SkeletonData; name: string): AnimationClip =
       slotColor2Timeline("body", @[color2Keyframe(0.0, colorRgba2(colorRgba(1.0, 1.0, 1.0, 1.0), 0.1, 0.2, 0.3))]),
       slotSequenceTimeline("body", @[sequenceKeyframe(0.0, 2'u32, 0.1, sequenceLoop)]),
     ],
+    drawOrderTimeline = drawOrderTimeline(@[
+      drawOrderKeyframe(0.0, @[drawOrderOffset("body", 1), drawOrderOffset("meshSlot", -1)]),
+    ]),
     deformTimelines = @[deformTimeline("default", "meshSlot", data.meshAttachments[0],
       @[deformKeyframe(0.0, 0'u32, @[meshDelta(2.0, 0.0)])])],
   )
 
 # Names of any MixedPose seq channel that came back empty. Iterates via fieldPairs
-# so a future channel #9 is covered automatically: if it is added to MixedPose but
+# so a future channel #10 is covered automatically: if it is added to MixedPose but
 # not threaded through an aggregator (or not driven by allChannelClip), it lands
 # here and the guard tests fail loudly instead of silently rendering nothing.
 proc droppedChannels(pose: MixedPose): seq[string] =

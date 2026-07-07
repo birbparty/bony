@@ -155,7 +155,7 @@ SkeletonData loadBonyJson(String jsonText) {
 
   final animsRaw = root['animations'];
   final animations = animsRaw is List<dynamic>
-      ? _parseAnimations(animsRaw, meshAttachments, skins)
+      ? _parseAnimations(animsRaw, slots, meshAttachments, skins)
       : const <AnimationClip>[];
 
   final parameters =

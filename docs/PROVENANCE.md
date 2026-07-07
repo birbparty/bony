@@ -142,6 +142,32 @@ documentation prose.
 - **CI enforcement**: registry/defaults/codegen consistency is enforced by
   `codegen/generate.py --check`; clean-room posture is enforced by code review.
 
+### Draw-Order Timeline Schema Names (2026-07-07)
+
+- **Reason needed**: Bead `bony-s4ll` introduces a clip-owned animated
+  draw-order timeline so animation clips can restack slots over time.
+- **Classification**: project-owned design - not an external source of
+  implementation truth.
+- **What is recorded**: the serialized identifiers `drawOrderTimeline`,
+  `drawOrderKeys`, `keyframes`, `t`, `offsets`, `slot`, and `offset` were chosen
+  from the existing `bony` slot, animation, timeline, draw-batch, and binary
+  contracts plus generic animation terminology. The model is a singular
+  animation-clip child timeline whose keyframes encode setup-slot-relative
+  offsets and whose decoded order must form a complete slot permutation. The
+  JSON shape, validation rules, stepped sampling behavior, clipping invariants,
+  and packed `.bnb` byte layout are specified in
+  `docs/draw-order-timeline-contract.md`.
+- **Source**: none. The names, field set, offset-permutation validation,
+  registry allocation, object ordering, and packed payload are not derived from
+  any third-party runtime's source, generated schema, wire layout, type/property
+  keys, or documentation prose.
+- **Cleanroom compliance**: confirmed against the `docs/CLEANROOM.md` review
+  checklist - the record can be explained from project-owned `bony` contracts,
+  registry/spec files, and generic animation terminology. Comparable-product
+  references remain capability context only.
+- **CI enforcement**: registry/defaults/codegen consistency is enforced by
+  `codegen/generate.py --check`; clean-room posture is enforced by code review.
+
 ### Helper Geometry Attachment Schema Names (2026-07-05)
 
 - **Reason needed**: The helper-geometry milestone (bead `bony-wb1d`) introduces

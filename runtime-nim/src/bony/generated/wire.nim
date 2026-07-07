@@ -65,6 +65,7 @@ const bonyTypeKeys* = [
   BonyTypeKey(id: "boneTimeline", key: 2001.uint64),
   BonyTypeKey(id: "slotTimeline", key: 2002.uint64),
   BonyTypeKey(id: "eventTimeline", key: 2003.uint64),
+  BonyTypeKey(id: "drawOrderTimeline", key: 2004.uint64),
   BonyTypeKey(id: "stateMachine", key: 7000.uint64),
   BonyTypeKey(id: "stateMachineInput", key: 7001.uint64),
   BonyTypeKey(id: "stateMachineLayer", key: 7002.uint64),
@@ -175,6 +176,7 @@ const bonyPropertyKeys* = [
   BonyPropertyKey(id: "slotTimelineKind", key: 2003.uint64, backingType: "varuint"),
   BonyPropertyKey(id: "timelineKeys", key: 2004.uint64, backingType: "bytes"),
   BonyPropertyKey(id: "eventKeys", key: 2005.uint64, backingType: "bytes"),
+  BonyPropertyKey(id: "drawOrderKeys", key: 2006.uint64, backingType: "bytes"),
   BonyPropertyKey(id: "stateMachineInputKind", key: 7000.uint64, backingType: "varuint"),
   BonyPropertyKey(id: "inputDefaultBool", key: 7001.uint64, backingType: "bool"),
   BonyPropertyKey(id: "inputDefaultNumber", key: 7002.uint64, backingType: "f32"),
@@ -233,6 +235,7 @@ let bonyObjectSpecs*: seq[BonyObjectSpec] = @[
   BonyObjectSpec(typeId: "animationClip", properties: @["name"]),
   BonyObjectSpec(typeId: "boneTimeline", properties: @["boneIndex", "boneTimelineKind", "timelineKeys"]),
   BonyObjectSpec(typeId: "slotTimeline", properties: @["slotIndex", "slotTimelineKind", "timelineKeys"]),
+  BonyObjectSpec(typeId: "drawOrderTimeline", properties: @["drawOrderKeys"]),
   BonyObjectSpec(typeId: "deformTimeline", properties: @["deformSkin", "slot", "deformAttachment", "deformVertexCount", "deformKeys"]),
   BonyObjectSpec(typeId: "eventTimeline", properties: @["eventKeys"]),
   BonyObjectSpec(typeId: "stateMachine", properties: @["name"]),
@@ -397,6 +400,7 @@ const bonyRequiredProperties* = [
   BonyRequiredProperty(objectId: "slotTimeline", propertyId: "slotIndex", reason: "Slot timelines must resolve to a loaded slot."),
   BonyRequiredProperty(objectId: "slotTimeline", propertyId: "slotTimelineKind", reason: "Slot timeline kind selects the packed key payload shape."),
   BonyRequiredProperty(objectId: "slotTimeline", propertyId: "timelineKeys", reason: "Slot timelines need packed keyframe data."),
+  BonyRequiredProperty(objectId: "drawOrderTimeline", propertyId: "drawOrderKeys", reason: "Draw-order timelines carry all keyframe data in the packed drawOrderKeys payload; it is the record\'s only property."),
   BonyRequiredProperty(objectId: "deformTimeline", propertyId: "deformSkin", reason: "Deform timelines bind to a declared skin identity, with \"default\" as the required fallback skin."),
   BonyRequiredProperty(objectId: "deformTimeline", propertyId: "slot", reason: "Deform timelines must name the slot whose attachment is deformed."),
   BonyRequiredProperty(objectId: "deformTimeline", propertyId: "deformAttachment", reason: "Deform timelines must name the mesh attachment they animate."),
@@ -1063,6 +1067,20 @@ proc encodeSlotTimelineBnbScalars*(properties: openArray[BonyBnbScalarProperty])
 proc decodeSlotTimelineBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
   bonyDecodeBnbScalars(bonySlotTimelineScalarSpecs, properties)
 
+const bonyDrawOrderTimelineScalarSpecs*: array[0, BonyScalarPropertySpec] = []
+
+proc encodeDrawOrderTimelineJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyEncodeJsonScalars(bonyDrawOrderTimelineScalarSpecs, properties)
+
+proc decodeDrawOrderTimelineJsonScalars*(properties: openArray[BonyJsonScalarProperty]): seq[BonyJsonScalarProperty] =
+  bonyDecodeJsonScalars(bonyDrawOrderTimelineScalarSpecs, properties)
+
+proc encodeDrawOrderTimelineBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyEncodeBnbScalars(bonyDrawOrderTimelineScalarSpecs, properties)
+
+proc decodeDrawOrderTimelineBnbScalars*(properties: openArray[BonyBnbScalarProperty]): seq[BonyBnbScalarProperty] =
+  bonyDecodeBnbScalars(bonyDrawOrderTimelineScalarSpecs, properties)
+
 const bonyDeformTimelineScalarSpecs* = [
   BonyScalarPropertySpec(objectId: "deformTimeline", propertyId: "deformSkin", propertyKey: 3006.uint64, kind: bskString, required: true, hasDefault: false, defaultValue: bonyStringValue(""), equality: "exactString", omitWhenDefault: false, applyOnLoad: false),
   BonyScalarPropertySpec(objectId: "deformTimeline", propertyId: "slot", propertyKey: 1011.uint64, kind: bskString, required: true, hasDefault: false, defaultValue: bonyStringValue(""), equality: "exactString", omitWhenDefault: false, applyOnLoad: false),
@@ -1309,6 +1327,7 @@ proc encodeBonyObjectJsonScalars*(typeId: string; properties: openArray[BonyJson
   of "animationClip": encodeAnimationClipJsonScalars(properties)
   of "boneTimeline": encodeBoneTimelineJsonScalars(properties)
   of "slotTimeline": encodeSlotTimelineJsonScalars(properties)
+  of "drawOrderTimeline": encodeDrawOrderTimelineJsonScalars(properties)
   of "deformTimeline": encodeDeformTimelineJsonScalars(properties)
   of "eventTimeline": encodeEventTimelineJsonScalars(properties)
   of "stateMachine": encodeStateMachineJsonScalars(properties)
@@ -1349,6 +1368,7 @@ proc decodeBonyObjectJsonScalars*(typeId: string; properties: openArray[BonyJson
   of "animationClip": decodeAnimationClipJsonScalars(properties)
   of "boneTimeline": decodeBoneTimelineJsonScalars(properties)
   of "slotTimeline": decodeSlotTimelineJsonScalars(properties)
+  of "drawOrderTimeline": decodeDrawOrderTimelineJsonScalars(properties)
   of "deformTimeline": decodeDeformTimelineJsonScalars(properties)
   of "eventTimeline": decodeEventTimelineJsonScalars(properties)
   of "stateMachine": decodeStateMachineJsonScalars(properties)
@@ -1388,6 +1408,7 @@ proc encodeBonyObjectBnbScalars*(typeKey: uint64; properties: openArray[BonyBnbS
   of 2000.uint64: encodeAnimationClipBnbScalars(properties)
   of 2001.uint64: encodeBoneTimelineBnbScalars(properties)
   of 2002.uint64: encodeSlotTimelineBnbScalars(properties)
+  of 2004.uint64: encodeDrawOrderTimelineBnbScalars(properties)
   of 3002.uint64: encodeDeformTimelineBnbScalars(properties)
   of 2003.uint64: encodeEventTimelineBnbScalars(properties)
   of 7000.uint64: encodeStateMachineBnbScalars(properties)
@@ -1431,6 +1452,7 @@ proc decodeBonyObjectBnbScalars*(typeKey: uint64; properties: openArray[BonyBnbS
   of 2000.uint64: decodeAnimationClipBnbScalars(properties)
   of 2001.uint64: decodeBoneTimelineBnbScalars(properties)
   of 2002.uint64: decodeSlotTimelineBnbScalars(properties)
+  of 2004.uint64: decodeDrawOrderTimelineBnbScalars(properties)
   of 3002.uint64: decodeDeformTimelineBnbScalars(properties)
   of 2003.uint64: decodeEventTimelineBnbScalars(properties)
   of 7000.uint64: decodeStateMachineBnbScalars(properties)

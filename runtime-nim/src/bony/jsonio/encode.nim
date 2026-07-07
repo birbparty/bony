@@ -84,7 +84,7 @@ proc appendCurveFields(result: var string; curve: TimelineCurve; indent: int; fi
     result.addNumberField("c2y", curve.c2y, indent, first)
 
 
-proc appendAnimationsJson(result: var string; animations: openArray[AnimationClip]; indent = 1) =
+proc appendAnimationsJson(result: var string; animations: openArray[AnimationClip]; setupSlots: openArray[SlotData] = []; indent = 1) =
   result.addIndent(indent)
   result.add "\"animations\": ["
   if animations.len > 0:
@@ -238,6 +238,46 @@ proc appendAnimationsJson(result: var string; animations: openArray[AnimationCli
         result.add "\n"
         result.addIndent(indent + 2)
         result.add "]"
+      if anim.hasDrawOrderTimeline:
+        let timeline = anim.drawOrderTimeline
+        result.addFieldPrefix("drawOrderTimeline", indent + 2, first)
+        result.add "{\n"
+        var tlFirst = true
+        result.addFieldPrefix("keyframes", indent + 3, tlFirst)
+        result.add "[\n"
+        for keyIndex, key in timeline.keys:
+          if keyIndex > 0: result.add ",\n"
+          result.addIndent(indent + 4)
+          result.add "{\n"
+          var kFirst = true
+          result.addNumberField("t", key.time, indent + 5, kFirst)
+          result.addFieldPrefix("offsets", indent + 5, kFirst)
+          result.add "["
+          let offsets =
+            if setupSlots.len > 0: drawOrderOffsetsInSetupOrder(key, setupSlots)
+            else: key.offsets
+          if offsets.len > 0:
+            result.add "\n"
+            for offsetIndex, offset in offsets:
+              if offsetIndex > 0: result.add ",\n"
+              result.addIndent(indent + 6)
+              result.add "{\n"
+              var oFirst = true
+              result.addStringField("slot", offset.slot, indent + 7, oFirst)
+              result.addIntField("offset", offset.offset, indent + 7, oFirst)
+              result.add "\n"
+              result.addIndent(indent + 6)
+              result.add "}"
+            result.add "\n"
+            result.addIndent(indent + 5)
+          result.add "]\n"
+          result.addIndent(indent + 4)
+          result.add "}"
+        result.add "\n"
+        result.addIndent(indent + 3)
+        result.add "]\n"
+        result.addIndent(indent + 2)
+        result.add "}"
       if anim.deformTimelines.len > 0:
         result.addFieldPrefix("deformTimelines", indent + 2, first)
         result.add "[\n"

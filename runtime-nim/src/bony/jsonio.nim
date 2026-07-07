@@ -1994,7 +1994,7 @@ proc toBonyJson*(asset: BonyAsset): string =
     raise newBonyLoadError(schemaViolation, "static JSON serializer produced an unexpected suffix")
   if asset.animations.len > 0:
     result.add ",\n"
-    result.appendAnimationsJson(asset.animations)
+    result.appendAnimationsJson(asset.animations, asset.skeleton.slots)
   if asset.stateMachines.len > 0:
     result.add ",\n"
     result.appendStateMachinesJson(asset.stateMachines)

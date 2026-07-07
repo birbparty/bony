@@ -1,0 +1,11 @@
+{
+  "format": "bony.input-script.v1",
+  "asset": "m25_draw_order_rig.bony",
+  "stateMachine": "draw_order_story",
+  "samples": [
+    {"name": "rest", "t": 0.0, "inputs": {}},
+    {"name": "first", "t": 0.25, "inputs": {}},
+    {"name": "held", "t": 0.5, "inputs": {}},
+    {"name": "restore", "t": 1.0, "inputs": {}}
+  ]
+}

@@ -57,8 +57,10 @@ void main() {
     // keys 3012..3014, 2 defaults, and 2 required properties), plus
     // skinRequired activation (property keys 4027..4032 and 10 default-table
     // entries), plus atlas-backed region texture metadata (property keys
-    // 8000..8005 and 6 default-table entries).
-    expect(bonyTypeKeys, hasLength(35));
+    // 8000..8005 and 6 default-table entries), plus drawOrderTimeline
+    // (typeKey 2004, packed drawOrderKeys property key 2006, and one required
+    // property entry).
+    expect(bonyTypeKeys, hasLength(36));
     expect(bonyTypeKeys.any((t) => t.id == 'pointAttachment' && t.key == 1002),
         isTrue);
     expect(
@@ -71,7 +73,10 @@ void main() {
     expect(
         bonyTypeKeys.any((t) => t.id == 'nestedRigAttachment' && t.key == 3005),
         isTrue);
-    expect(bonyPropertyKeys, hasLength(130));
+    expect(
+        bonyTypeKeys.any((t) => t.id == 'drawOrderTimeline' && t.key == 2004),
+        isTrue);
+    expect(bonyPropertyKeys, hasLength(131));
     expect(
         bonyPropertyKeys.any((p) => p.id == 'skinAttachment' && p.key == 3010),
         isTrue);
@@ -109,6 +114,9 @@ void main() {
     expect(bonyPropertyKeys.any((p) => p.id == 'v1' && p.key == 8004), isTrue);
     expect(bonyPropertyKeys.any((p) => p.id == 'alphaMode' && p.key == 8005),
         isTrue);
+    expect(
+        bonyPropertyKeys.any((p) => p.id == 'drawOrderKeys' && p.key == 2006),
+        isTrue);
     expect(bonyPropertyDefaults, hasLength(81));
     expect(
         bonyPropertyDefaults.any((d) =>
@@ -138,7 +146,7 @@ void main() {
             d.propertyId == 'alphaMode' &&
             d.value == '"straight"'),
         isTrue);
-    expect(bonyRequiredProperties, hasLength(91));
+    expect(bonyRequiredProperties, hasLength(92));
     expect(bonyOrdinalEnums, hasLength(2));
     expect(ordinalEnumValues('physicsChannel'),
         ['x', 'y', 'rotate', 'scaleX', 'shearX']);

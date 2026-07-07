@@ -1275,6 +1275,9 @@
           },
           "default": []
         },
+        "drawOrderTimeline": {
+          "$ref": "#/$defs/drawOrderTimeline"
+        },
         "deformTimelines": {
           "type": "array",
           "items": {
@@ -1381,6 +1384,52 @@
         "keyframes",
         "property",
         "slot"
+      ]
+    },
+    "drawOrderTimeline": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "keyframes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "t": {
+                "type": "number"
+              },
+              "offsets": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "slot": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "offset": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "offset",
+                    "slot"
+                  ]
+                },
+                "default": []
+              }
+            },
+            "required": [
+              "t"
+            ]
+          }
+        }
+      },
+      "required": [
+        "keyframes"
       ]
     },
     "deformTimeline": {

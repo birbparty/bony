@@ -49,12 +49,14 @@ test:
 	cd runtime-nim && nim c -r --hints:off -d:bonyExcludeMain --path:../cli tests/test_m22_skin_required_conformance.nim
 	cd runtime-nim && nim c -r --hints:off -d:bonyExcludeMain --path:../cli tests/test_m21_pointer_listener_conformance.nim
 	cd runtime-nim && nim c -r --hints:off -d:bonyExcludeMain --path:../cli tests/test_m23_nested_rig_conformance.nim
+	cd runtime-nim && nim c -r --hints:off -d:bonyExcludeMain --path:../cli tests/test_m25_draw_order_conformance.nim
 	cd runtime-nim && nim c -r --hints:off tests/test_ik_current_pivot.nim
 	cd runtime-nim && nim c -r --hints:off tests/test_skin_resolution.nim
 	cd runtime-nim && nim c -r --hints:off tests/test_bnb_byte_stability.nim
 	cd runtime-nim && nim c -r --hints:off tests/test_bnb_fuzz.nim
 	cd runtime-nim && nim c -r --hints:off tests/test_json_bnb_json_idempotency.nim
 	cd runtime-nim && nim c -r --hints:off tests/test_event_timeline.nim
+	cd runtime-nim && nim c -r --hints:off tests/test_draw_order_timeline.nim
 	cd runtime-nim && nim c -r --hints:off tests/test_pointer_listener.nim
 	$(MAKE) dart-test
 

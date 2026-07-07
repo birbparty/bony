@@ -671,4 +671,4 @@ spec "bnb committed fixture smoke coverage":
         discard loadBonyBnb(fixture)
         inc loaded
     then:
-      loaded == 26  # m1–m5, m5_ik, m5_transform, m5_physics, m7, m8, m9_non_scalar, m11_clip, m12_mesh, m13_mesh_deform, m14_mesh_warp, m15_mesh_unweighted_deform, m16_mesh_multi_deform, m17_mesh_clip, m18_mesh_deform_anim, m19_event, m20_skin, m21_pointer_listener, m22_skin_required, m23_nested, m23_nested_child, m24_atlas_region
+      loaded == 27  # m1–m5, m5_ik, m5_transform, m5_physics, m7, m8, m9_non_scalar, m11_clip, m12_mesh, m13_mesh_deform, m14_mesh_warp, m15_mesh_unweighted_deform, m16_mesh_multi_deform, m17_mesh_clip, m18_mesh_deform_anim, m19_event, m20_skin, m21_pointer_listener, m22_skin_required, m23_nested, m23_nested_child, m24_atlas_region, m25_draw_order

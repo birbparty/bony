@@ -16,13 +16,15 @@ spec "bony package":
       bonyRegistryVersion == 1
       bonyBackingTypes.len == 8
       bonyBackingTypes[0].id == "varuint"
-      bonyTypeKeys.len == 35
+      bonyTypeKeys.len == 36
       bonyTypeKeys.anyIt(it.id == "pointAttachment" and it.key == 1002'u64)
       bonyTypeKeys.anyIt(it.id == "boundingBoxAttachment" and it.key == 1003'u64)
       bonyTypeKeys.anyIt(it.id == "skin" and it.key == 3003'u64)
       bonyTypeKeys.anyIt(it.id == "skinEntry" and it.key == 3004'u64)
       bonyTypeKeys.anyIt(it.id == "nestedRigAttachment" and it.key == 3005'u64)
-      bonyPropertyKeys.len == 130
+      bonyTypeKeys.anyIt(it.id == "drawOrderTimeline" and it.key == 2004'u64)
+      bonyPropertyKeys.len == 131
+      bonyPropertyKeys.anyIt(it.id == "drawOrderKeys" and it.key == 2006'u64)
       bonyPropertyKeys.anyIt(it.id == "skinAttachment" and it.key == 3010'u64)
       bonyPropertyKeys.anyIt(it.id == "skinTarget" and it.key == 3011'u64)
       bonyPropertyKeys.anyIt(it.id == "nestedSkeleton" and it.key == 3012'u64)
@@ -46,7 +48,7 @@ spec "bony package":
       bonyPropertyDefaults.anyIt(it.objectId == "region" and it.propertyId == "u1" and it.value == "1.0")
       bonyPropertyDefaults.anyIt(it.objectId == "region" and it.propertyId == "v1" and it.value == "1.0")
       bonyPropertyDefaults.anyIt(it.objectId == "region" and it.propertyId == "alphaMode" and it.value == "\"straight\"")
-      bonyRequiredProperties.len == 91
+      bonyRequiredProperties.len == 92
       bonyOrdinalEnums.len == 2
       ordinalEnumValues("physicsChannel") == @["x", "y", "rotate", "scaleX", "shearX"]
       ordinalEnumValues("deformerKind") == @["warp", "rotation"]

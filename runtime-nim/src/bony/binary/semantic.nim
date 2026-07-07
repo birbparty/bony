@@ -34,6 +34,7 @@ const
   boneTimelineTypeKey = 2001'u64
   slotTimelineTypeKey = 2002'u64
   eventTimelineTypeKey = 2003'u64
+  drawOrderTimelineTypeKey = 2004'u64
   deformTimelineTypeKey = 3002'u64
   stateMachineTypeKey = 7000'u64
   stateMachineInputTypeKey = 7001'u64
@@ -123,6 +124,7 @@ const
   slotTimelineKindKey = 2003'u64
   timelineKeysKey = 2004'u64
   eventKeysKey = 2005'u64
+  drawOrderKeysKey = 2006'u64
   stateMachineInputKindKey = 7000'u64
   inputDefaultBoolKey = 7001'u64
   inputDefaultNumberKey = 7002'u64
@@ -916,6 +918,53 @@ proc writeTimelineKeys(timeline: SlotTimeline; regionIndexes: Table[string, int]
       result.writeVaruint(key.mode.sequenceModeTag)
 
 
+proc writeDrawOrderKeys(timeline: DrawOrderTimeline; slots: openArray[SlotData]; slotIndexes: Table[string, int]): seq[byte] =
+  ## Packed `drawOrderKeys` payload; layout frozen by
+  ## docs/draw-order-timeline-contract.md#packed-drawordertimeline-byte-layout-bnb.
+  result.writeVaruint(uint64(timeline.keys.len))
+  for key in timeline.keys:
+    result.writeF32To(key.time)
+    let offsets = drawOrderOffsetsInSetupOrder(key, slots)
+    result.writeVaruint(uint64(offsets.len))
+    for offset in offsets:
+      if offset.slot notin slotIndexes:
+        raise newBonyLoadError(unknownRequiredReference, ".bnb drawOrderTimeline references unknown slot: " & offset.slot)
+      result.writeVaruint(uint64(slotIndexes[offset.slot]))
+      result.writeVarint(int64(offset.offset))
+
+
+proc readDrawOrderKeys(payload: openArray[byte]; slots: openArray[SlotData]; context: string): DrawOrderTimeline =
+  var index = 0
+  let count = payload.readVaruint(index)
+  if count == 0:
+    raise newBonyLoadError(schemaViolation, ".bnb " & context & " must contain at least one key")
+  var keys: seq[DrawOrderKeyframe]
+  for _ in 0'u64 ..< count:
+    let time = payload.readF32From(index, context & ".time")
+    if time < 0:
+      raise newBonyLoadError(schemaViolation, ".bnb " & context & ".time must be non-negative")
+    let offsetCount = payload.readVaruint(index)
+    var seenSlotIndexes = initHashSet[int]()
+    var offsets: seq[DrawOrderOffset]
+    for _ in 0'u64 ..< offsetCount:
+      let slotIndex = int(payload.readVaruint(index))
+      if slotIndex < 0 or slotIndex >= slots.len:
+        raise newBonyLoadError(unknownRequiredReference, ".bnb " & context & ".slotIndex is out of range")
+      if slotIndex in seenSlotIndexes:
+        raise newBonyLoadError(schemaViolation, ".bnb " & context & " duplicate slotIndex: " & $slotIndex)
+      seenSlotIndexes.incl(slotIndex)
+      let offset = payload.readVarint(index)
+      if offset < int64(low(int)) or offset > int64(high(int)):
+        raise newBonyLoadError(numericOutOfRange, ".bnb " & context & ".offset is out of int range")
+      if offset != 0:
+        offsets.add drawOrderOffset(slots[slotIndex].name, int(offset))
+    keys.add drawOrderKeyframe(time, offsets)
+  if index != payload.len:
+    raise newBonyLoadError(schemaViolation, ".bnb " & context & " has trailing bytes")
+  result = drawOrderTimeline(keys)
+  validateDrawOrderTimeline(result, slots, ".bnb " & context)
+
+
 proc writeDeformKeys(timeline: DeformTimeline): seq[byte] =
   ## Packed `deformKeys` payload; layout frozen by
   ## docs/deform-timeline-contract.md#packed-deformtimeline-byte-layout-bnb.
@@ -1530,6 +1579,10 @@ proc buildObjectRecords(asset: BonyAsset; table: var BnbStringTable; toc: var Ta
       ]))
       properties.addProperty(toc, timelineKeysKey, timeline.writeTimelineKeys(regionIndexes))
       result.add BnbObjectRecord(typeKey: slotTimelineTypeKey, properties: properties)
+    if clip.hasDrawOrderTimeline:
+      var properties: seq[BnbPropertyRecord]
+      properties.addProperty(toc, drawOrderKeysKey, writeDrawOrderKeys(clip.drawOrderTimeline, asset.skeleton.slots, slotIndexes))
+      result.add BnbObjectRecord(typeKey: drawOrderTimelineTypeKey, properties: properties)
     for timeline in clip.deformTimelines:
       if timeline.slot notin slotIndexes:
         raise newBonyLoadError(unknownRequiredReference, ".bnb deform timeline references unknown slot: " & timeline.slot)

@@ -52,6 +52,7 @@ conformance/
 | M22 | `m22_skin_required_rig` | `skinRequired` activation: default-plus-active-skin membership, inactive required bone draw suppression, required IK/transform/path no-op vs active solve, later active constraint order stability, and inactive/active physics behavior |
 | M23 | `m23_nested_rig` | Host-resolved nested rig setup-pose composition: child draw-order insertion, host affine composition, explicit child skin selection, and host clipping of composed child geometry |
 | M24 | `m24_atlas_region_rig` | Atlas-backed region texture metadata: non-empty `DrawBatch.texturePage`, non-default UV rectangle, JSON/BNB parity, and legacy full-quad defaults for untextured regions |
+| M25 | `m25_draw_order_rig` | Animated draw-order timeline: setup order, stepped restack, held interval, restore-to-setup key, draw-batch slot order, and JSON/BNB preservation |
 
 The `M5 (IK)` row is a second M5 asset (structured like the standalone M9 row):
 the table is one-asset-per-row, so `m5_ik_rig` gets its own row rather than being
@@ -751,6 +752,47 @@ full-quad values by more than `1e-4`. The fixture also includes a `.bnb` file so
 the JSON and binary loaders prove the same texture metadata reaches
 `buildDrawBatches`.
 
+### M25 draw-order rig (`m25_draw_order_rig`)
+
+`m25_draw_order_rig` freezes the animated draw-order timeline contract. It has
+one root bone and three visible slots in setup order:
+
+- `back_slot` -> `back_panel`
+- `mid_slot` -> `mid_panel`
+- `front_slot` -> `front_panel`
+
+The visual direction is binding: index `0` is drawn first/backmost, and larger
+indices draw later/in front. The `shuffle` clip has a single clip-global
+`drawOrderTimeline`. At `t=0.25`, `back_slot` moves from setup index `0` to `2`
+and `front_slot` moves from setup index `2` to `0`; `mid_slot` stays at setup
+index `1`. At `t=1.0`, an empty-offset key restores setup order.
+
+One story script drives four samples:
+- `m25_draw_order_story.json` -> `m25_draw_order_story_rest.json`
+  (`t=0.0`, setup order `back_slot, mid_slot, front_slot`)
+- `m25_draw_order_story_first.json`
+  (`t=0.25`, restacked order `front_slot, mid_slot, back_slot`)
+- `m25_draw_order_story_held.json`
+  (`t=0.5`, same restacked order, proving stepped hold/no interpolation)
+- `m25_draw_order_story_restore.json`
+  (`t=1.0`, restored setup order)
+
+**Non-vacuous draw-order proof.** Each slot draws a differently sized region
+(`30x30`, `40x40`, `50x50`), so the first and held samples visibly invert which
+panel is frontmost while preserving all attachment data. The golden `slots` array
+and `drawBatches` array both follow the sampled order, proving the state-machine
+pose applies draw order before draw-batch construction.
+
+Notes for readers comparing runtimes:
+- The goldens are reproduced identically from both `m25_draw_order_rig.bony` and
+  `conformance/assets/bnb/m25_draw_order_rig.bnb`; the `.bnb` fixture is non-empty
+  at 325 bytes.
+- The `.bnb -> JSON -> .bnb` path is byte-lossless for this fixture, proving
+  `drawOrderKeys` preservation through the Nim canonical converter.
+- Cross-runtime status: this row is a new Nim reference conformance gate. Dart
+  has focused runtime tests for the same API and semantics; adding this story to
+  Dart's conformance runner is the downstream parity step.
+
 ### Image goldens (Nim reference rasterizer only)
 
 Image goldens (`*_play.png`) are Nim-only regression artifacts for the reference
@@ -781,6 +823,7 @@ and do not need to be reproduced by Dart or other runtimes.
 | m22_skin_required_rig | pending (no PNG golden produced) |
 | m23_nested_rig | pending (no PNG golden produced) |
 | m24_atlas_region_rig | pending (no PNG golden produced) |
+| m25_draw_order_rig | pending (no PNG golden produced) |
 
 ---
 

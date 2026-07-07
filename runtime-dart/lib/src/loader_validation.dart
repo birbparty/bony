@@ -867,6 +867,156 @@ void _validateAnimations(SkeletonData data, _ValidationRegistry registry) {
             '$ctx.slotTimelines[$si]: unknown slot: ${tl.slot}');
       }
     }
+    final drawOrderTimeline = anim.drawOrderTimeline;
+    if (drawOrderTimeline != null) {
+      _validateDrawOrderTimeline(
+          drawOrderTimeline, data.slots, '$ctx.drawOrderTimeline');
+      _validateDrawOrderClipping(data, drawOrderTimeline, ctx);
+    }
+  }
+}
+
+List<SlotData> _sampleDrawOrderForValidation(
+  DrawOrderTimeline timeline,
+  List<SlotData> setupSlots,
+  double time,
+) {
+  if (timeline.keys.isEmpty) return setupSlots;
+  DrawOrderKeyframe? active;
+  for (final key in timeline.keys) {
+    if (key.time <= time) {
+      active = key;
+    } else {
+      break;
+    }
+  }
+  if (active == null) return setupSlots;
+  final byName = {for (final slot in setupSlots) slot.name: slot};
+  final setupIndex = {
+    for (var i = 0; i < setupSlots.length; i++) setupSlots[i].name: i,
+  };
+  final targets = <String, int>{
+    for (var i = 0; i < setupSlots.length; i++) setupSlots[i].name: i,
+  };
+  for (final offset in active.offsets) {
+    targets[offset.slot] = setupIndex[offset.slot]! + offset.offset;
+  }
+  final ordered = targets.entries.toList()
+    ..sort((a, b) => a.value.compareTo(b.value));
+  return [for (final entry in ordered) byName[entry.key]!];
+}
+
+void _validateDrawOrderTimeline(
+  DrawOrderTimeline timeline,
+  List<SlotData> setupSlots,
+  String ctx,
+) {
+  if (timeline.keys.isEmpty) {
+    throw FormatException('$ctx.keyframes must not be empty');
+  }
+  final setupIndex = {
+    for (var i = 0; i < setupSlots.length; i++) setupSlots[i].name: i,
+  };
+  var previousTime = -double.infinity;
+  for (var ki = 0; ki < timeline.keys.length; ki++) {
+    final key = timeline.keys[ki];
+    final kfCtx = '$ctx.keyframes[$ki]';
+    final time = quantizeF32(key.time);
+    if (!time.isFinite) {
+      throw FormatException('$kfCtx.t must be a finite f32 value');
+    }
+    if (time < 0.0) {
+      throw FormatException('$kfCtx.t must be non-negative');
+    }
+    if (time <= previousTime) {
+      throw FormatException('$ctx keyframe times must be strictly increasing');
+    }
+    previousTime = time;
+
+    final offsetsBySlot = <String, int>{};
+    for (var oi = 0; oi < key.offsets.length; oi++) {
+      final offset = key.offsets[oi];
+      final oCtx = '$kfCtx.offsets[$oi]';
+      if (!setupIndex.containsKey(offset.slot)) {
+        throw FormatException('$oCtx: unknown slot: ${offset.slot}');
+      }
+      if (offset.offset == 0) continue;
+      if (offsetsBySlot.containsKey(offset.slot)) {
+        throw FormatException('$oCtx: duplicate slot: ${offset.slot}');
+      }
+      offsetsBySlot[offset.slot] = offset.offset;
+    }
+
+    final seenTargets = <int, String>{};
+    for (final slot in setupSlots) {
+      final base = setupIndex[slot.name]!;
+      final target = base + (offsetsBySlot[slot.name] ?? 0);
+      if (target < 0 || target >= setupSlots.length) {
+        throw FormatException(
+            '$kfCtx: target index out of range for slot ${slot.name}: $target');
+      }
+      final previous = seenTargets[target];
+      if (previous != null) {
+        throw FormatException(
+            '$kfCtx: duplicate target index $target for slots $previous and ${slot.name}');
+      }
+      seenTargets[target] = slot.name;
+    }
+    if (seenTargets.length != setupSlots.length) {
+      throw FormatException('$kfCtx: missing target index in draw order');
+    }
+  }
+}
+
+void _validateDrawOrderClipping(
+  SkeletonData data,
+  DrawOrderTimeline timeline,
+  String ctx,
+) {
+  if (data.clippingAttachments.isEmpty) return;
+  final clippingByName = {
+    for (final clip in data.clippingAttachments) clip.name: clip,
+  };
+
+  void checkOrder(List<SlotData> order, String orderCtx) {
+    final indexBySlot = {
+      for (var i = 0; i < order.length; i++) order[i].name: i,
+    };
+    final ranges = <({int start, int end, String slot})>[];
+    for (final slot in order) {
+      final clip = clippingByName[slot.attachment];
+      if (clip == null) continue;
+      final own = indexBySlot[slot.name]!;
+      final end = clip.untilSlot.isEmpty
+          ? order.length - 1
+          : indexBySlot[clip.untilSlot];
+      if (end == null) {
+        throw FormatException(
+            '$orderCtx: clipping attachment ${clip.name} untilSlot unknown: ${clip.untilSlot}');
+      }
+      if (own >= end) {
+        throw FormatException(
+            '$orderCtx: clipping slot ${slot.name} must be before untilSlot ${clip.untilSlot}');
+      }
+      ranges.add((start: own, end: end, slot: slot.name));
+    }
+    ranges.sort((a, b) => a.start.compareTo(b.start));
+    var activeEnd = -1;
+    String? activeSlot;
+    for (final range in ranges) {
+      if (range.start <= activeEnd) {
+        throw FormatException(
+            '$orderCtx: clipping range for ${range.slot} overlaps active range for $activeSlot');
+      }
+      activeEnd = range.end;
+      activeSlot = range.slot;
+    }
+  }
+
+  checkOrder(data.slots, '$ctx.drawOrderTimeline.setup');
+  for (final key in timeline.keys) {
+    final order = _sampleDrawOrderForValidation(timeline, data.slots, key.time);
+    checkOrder(order, '$ctx.drawOrderTimeline.keyframes@${key.time}');
   }
 }
 

@@ -1,0 +1,88 @@
+{
+  "skeleton": {
+    "name": "m25-draw-order-rig",
+    "version": "1.0.0"
+  },
+  "bones": [
+    {
+      "name": "root"
+    }
+  ],
+  "slots": [
+    {
+      "name": "back_slot",
+      "bone": "root",
+      "attachment": "back_panel"
+    },
+    {
+      "name": "mid_slot",
+      "bone": "root",
+      "attachment": "mid_panel"
+    },
+    {
+      "name": "front_slot",
+      "bone": "root",
+      "attachment": "front_panel"
+    }
+  ],
+  "regions": [
+    {
+      "name": "back_panel",
+      "width": 30,
+      "height": 30
+    },
+    {
+      "name": "mid_panel",
+      "width": 40,
+      "height": 40
+    },
+    {
+      "name": "front_panel",
+      "width": 50,
+      "height": 50
+    }
+  ],
+  "animations": [
+    {
+      "name": "shuffle",
+      "drawOrderTimeline": {
+        "keyframes": [
+          {
+            "t": 0.25,
+            "offsets": [
+              {
+                "slot": "back_slot",
+                "offset": 2
+              },
+              {
+                "slot": "front_slot",
+                "offset": -2
+              }
+            ]
+          },
+          {
+            "t": 1,
+            "offsets": []
+          }
+        ]
+      }
+    }
+  ],
+  "stateMachines": [
+    {
+      "name": "draw_order_story",
+      "layers": [
+        {
+          "name": "base",
+          "states": [
+            {
+              "name": "shuffle",
+              "kind": "clip",
+              "clip": "shuffle"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

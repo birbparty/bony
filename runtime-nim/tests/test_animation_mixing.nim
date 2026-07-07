@@ -315,7 +315,7 @@ spec "animation mixing smoke coverage":
   it "threads every MixedPose channel through blend1D aggregation":
     # Completeness guard (bony-bna8): blend1D routes through sampleBlendPose ->
     # blendedPose -> addWeightedPose. A channel dropped by any of them (as deforms
-    # was) surfaces here as an empty field. Both blend clips drive all 8 channels,
+    # was) surfaces here as an empty field. Both blend clips drive all 9 channels,
     # so the winner (t=0.75 -> high) must carry every one.
     let data = new SkeletonData
     data[] = allChannelFixture()
@@ -405,7 +405,7 @@ spec "animation mixing smoke coverage":
 
   it "threads every MixedPose channel through multi-layer overlay aggregation":
     # Completeness guard (bony-bna8): the overlayPose seam aggregates layers. Two
-    # layers each drive all 8 channels; none may drop from the aggregated pose.
+    # layers each drive all 9 channels; none may drop from the aggregated pose.
     let data = new SkeletonData
     data[] = allChannelFixture()
     let clip = allChannelClip(data[], "all")
