@@ -69,6 +69,7 @@ const List<BonyBackingType> bonyBackingTypes = [
   BonyBackingType(id: 'f64', code: 8),
 ];
 
+// Registry-derived type keys for compile-time loader use.
 const int bonyTypeKeySkeleton = 1;
 const int bonyTypeKeyBone = 2;
 const int bonyTypeKeySlot = 1000;
@@ -143,6 +144,7 @@ const List<BonyTypeKey> bonyTypeKeys = [
   BonyTypeKey(id: 'nestedRigAttachment', key: bonyTypeKeyNestedRigAttachment),
 ];
 
+// Registry-derived property keys for compile-time loader use.
 const int bonyPropertyKeyName = 1;
 const int bonyPropertyKeyVersion = 2;
 const int bonyPropertyKeyParent = 3;
