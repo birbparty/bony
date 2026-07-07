@@ -976,9 +976,10 @@ proc bendPositive*(ik: IkConstraintData): bool = ik.bendPositive
 
 proc runtimeEvaluable*(ik: IkConstraintData): bool =
   ## Constraint-only predicate, mirroring the path overload's purity (no
-  ## skeleton access). Bone/target name resolution stays in the apply path,
-  ## where boneIndexByName() already raises/skips on unknown bones. An IK
-  ## constraint contributes nothing when mix == 0 or it names no bones.
+  ## skeleton access). Bone/target name resolution stays in the apply/cache
+  ## paths, which consume boneIndexByName() after SkeletonData validation has
+  ## checked required references. An IK constraint contributes nothing when mix
+  ## == 0 or it names no bones.
   ik.mix > 0.0 and ik.bones.len >= 1
 
 

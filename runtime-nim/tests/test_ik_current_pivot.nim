@@ -9,8 +9,6 @@
 
 include "../src/bony/transform.nim"
 
-import std/tables
-
 proc worldRot(a: Affine2): float64 = worldRotationDegrees(a)
 
 block anchorsAtCurrentPivotNotRest:

@@ -927,6 +927,9 @@ proc mix(curve: TimelineCurve; a, b, t: float64): float64 =
 
 
 proc findSpan*[T](keys: openArray[T]; time: float64): int =
+  ## Return the key index whose span contains `time`.
+  ## `keys` must be non-empty, sorted by increasing `.time`, and contain
+  ## elements with a readable `time` field.
   if time <= keys[0].time:
     return 0
   for index in 0 ..< keys.len - 1:
