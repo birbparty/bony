@@ -1330,6 +1330,121 @@ proc armatureToSkeletonData(
   skeletonData(skeletonHeader(headerName, "5.x"), bones, slots, regions)
 
 
+proc dbFrameTime(frameOffset, frameRate: int): float64 =
+  frameOffset.float64 / frameRate.float64
+
+
+proc dbTimelineCurve(easing: DbFrameEase): TimelineCurve =
+  if easing.hasTweenEasing:
+    linearTimelineCurve
+  else:
+    steppedTimelineCurve
+
+
+proc dbBoneMap(armature: DbArmature): Table[string, DbBoneEntry] =
+  for bone in armature.bones:
+    result[bone.name] = bone
+
+
+proc ensureDbEmittableFrameTime(
+  channelName, boneName, animName: string;
+  frameIndex, frameCount, duration: int;
+) =
+  if duration == 0 and frameIndex != frameCount - 1:
+    raiseDb("schemaViolation", "animation[" & animName & "].bone[" & boneName & "]",
+      channelName, channelName & " contains a zero-duration frame before the terminator")
+
+
+proc dbTranslateTimeline(
+  bone: DbBoneEntry;
+  animName: string;
+  frames: openArray[DbTranslateFrame];
+  frameRate: int;
+): BoneTimeline =
+  var keys: seq[Vector2Keyframe]
+  var frameOffset = 0
+  for index, frame in frames:
+    ensureDbEmittableFrameTime("translateFrame", bone.name, animName, index, frames.len, frame.duration)
+    let curve = dbTimelineCurve(frame.easing)
+    keys.add vector2Keyframe(
+      dbFrameTime(frameOffset, frameRate),
+      bone.transform.x + frame.x,
+      -(bone.transform.y + frame.y),
+      curveX = curve,
+      curveY = curve,
+    )
+    frameOffset += frame.duration
+  boneVectorTimeline(bone.name, translateTimeline, keys)
+
+
+proc dbRotateTimeline(
+  bone: DbBoneEntry;
+  animName: string;
+  frames: openArray[DbRotateFrame];
+  frameRate: int;
+): BoneTimeline =
+  var keys: seq[ScalarKeyframe]
+  var frameOffset = 0
+  for index, frame in frames:
+    ensureDbEmittableFrameTime("rotateFrame", bone.name, animName, index, frames.len, frame.duration)
+    keys.add scalarKeyframe(
+      dbFrameTime(frameOffset, frameRate),
+      -(bone.transform.skY + frame.rotate),
+      curve = dbTimelineCurve(frame.easing),
+    )
+    frameOffset += frame.duration
+  boneScalarTimeline(bone.name, rotateTimeline, keys)
+
+
+proc dbScaleTimeline(
+  bone: DbBoneEntry;
+  animName: string;
+  frames: openArray[DbScaleFrame];
+  frameRate: int;
+): BoneTimeline =
+  var keys: seq[Vector2Keyframe]
+  var frameOffset = 0
+  for index, frame in frames:
+    ensureDbEmittableFrameTime("scaleFrame", bone.name, animName, index, frames.len, frame.duration)
+    let curve = dbTimelineCurve(frame.easing)
+    keys.add vector2Keyframe(
+      dbFrameTime(frameOffset, frameRate),
+      bone.transform.scX * frame.x,
+      bone.transform.scY * frame.y,
+      curveX = curve,
+      curveY = curve,
+    )
+    frameOffset += frame.duration
+  boneVectorTimeline(bone.name, scaleTimeline, keys)
+
+
+proc addDbAnimationClip(
+  armature: DbArmature;
+  data: SkeletonData;
+  anim: DbAnimation;
+  clips: var seq[AnimationClip];
+) =
+  let bones = dbBoneMap(armature)
+  var timelines: seq[BoneTimeline]
+  for animBone in anim.bones:
+    let bone = bones[animBone.name]
+    if animBone.translateFrames.len > 0:
+      timelines.add dbTranslateTimeline(bone, anim.name, animBone.translateFrames, armature.frameRate)
+    if animBone.rotateFrames.len > 0:
+      timelines.add dbRotateTimeline(bone, anim.name, animBone.rotateFrames, armature.frameRate)
+    if animBone.scaleFrames.len > 0:
+      timelines.add dbScaleTimeline(bone, anim.name, animBone.scaleFrames, armature.frameRate)
+
+  if timelines.len == 0:
+    return
+  clips.add animationClip(data, anim.name, timelines)
+
+
+proc dbAnimationsToClips(armature: DbArmature; data: SkeletonData): seq[AnimationClip] =
+  for anim in armature.animations:
+    addDbAnimationClip(armature, data, anim, result)
+
+
 proc importDragonbones(args: seq[string]) =
   if args.len < 2:
     quit(usage(), QuitFailure)
@@ -1369,7 +1484,11 @@ proc importDragonbones(args: seq[string]) =
   if setupOnly and armature.hasAnimation:
     stderr.writeLine("bony: --setup-only: animation suppressed for " & armature.name)
   let data = armatureToSkeletonData(armature, assetsDir)
-  writeFile(outputPath, toBonyJson(data))
+  let animations = dbAnimationsToClips(armature, data)
+  if animations.len > 0:
+    writeFile(outputPath, toBonyJson(bonyAsset(data, animations)))
+  else:
+    writeFile(outputPath, toBonyJson(data))
 
 
 proc affineJson(world: Affine2): JsonNode =
