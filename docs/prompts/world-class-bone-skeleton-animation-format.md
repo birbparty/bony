@@ -333,7 +333,7 @@ Place any important context in `docs/` (the monorepo docs root — not `prompts/
 
 After generating the script:
 
-1. **Run it**: `chmod +x setup-beads.sh && ./setup-beads.sh`
+1. **Run it**: `chmod +x docs/archive/bootstrap-scripts/setup-beads.sh && ./docs/archive/bootstrap-scripts/setup-beads.sh`
 2. **Check ready work**: `bd ready` should show initial setup tasks
 
 ---
