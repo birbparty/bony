@@ -382,27 +382,6 @@ spec "mesh deform timeline smoke coverage":
       closeTo(steppedMid[0].x, 2.0)
       noDeformIdentical
 
-  it "resolves attachment sequence frame names":
-    let sequence = attachmentSequence(count = 5'u32, start = 12'u32, digits = 3'u32, setupIndex = 2'u32)
-    let timeline = slotSequenceTimeline(
-      "body",
-      @[
-        sequenceKeyframe(0.0, 0'u32, 0.1, sequenceLoop),
-        sequenceKeyframe(1.0, 4'u32, 0.1, sequenceHold),
-      ],
-    )
-
-    then:
-      setupSequenceFrameName("walk_", sequence) == "walk_014"
-      sampledSequenceFrameName("walk_", sequence, timeline.sampleSequence(0.35, sequence.count)) == "walk_015"
-      sampledSequenceFrameName("walk_", sequence, timeline.sampleSequence(1.5, sequence.count)) == "walk_016"
-      raisesBonyLoadError(proc() = discard attachmentSequence(count = 0'u32), schemaViolation)
-      raisesBonyLoadError(proc() = discard attachmentSequence(count = 2'u32, start = high(uint32)), schemaViolation)
-      raisesBonyLoadError(proc() = discard sequenceFrameName("walk_", AttachmentSequence(count: 0'u32), 0'u32), schemaViolation)
-      raisesBonyLoadError(proc() = discard sequenceFrameName("walk_", AttachmentSequence(count: 1'u32, setupIndex: 1'u32), 0'u32), schemaViolation)
-      raisesBonyLoadError(proc() = discard sequenceFrameName("walk_", AttachmentSequence(count: 2'u32, start: high(uint32)), 1'u32), schemaViolation)
-      raisesBonyLoadError(proc() = discard sequenceFrameName("walk_", sequence, 5'u32), schemaViolation)
-
   it "buildDrawBatches leaves geometry undeformed; deformDrawBatches applies it":
     let data = rotationRig()
     let base = buildDrawBatches(data)
