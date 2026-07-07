@@ -1009,7 +1009,7 @@ proc readBoneTimelineKeys(kind: BoneTimelineKind; payload: openArray[byte]; cont
         payload.readBoolFrom(index, context & ".inheritReflection"),
         payload.readVaruint(index).transformModeFromTag,
       )
-    result = boneInheritTimeline("__pending__", keys)
+    result = boneTimeline("__pending__", inheritTimeline, keys)
   of translateTimeline, scaleTimeline, shearTimeline:
     var keys: seq[Vector2Keyframe]
     for _ in 0'u64 ..< count:
@@ -1020,7 +1020,7 @@ proc readBoneTimelineKeys(kind: BoneTimelineKind; payload: openArray[byte]; cont
         payload.readCurve(index, context & ".curveX"),
         payload.readCurve(index, context & ".curveY"),
       )
-    result = boneVectorTimeline("__pending__", kind, keys)
+    result = boneTimeline("__pending__", kind, keys)
   else:
     var keys: seq[ScalarKeyframe]
     for _ in 0'u64 ..< count:
@@ -1029,7 +1029,7 @@ proc readBoneTimelineKeys(kind: BoneTimelineKind; payload: openArray[byte]; cont
         payload.readF32From(index, context & ".value"),
         payload.readCurve(index, context & ".curve"),
       )
-    result = boneScalarTimeline("__pending__", kind, keys)
+    result = boneTimeline("__pending__", kind, keys)
   if index != payload.len:
     raise newBonyLoadError(schemaViolation, ".bnb " & context & " has trailing bytes")
 
@@ -1056,7 +1056,7 @@ proc readSlotTimelineKeys(
         if tag - 1 >= uint64(regions.len):
           raise newBonyLoadError(unknownRequiredReference, ".bnb " & context & " attachment index is out of range")
         keys.add attachmentKeyframe(time, regions[int(tag - 1)].name)
-    result = slotAttachmentTimeline("__pending__", keys)
+    result = slotTimeline("__pending__", attachmentTimeline, keys)
   of rgbaTimeline, rgbTimeline, alphaTimeline:
     var keys: seq[ColorKeyframe]
     for _ in 0'u64 ..< count:
@@ -1070,7 +1070,7 @@ proc readSlotTimelineKeys(
         ),
         payload.readCurve(index, context & ".curve"),
       )
-    result = slotColorTimeline("__pending__", kind, keys)
+    result = slotTimeline("__pending__", kind, keys)
   of rgba2Timeline:
     var keys: seq[Color2Keyframe]
     for _ in 0'u64 ..< count:
@@ -1091,7 +1091,7 @@ proc readSlotTimelineKeys(
         ),
         payload.readCurve(index, context & ".curve"),
       )
-    result = slotColor2Timeline("__pending__", keys)
+    result = slotTimeline("__pending__", rgba2Timeline, keys)
   of sequenceTimeline:
     var keys: seq[SequenceKeyframe]
     for _ in 0'u64 ..< count:
@@ -1101,7 +1101,7 @@ proc readSlotTimelineKeys(
         payload.readF32From(index, context & ".delay"),
         payload.readVaruint(index).sequenceModeFromTag,
       )
-    result = slotSequenceTimeline("__pending__", keys)
+    result = slotTimeline("__pending__", sequenceTimeline, keys)
   if index != payload.len:
     raise newBonyLoadError(schemaViolation, ".bnb " & context & " has trailing bytes")
 

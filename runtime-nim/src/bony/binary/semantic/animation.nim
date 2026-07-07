@@ -1,23 +1,23 @@
 proc withTarget(timeline: BoneTimeline; target: string): BoneTimeline =
   case timeline.kind
   of inheritTimeline:
-    boneInheritTimeline(target, timeline.inheritKeys)
+    boneTimeline(target, inheritTimeline, timeline.inheritKeys)
   of translateTimeline, scaleTimeline, shearTimeline:
-    boneVectorTimeline(target, timeline.kind, timeline.vectorKeys)
+    boneTimeline(target, timeline.kind, timeline.vectorKeys)
   else:
-    boneScalarTimeline(target, timeline.kind, timeline.scalarKeys)
+    boneTimeline(target, timeline.kind, timeline.scalarKeys)
 
 
 proc withTarget(timeline: SlotTimeline; target: string): SlotTimeline =
   case timeline.kind
   of attachmentTimeline:
-    slotAttachmentTimeline(target, timeline.attachmentKeys)
+    slotTimeline(target, attachmentTimeline, timeline.attachmentKeys)
   of rgbaTimeline, rgbTimeline, alphaTimeline:
-    slotColorTimeline(target, timeline.kind, timeline.colorKeys)
+    slotTimeline(target, timeline.kind, timeline.colorKeys)
   of rgba2Timeline:
-    slotColor2Timeline(target, timeline.color2Keys)
+    slotTimeline(target, rgba2Timeline, timeline.color2Keys)
   of sequenceTimeline:
-    slotSequenceTimeline(target, timeline.sequenceKeys)
+    slotTimeline(target, sequenceTimeline, timeline.sequenceKeys)
 
 
 proc decodeAnimationObjects(
