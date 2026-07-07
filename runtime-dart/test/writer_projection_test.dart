@@ -1,3 +1,4 @@
+import 'package:bony/src/loader.dart';
 import 'package:bony/src/model.dart';
 import 'package:bony/src/physics_constraint.dart';
 import 'package:bony/src/writer.dart';
@@ -284,6 +285,15 @@ void main() {
             input: 'pressed',
             boolValue: true,
           ),
+          StateMachineListener(
+            name: 'move',
+            kind: StateMachineListenerKind.pointerMove,
+            slot: 'front',
+            targetKind: PointerHelperTargetKind.boundingBox,
+            target: 'box',
+            input: 'speed',
+            numberValue: 0,
+          ),
         ],
       );
 
@@ -295,14 +305,159 @@ void main() {
       expect(json, contains('"fromState": "idle"'));
       expect(json, contains('"toState": "move"'));
       expect(json, contains('"kind": "boolEquals"\n'));
-      expect(json, isNot(contains('"value": true,\n')));
+      expect(
+          json,
+          contains('"hitRadius": 6,\n'
+              '      "input": "pressed",\n'
+              '      "value": true'));
       expect(
           json,
           contains('"kind": "numberGreater",\n'
               '              "value": 0.5'));
+      expect(
+          json,
+          contains('"targetKind": "boundingBox",\n'
+              '      "target": "box",\n'
+              '      "input": "speed",\n'
+              '      "value": 0'));
       expect(json, contains('"targetKind": "point"'));
       expect(json, isNot(contains('"state": 0')));
       expect(json, isNot(contains('"clipIndex"')));
+    });
+
+    test('loads Nim-canonical omitted boolEquals true conditions', () {
+      final machineJson = bonyCanonicalStateMachineJson(
+        const StateMachineData(
+          name: 'sm',
+          inputs: [
+            StateMachineInput(
+                name: 'pressed', kind: StateMachineInputKind.bool_),
+          ],
+          layers: [
+            StateMachineLayer(
+              name: 'base',
+              initialState: 'idle',
+              states: [
+                StateMachineState(
+                  name: 'idle',
+                  kind: StateMachineStateKind.clip,
+                  clipName: 'idle_clip',
+                ),
+                StateMachineState(
+                  name: 'move',
+                  kind: StateMachineStateKind.clip,
+                  clipName: 'move_clip',
+                ),
+              ],
+              transitions: [
+                StateMachineTransition(
+                  fromState: 'idle',
+                  toState: 'move',
+                  conditions: [
+                    StateMachineCondition(
+                      input: 'pressed',
+                      kind: StateMachineConditionKind.boolEquals,
+                      boolValue: true,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
+
+      expect(machineJson, contains('"kind": "boolEquals"\n'));
+      expect(machineJson, isNot(contains('"value": true')));
+
+      final data = loadBonyJson('''
+{
+  "skeleton": {"name": "sm"},
+  "bones": [{"name": "root"}],
+  "slots": [],
+  "regions": [],
+  "animations": [{"name": "idle_clip"}, {"name": "move_clip"}],
+  "stateMachines": [$machineJson]
+}
+''');
+
+      final condition = data.stateMachines.single.layers.single.transitions
+          .single.conditions.single;
+      expect(condition.kind, StateMachineConditionKind.boolEquals);
+      expect(condition.boolValue, isTrue);
+    });
+
+    test('rejects pointer listener projections with missing required fields',
+        () {
+      StateMachineData machineWith(StateMachineListener listener) {
+        return StateMachineData(
+          name: 'sm',
+          inputs: const [
+            StateMachineInput(
+                name: 'pressed', kind: StateMachineInputKind.bool_),
+            StateMachineInput(
+                name: 'fire', kind: StateMachineInputKind.trigger),
+          ],
+          layers: const [
+            StateMachineLayer(
+              name: 'base',
+              initialState: 'idle',
+              states: [
+                StateMachineState(
+                  name: 'idle',
+                  kind: StateMachineStateKind.clip,
+                  clipName: 'idle_clip',
+                ),
+              ],
+            ),
+          ],
+          listeners: [listener],
+        );
+      }
+
+      expect(
+        () => bonyCanonicalStateMachineJson(machineWith(
+          const StateMachineListener(
+            name: 'missing_radius',
+            kind: StateMachineListenerKind.pointerDown,
+            slot: 'front',
+            targetKind: PointerHelperTargetKind.point,
+            target: 'hit',
+            input: 'pressed',
+            boolValue: false,
+          ),
+        )),
+        throwsFormatException,
+      );
+      expect(
+        () => bonyCanonicalStateMachineJson(machineWith(
+          const StateMachineListener(
+            name: 'missing_value',
+            kind: StateMachineListenerKind.pointerDown,
+            slot: 'front',
+            targetKind: PointerHelperTargetKind.point,
+            target: 'hit',
+            hitRadius: 1,
+            input: 'pressed',
+          ),
+        )),
+        throwsFormatException,
+      );
+      expect(
+        () => bonyCanonicalStateMachineJson(machineWith(
+          const StateMachineListener(
+            name: 'extra_trigger_value',
+            kind: StateMachineListenerKind.pointerDown,
+            slot: 'front',
+            targetKind: PointerHelperTargetKind.point,
+            target: 'hit',
+            hitRadius: 1,
+            input: 'fire',
+            boolValue: true,
+          ),
+        )),
+        throwsFormatException,
+      );
     });
   });
 }

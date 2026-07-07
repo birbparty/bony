@@ -92,7 +92,7 @@ StateMachineData _parseStateMachine(Map<String, dynamic> j) {
             return StateMachineCondition(
               input: cinput,
               kind: StateMachineConditionKind.boolEquals,
-              boolValue: _required<bool>(cm['value'], 'condition.value'),
+              boolValue: (cm['value'] as bool?) ?? true,
             );
           case 'numberEquals':
             return StateMachineCondition(

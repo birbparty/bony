@@ -674,7 +674,8 @@ String bonyCanonicalStateMachineJson(
   _appendStateMachineLayers(out, machine.layers, indent + 1);
   if (machine.listeners.isNotEmpty) {
     out.addFieldPrefix('listeners', indent + 1, fields);
-    _appendStateMachineListeners(out, machine.listeners, indent + 1);
+    _appendStateMachineListeners(
+        out, machine.listeners, machine.inputs, indent + 1);
   }
   out.write('\n');
   out.addIndent(indent);
@@ -1415,8 +1416,12 @@ void _appendStateMachineTransitions(
 void _appendStateMachineListeners(
   BonyJsonBuffer out,
   List<StateMachineListener> listeners,
+  List<StateMachineInput> inputs,
   int indent,
 ) {
+  final inputKinds = <String, StateMachineInputKind>{
+    for (final input in inputs) input.name: input.kind,
+  };
   out.write('[\n');
   for (var i = 0; i < listeners.length; i++) {
     if (i > 0) out.write(',\n');
@@ -1456,17 +1461,50 @@ void _appendStateMachineListeners(
           fields,
         );
         out.addStringField('target', listener.target, indent + 2, fields);
-        if (listener.targetKind == PointerHelperTargetKind.point &&
-            listener.hitRadius != null) {
-          out.addNumberField(
-              'hitRadius', listener.hitRadius!, indent + 2, fields);
+        switch (listener.targetKind) {
+          case PointerHelperTargetKind.point:
+            final hitRadius = listener.hitRadius;
+            if (hitRadius == null) {
+              throw FormatException(
+                  'point pointer listener hitRadius is required: ${listener.name}');
+            }
+            out.addNumberField('hitRadius', hitRadius, indent + 2, fields);
+          case PointerHelperTargetKind.boundingBox:
+            if (listener.hitRadius != null) {
+              throw FormatException(
+                  'bounding-box pointer listener must not contain hitRadius: '
+                  '${listener.name}');
+            }
         }
         out.addStringField('input', listener.input, indent + 2, fields);
-        if (listener.boolValue != null) {
-          out.addBoolField('value', listener.boolValue!, indent + 2, fields);
-        } else if (listener.numberValue != null) {
-          out.addNumberField(
-              'value', listener.numberValue!, indent + 2, fields);
+        final inputKind = inputKinds[listener.input];
+        if (inputKind == null) {
+          throw FormatException(
+              'pointer listener references unknown input: ${listener.input}');
+        }
+        switch (inputKind) {
+          case StateMachineInputKind.bool_:
+            final value = listener.boolValue;
+            if (value == null || listener.numberValue != null) {
+              throw FormatException(
+                  'bool pointer listener requires exactly one bool value: '
+                  '${listener.name}');
+            }
+            out.addBoolField('value', value, indent + 2, fields);
+          case StateMachineInputKind.number:
+            final value = listener.numberValue;
+            if (value == null || listener.boolValue != null) {
+              throw FormatException(
+                  'number pointer listener requires exactly one numeric value: '
+                  '${listener.name}');
+            }
+            out.addNumberField('value', value, indent + 2, fields);
+          case StateMachineInputKind.trigger:
+            if (listener.boolValue != null || listener.numberValue != null) {
+              throw FormatException(
+                  'trigger pointer listener must not contain a value: '
+                  '${listener.name}');
+            }
         }
     }
     out.write('\n');
