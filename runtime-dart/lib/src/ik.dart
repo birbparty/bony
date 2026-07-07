@@ -19,8 +19,8 @@ import 'deform.dart' show quantizeF32;
 import 'numeric_guards.dart'
     show
         degToRad,
-        distance2,
-        hypot2,
+        distance,
+        hypot,
         lerp,
         radToDeg,
         requireFinite,
@@ -106,7 +106,7 @@ double _clampUnit(double value) => math.max(-1.0, math.min(1.0, value));
 ) {
   final dx = toPoint.x - fromPoint.x;
   final dy = toPoint.y - fromPoint.y;
-  final distance = hypot2(dx, dy);
+  final distance = hypot(dx, dy);
   if (distance > _solverEpsilon) {
     return (x: dx / distance, y: dy / distance);
   }
@@ -166,7 +166,7 @@ TwoBoneIkResult solveTwoBoneIk(
 
   final tx = safeTarget.x - safeOrigin.x;
   final ty = safeTarget.y - safeOrigin.y;
-  final d = hypot2(tx, ty);
+  final d = hypot(tx, ty);
   final denominator = 2.0 * l1 * l2;
   final solvedChild = denominator <= _solverEpsilon
       ? 0.0
@@ -231,7 +231,7 @@ ChainIkResult solveChainIk(
 
   final root = safePoints[0];
   final targetAngle = math.atan2(safeTarget.y - root.y, safeTarget.x - root.x);
-  final rootToTarget = distance2(root.x, root.y, safeTarget.x, safeTarget.y);
+  final rootToTarget = distance(root.x, root.y, safeTarget.x, safeTarget.y);
   if (rootToTarget > totalLength) {
     final angle = targetAngle;
     for (var index = 1; index < resultPoints.length; index++) {
@@ -244,7 +244,7 @@ ChainIkResult solveChainIk(
     var hasDegenerateSegment = false;
     for (var index = 0; index < resultPoints.length - 1; index++) {
       if (solvedLengths[index] > _solverEpsilon &&
-          distance2(
+          distance(
                 resultPoints[index].x,
                 resultPoints[index].y,
                 resultPoints[index + 1].x,
@@ -312,7 +312,7 @@ ChainIkResult solveChainIk(
         );
       }
 
-      if (distance2(
+      if (distance(
             resultPoints[resultPoints.length - 1].x,
             resultPoints[resultPoints.length - 1].y,
             safeTarget.x,

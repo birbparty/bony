@@ -7,7 +7,7 @@ import 'deform.dart';
 import 'drawbatch_clipping.dart';
 import 'ik.dart';
 import 'model.dart';
-import 'numeric_guards.dart' show distance2, lerp, radToDeg;
+import 'numeric_guards.dart' show distance, lerp, radToDeg;
 import 'physics_constraint.dart';
 import 'transform_constraint.dart';
 
@@ -306,9 +306,8 @@ double _shortestAngleDelta(double fromAngle, double toAngle) {
 double worldRotationDegrees(Affine2 world) =>
     radToDeg(math.atan2(world.b, world.a));
 
-/// Euclidean distance between two IK points (transform.nim:353). Distinct from
-/// [_distance] only in operating over the world-space [IkPoint] the solvers use.
-double ikDistance(IkPoint a, IkPoint b) => distance2(a.x, a.y, b.x, b.y);
+/// Euclidean distance between two IK points (transform.nim:353).
+double ikDistance(IkPoint a, IkPoint b) => distance(a.x, a.y, b.x, b.y);
 
 HelperPoint helperPoint(double x, double y) => HelperPoint(x: x, y: y);
 
@@ -554,7 +553,7 @@ _ArcLengthTable _buildPathArcLengthTable(_Cubic curve) {
   for (var index = 1; index <= _pathArcLengthSamples; index++) {
     final current = _evaluateCubic(curve, index / _pathArcLengthSamples);
     samples[index] = current;
-    total += distance2(previous.x, previous.y, current.x, current.y);
+    total += distance(previous.x, previous.y, current.x, current.y);
     distances[index] = total;
     previous = current;
   }

@@ -1,3 +1,6 @@
+/// Shared numeric validation and scalar math helpers for runtime constraint
+/// modules. Keep domain-specific validation and pose helpers local to their
+/// owning module.
 import 'dart:math' as math;
 
 double requireFinite(double value, String context) {
@@ -29,7 +32,7 @@ double degToRad(double degrees) => degrees * math.pi / 180.0;
 
 double radToDeg(double radians) => radians * 180.0 / math.pi;
 
-double hypot2(double dx, double dy) => math.sqrt(dx * dx + dy * dy);
+double hypot(double dx, double dy) => math.sqrt(dx * dx + dy * dy);
 
-double distance2(double ax, double ay, double bx, double by) =>
-    hypot2(bx - ax, by - ay);
+double distance(double ax, double ay, double bx, double by) =>
+    hypot(bx - ax, by - ay);

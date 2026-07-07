@@ -8,7 +8,7 @@ import 'dart:math' as math;
 
 import 'model.dart';
 import 'numeric_guards.dart'
-    show degToRad, hypot2, lerp, radToDeg, requireFinite, requireMix;
+    show degToRad, hypot, lerp, radToDeg, requireFinite, requireMix;
 
 /// Per-channel blend amounts, each in `[0, 1]`. Defaults to full influence (1.0)
 /// on every channel, matching the Nim `transformConstraintMix` proc.
@@ -85,13 +85,13 @@ double _lerpAngle(double a, double b, double mix) =>
 TransformConstraintPose affineToTransformPose(Affine2 world) {
   final safe = _safeAffine(world, 'transformConstraint.world');
   final det = safe.a * safe.d - safe.b * safe.c;
-  final scaleXMagnitude = hypot2(safe.a, safe.b);
+  final scaleXMagnitude = hypot(safe.a, safe.b);
   final scaleX = det < 0.0 ? -scaleXMagnitude : scaleXMagnitude;
   final rotation = scaleX < 0.0
       ? radToDeg(math.atan2(-safe.b, -safe.a))
       : radToDeg(math.atan2(safe.b, safe.a));
   final yAngle = radToDeg(math.atan2(safe.d, safe.c));
-  final scaleY = hypot2(safe.c, safe.d);
+  final scaleY = hypot(safe.c, safe.d);
 
   return TransformConstraintPose(
     x: safe.tx,
