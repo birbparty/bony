@@ -3304,6 +3304,9 @@ spec "bony package":
 """)
     # --setup-only: no assets dir needed; no skin defined, so no attachment lookup.
     let importDb = runProcess(cliPath, ["import-dragonbones", skePath, dbOutPath, "--setup-only"])
+    let importedStaticAsset =
+      if fileExists(dbOutPath): loadBonyJsonAsset(readFile(dbOutPath))
+      else: bonyAsset(skeletonData(skeletonHeader("err", "0"), @[boneData("err", "")]))
     let dbJsonToBnb = runProcess(cliPath, ["json-to-bnb", dbOutPath, dbBnbPath])
     let dbBnbToJson = runProcess(cliPath, ["bnb-to-json", dbBnbPath, dbRoundTripPath])
     let imported =
@@ -3391,13 +3394,31 @@ spec "bony package":
       "type": "Armature",
       "frameRate": 24,
       "name": "animated_arm",
-      "bone": [{"name": "root"}],
-      "animation": [{"name": "idle", "duration": 12, "bone": [
-        {"name": "root", "translateFrame": [
-          {"duration": 12, "x": 4, "y": -3, "tweenEasing": 0},
-          {"duration": 0}
+      "bone": [
+        {"name": "root", "transform": {"x": 10, "y": 20, "skX": 10, "skY": 30, "scX": 2, "scY": 3}},
+        {"name": "child", "parent": "root", "transform": {"x": 1, "y": 2, "skX": 5, "skY": 6, "scX": 1.5, "scY": 2.5}}
+      ],
+      "animation": [
+        {"name": "all_channels", "duration": 24, "bone": [
+          {"name": "root", "translateFrame": [
+            {"duration": 12, "x": 5, "y": -2, "tweenEasing": 0},
+            {"duration": 12, "x": 7, "y": 4, "tweenEasing": null},
+            {"duration": 0}
+          ], "rotateFrame": [
+            {"duration": 24, "rotate": 15, "tweenEasing": 0},
+            {"duration": 0}
+          ], "scaleFrame": [
+            {"duration": 24, "x": 1.5, "y": 0.5, "tweenEasing": 0},
+            {"duration": 0}
+          ]}
+        ]},
+        {"name": "slide_only", "duration": 12, "bone": [
+          {"name": "child", "translateFrame": [
+            {"duration": 12, "x": 4, "y": -3, "tweenEasing": 0},
+            {"duration": 0}
+          ]}
         ]}
-      ]}]
+      ]
     }
   ]
 }
@@ -3413,9 +3434,94 @@ spec "bony package":
       cliPath,
       ["import-dragonbones", dbAnimatedPath, dbAnimatedPreserveOutPath],
     )
+    let preservedAnimatedJson =
+      if fileExists(dbAnimatedPreserveOutPath): readFile(dbAnimatedPreserveOutPath)
+      else: ""
     let preservedAnimatedAsset =
-      if fileExists(dbAnimatedPreserveOutPath): loadBonyJsonAsset(readFile(dbAnimatedPreserveOutPath))
+      if preservedAnimatedJson.len > 0: loadBonyJsonAsset(preservedAnimatedJson)
       else: bonyAsset(skeletonData(skeletonHeader("err", "0"), @[boneData("err", "")]))
+    let preservedAnimatedCanonical =
+      if preservedAnimatedJson.len > 0: toBonyJson(loadBonyJsonAsset(preservedAnimatedJson))
+      else: ""
+
+    var allChannelsName = ""
+    var allChannelsDuration = -1.0
+    var allChannelsTimelineCount = -1
+    var translateTarget = ""
+    var translateTimes: seq[float64]
+    var translateXs: seq[float64]
+    var translateYs: seq[float64]
+    var translateCurveX: seq[TimelineCurveKind]
+    var translateCurveY: seq[TimelineCurveKind]
+    var rotateTarget = ""
+    var rotateTimes: seq[float64]
+    var rotateValues: seq[float64]
+    var rotateCurves: seq[TimelineCurveKind]
+    var scaleTarget = ""
+    var scaleTimes: seq[float64]
+    var scaleXs: seq[float64]
+    var scaleYs: seq[float64]
+    var scaleCurveX: seq[TimelineCurveKind]
+    var scaleCurveY: seq[TimelineCurveKind]
+    var slideName = ""
+    var slideDuration = -1.0
+    var slideTimelineCount = -1
+    var slideTarget = ""
+    var slideTimes: seq[float64]
+    var slideXs: seq[float64]
+    var slideYs: seq[float64]
+    var slideBoneRestX = 0.0
+    var slideBoneRestY = 0.0
+    var slideBoneRestRotation = 0.0
+    var slideBoneRestScaleX = 0.0
+    var slideBoneRestScaleY = 0.0
+    if preservedAnimatedAsset.animations.len >= 2:
+      let allChannels = preservedAnimatedAsset.animations[0]
+      allChannelsName = allChannels.name
+      allChannelsDuration = allChannels.duration
+      allChannelsTimelineCount = allChannels.boneTimelines.len
+      for timeline in allChannels.boneTimelines:
+        if timeline.target == "root" and timeline.kind == translateTimeline:
+          translateTarget = timeline.target
+          for key in timeline.vectorKeys:
+            translateTimes.add key.time
+            translateXs.add key.x
+            translateYs.add key.y
+            translateCurveX.add key.curveX.kind
+            translateCurveY.add key.curveY.kind
+        elif timeline.target == "root" and timeline.kind == rotateTimeline:
+          rotateTarget = timeline.target
+          for key in timeline.scalarKeys:
+            rotateTimes.add key.time
+            rotateValues.add key.value
+            rotateCurves.add key.curve.kind
+        elif timeline.target == "root" and timeline.kind == scaleTimeline:
+          scaleTarget = timeline.target
+          for key in timeline.vectorKeys:
+            scaleTimes.add key.time
+            scaleXs.add key.x
+            scaleYs.add key.y
+            scaleCurveX.add key.curveX.kind
+            scaleCurveY.add key.curveY.kind
+
+      let slideOnly = preservedAnimatedAsset.animations[1]
+      slideName = slideOnly.name
+      slideDuration = slideOnly.duration
+      slideTimelineCount = slideOnly.boneTimelines.len
+      for timeline in slideOnly.boneTimelines:
+        if timeline.target == "child" and timeline.kind == translateTimeline:
+          slideTarget = timeline.target
+          for key in timeline.vectorKeys:
+            slideTimes.add key.time
+            slideXs.add key.x
+            slideYs.add key.y
+      for bone in preservedAnimatedAsset.skeleton.bones:
+        if bone.name == "child":
+          slideBoneRestX = bone.local.x
+          slideBoneRestY = bone.local.y
+          slideBoneRestRotation = bone.local.rotation
+          slideBoneRestScaleX = bone.local.scaleX
+          slideBoneRestScaleY = bone.local.scaleY
 
     writeFile(dbUnsupportedAnimPath, """{
   "version": "5.6.300.1",
@@ -3457,7 +3563,9 @@ spec "bony package":
     # Current local policy accepts animation.duration == 0 when the channel is a
     # single zero-duration terminator key.
     writeFile(dbZeroDurationAnimPath, dbArmatureJson("""{"name": "zero", "duration": 0, "bone": [
-        {"name": "root", "translateFrame": [{"duration": 0}]}
+        {"name": "root", "translateFrame": [
+          {"duration": 0}
+        ]}
       ]}"""))
     let importedZeroDurationAnimation = runProcess(
       cliPath,
@@ -3571,6 +3679,7 @@ spec "bony package":
       compileResult.exitCode == 0
       importDb.exitCode == 0
       importDb.output.strip() == ""
+      importedStaticAsset.animations.len == 0
       dbJsonToBnb.exitCode == 0
       dbBnbToJson.exitCode == 0
       imported.bones.len == 3
@@ -3610,11 +3719,58 @@ spec "bony package":
       setupOnlyAnimatedAsset.animations.len == 0
       importedAnimatedPreserved.exitCode == 0
       importedAnimatedPreserved.output.strip() == ""
-      preservedAnimatedAsset.animations.len == 1
-      preservedAnimatedAsset.animations[0].name == "idle"
-      closeTo(preservedAnimatedAsset.animations[0].duration, 0.5)
-      preservedAnimatedAsset.animations[0].boneTimelines.len == 1
-      preservedAnimatedAsset.animations[0].boneTimelines[0].kind == translateTimeline
+      preservedAnimatedJson.contains("\"animations\"")
+      preservedAnimatedCanonical == preservedAnimatedJson
+      preservedAnimatedAsset.animations.len == 2
+      allChannelsName == "all_channels"
+      closeTo(allChannelsDuration, 1.0)
+      allChannelsTimelineCount == 3
+      translateTarget == "root"
+      translateTimes.len == 3
+      closeTo(translateTimes[0], 0.0)
+      closeTo(translateTimes[1], 0.5)
+      closeTo(translateTimes[2], 1.0)
+      closeTo(translateXs[0], 15.0)
+      closeTo(translateYs[0], -18.0)
+      closeTo(translateXs[1], 17.0)
+      closeTo(translateYs[1], -24.0)
+      closeTo(translateXs[2], 10.0)
+      closeTo(translateYs[2], -20.0)
+      translateCurveX == @[linearCurve, steppedCurve, steppedCurve]
+      translateCurveY == @[linearCurve, steppedCurve, steppedCurve]
+      rotateTarget == "root"
+      rotateTimes.len == 2
+      closeTo(rotateTimes[0], 0.0)
+      closeTo(rotateTimes[1], 1.0)
+      closeTo(rotateValues[0], -45.0)
+      closeTo(rotateValues[1], -30.0)
+      rotateCurves == @[linearCurve, steppedCurve]
+      scaleTarget == "root"
+      scaleTimes.len == 2
+      closeTo(scaleTimes[0], 0.0)
+      closeTo(scaleTimes[1], 1.0)
+      closeTo(scaleXs[0], 3.0)
+      closeTo(scaleYs[0], 1.5)
+      closeTo(scaleXs[1], 2.0)
+      closeTo(scaleYs[1], 3.0)
+      scaleCurveX == @[linearCurve, steppedCurve]
+      scaleCurveY == @[linearCurve, steppedCurve]
+      slideName == "slide_only"
+      closeTo(slideDuration, 0.5)
+      slideTimelineCount == 1
+      slideTarget == "child"
+      slideTimes.len == 2
+      closeTo(slideTimes[0], 0.0)
+      closeTo(slideTimes[1], 0.5)
+      closeTo(slideXs[0], 5.0)
+      closeTo(slideYs[0], 1.0)
+      closeTo(slideXs[1], 1.0)
+      closeTo(slideYs[1], -2.0)
+      closeTo(slideBoneRestX, 1.0)
+      closeTo(slideBoneRestY, -2.0)
+      closeTo(slideBoneRestRotation, -6.0)
+      closeTo(slideBoneRestScaleX, 1.5)
+      closeTo(slideBoneRestScaleY, 2.5)
       rejectedUnsupportedAnim.exitCode != 0
       rejectedUnsupportedAnim.output.contains("unsupportedFeature")
       rejectedUnsupportedAnim.output.contains("target=animation[empty]")
