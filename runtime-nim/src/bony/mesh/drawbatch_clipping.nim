@@ -2,30 +2,17 @@
 ## `clipDrawBatchPolygon` clips a region quad as one convex boundary ring, and
 ## `clipDrawBatchTriangles` clips a mesh triangle *soup* per-triangle.
 ##
-## `DrawVertex` carries per-vertex color (r/g/b/a) that `SkinnedMeshVertex`
-## lacks, so this restates the Sutherland-Hodgman convex-clip geometry from
-## `mesh/clipping.nim` with r/g/b/a interpolation in addition to u/v. It is kept
-## in its own module (rather than reusing `mesh/clipping.nim` directly) so the
-## public `clipTrianglesToConvexPolygon` signature and the shared
-## `SkinnedMeshVertex` type stay untouched — clipping `DrawVertex` batches needs
-## the color channels this restatement adds. (Historically this split also
-## avoided a `transform` -> `mesh/clipping` -> `mesh/skinning` -> `transform`
-## import cycle; that cycle no longer exists — iteration 181 dropped the
-## `mesh/skinning -> transform` edge so `skinning` imports only `bony/model` —
-## but the `DrawVertex`-vs-`SkinnedMeshVertex` type difference above independently
-## justifies the separate module.) The epsilon, orientation
-## handling, edge-intersection math, fan re-triangulation (pivot on clipped
-## vertex 0), and output-boundary `quantizeF32` all match `mesh/clipping.nim`
-## and `docs/clipping-attachment-contract.md` exactly.
+## This module shares the Sutherland-Hodgman geometry with `mesh/clipping.nim`
+## through `mesh/clip_core.nim`; only `DrawVertex` interpolation, color-channel
+## quantization, and draw-batch-specific bookkeeping live here. The epsilon,
+## orientation handling, fan re-triangulation (pivot on clipped vertex 0), and
+## output-boundary `quantizeF32` match `docs/clipping-attachment-contract.md`.
 
+import bony/mesh/clip_core
 import bony/model
 
-const clipEpsilon = 1e-9
-
 type
-  ClipPoint* = object
-    x*: float64
-    y*: float64
+  ClipPoint* = clip_core.ClipPoint
 
   DrawBatchClip* = object
     ## `changed = false` means the subject is fully inside the clip polygon and
@@ -38,26 +25,7 @@ type
 
 
 proc clipPoint*(x, y: float64): ClipPoint =
-  ClipPoint(x: x, y: y)
-
-
-proc crossZ(ax, ay, bx, by: float64): float64 =
-  ax * by - ay * bx
-
-
-proc signedArea(polygon: openArray[ClipPoint]): float64 =
-  for index, point in polygon:
-    let next = polygon[(index + 1) mod polygon.len]
-    result += point.x * next.y - next.x * point.y
-  result * 0.5
-
-
-proc inside(point: DrawVertex; a, b: ClipPoint; orientation: float64): bool =
-  let side = crossZ(b.x - a.x, b.y - a.y, point.x - a.x, point.y - a.y)
-  if orientation > 0.0:
-    side >= -clipEpsilon
-  else:
-    side <= clipEpsilon
+  clip_core.clipPoint(x, y)
 
 
 proc quantized(vertex: DrawVertex): DrawVertex =
@@ -73,18 +41,10 @@ proc quantized(vertex: DrawVertex): DrawVertex =
   )
 
 
-proc intersection(start, finish: DrawVertex; a, b: ClipPoint): DrawVertex =
-  let rx = finish.x - start.x
-  let ry = finish.y - start.y
-  let sx = b.x - a.x
-  let sy = b.y - a.y
-  let denom = crossZ(rx, ry, sx, sy)
-  if abs(denom) <= clipEpsilon:
-    return quantized(finish)
-  let t = crossZ(a.x - start.x, a.y - start.y, sx, sy) / denom
+proc lerpDrawVertex(start, finish: DrawVertex; t: float64): DrawVertex =
   quantized(DrawVertex(
-    x: start.x + rx * t,
-    y: start.y + ry * t,
+    x: start.x + (finish.x - start.x) * t,
+    y: start.y + (finish.y - start.y) * t,
     u: start.u + (finish.u - start.u) * t,
     v: start.v + (finish.v - start.v) * t,
     r: start.r + (finish.r - start.r) * t,
@@ -92,41 +52,6 @@ proc intersection(start, finish: DrawVertex; a, b: ClipPoint): DrawVertex =
     b: start.b + (finish.b - start.b) * t,
     a: start.a + (finish.a - start.a) * t,
   ))
-
-
-proc clipSubject(subject: openArray[DrawVertex]; clip: openArray[ClipPoint];
-                 orientation: float64): seq[DrawVertex] =
-  result = @subject
-  for edgeIndex in 0 ..< clip.len:
-    if result.len == 0:
-      break
-    let a = clip[edgeIndex]
-    let b = clip[(edgeIndex + 1) mod clip.len]
-    let input = result
-    result = @[]
-    var previous = input[^1]
-    var previousInside = inside(previous, a, b, orientation)
-    for current in input:
-      let currentInside = inside(current, a, b, orientation)
-      if currentInside:
-        if not previousInside:
-          result.add intersection(previous, current, a, b)
-        result.add quantized(current)
-      elif previousInside:
-        result.add intersection(previous, current, a, b)
-      previous = current
-      previousInside = currentInside
-
-
-proc allInside(subject: openArray[DrawVertex]; clip: openArray[ClipPoint];
-               orientation: float64): bool =
-  for edgeIndex in 0 ..< clip.len:
-    let a = clip[edgeIndex]
-    let b = clip[(edgeIndex + 1) mod clip.len]
-    for vertex in subject:
-      if not inside(vertex, a, b, orientation):
-        return false
-  true
 
 
 proc clipDrawBatchPolygon*(subject: openArray[DrawVertex];
@@ -142,7 +67,7 @@ proc clipDrawBatchPolygon*(subject: openArray[DrawVertex];
   let orientation = signedArea(clip)
   if allInside(subject, clip, orientation):
     return DrawBatchClip(changed: false)
-  let polygon = clipSubject(subject, clip, orientation)
+  let polygon = clipConvex(subject, clip, orientation, lerpDrawVertex)
   if polygon.len < 3:
     return DrawBatchClip(changed: true)
   result = DrawBatchClip(changed: true, vertices: polygon)
@@ -150,19 +75,6 @@ proc clipDrawBatchPolygon*(subject: openArray[DrawVertex];
     result.indices.add 0'u16
     result.indices.add uint16(fanIndex)
     result.indices.add uint16(fanIndex + 1)
-
-
-proc vertexInsideClip(vertex: DrawVertex; clip: openArray[ClipPoint];
-                      orientation: float64): bool =
-  ## True when a single vertex is inside *every* clip edge (i.e. inside the whole
-  ## convex clip polygon). Distinct from `allInside`, which tests every vertex of
-  ## a subject.
-  for edgeIndex in 0 ..< clip.len:
-    let a = clip[edgeIndex]
-    let b = clip[(edgeIndex + 1) mod clip.len]
-    if not inside(vertex, a, b, orientation):
-      return false
-  true
 
 
 proc clipDrawBatchTriangles*(subject: openArray[DrawVertex];
@@ -219,7 +131,7 @@ proc clipDrawBatchTriangles*(subject: openArray[DrawVertex];
       subject[indices[triangle + 2]],
     ]
     triangle += 3
-    let polygon = clipSubject(tri, clip, orientation)
+    let polygon = clipConvex(tri, clip, orientation, lerpDrawVertex)
     if polygon.len < 3:
       continue
     let base = uint16(result.vertices.len)
