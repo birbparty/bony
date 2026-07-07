@@ -64,7 +64,7 @@ proc parseBonyAnimations(root: JsonNode; data: SkeletonData): Table[string, Anim
             let kfTime = requiredF64(kfObj, "t", kfCtx)
             let kfValue = requiredFloat(kfObj, "value", kfCtx)
             scalarKeys.add scalarKeyframe(kfTime, kfValue, parseCurveFromNode(kfObj, "curve", kfCtx))
-          boneTimelines.add boneScalarTimeline(bone, tlKind, scalarKeys)
+          boneTimelines.add boneTimeline(bone, tlKind, scalarKeys)
         of "translate", "scale", "shear":
           let tlKind =
             case propStr
@@ -84,7 +84,7 @@ proc parseBonyAnimations(root: JsonNode; data: SkeletonData): Table[string, Anim
             vectorKeys.add vector2Keyframe(kfTime, kfX, kfY,
               parseCurveFromNode(kfObj, curveXKey, kfCtx),
               parseCurveFromNode(kfObj, curveYKey, kfCtx))
-          boneTimelines.add boneVectorTimeline(bone, tlKind, vectorKeys)
+          boneTimelines.add boneTimeline(bone, tlKind, vectorKeys)
         of "inherit":
           var inheritKeys: seq[InheritKeyframe] = @[]
           for kfIndex, kfNode in kfListNode.elems:
@@ -98,7 +98,7 @@ proc parseBonyAnimations(root: JsonNode; data: SkeletonData): Table[string, Anim
             let tmStr = optionalString(kfObj, "transformMode", "normal", kfCtx)
             let tm = parseTransformMode(tmStr, kfCtx)
             inheritKeys.add inheritKeyframe(kfTime, ir, isc, irf, tm)
-          boneTimelines.add boneInheritTimeline(bone, inheritKeys)
+          boneTimelines.add boneTimeline(bone, inheritTimeline, inheritKeys)
         else:
           raise newBonyLoadError(schemaViolation, btCtx & ".property unknown: " & propStr)
     var slotTimelines: seq[SlotTimeline] = @[]
@@ -123,7 +123,7 @@ proc parseBonyAnimations(root: JsonNode; data: SkeletonData): Table[string, Anim
             let kfTime = requiredF64(kfObj, "t", kfCtx)
             let att = optionalString(kfObj, "attachment", "", kfCtx)
             attachmentKeys.add attachmentKeyframe(kfTime, att)
-          slotTimelines.add slotAttachmentTimeline(slot, attachmentKeys)
+          slotTimelines.add slotTimeline(slot, attachmentTimeline, attachmentKeys)
         of "rgba", "rgb", "alpha":
           let tlKind =
             case propStr
@@ -141,7 +141,7 @@ proc parseBonyAnimations(root: JsonNode; data: SkeletonData): Table[string, Anim
             let b = optionalFloat(kfObj, "b", 1.0, kfCtx)
             let a = optionalFloat(kfObj, "a", 1.0, kfCtx)
             colorKeys.add colorKeyframe(kfTime, ColorRgba(r: r, g: g, b: b, a: a), parseCurveFromNode(kfObj, "curve", kfCtx))
-          slotTimelines.add slotColorTimeline(slot, tlKind, colorKeys)
+          slotTimelines.add slotTimeline(slot, tlKind, colorKeys)
         of "rgba2":
           var color2Keys: seq[Color2Keyframe] = @[]
           for kfIndex, kfNode in kfListNode.elems:
@@ -158,7 +158,7 @@ proc parseBonyAnimations(root: JsonNode; data: SkeletonData): Table[string, Anim
             let db = optionalFloat(kfObj, "db", 0.0, kfCtx)
             let light = ColorRgba(r: r, g: g, b: b, a: a)
             color2Keys.add color2Keyframe(kfTime, ColorRgba2(light: light, darkR: dr, darkG: dg, darkB: db), parseCurveFromNode(kfObj, "curve", kfCtx))
-          slotTimelines.add slotColor2Timeline(slot, color2Keys)
+          slotTimelines.add slotTimeline(slot, rgba2Timeline, color2Keys)
         of "sequence":
           var sequenceKeys: seq[SequenceKeyframe] = @[]
           for kfIndex, kfNode in kfListNode.elems:
@@ -179,7 +179,7 @@ proc parseBonyAnimations(root: JsonNode; data: SkeletonData): Table[string, Anim
               else:
                 raise newBonyLoadError(schemaViolation, kfCtx & ".mode unknown: " & modeStr)
             sequenceKeys.add sequenceKeyframe(kfTime, uint32(index), delay, mode)
-          slotTimelines.add slotSequenceTimeline(slot, sequenceKeys)
+          slotTimelines.add slotTimeline(slot, sequenceTimeline, sequenceKeys)
         else:
           raise newBonyLoadError(schemaViolation, stCtx & ".property unknown: " & propStr)
     var deformTimelines: seq[DeformTimeline] = @[]
