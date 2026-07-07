@@ -72,15 +72,17 @@ documentation prose.
   `rotateFrame`, `translateFrame`, `scaleFrame`, `colorFrame`, `displayFrame`;
   terminator-frame convention; `clockwise` field; extra ignored keys at top-level
   (`compatibleVersion`, `isGlobal`, `textureAtlas`) and armature level (`aabb`,
-  `defaultActions`, `ik`, `canvas`) and animation level (`fadeInTime`,
-  `playTimes`, `blendType`, `type`, `frame`, `ffd`). The §Observed Field Set in
-  `docs/dragonbones-importer-design.md` is the canonical record.
+  `defaultActions`, `ik`, `canvas`); and animation-level fields
+  (`fadeInTime`, `playTimes`, `blendType`, `type`, `frame`, `ffd`) that the
+  implemented Tier 1 importer recognizes and rejects as unsupported. The
+  §Observed Field Set and Tier 1 diagnostics in
+  `docs/dragonbones-importer-design.md` are the canonical record.
 - **Source**: user-supplied `_ske.json` files from the local DragonBonesJS clone
   at `~/git/DragonBonesJS/Pixi/Demos/resource/` (not committed to bony).
-- **Cleanroom compliance**: confirmed. Keys for objects the importer parses are
-  recorded as input contract; keys for objects bony ignores at Tier 1 are
-  enumerated for completeness only and must not appear in bony runtime objects,
-  generated schema, or conformance asset JSON.
+- **Cleanroom compliance**: confirmed. Keys for objects the importer parses or
+  rejects are recorded as an input-boundary contract only; unsupported
+  third-party keys must not appear in bony runtime objects, generated schema, or
+  conformance asset JSON.
 - **CI enforcement**: not required — enforced by code review and the
   import-boundary rule in `docs/CLEANROOM.md`.
 
