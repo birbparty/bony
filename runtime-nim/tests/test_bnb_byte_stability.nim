@@ -1,9 +1,7 @@
-import std/[os, osproc, sequtils, streams]
+import std/[os, osproc, sequtils]
 
 import bony
-
-proc stringPayload(table: var BnbStringTable; value: string): seq[byte] =
-  result.writeStringPayload(table, value)
+import testutil
 
 proc f32Payload(value: float64): seq[byte] =
   let stored = float32(quantizeF32(value))
@@ -14,12 +12,6 @@ proc f32Payload(value: float64): seq[byte] =
     byte((bits shr 16) and 0xff'u32),
     byte((bits shr 24) and 0xff'u32),
   ]
-
-proc boolPayload(value: bool): seq[byte] =
-  if value:
-    @[1'u8]
-  else:
-    @[0'u8]
 
 proc varintPayload(value: int): seq[byte] =
   result.writeVarint(int64(value))
@@ -241,25 +233,11 @@ proc viaJson(bytes: openArray[byte]): seq[byte] =
 
 proc viaJsonAsset(bytes: openArray[byte]): seq[byte] =
   toBonyBnb(loadBonyJsonAsset(toBonyJson(loadKnownBonyBnbAsset(bytes))))
-
-proc readBytes(path: string): seq[byte] =
-  let content = readFile(path)
-  result = newSeq[byte](content.len)
-  for index, ch in content:
-    result[index] = byte(ord(ch))
-
 proc writeBytes(path: string; data: openArray[byte]) =
   var content = newString(data.len)
   for index, value in data:
     content[index] = char(value)
   writeFile(path, content)
-
-proc runProcess(binary: string; args: openArray[string]): tuple[output: string; exitCode: int] =
-  let process = startProcess(binary, args = args, options = {poStdErrToStdOut})
-  let output = process.outputStream.readAll()
-  let exitCode = process.waitForExit()
-  process.close()
-  (output, exitCode)
 
 proc expectStable(name: string; bytes: seq[byte]) =
   let cycled = viaJson(bytes)

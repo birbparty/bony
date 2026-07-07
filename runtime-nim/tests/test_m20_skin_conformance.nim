@@ -5,6 +5,7 @@
 import std/[os, strutils]
 
 include "../../cli/bony_cli.nim"
+import testutil
 
 const
   assetJson = "../conformance/assets/m20_skin_rig.bony"
@@ -14,30 +15,9 @@ const
   defaultGolden = "../conformance/goldens/m20_skin_default_default.json"
   variantGolden = "../conformance/goldens/m20_skin_variant_variant.json"
 
-proc canonicalText(path: string): string =
-  readFile(path).strip()
-
-proc checkGolden(assetPath, scriptPath, sampleName, expectedPath: string) =
-  let outPath = getTempDir() / ("bony_m20_" & sampleName & "_" & extractFilename(assetPath) & ".json")
-  try:
-    writeNumericGolden(@[
-      assetPath,
-      outPath,
-      "--state-machine",
-      "skin_story",
-      "--input-script",
-      scriptPath,
-      "--sample",
-      sampleName,
-    ])
-    doAssert canonicalText(outPath) == canonicalText(expectedPath)
-  finally:
-    if fileExists(outPath):
-      removeFile(outPath)
-
-checkGolden(assetJson, defaultScript, "default", defaultGolden)
-checkGolden(assetBnb, defaultScript, "default", defaultGolden)
-checkGolden(assetJson, variantScript, "variant", variantGolden)
-checkGolden(assetBnb, variantScript, "variant", variantGolden)
+checkStateMachineGolden(assetJson, defaultGolden, "bony_m20", "default", "skin_story", defaultScript)
+checkStateMachineGolden(assetBnb, defaultGolden, "bony_m20", "default", "skin_story", defaultScript)
+checkStateMachineGolden(assetJson, variantGolden, "bony_m20", "variant", "skin_story", variantScript)
+checkStateMachineGolden(assetBnb, variantGolden, "bony_m20", "variant", "skin_story", variantScript)
 
 echo "M20 skin conformance CLI tests passed"

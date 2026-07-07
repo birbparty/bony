@@ -2,18 +2,7 @@ import std/[strutils, tables]
 
 import bddy
 import bony
-
-
-proc raisesBonyLoadError(action: proc(); kind: BonyLoadErrorKind): bool =
-  try:
-    action()
-    false
-  except BonyLoadError as exc:
-    exc.kind == kind
-
-
-proc closeTo(actual, expected: float64): bool =
-  abs(actual - expected) <= 1e-9
+import testutil
 
 proc near(actual, expected: float64): bool =
   abs(actual - expected) <= 1e-6

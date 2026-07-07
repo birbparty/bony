@@ -5,6 +5,7 @@
 import std/[os, strutils]
 
 include "../../cli/bony_cli.nim"
+import testutil
 
 const
   assetJson = "../conformance/assets/m21_pointer_listener_rig.bony"
@@ -12,30 +13,9 @@ const
   storyScript = "../conformance/scripts/m21_pointer_listener_story.json"
   samples = ["rest", "enter", "down", "move", "up", "exit"]
 
-proc canonicalText(path: string): string =
-  readFile(path).strip()
-
-proc checkGolden(assetPath, sampleName: string) =
-  let expectedPath = "../conformance/goldens/m21_pointer_listener_" & sampleName & ".json"
-  let outPath = getTempDir() / ("bony_m21_" & sampleName & "_" & extractFilename(assetPath) & ".json")
-  try:
-    writeNumericGolden(@[
-      assetPath,
-      outPath,
-      "--state-machine",
-      "pointer_story",
-      "--input-script",
-      storyScript,
-      "--sample",
-      sampleName,
-    ])
-    doAssert canonicalText(outPath) == canonicalText(expectedPath)
-  finally:
-    if fileExists(outPath):
-      removeFile(outPath)
-
 for sample in samples:
-  checkGolden(assetJson, sample)
-  checkGolden(assetBnb, sample)
+  let expectedPath = "../conformance/goldens/m21_pointer_listener_" & sample & ".json"
+  checkStateMachineGolden(assetJson, expectedPath, "bony_m21", sample, "pointer_story", storyScript)
+  checkStateMachineGolden(assetBnb, expectedPath, "bony_m21", sample, "pointer_story", storyScript)
 
 echo "M21 pointer listener conformance CLI tests passed"

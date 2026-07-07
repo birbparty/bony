@@ -8,13 +8,7 @@
 import std/strutils
 
 import bony
-
-proc raisesBonyLoadError(action: proc(); kind: BonyLoadErrorKind): bool =
-  try:
-    action()
-    false
-  except BonyLoadError as err:
-    err.kind == kind
+import testutil
 
 # A full asset carrying one event timeline with two keyframes: the first sets
 # every EventData field to a non-default value; the second relies on all the
@@ -48,22 +42,19 @@ const eventFixture = """{
 }
 """
 
-proc canonicalJson(text: string): string =
-  toBonyJson(loadBonyJsonAsset(text))
-
 proc viaBnb(text: string): string =
   toBonyJson(loadKnownBonyBnbAsset(toBonyBnb(loadBonyJsonAsset(text))))
 
 # --- Round-trip: json -> bnb -> json is byte-lossless ------------------------
 block roundTrip:
-  let canonical = canonicalJson(eventFixture)
+  let canonical = canonicalJson(eventFixture, asset = true)
   doAssert canonical.contains("\"eventTimelines\""), "canonical JSON must emit eventTimelines"
   doAssert canonical.contains("\"footstep\""), "event name must survive load+emit"
   doAssert canonical.contains("\"audioPath\": \"sfx/step.wav\""), "audioPath must survive"
 
   let cycled = viaBnb(eventFixture)
   doAssert cycled == canonical, "event timeline changed after json->bnb->json"
-  doAssert canonicalJson(cycled) == cycled, "event canonical JSON is not stable"
+  doAssert canonicalJson(cycled, asset = true) == cycled, "event canonical JSON is not stable"
 
   # Byte-level: the .bnb re-encoded from the cycled JSON matches the original.
   let bytes0 = toBonyBnb(loadBonyJsonAsset(eventFixture))

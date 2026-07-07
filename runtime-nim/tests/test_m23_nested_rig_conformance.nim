@@ -5,38 +5,13 @@
 import std/[os, strutils, tables]
 
 include "../../cli/bony_cli.nim"
+import testutil
 
 const
   assetJson = "../conformance/assets/m23_nested_rig.bony"
   assetBnb = "../conformance/assets/bnb/m23_nested_rig.bnb"
   scriptPath = "../conformance/scripts/m23_nested_rig_sample.json"
   goldenPath = "../conformance/goldens/m23_nested_rig_t0.json"
-
-proc canonicalText(path: string): string =
-  readFile(path).strip()
-
-proc checkGolden(assetPath: string) =
-  let outPath = getTempDir() / ("bony_m23_" & extractFilename(assetPath) & ".json")
-  try:
-    writeNumericGolden(@[
-      assetPath,
-      outPath,
-      "--input-script",
-      scriptPath,
-      "--sample",
-      "setup",
-    ])
-    doAssert canonicalText(outPath) == canonicalText(goldenPath)
-  finally:
-    if fileExists(outPath):
-      removeFile(outPath)
-
-proc raisesBonyLoadError(action: proc(); kind: BonyLoadErrorKind): bool =
-  try:
-    action()
-    false
-  except BonyLoadError as exc:
-    exc.kind == kind
 
 let host = loadBonyJson(readFile(assetJson))
 let child = loadBonyJson(readFile("../conformance/assets/m23_nested_child_rig.bony"))
@@ -58,8 +33,8 @@ doAssert nested[3].attachment == "default_face"
 doAssert nested[3].clipId == ""
 doAssert abs(nested[1].vertices[0].x - 45.0) <= 1e-4
 
-checkGolden(assetJson)
-checkGolden(assetBnb)
+checkInputScriptGolden(assetJson, goldenPath, "bony_m23", "setup", scriptPath)
+checkInputScriptGolden(assetBnb, goldenPath, "bony_m23", "setup", scriptPath)
 
 let tempDir = getTempDir()
 let noBinaryScript = tempDir / "bony_m23_missing_binary_child.json"
