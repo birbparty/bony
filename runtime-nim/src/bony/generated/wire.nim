@@ -25,6 +25,9 @@ type
     objectId*: string
     propertyId*: string
     reason*: string
+  BonyOrdinalEnum* = object
+    id*: string
+    values*: seq[string]
 
 const bonyRegistryVersion* = 1
 const bonyBackingTypes* = [
@@ -418,6 +421,10 @@ const bonyRequiredProperties* = [
   BonyRequiredProperty(objectId: "skinEntry", propertyId: "slot", reason: "A skin entry must identify the slot whose visible attachment name it binds."),
   BonyRequiredProperty(objectId: "skinEntry", propertyId: "skinAttachment", reason: "A skin entry must identify the slot-visible attachment name it binds."),
   BonyRequiredProperty(objectId: "skinEntry", propertyId: "skinTarget", reason: "A skin entry must identify the concrete attachment definition it resolves to."),
+]
+let bonyOrdinalEnums*: seq[BonyOrdinalEnum] = @[
+  BonyOrdinalEnum(id: "physicsChannel", values: @["x", "y", "rotate", "scaleX", "shearX"]),
+  BonyOrdinalEnum(id: "deformerKind", values: @["warp", "rotation"]),
 ]
 
 proc bonyObjectSpec*(typeId: string): BonyObjectSpec =

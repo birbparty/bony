@@ -129,6 +129,9 @@ def sample_registry() -> dict:
             },
         ],
         "objects": [{"type": "bone", "properties": ["name", "visible"]}],
+        "ordinalEnums": [
+            {"id": "testMode", "values": ["first", "second"]},
+        ],
     }
 
 
@@ -192,6 +195,14 @@ class GeneratorValidationTests(unittest.TestCase):
 
         self.assertIn("BonyObjectSpec", generate.generate_nim(registry, defaults))
         self.assertIn("BonyObjectSpec", generate.generate_dart(registry, defaults))
+        self.assertIn(
+            'BonyOrdinalEnum(id: "testMode", values: @["first", "second"])',
+            generate.generate_nim(registry, defaults),
+        )
+        self.assertIn(
+            "BonyOrdinalEnum(id: 'testMode', values: [\"first\", \"second\"])",
+            generate.generate_dart(registry, defaults),
+        )
         schema_text = generate.generate_schema(registry, defaults)
         schema = json.loads(schema_text)
         self.assertEqual(schema["$id"], "https://bony.local/spec/bony.schema.json")
@@ -348,6 +359,33 @@ class GeneratorValidationTests(unittest.TestCase):
         )
         self.assertIn(
             'BonyObjectSpec(typeId: \'stateMachineListener\', properties: ["name", "stateMachineListenerKind", "listenerLayerIndex", "listenerFromStateIndex", "listenerToStateIndex", "listenerSlotIndex", "listenerHelperKind", "listenerHelperTarget", "listenerInputIndex", "listenerBoolValue", "listenerNumberValue", "listenerHitRadius"])',
+            dart,
+        )
+
+    def test_project_generated_runtime_metadata_exposes_ordinal_enums(self) -> None:
+        registry, defaults = self.project_sources()
+
+        generate.validate_sources(registry, defaults)
+        nim = generate.generate_nim(registry, defaults)
+        dart = generate.generate_dart(registry, defaults)
+
+        ordinal_enums = {entry["id"]: entry["values"] for entry in registry["ordinalEnums"]}
+        self.assertEqual(ordinal_enums["physicsChannel"], ["x", "y", "rotate", "scaleX", "shearX"])
+        self.assertEqual(ordinal_enums["deformerKind"], ["warp", "rotation"])
+        self.assertIn(
+            'BonyOrdinalEnum(id: "physicsChannel", values: @["x", "y", "rotate", "scaleX", "shearX"])',
+            nim,
+        )
+        self.assertIn(
+            'BonyOrdinalEnum(id: "deformerKind", values: @["warp", "rotation"])',
+            nim,
+        )
+        self.assertIn(
+            'BonyOrdinalEnum(id: \'physicsChannel\', values: ["x", "y", "rotate", "scaleX", "shearX"])',
+            dart,
+        )
+        self.assertIn(
+            'BonyOrdinalEnum(id: \'deformerKind\', values: ["warp", "rotation"])',
             dart,
         )
 
@@ -558,6 +596,14 @@ class GeneratorValidationTests(unittest.TestCase):
 
         with self.assertRaisesRegex(generate.SourceError, "duplicate generated Dart const name"):
             generate.dart_const_names(entries, "bonyTypeKey", "type key")
+
+    def test_duplicate_ordinal_enum_values_are_rejected(self) -> None:
+        registry = sample_registry()
+        defaults = sample_defaults()
+        registry["ordinalEnums"][0]["values"] = ["first", "first"]
+
+        with self.assertRaisesRegex(generate.SourceError, "duplicate value first"):
+            generate.validate_sources(registry, defaults)
 
 
 if __name__ == "__main__":

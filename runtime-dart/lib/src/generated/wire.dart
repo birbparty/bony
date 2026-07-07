@@ -57,6 +57,12 @@ class BonyRequiredProperty {
   final String reason;
 }
 
+class BonyOrdinalEnum {
+  const BonyOrdinalEnum({required this.id, required this.values});
+  final String id;
+  final List<String> values;
+}
+
 const int bonyRegistryVersion = 1;
 const List<BonyBackingType> bonyBackingTypes = [
   BonyBackingType(id: 'varuint', code: 1),
@@ -620,6 +626,10 @@ const List<BonyRequiredProperty> bonyRequiredProperties = [
   BonyRequiredProperty(objectId: 'skinEntry', propertyId: 'slot', reason: "A skin entry must identify the slot whose visible attachment name it binds."),
   BonyRequiredProperty(objectId: 'skinEntry', propertyId: 'skinAttachment', reason: "A skin entry must identify the slot-visible attachment name it binds."),
   BonyRequiredProperty(objectId: 'skinEntry', propertyId: 'skinTarget', reason: "A skin entry must identify the concrete attachment definition it resolves to."),
+];
+const List<BonyOrdinalEnum> bonyOrdinalEnums = [
+  BonyOrdinalEnum(id: 'physicsChannel', values: ["x", "y", "rotate", "scaleX", "shearX"]),
+  BonyOrdinalEnum(id: 'deformerKind', values: ["warp", "rotation"]),
 ];
 
 BonyObjectSpec bonyObjectSpec(String typeId) {
