@@ -1,4 +1,4 @@
-.PHONY: test
+.PHONY: test dart-test
 
 # Repo-level gate used by /ralph's per-iteration VERIFY step and by the
 # registry README's format-gate requirement for any registry/** edit.
@@ -6,7 +6,8 @@
 #   1. the codegen format check (sources <-> generated agree),
 #   2. the Python codegen unit tests,
 #   3. the Nim runtime model COMPILE check (fast fail on library errors), and
-#   4. the Nim runtime UNIT TESTS (smoke + cli-pose + ik-current-pivot).
+#   4. the Nim runtime unit and conformance tests, and
+#   5. the Dart runtime UNIT TESTS.
 #
 # Step 4 is gated here deliberately — not just the `nim check` compile in step 3.
 # The runtime tests carry the change-detector and conformance-fixture-count
@@ -37,3 +38,7 @@ test:
 	cd runtime-nim && nim c -r --hints:off tests/test_json_bnb_json_idempotency.nim
 	cd runtime-nim && nim c -r --hints:off tests/test_event_timeline.nim
 	cd runtime-nim && nim c -r --hints:off tests/test_pointer_listener.nim
+	$(MAKE) dart-test
+
+dart-test:
+	cd runtime-dart && dart test
