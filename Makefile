@@ -25,7 +25,24 @@ test:
 	python3 -m unittest discover -s codegen -p 'test_*.py'
 	nim check --hints:off --path:runtime-nim/src runtime-nim/src/bony.nim
 	cd runtime-nim && nim c -r --hints:off tests/test_smoke.nim
+	cd runtime-nim && nim c -r --hints:off tests/test_bnb_wire.nim
+	cd runtime-nim && nim c -r --hints:off tests/test_canonical_serialization.nim
+	cd runtime-nim && nim c -r --hints:off tests/test_path_constraints.nim
+	cd runtime-nim && nim c -r --hints:off tests/test_transform_constraints.nim
 	cd runtime-nim && nim c -r --hints:off tests/test_physics_eval.nim
+	cd runtime-nim && nim c -r --hints:off tests/test_nested_rig.nim
+	cd runtime-nim && nim c -r --hints:off tests/test_draw_batches.nim
+	cd runtime-nim && nim c -r --hints:off tests/test_cli_harness.nim
+	cd runtime-nim && nim c -r --hints:off tests/test_dragonbones_import.nim
+	cd runtime-nim && nim c -r --hints:off tests/test_mesh_geometry.nim
+	cd runtime-nim && nim c -r --hints:off tests/test_mesh_deform.nim
+	cd runtime-nim && nim c -r --hints:off tests/test_clipping.nim
+	cd runtime-nim && nim c -r --hints:off tests/test_deformers.nim
+	cd runtime-nim && nim c -r --hints:off tests/test_parameters_timelines.nim
+	cd runtime-nim && nim c -r --hints:off tests/test_animation_mixing.nim
+	cd runtime-nim && nim c -r --hints:off tests/test_state_machine_runtime.nim
+	cd runtime-nim && nim c -r --hints:off tests/test_state_machine_validation.nim
+	cd runtime-nim && nim c -r --hints:off tests/test_helper_geometry.nim
 	cd runtime-nim && nim c -r --hints:off -d:bonyExcludeMain --path:../cli tests/test_cli_pose.nim
 	cd runtime-nim && nim c -r --hints:off -d:bonyExcludeMain --path:../cli tests/test_m20_skin_conformance.nim
 	cd runtime-nim && nim c -r --hints:off -d:bonyExcludeMain --path:../cli tests/test_m22_skin_required_conformance.nim

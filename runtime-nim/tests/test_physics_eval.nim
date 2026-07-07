@@ -386,3 +386,193 @@ spec "bony physics evaluation":
       closeTo(states[0].channels[pcX].previousTarget, 3.0)
       closeTo(states[0].accumulator, 0.0)
       closeWithin(resetWorlds[1].tx, 3.0, 1e-9)
+
+include smoke_support
+
+spec "physics load and integration smoke coverage":
+  it "round trips a physics constraint through JSON and .bnb":
+    let jsonText = """
+{
+  "skeleton": { "name": "phys", "version": "1.0.0" },
+  "bones": [
+    { "name": "root" },
+    { "name": "hair", "parent": "root", "x": 5.0 }
+  ],
+  "physicsConstraints": [
+    {
+      "name": "sway",
+      "bone": "hair",
+      "order": 2,
+      "channels": 7,
+      "strength": 40.0,
+      "damping": 0.5,
+      "mass": 2.0,
+      "gravity": -9.5,
+      "physicsMix": 0.75
+    }
+  ]
+}
+"""
+    let fromJson = loadBonyJson(jsonText)
+    let bnbBytes = toBonyBnb(fromJson)
+    let fromBnb = loadBonyBnb(bnbBytes)
+    then:
+      fromJson.physicsConstraints.len == 1
+      fromBnb.physicsConstraints.len == 1
+    let pj = fromJson.physicsConstraints[0]
+    let pb = fromBnb.physicsConstraints[0]
+    then:
+      # JSON and binary loaders agree on every field.
+      pj.name == "sway" and pb.name == "sway"
+      pj.bone == "hair" and pb.bone == "hair"
+      pj.order == 2 and pb.order == 2
+      pj.channels == {pcX, pcY, pcRotate}
+      pb.channels == {pcX, pcY, pcRotate}
+      # Omitted params fall back to defaults with presence flag false.
+      pj.hasInertia == false and pb.hasInertia == false
+      closeTo(pj.inertia, 0.0) and closeTo(pb.inertia, 0.0)
+      pj.hasWind == false and pb.hasWind == false
+      # Present params round-trip identically (f32-exact values).
+      pj.hasStrength and pb.hasStrength
+      closeTo(pj.strength, 40.0) and closeTo(pb.strength, 40.0)
+      pj.hasDamping and pb.hasDamping
+      closeTo(pj.damping, 0.5) and closeTo(pb.damping, 0.5)
+      pj.hasMass and pb.hasMass
+      closeTo(pj.mass, 2.0) and closeTo(pb.mass, 2.0)
+      pj.hasGravity and pb.hasGravity
+      closeTo(pj.gravity, -9.5) and closeTo(pb.gravity, -9.5)
+      pj.hasMix and pb.hasMix
+      closeTo(pj.mix, 0.75) and closeTo(pb.mix, 0.75)
+    # Serialization is idempotent and the .bnb encoding is byte-stable.
+    let reJson = toBonyJson(fromBnb)
+    then:
+      reJson == toBonyJson(fromJson)
+      toBonyBnb(loadBonyJson(reJson)) == bnbBytes
+
+  it "rejects invalid physics constraints":
+    proc buildWith(pcs: seq[PhysicsConstraintData]): SkeletonData =
+      skeletonData(
+        skeletonHeader("phys", "1.0.0"),
+        @[boneData("root", ""), boneData("hair", "root", localTransform(x = 1.0))],
+        physicsConstraints = pcs,
+      )
+    then:
+      # unknown constrained bone
+      raisesBonyLoadError(
+        proc() = discard buildWith(@[physicsConstraintData("a", "missing", {pcX})]),
+        unknownRequiredReference)
+      # duplicate name
+      raisesBonyLoadError(
+        proc() = discard buildWith(@[
+          physicsConstraintData("dup", "hair", {pcX}),
+          physicsConstraintData("dup", "hair", {pcY}),
+        ]),
+        duplicateKey)
+      # empty channel set
+      raisesBonyLoadError(
+        proc() = discard physicsConstraintData("a", "hair", {}),
+        schemaViolation)
+      # negative mass
+      raisesBonyLoadError(
+        proc() = discard physicsConstraintData("a", "hair", {pcX}, hasMass = true, mass = -1.0),
+        schemaViolation)
+      # mix out of range
+      raisesBonyLoadError(
+        proc() = discard physicsConstraintData("a", "hair", {pcX}, hasMix = true, mix = 1.5),
+        schemaViolation)
+      # unknown channel bit in the wire mask
+      raisesBonyLoadError(
+        proc() = discard physicsChannelsFromMask(0b100000'u64),
+        schemaViolation)
+
+  it "integrates physics constraints with fixed substeps and reset policy":
+    let params = physicsParams(gravity = 60.0)
+    var state: PhysicsConstraintState
+    let seedOnly = state.updatePhysicsConstraint(params, @[physicsChannelInput(pcX, 5.0)], 0.0)
+    let halfStep = state.updatePhysicsConstraint(params, @[physicsChannelInput(pcX, 5.0)], physicsFixedDt * 0.5)
+    let fullStep = state.updatePhysicsConstraint(params, @[physicsChannelInput(pcX, 5.0)], physicsFixedDt * 0.5)
+    let largeStep = state.updatePhysicsConstraint(params, @[physicsChannelInput(pcX, 5.0)], physicsMaxFrameDt)
+
+    var inertiaState: PhysicsConstraintState
+    discard inertiaState.updatePhysicsConstraint(physicsParams(inertia = 0.5), @[physicsChannelInput(pcX, 0.0)], 0.0)
+    let inertiaStep = inertiaState.updatePhysicsConstraint(physicsParams(inertia = 0.5), @[physicsChannelInput(pcX, 10.0)], physicsFixedDt)
+
+    var resetState: PhysicsConstraintState
+    discard resetState.updatePhysicsConstraint(params, @[physicsChannelInput(pcX, 0.0)], physicsFixedDt)
+    let resetNoop = resetState.updatePhysicsConstraint(params, @[physicsChannelInput(pcX, 3.0)], 0.0, reset = true)
+
+    var inactiveState: PhysicsConstraintState
+    inactiveState.accumulator = physicsFixedDt
+    let inactive = inactiveState.updatePhysicsConstraint(params, @[physicsChannelInput(pcX, 2.0)], physicsFixedDt, active = false)
+    let reactivated = inactiveState.updatePhysicsConstraint(params, @[physicsChannelInput(pcX, 4.0)], 0.0)
+
+    var staleInactiveState: PhysicsConstraintState
+    discard staleInactiveState.updatePhysicsConstraint(params, @[physicsChannelInput(pcX, 0.0)], physicsFixedDt)
+    let staleInactive = staleInactiveState.updatePhysicsConstraint(params, @[physicsChannelInput(pcX, 10.0)], physicsFixedDt, active = false)
+
+    var almostState: PhysicsConstraintState
+    let almost = almostState.updatePhysicsConstraint(params, @[physicsChannelInput(pcX, 0.0)], physicsFixedDt - physicsStepEpsilon * 0.5)
+    let crossed = almostState.updatePhysicsConstraint(params, @[physicsChannelInput(pcX, 0.0)], physicsStepEpsilon)
+
+    var firstPhysics: PhysicsConstraintState
+    var secondPhysics: PhysicsConstraintState
+    discard firstPhysics.updatePhysicsConstraint(params, @[physicsChannelInput(pcX, 0.0)], 0.0)
+    discard secondPhysics.updatePhysicsConstraint(physicsParams(inertia = 1.0), @[physicsChannelInput(pcX, 0.0)], 0.0)
+    let firstOrdered = firstPhysics.updatePhysicsConstraint(params, @[physicsChannelInput(pcX, 0.0)], physicsFixedDt)
+    let secondOrdered = secondPhysics.updatePhysicsConstraint(
+      physicsParams(inertia = 1.0),
+      @[physicsChannelInput(pcX, firstOrdered.outputs[0].value)],
+      physicsFixedDt,
+    )
+
+    var channelState: PhysicsConstraintState
+    let independent = channelState.updatePhysicsConstraint(
+      params,
+      @[physicsChannelInput(pcX, 1.0), physicsChannelInput(pcY, -2.0)],
+      physicsFixedDt,
+    )
+
+    then:
+      closeTo(physicsFixedDt, 1.0 / 60.0)
+      physicsMaxSubsteps == 8
+      closeTo(seedOnly.outputs[0].value, 5.0)
+      seedOnly.substeps == 0
+      closeTo(halfStep.accumulator, physicsFixedDt * 0.5)
+      halfStep.substeps == 0
+      fullStep.substeps == 1
+      closeTo(fullStep.outputs[0].offset, physicsFixedDt)
+      closeTo(fullStep.outputs[0].velocity, 1.0)
+      largeStep.substeps == physicsMaxSubsteps
+      largeStep.droppedSteps == 7
+      closeWithin(largeStep.accumulator, 0.0, physicsStepEpsilon)
+      closeTo(largeStep.outputs[0].offset, 0.75)
+      inertiaStep.substeps == 1
+      closeTo(inertiaStep.outputs[0].value, 5.0)
+      closeTo(resetNoop.outputs[0].value, 3.0)
+      closeTo(resetState.channels[pcX].offset, 0.0)
+      closeTo(resetState.channels[pcX].velocity, 0.0)
+      inactive.substeps == 0
+      closeTo(inactive.accumulator, physicsFixedDt)
+      closeTo(reactivated.accumulator, 0.0)
+      closeTo(reactivated.outputs[0].value, 4.0)
+      closeTo(inactiveState.channels[pcX].offset, 0.0)
+      closeTo(staleInactive.outputs[0].value, 10.0)
+      closeTo(staleInactiveState.channels[pcX].offset, physicsFixedDt)
+      almost.substeps == 0
+      closeTo(almost.accumulator, physicsFixedDt - physicsStepEpsilon * 0.5)
+      crossed.substeps == 1
+      closeWithin(crossed.accumulator, 0.0, physicsStepEpsilon)
+      closeTo(firstOrdered.outputs[0].value, physicsFixedDt)
+      closeTo(secondOrdered.outputs[0].value, 0.0)
+      independent.outputs.len == 2
+      closeTo(independent.outputs[0].value, 1.0 + physicsFixedDt)
+      closeTo(independent.outputs[1].value, -2.0 + physicsFixedDt)
+      raisesBonyLoadError(proc() =
+        discard state.updatePhysicsConstraint(params, @[physicsChannelInput(pcX, 0.0)], -0.1)
+      , schemaViolation)
+      raisesBonyLoadError(proc() =
+        discard physicsParams(mix = 1.1)
+      , schemaViolation)
+      raisesBonyLoadError(proc() =
+        discard state.updatePhysicsConstraint(params, @[physicsChannelInput(pcX, 0.0), physicsChannelInput(pcX, 1.0)], 0.0)
+      , schemaViolation)

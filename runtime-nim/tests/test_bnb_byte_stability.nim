@@ -552,3 +552,123 @@ doAssert viaJsonAsset(extendedAsset) == extendedAsset, "extended scalar asset ch
 inspectExtendedScalarAsset(extendedAsset)
 
 echo ".bnb byte-stability gate passed"
+
+include smoke_support
+
+spec "bnb committed fixture smoke coverage":
+  it "round trips SkeletonData through canonical .bnb":
+    let source = loadBonyJson("""
+{
+  "bones": [
+    {
+      "scaleY": 2,
+      "name": "root",
+      "x": 0.1000000001
+    },
+    {
+      "parent": "root",
+      "name": "child",
+      "inheritRotation": false,
+      "inheritScale": false,
+      "inheritReflection": false,
+      "transformMode": "onlyTranslation"
+    }
+  ],
+  "regions": [
+    {
+      "height": 4,
+      "name": "body",
+      "width": 8
+    }
+  ],
+  "slots": [
+    {
+      "attachment": "body",
+      "bone": "root",
+      "name": "bodySlot"
+    }
+  ],
+  "skeleton": {
+    "version": "0.2.0",
+    "name": "demo"
+  }
+}
+""")
+    let bnbBytes = toBonyBnb(source)
+    let decoded = loadBonyBnb(bnbBytes)
+    let decodedJson = toBonyJson(decoded)
+    let stableBytes = toBonyBnb(loadBonyJson(decodedJson))
+
+    then:
+      decodedJson == toBonyJson(source)
+      stableBytes == bnbBytes
+
+    var index = 0
+    let header = bnbBytes.readHeader(index)
+    let toc = bnbBytes.readToc(index)
+    let strings = bnbBytes.readStringTable(index)
+
+    then:
+      header.flags == bnbStringTableFlag
+      toc.len == 13
+      toc[0].propertyKey == 1
+      toc[^1].propertyKey == 1015
+      strings.values == @[
+        "demo",
+        "0.2.0",
+        "root",
+        "child",
+        "onlyTranslation",
+        "bodySlot",
+        "body",
+      ]
+
+  it "loads .bnb while skipping unknown objects":
+    var table = initStringTable()
+    var namePayload: seq[byte]
+    namePayload.writeStringPayload(table, "demo")
+    var bytes: seq[byte]
+    bytes.writeHeader(flags = bnbStringTableFlag)
+    bytes.writeToc(@[
+      BnbTocEntry(propertyKey: 1, backingTypeCode: backingTypeCode("string")),
+      BnbTocEntry(propertyKey: 900000, backingTypeCode: backingTypeCode("bytes")),
+    ])
+    bytes.writeStringTable(table)
+    bytes.writeObjectRecord(999999, @[BnbPropertyRecord(propertyKey: 900000, payload: @[1'u8, 2'u8])])
+    bytes.writeObjectRecord(1, @[BnbPropertyRecord(propertyKey: 1, payload: namePayload)])
+    bytes.writeObjectStreamTerminator()
+
+    let loaded = loadBonyBnb(bytes)
+
+    then:
+      toBonyJson(loaded) == """{
+  "skeleton": {
+    "name": "demo"
+  },
+  "bones": [],
+  "slots": [],
+  "regions": []
+}
+"""
+      raisesBonyLoadError(proc() = discard loadKnownBonyBnb(bytes), schemaViolation)
+
+  it "loads committed forward-compat fixture skipping the unknown object":
+    let path = repoPath("conformance", "assets", "bnb", "forward_compat.bnb")
+    let fixture = cast[seq[byte]](readFile(path))
+    let data = loadBonyBnb(fixture)
+    then:
+      data.header.name == "m6-compat"
+      data.bones.len == 1
+      data.bones[0].name == "root"
+      raisesBonyLoadError(proc() = discard loadKnownBonyBnb(fixture), schemaViolation)
+
+  it "loads all committed m*_rig.bnb conformance fixtures":
+    let bnbDir = repoPath("conformance", "assets", "bnb")
+    var loaded = 0
+    for entry in walkDir(bnbDir):
+      if entry.kind == pcFile and entry.path.endsWith("_rig.bnb"):
+        let fixture = cast[seq[byte]](readFile(entry.path))
+        discard loadBonyBnb(fixture)
+        inc loaded
+    then:
+      loaded == 26  # m1–m5, m5_ik, m5_transform, m5_physics, m7, m8, m9_non_scalar, m11_clip, m12_mesh, m13_mesh_deform, m14_mesh_warp, m15_mesh_unweighted_deform, m16_mesh_multi_deform, m17_mesh_clip, m18_mesh_deform_anim, m19_event, m20_skin, m21_pointer_listener, m22_skin_required, m23_nested, m23_nested_child, m24_atlas_region
