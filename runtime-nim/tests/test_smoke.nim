@@ -3197,6 +3197,7 @@ spec "bony package":
     let cliPath = "/tmp/bony_cli_harness_db_smoke"
     let skePath = "/tmp/bony_cli_harness_ske.json"
     let dbOutPath = "/tmp/bony_cli_harness_db_out.bony"
+    let dbStaticNoAnimOutPath = "/tmp/bony_cli_harness_db_static_no_anim.bony"
     let dbBnbPath = "/tmp/bony_cli_harness_db_out.bnb"
     let dbRoundTripPath = "/tmp/bony_cli_harness_db_roundtrip.bony"
     let dbRejectMeshPath = "/tmp/bony_cli_harness_db_reject_mesh.json"
@@ -3214,7 +3215,7 @@ spec "bony package":
     let dbSetupOnlySkipsAnimOutPath = "/tmp/bony_cli_harness_db_setup_skips_anim.bony"
     let dbZeroDurationAnimPath = "/tmp/bony_cli_harness_db_zero_duration_anim.json"
     let dbZeroDurationAnimOutPath = "/tmp/bony_cli_harness_db_zero_duration_anim.bony"
-    for path in [cliPath, skePath, dbOutPath, dbBnbPath, dbRoundTripPath,
+    for path in [cliPath, skePath, dbOutPath, dbStaticNoAnimOutPath, dbBnbPath, dbRoundTripPath,
                  dbRejectMeshPath, dbRejectMeshOutPath,
                  dbRejectBadParentPath, dbRejectBadParentOutPath,
                  dbRejectDisplayXformPath, dbRejectDisplayXformOutPath,
@@ -3306,6 +3307,10 @@ spec "bony package":
     let importDb = runProcess(cliPath, ["import-dragonbones", skePath, dbOutPath, "--setup-only"])
     let importedStaticAsset =
       if fileExists(dbOutPath): loadBonyJsonAsset(readFile(dbOutPath))
+      else: bonyAsset(skeletonData(skeletonHeader("err", "0"), @[boneData("err", "")]))
+    let importDbStaticPreserved = runProcess(cliPath, ["import-dragonbones", skePath, dbStaticNoAnimOutPath])
+    let preservedStaticAsset =
+      if fileExists(dbStaticNoAnimOutPath): loadBonyJsonAsset(readFile(dbStaticNoAnimOutPath))
       else: bonyAsset(skeletonData(skeletonHeader("err", "0"), @[boneData("err", "")]))
     let dbJsonToBnb = runProcess(cliPath, ["json-to-bnb", dbOutPath, dbBnbPath])
     let dbBnbToJson = runProcess(cliPath, ["bnb-to-json", dbBnbPath, dbRoundTripPath])
@@ -3680,6 +3685,9 @@ spec "bony package":
       importDb.exitCode == 0
       importDb.output.strip() == ""
       importedStaticAsset.animations.len == 0
+      importDbStaticPreserved.exitCode == 0
+      importDbStaticPreserved.output.strip() == ""
+      preservedStaticAsset.animations.len == 0
       dbJsonToBnb.exitCode == 0
       dbBnbToJson.exitCode == 0
       imported.bones.len == 3
@@ -3785,7 +3793,7 @@ spec "bony package":
       closeTo(zeroDurationAsset.animations[0].duration, 0.0)
       dbRejectMatrixFailures.join("\n") == ""
 
-    for path in [cliPath, skePath, dbOutPath, dbBnbPath, dbRoundTripPath,
+    for path in [cliPath, skePath, dbOutPath, dbStaticNoAnimOutPath, dbBnbPath, dbRoundTripPath,
                  dbRejectMeshPath, dbRejectMeshOutPath,
                  dbRejectBadParentPath, dbRejectBadParentOutPath,
                  dbRejectDisplayXformPath, dbRejectDisplayXformOutPath,
