@@ -937,15 +937,7 @@ proc findSpan[T](keys: openArray[T]; time: float64): int =
 
 proc sample*(timeline: BoneTimeline; time: float64): ScalarKeyframe =
   validateBoneTimeline(timeline, "bone timeline")
-  if timeline.kind notin {
-    rotateTimeline,
-    translateXTimeline,
-    translateYTimeline,
-    scaleXTimeline,
-    scaleYTimeline,
-    shearXTimeline,
-    shearYTimeline,
-  }:
+  if not timeline.kind.isScalarBoneTimeline:
     raise newBonyLoadError(schemaViolation, "bone timeline does not contain scalar keys")
   let storedTime = quantizeTime(time, "sample.time")
   let index = findSpan(timeline.scalarKeys, storedTime)
@@ -959,7 +951,7 @@ proc sample*(timeline: BoneTimeline; time: float64): ScalarKeyframe =
 
 proc sampleVector*(timeline: BoneTimeline; time: float64): Vector2Keyframe =
   validateBoneTimeline(timeline, "bone timeline")
-  if timeline.kind notin {translateTimeline, scaleTimeline, shearTimeline}:
+  if not timeline.kind.isVectorBoneTimeline:
     raise newBonyLoadError(schemaViolation, "bone timeline does not contain vector keys")
   let storedTime = quantizeTime(time, "sample.time")
   let index = findSpan(timeline.vectorKeys, storedTime)

@@ -5613,6 +5613,38 @@ spec "bony package":
       closeTo(sampled.y, 10.0)
       raisesBonyLoadError(proc() = discard timeline.sample(0.25), schemaViolation)
 
+  it "returns empty key lists for inactive timeline variants":
+    let scalar = boneScalarTimeline("root", rotateTimeline, @[scalarKeyframe(0.0, 10.0)])
+    let vector = boneVectorTimeline("root", translateTimeline, @[vector2Keyframe(0.0, 1.0, 2.0)])
+    let inherit = boneInheritTimeline("root", @[inheritKeyframe(0.0)])
+    let attachment = slotAttachmentTimeline("body", @[attachmentKeyframe(0.0, "idle")])
+    let color = slotColorTimeline("body", rgbaTimeline, @[colorKeyframe(0.0, colorRgba(1.0, 1.0, 1.0, 1.0))])
+    let color2 = slotColor2Timeline(
+      "body",
+      @[color2Keyframe(0.0, colorRgba2(colorRgba(1.0, 1.0, 1.0, 1.0), 0.0, 0.0, 0.0))],
+    )
+    let sequence = slotSequenceTimeline("body", @[sequenceKeyframe(0.0, 0'u32, 0.1)])
+
+    then:
+      scalar.vectorKeys.len == 0
+      scalar.inheritKeys.len == 0
+      vector.scalarKeys.len == 0
+      vector.inheritKeys.len == 0
+      inherit.scalarKeys.len == 0
+      inherit.vectorKeys.len == 0
+      attachment.colorKeys.len == 0
+      attachment.color2Keys.len == 0
+      attachment.sequenceKeys.len == 0
+      color.attachmentKeys.len == 0
+      color.color2Keys.len == 0
+      color.sequenceKeys.len == 0
+      color2.attachmentKeys.len == 0
+      color2.colorKeys.len == 0
+      color2.sequenceKeys.len == 0
+      sequence.attachmentKeys.len == 0
+      sequence.colorKeys.len == 0
+      sequence.color2Keys.len == 0
+
   it "samples inherit timelines as discrete flag changes":
     let timeline = boneInheritTimeline(
       "root",
