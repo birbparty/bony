@@ -5,6 +5,7 @@ import std/[algorithm, json, math, sequtils, sets, strutils, tables]
 import bony/generated/wire
 import bony/asset
 import bony/model
+import bony/wiremeta
 import bony/mesh/attachments
 import bony/deform/deformers
 import bony/deform/keyforms
@@ -24,34 +25,6 @@ const
   boundingBoxAttachmentTypeId = "boundingBoxAttachment"
   clippingAttachmentTypeId = "clippingAttachment"
   meshAttachmentTypeId = "meshAttachment"
-
-
-proc defaultFor(objectId, propertyId: string): string =
-  for entry in bonyPropertyDefaults:
-    if entry.objectId == objectId and entry.propertyId == propertyId:
-      return parseJson(entry.value).getStr()
-  raise newBonyLoadError(schemaViolation, "missing generated default for " & objectId & "." & propertyId)
-
-
-proc defaultFloat(objectId, propertyId: string): float64 =
-  for entry in bonyPropertyDefaults:
-    if entry.objectId == objectId and entry.propertyId == propertyId:
-      return parseJson(entry.value).getFloat()
-  raise newBonyLoadError(schemaViolation, "missing generated default for " & objectId & "." & propertyId)
-
-
-proc defaultBool(objectId, propertyId: string): bool =
-  for entry in bonyPropertyDefaults:
-    if entry.objectId == objectId and entry.propertyId == propertyId:
-      return parseJson(entry.value).getBool()
-  raise newBonyLoadError(schemaViolation, "missing generated default for " & objectId & "." & propertyId)
-
-
-proc defaultInt(objectId, propertyId: string): int =
-  for entry in bonyPropertyDefaults:
-    if entry.objectId == objectId and entry.propertyId == propertyId:
-      return entry.value.parseInt()
-  raise newBonyLoadError(schemaViolation, "missing generated default for " & objectId & "." & propertyId)
 
 
 proc skipJsonWhitespace(text: string; index: var int) =
@@ -204,6 +177,130 @@ proc requiredString(node: JsonNode; key, context: string): string =
   optionalString(node, key, "", context)
 
 
+type JsonScalarAlias = object
+  jsonKey: string
+  propertyId: string
+
+
+proc jsonScalarAlias(jsonKey, propertyId: string): JsonScalarAlias =
+  JsonScalarAlias(jsonKey: jsonKey, propertyId: propertyId)
+
+
+proc scalarJsonKey(propertyId: string; aliases: openArray[JsonScalarAlias]): string =
+  for alias in aliases:
+    if alias.propertyId == propertyId:
+      return alias.jsonKey
+  propertyId
+
+
+proc bonyScalarValueFromJson(value: JsonNode; spec: BonyScalarPropertySpec; context: string): BonyScalarValue =
+  case spec.kind
+  of bskString:
+    if value.kind != JString:
+      raise newBonyLoadError(schemaViolation, context & " must be a string")
+    bonyStringValue(value.getStr())
+  of bskF32:
+    if value.kind notin {JInt, JFloat}:
+      raise newBonyLoadError(schemaViolation, context & " must be numeric")
+    bonyF32Value(quantizeF32(value.getFloat(), context))
+  of bskF64:
+    if value.kind notin {JInt, JFloat}:
+      raise newBonyLoadError(schemaViolation, context & " must be numeric")
+    bonyF64Value(requireFiniteF64(value.getFloat(), context))
+  of bskBool:
+    if value.kind != JBool:
+      raise newBonyLoadError(schemaViolation, context & " must be bool")
+    bonyBoolValue(value.getBool())
+  of bskVarint:
+    if value.kind != JInt:
+      raise newBonyLoadError(schemaViolation, context & " must be an integer")
+    bonyIntValue(value.getInt().int64)
+  of bskVaruint:
+    if value.kind != JInt:
+      raise newBonyLoadError(schemaViolation, context & " must be an integer")
+    let intValue = value.getInt()
+    if intValue < 0:
+      raise newBonyLoadError(schemaViolation, context & " must be non-negative")
+    bonyUintValue(intValue.uint64)
+
+
+proc jsonScalarsFromObject(
+    node: JsonNode;
+    specs: openArray[BonyScalarPropertySpec];
+    context: string;
+    aliases: openArray[JsonScalarAlias];
+): seq[BonyJsonScalarProperty] =
+  for spec in specs:
+    let key = scalarJsonKey(spec.propertyId, aliases)
+    if node.hasKey(key):
+      result.add BonyJsonScalarProperty(
+        propertyId: spec.propertyId,
+        value: bonyScalarValueFromJson(node[key], spec, context & "." & key),
+      )
+
+
+type BonyJsonScalarDecoder = proc(
+  properties: openArray[BonyJsonScalarProperty]
+): seq[BonyJsonScalarProperty]
+
+
+proc decodeJsonScalarsForLoad(
+    decoder: BonyJsonScalarDecoder;
+    properties: openArray[BonyJsonScalarProperty];
+    context: string;
+): seq[BonyJsonScalarProperty] =
+  try:
+    decoder(properties)
+  except ValueError as exc:
+    raise newBonyLoadError(schemaViolation, context & ": " & exc.msg)
+
+
+proc decodeJsonScalarsFromObject(
+    decoder: BonyJsonScalarDecoder;
+    node: JsonNode;
+    specs: openArray[BonyScalarPropertySpec];
+    context: string;
+    aliases: openArray[JsonScalarAlias];
+): seq[BonyJsonScalarProperty] =
+  decodeJsonScalarsForLoad(decoder, jsonScalarsFromObject(node, specs, context, aliases), context)
+
+
+proc decodeJsonScalarsFromObject(
+    decoder: BonyJsonScalarDecoder;
+    node: JsonNode;
+    specs: openArray[BonyScalarPropertySpec];
+    context: string;
+): seq[BonyJsonScalarProperty] =
+  decodeJsonScalarsFromObject(decoder, node, specs, context, [])
+
+
+proc scalarValue(properties: openArray[BonyJsonScalarProperty]; propertyId, context: string): BonyScalarValue =
+  for property in properties:
+    if property.propertyId == propertyId:
+      return property.value
+  raise newBonyLoadError(schemaViolation, context & "." & propertyId & " is required")
+
+
+proc scalarString(properties: openArray[BonyJsonScalarProperty]; propertyId, context: string): string =
+  scalarValue(properties, propertyId, context).stringValue
+
+
+proc scalarFloat(properties: openArray[BonyJsonScalarProperty]; propertyId, context: string): float64 =
+  scalarValue(properties, propertyId, context).floatValue
+
+
+proc scalarBool(properties: openArray[BonyJsonScalarProperty]; propertyId, context: string): bool =
+  scalarValue(properties, propertyId, context).boolValue
+
+
+proc scalarInt(properties: openArray[BonyJsonScalarProperty]; propertyId, context: string): int =
+  scalarValue(properties, propertyId, context).intValue.int
+
+
+proc scalarUint(properties: openArray[BonyJsonScalarProperty]; propertyId, context: string): uint64 =
+  scalarValue(properties, propertyId, context).uintValue
+
+
 proc optionalStringArray(node: JsonNode; key, context: string): seq[string] =
   if not node.hasKey(key):
     return @[]
@@ -319,6 +416,71 @@ proc addBoolField(output: var string; key: string; value: bool; indent: int; fir
   output.add (if value: "true" else: "false")
 
 
+func jsonScalarString(propertyId, value: string): BonyJsonScalarProperty =
+  BonyJsonScalarProperty(propertyId: propertyId, value: bonyStringValue(value))
+
+
+func jsonScalarFloat(propertyId: string; value: float64): BonyJsonScalarProperty =
+  BonyJsonScalarProperty(propertyId: propertyId, value: bonyF32Value(value))
+
+
+func jsonScalarF64(propertyId: string; value: float64): BonyJsonScalarProperty =
+  BonyJsonScalarProperty(propertyId: propertyId, value: bonyF64Value(value))
+
+
+func jsonScalarBool(propertyId: string; value: bool): BonyJsonScalarProperty =
+  BonyJsonScalarProperty(propertyId: propertyId, value: bonyBoolValue(value))
+
+
+func jsonScalarInt(propertyId: string; value: int): BonyJsonScalarProperty =
+  BonyJsonScalarProperty(propertyId: propertyId, value: bonyIntValue(value.int64))
+
+
+func jsonScalarUint(propertyId: string; value: uint64): BonyJsonScalarProperty =
+  BonyJsonScalarProperty(propertyId: propertyId, value: bonyUintValue(value))
+
+
+proc jsonScalarIndex(properties: openArray[BonyJsonScalarProperty]; propertyId: string): int =
+  for index, property in properties:
+    if property.propertyId == propertyId:
+      return index
+  -1
+
+
+proc addJsonScalarField(
+    output: var string;
+    properties: openArray[BonyJsonScalarProperty];
+    propertyId, jsonKey: string;
+    indent: int;
+    first: var bool;
+) =
+  let index = jsonScalarIndex(properties, propertyId)
+  if index < 0:
+    return
+  let property = properties[index]
+  case property.value.kind
+  of bskString:
+    output.addStringField(jsonKey, property.value.stringValue, indent, first)
+  of bskF32, bskF64:
+    output.addNumberField(jsonKey, property.value.floatValue, indent, first)
+  of bskBool:
+    output.addBoolField(jsonKey, property.value.boolValue, indent, first)
+  of bskVarint:
+    output.addIntField(jsonKey, property.value.intValue.int, indent, first)
+  of bskVaruint:
+    output.addIntField(jsonKey, property.value.uintValue.int, indent, first)
+
+
+proc addJsonScalarField(
+    output: var string;
+    properties: openArray[BonyJsonScalarProperty];
+    propertyId: string;
+    indent: int;
+    first: var bool;
+) =
+  output.addJsonScalarField(properties, propertyId, propertyId, indent, first)
+
+
 proc parseBonyAnimations(root: JsonNode; data: SkeletonData): Table[string, AnimationClip]
 proc parseBonyStateMachines(
   root: JsonNode;
@@ -343,10 +505,12 @@ proc loadBonyJson*(text: string): SkeletonData =
     raise newBonyLoadError(schemaViolation, "root.skeleton is required")
   let skeleton = requireObject(root["skeleton"], "skeleton")
   validateKnownKeys(skeleton, ["name", "version"], "skeleton")
+  let skeletonScalars = decodeJsonScalarsFromObject(
+    decodeSkeletonJsonScalars, skeleton, bonySkeletonScalarSpecs, "skeleton")
 
   let loadedHeader = skeletonHeader(
-    requiredString(skeleton, "name", "skeleton"),
-    optionalString(skeleton, "version", defaultFor(skeletonTypeId, "version"), "skeleton"),
+    scalarString(skeletonScalars, "name", "skeleton"),
+    scalarString(skeletonScalars, "version", "skeleton"),
   )
 
   if not root.hasKey("bones"):
@@ -377,40 +541,29 @@ proc loadBonyJson*(text: string): SkeletonData =
       ],
       context,
     )
-    let inheritRotation = optionalBool(
-      boneObject,
-      "inheritRotation",
-      defaultBool(boneTypeId, "inheritRotation"),
-      context,
-    )
-    let inheritScale = optionalBool(boneObject, "inheritScale", defaultBool(boneTypeId, "inheritScale"), context)
-    let inheritReflection = optionalBool(
-      boneObject,
-      "inheritReflection",
-      defaultBool(boneTypeId, "inheritReflection"),
-      context,
-    )
-    let mode = parseTransformMode(
-      optionalString(boneObject, "transformMode", defaultFor(boneTypeId, "transformMode"), context),
-      context,
-    )
+    let boneScalars = decodeJsonScalarsFromObject(
+      decodeBoneJsonScalars, boneObject, bonyBoneScalarSpecs, context)
+    let inheritRotation = scalarBool(boneScalars, "inheritRotation", context)
+    let inheritScale = scalarBool(boneScalars, "inheritScale", context)
+    let inheritReflection = scalarBool(boneScalars, "inheritReflection", context)
+    let mode = parseTransformMode(scalarString(boneScalars, "transformMode", context), context)
     loadedBones.add boneData(
-      requiredString(boneObject, "name", context),
-      optionalString(boneObject, "parent", defaultFor(boneTypeId, "parent"), context),
+      scalarString(boneScalars, "name", context),
+      scalarString(boneScalars, "parent", context),
       localTransform(
-        x = optionalFloat(boneObject, "x", defaultFloat(boneTypeId, "x"), context),
-        y = optionalFloat(boneObject, "y", defaultFloat(boneTypeId, "y"), context),
-        rotation = optionalFloat(boneObject, "rotation", defaultFloat(boneTypeId, "rotation"), context),
-        scaleX = optionalFloat(boneObject, "scaleX", defaultFloat(boneTypeId, "scaleX"), context),
-        scaleY = optionalFloat(boneObject, "scaleY", defaultFloat(boneTypeId, "scaleY"), context),
-        shearX = optionalFloat(boneObject, "shearX", defaultFloat(boneTypeId, "shearX"), context),
-        shearY = optionalFloat(boneObject, "shearY", defaultFloat(boneTypeId, "shearY"), context),
+        x = scalarFloat(boneScalars, "x", context),
+        y = scalarFloat(boneScalars, "y", context),
+        rotation = scalarFloat(boneScalars, "rotation", context),
+        scaleX = scalarFloat(boneScalars, "scaleX", context),
+        scaleY = scalarFloat(boneScalars, "scaleY", context),
+        shearX = scalarFloat(boneScalars, "shearX", context),
+        shearY = scalarFloat(boneScalars, "shearY", context),
         inheritRotation = inheritRotation,
         inheritScale = inheritScale,
         inheritReflection = inheritReflection,
         transformMode = mode,
       ),
-      skinRequired = optionalBool(boneObject, "skinRequired", defaultBool(boneTypeId, "skinRequired"), context),
+      skinRequired = scalarBool(boneScalars, "skinRequired", context),
     )
 
   var loadedSlots: seq[SlotData] = @[]
@@ -420,10 +573,12 @@ proc loadBonyJson*(text: string): SkeletonData =
       let context = "slots[" & $index & "]"
       let slotObject = requireObject(slotNode, context)
       validateKnownKeys(slotObject, ["name", "bone", "attachment"], context)
+      let slotScalars = decodeJsonScalarsFromObject(
+        decodeSlotJsonScalars, slotObject, bonySlotScalarSpecs, context)
       loadedSlots.add slotData(
-        requiredString(slotObject, "name", context),
-        requiredString(slotObject, "bone", context),
-        optionalString(slotObject, "attachment", defaultFor(slotTypeId, "attachment"), context),
+        scalarString(slotScalars, "name", context),
+        scalarString(slotScalars, "bone", context),
+        scalarString(slotScalars, "attachment", context),
       )
 
   var loadedRegions: seq[RegionAttachment] = @[]
@@ -433,16 +588,18 @@ proc loadBonyJson*(text: string): SkeletonData =
       let context = "regions[" & $index & "]"
       let regionObject = requireObject(regionNode, context)
       validateKnownKeys(regionObject, ["name", "width", "height", "texturePage", "u0", "v0", "u1", "v1", "alphaMode"], context)
+      let regionScalars = decodeJsonScalarsFromObject(
+        decodeRegionJsonScalars, regionObject, bonyRegionScalarSpecs, context)
       loadedRegions.add regionAttachment(
-        requiredString(regionObject, "name", context),
-        requiredFloat(regionObject, "width", context),
-        requiredFloat(regionObject, "height", context),
-        texturePage = optionalString(regionObject, "texturePage", defaultFor(regionTypeId, "texturePage"), context),
-        u0 = optionalFloat(regionObject, "u0", defaultFloat(regionTypeId, "u0"), context),
-        v0 = optionalFloat(regionObject, "v0", defaultFloat(regionTypeId, "v0"), context),
-        u1 = optionalFloat(regionObject, "u1", defaultFloat(regionTypeId, "u1"), context),
-        v1 = optionalFloat(regionObject, "v1", defaultFloat(regionTypeId, "v1"), context),
-        alphaMode = optionalString(regionObject, "alphaMode", defaultFor(regionTypeId, "alphaMode"), context),
+        scalarString(regionScalars, "name", context),
+        scalarFloat(regionScalars, "width", context),
+        scalarFloat(regionScalars, "height", context),
+        texturePage = scalarString(regionScalars, "texturePage", context),
+        u0 = scalarFloat(regionScalars, "u0", context),
+        v0 = scalarFloat(regionScalars, "v0", context),
+        u1 = scalarFloat(regionScalars, "u1", context),
+        v1 = scalarFloat(regionScalars, "v1", context),
+        alphaMode = scalarString(regionScalars, "alphaMode", context),
       )
 
   var loadedPointAttachments: seq[PointAttachmentData] = @[]
@@ -452,11 +609,13 @@ proc loadBonyJson*(text: string): SkeletonData =
       let context = "pointAttachments[" & $index & "]"
       let pointObject = requireObject(pointNode, context)
       validateKnownKeys(pointObject, ["name", "x", "y", "rotation"], context)
+      let pointScalars = decodeJsonScalarsFromObject(
+        decodePointAttachmentJsonScalars, pointObject, bonyPointAttachmentScalarSpecs, context)
       loadedPointAttachments.add pointAttachmentData(
-        requiredString(pointObject, "name", context),
-        requiredFloat(pointObject, "x", context),
-        requiredFloat(pointObject, "y", context),
-        requiredFloat(pointObject, "rotation", context),
+        scalarString(pointScalars, "name", context),
+        scalarFloat(pointScalars, "x", context),
+        scalarFloat(pointScalars, "y", context),
+        scalarFloat(pointScalars, "rotation", context),
       )
 
   var loadedBoundingBoxAttachments: seq[BoundingBoxAttachmentData] = @[]
@@ -466,6 +625,8 @@ proc loadBonyJson*(text: string): SkeletonData =
       let context = "boundingBoxAttachments[" & $index & "]"
       let boxObject = requireObject(boxNode, context)
       validateKnownKeys(boxObject, ["name", "vertices"], context)
+      let boxScalars = decodeJsonScalarsFromObject(
+        decodeBoundingBoxAttachmentJsonScalars, boxObject, bonyBoundingBoxAttachmentScalarSpecs, context)
       if not boxObject.hasKey("vertices"):
         raise newBonyLoadError(schemaViolation, context & ".vertices is required")
       let verticesNode = requireArray(boxObject["vertices"], context & ".vertices")
@@ -476,7 +637,7 @@ proc loadBonyJson*(text: string): SkeletonData =
           raise newBonyLoadError(schemaViolation, vertexCtx & " must be numeric")
         boxVertices.add requireFiniteF64(vertexNode.getFloat(), vertexCtx)
       loadedBoundingBoxAttachments.add boundingBoxAttachmentData(
-        requiredString(boxObject, "name", context),
+        scalarString(boxScalars, "name", context),
         boxVertices,
       )
 
@@ -487,11 +648,22 @@ proc loadBonyJson*(text: string): SkeletonData =
       let context = "nestedRigAttachments[" & $index & "]"
       let nestedObject = requireObject(nestedNode, context)
       validateKnownKeys(nestedObject, ["name", "skeleton", "skin", "animation"], context)
+      let nestedScalars = decodeJsonScalarsFromObject(
+        decodeNestedRigAttachmentJsonScalars,
+        nestedObject,
+        bonyNestedRigAttachmentScalarSpecs,
+        context,
+        [
+          jsonScalarAlias("skeleton", "nestedSkeleton"),
+          jsonScalarAlias("skin", "nestedSkin"),
+          jsonScalarAlias("animation", "nestedAnimation"),
+        ],
+      )
       loadedNestedRigAttachments.add nestedRigAttachmentData(
-        requiredString(nestedObject, "name", context),
-        requiredString(nestedObject, "skeleton", context),
-        optionalString(nestedObject, "skin", defaultFor("nestedRigAttachment", "nestedSkin"), context),
-        optionalString(nestedObject, "animation", defaultFor("nestedRigAttachment", "nestedAnimation"), context),
+        scalarString(nestedScalars, "name", context),
+        scalarString(nestedScalars, "nestedSkeleton", context),
+        scalarString(nestedScalars, "nestedSkin", context),
+        scalarString(nestedScalars, "nestedAnimation", context),
       )
 
   var loadedPathAttachments: seq[PathAttachmentData] = @[]
@@ -501,16 +673,18 @@ proc loadBonyJson*(text: string): SkeletonData =
       let context = "pathAttachments[" & $index & "]"
       let pathAttachmentObject = requireObject(pathAttachmentNode, context)
       validateKnownKeys(pathAttachmentObject, ["name", "p0x", "p0y", "p1x", "p1y", "p2x", "p2y", "p3x", "p3y"], context)
+      let pathAttachmentScalars = decodeJsonScalarsFromObject(
+        decodePathAttachmentJsonScalars, pathAttachmentObject, bonyPathAttachmentScalarSpecs, context)
       loadedPathAttachments.add pathAttachmentData(
-        requiredString(pathAttachmentObject, "name", context),
-        requiredF64(pathAttachmentObject, "p0x", context),
-        requiredF64(pathAttachmentObject, "p0y", context),
-        requiredF64(pathAttachmentObject, "p1x", context),
-        requiredF64(pathAttachmentObject, "p1y", context),
-        requiredF64(pathAttachmentObject, "p2x", context),
-        requiredF64(pathAttachmentObject, "p2y", context),
-        requiredF64(pathAttachmentObject, "p3x", context),
-        requiredF64(pathAttachmentObject, "p3y", context),
+        scalarString(pathAttachmentScalars, "name", context),
+        scalarFloat(pathAttachmentScalars, "p0x", context),
+        scalarFloat(pathAttachmentScalars, "p0y", context),
+        scalarFloat(pathAttachmentScalars, "p1x", context),
+        scalarFloat(pathAttachmentScalars, "p1y", context),
+        scalarFloat(pathAttachmentScalars, "p2x", context),
+        scalarFloat(pathAttachmentScalars, "p2y", context),
+        scalarFloat(pathAttachmentScalars, "p3x", context),
+        scalarFloat(pathAttachmentScalars, "p3y", context),
       )
 
   var loadedClippingAttachments: seq[ClipAttachmentData] = @[]
@@ -520,6 +694,8 @@ proc loadBonyJson*(text: string): SkeletonData =
       let context = "clippingAttachments[" & $index & "]"
       let clipObject = requireObject(clipNode, context)
       validateKnownKeys(clipObject, ["name", "vertices", "untilSlot"], context)
+      let clipScalars = decodeJsonScalarsFromObject(
+        decodeClippingAttachmentJsonScalars, clipObject, bonyClippingAttachmentScalarSpecs, context)
       if not clipObject.hasKey("vertices"):
         raise newBonyLoadError(schemaViolation, context & ".vertices is required")
       let verticesNode = requireArray(clipObject["vertices"], context & ".vertices")
@@ -530,9 +706,9 @@ proc loadBonyJson*(text: string): SkeletonData =
           raise newBonyLoadError(schemaViolation, vertexCtx & " must be numeric")
         clipVertices.add requireFiniteF64(vertexNode.getFloat(), vertexCtx)
       loadedClippingAttachments.add clipAttachmentData(
-        requiredString(clipObject, "name", context),
+        scalarString(clipScalars, "name", context),
         clipVertices,
-        optionalString(clipObject, "untilSlot", defaultFor(clippingAttachmentTypeId, "untilSlot"), context),
+        scalarString(clipScalars, "untilSlot", context),
       )
 
   var loadedMeshAttachments: seq[MeshAttachment] = @[]
@@ -542,10 +718,16 @@ proc loadBonyJson*(text: string): SkeletonData =
       let context = "meshAttachments[" & $index & "]"
       let meshObject = requireObject(meshNode, context)
       validateKnownKeys(meshObject, ["name", "weighted", "vertices", "uvs", "triangles"], context)
+      let meshScalars = decodeJsonScalarsFromObject(
+        decodeMeshAttachmentJsonScalars,
+        meshObject,
+        bonyMeshAttachmentScalarSpecs,
+        context,
+        [jsonScalarAlias("weighted", "meshWeighted")],
+      )
       # The JSON field "weighted" maps to the meshWeighted property key, not an
       # id-named field; its default comes from the generated meshWeighted default.
-      let weighted = optionalBool(
-        meshObject, "weighted", defaultBool(meshAttachmentTypeId, "meshWeighted"), context)
+      let weighted = scalarBool(meshScalars, "meshWeighted", context)
 
       # vertices: array of {x, y} (unweighted) or {influences: [...]} (weighted).
       # Values are quantized/assembled validation-free here; the whole-skeleton
@@ -618,7 +800,7 @@ proc loadBonyJson*(text: string): SkeletonData =
         triangles.add uint16(triVal)
 
       loadedMeshAttachments.add meshAttachmentData(
-        requiredString(meshObject, "name", context),
+        scalarString(meshScalars, "name", context),
         meshUvs,
         triangles,
         meshVertices,
@@ -632,19 +814,27 @@ proc loadBonyJson*(text: string): SkeletonData =
       let context = "paths[" & $index & "]"
       let pathObject = requireObject(pathNode, context)
       validateKnownKeys(pathObject, ["name", "bone", "target", "path", "order", "skinRequired", "position", "translateMix", "rotateMix"], context)
+      let pathScalars = decodeJsonScalarsFromObject(
+        decodePathJsonScalars, pathObject, bonyPathScalarSpecs, context)
       loadedPaths.add pathConstraintData(
-        requiredString(pathObject, "name", context),
-        requiredString(pathObject, "bone", context),
-        requiredString(pathObject, "target", context),
-        requiredString(pathObject, "path", context),
-        optionalInt(pathObject, "order", defaultInt(pathTypeId, "order"), context),
-        skinRequired = optionalBool(pathObject, "skinRequired", defaultBool(pathTypeId, "skinRequired"), context),
+        scalarString(pathScalars, "name", context),
+        scalarString(pathScalars, "bone", context),
+        scalarString(pathScalars, "target", context),
+        scalarString(pathScalars, "path", context),
+        scalarInt(pathScalars, "order", context),
+        skinRequired = scalarBool(pathScalars, "skinRequired", context),
         hasPosition = pathObject.hasKey("position"),
-        position = optionalFloat(pathObject, "position", defaultFloat(pathTypeId, "position"), context),
+        position =
+          if pathObject.hasKey("position"): scalarFloat(pathScalars, "position", context)
+          else: defaultFloat(pathTypeId, "position"),
         hasTranslateMix = pathObject.hasKey("translateMix"),
-        translateMix = optionalFloat(pathObject, "translateMix", defaultFloat(pathTypeId, "translateMix"), context),
+        translateMix =
+          if pathObject.hasKey("translateMix"): scalarFloat(pathScalars, "translateMix", context)
+          else: defaultFloat(pathTypeId, "translateMix"),
         hasRotateMix = pathObject.hasKey("rotateMix"),
-        rotateMix = optionalFloat(pathObject, "rotateMix", defaultFloat(pathTypeId, "rotateMix"), context),
+        rotateMix =
+          if pathObject.hasKey("rotateMix"): scalarFloat(pathScalars, "rotateMix", context)
+          else: defaultFloat(pathTypeId, "rotateMix"),
       )
 
   var loadedIkConstraints: seq[IkConstraintData] = @[]
@@ -654,6 +844,8 @@ proc loadBonyJson*(text: string): SkeletonData =
       let context = "ikConstraints[" & $index & "]"
       let ikObject = requireObject(ikNode, context)
       validateKnownKeys(ikObject, ["name", "bones", "target", "order", "skinRequired", "mix", "bendPositive"], context)
+      let ikScalars = decodeJsonScalarsFromObject(
+        decodeIkConstraintJsonScalars, ikObject, bonyIkConstraintScalarSpecs, context)
       if not ikObject.hasKey("bones"):
         raise newBonyLoadError(schemaViolation, context & ".bones is required")
       let bonesNode = requireArray(ikObject["bones"], context & ".bones")
@@ -664,15 +856,19 @@ proc loadBonyJson*(text: string): SkeletonData =
           raise newBonyLoadError(schemaViolation, boneCtx & " must be a string")
         ikBones.add boneNameNode.getStr()
       loadedIkConstraints.add ikConstraintData(
-        requiredString(ikObject, "name", context),
-        requiredString(ikObject, "target", context),
+        scalarString(ikScalars, "name", context),
+        scalarString(ikScalars, "target", context),
         ikBones,
-        order = optionalInt(ikObject, "order", defaultInt(ikConstraintTypeId, "order"), context),
-        skinRequired = optionalBool(ikObject, "skinRequired", defaultBool(ikConstraintTypeId, "skinRequired"), context),
+        order = scalarInt(ikScalars, "order", context),
+        skinRequired = scalarBool(ikScalars, "skinRequired", context),
         hasMix = ikObject.hasKey("mix"),
-        mix = optionalFloat(ikObject, "mix", defaultFloat(ikConstraintTypeId, "mix"), context),
+        mix =
+          if ikObject.hasKey("mix"): scalarFloat(ikScalars, "mix", context)
+          else: defaultFloat(ikConstraintTypeId, "mix"),
         hasBendPositive = ikObject.hasKey("bendPositive"),
-        bendPositive = optionalBool(ikObject, "bendPositive", defaultBool(ikConstraintTypeId, "bendPositive"), context),
+        bendPositive =
+          if ikObject.hasKey("bendPositive"): scalarBool(ikScalars, "bendPositive", context)
+          else: defaultBool(ikConstraintTypeId, "bendPositive"),
       )
 
   var loadedTransformConstraints: seq[TransformConstraintData] = @[]
@@ -682,20 +878,30 @@ proc loadBonyJson*(text: string): SkeletonData =
       let context = "transformConstraints[" & $index & "]"
       let tcObject = requireObject(tcNode, context)
       validateKnownKeys(tcObject, ["name", "bone", "target", "order", "skinRequired", "translateMix", "rotateMix", "scaleMix", "shearMix"], context)
+      let tcScalars = decodeJsonScalarsFromObject(
+        decodeTransformConstraintJsonScalars, tcObject, bonyTransformConstraintScalarSpecs, context)
       loadedTransformConstraints.add transformConstraintData(
-        requiredString(tcObject, "name", context),
-        requiredString(tcObject, "bone", context),
-        requiredString(tcObject, "target", context),
-        order = optionalInt(tcObject, "order", defaultInt(transformConstraintTypeId, "order"), context),
-        skinRequired = optionalBool(tcObject, "skinRequired", defaultBool(transformConstraintTypeId, "skinRequired"), context),
+        scalarString(tcScalars, "name", context),
+        scalarString(tcScalars, "bone", context),
+        scalarString(tcScalars, "target", context),
+        order = scalarInt(tcScalars, "order", context),
+        skinRequired = scalarBool(tcScalars, "skinRequired", context),
         hasTranslateMix = tcObject.hasKey("translateMix"),
-        translateMix = optionalFloat(tcObject, "translateMix", defaultFloat(transformConstraintTypeId, "translateMix"), context),
+        translateMix =
+          if tcObject.hasKey("translateMix"): scalarFloat(tcScalars, "translateMix", context)
+          else: defaultFloat(transformConstraintTypeId, "translateMix"),
         hasRotateMix = tcObject.hasKey("rotateMix"),
-        rotateMix = optionalFloat(tcObject, "rotateMix", defaultFloat(transformConstraintTypeId, "rotateMix"), context),
+        rotateMix =
+          if tcObject.hasKey("rotateMix"): scalarFloat(tcScalars, "rotateMix", context)
+          else: defaultFloat(transformConstraintTypeId, "rotateMix"),
         hasScaleMix = tcObject.hasKey("scaleMix"),
-        scaleMix = optionalFloat(tcObject, "scaleMix", defaultFloat(transformConstraintTypeId, "scaleMix"), context),
+        scaleMix =
+          if tcObject.hasKey("scaleMix"): scalarFloat(tcScalars, "scaleMix", context)
+          else: defaultFloat(transformConstraintTypeId, "scaleMix"),
         hasShearMix = tcObject.hasKey("shearMix"),
-        shearMix = optionalFloat(tcObject, "shearMix", defaultFloat(transformConstraintTypeId, "shearMix"), context),
+        shearMix =
+          if tcObject.hasKey("shearMix"): scalarFloat(tcScalars, "shearMix", context)
+          else: defaultFloat(transformConstraintTypeId, "shearMix"),
       )
 
   var loadedPhysicsConstraints: seq[PhysicsConstraintData] = @[]
@@ -705,29 +911,43 @@ proc loadBonyJson*(text: string): SkeletonData =
       let context = "physicsConstraints[" & $index & "]"
       let pcObject = requireObject(pcNode, context)
       validateKnownKeys(pcObject, ["name", "bone", "order", "skinRequired", "channels", "inertia", "strength", "damping", "mass", "gravity", "wind", "physicsMix"], context)
-      let channelMask = requiredInt(pcObject, "channels", context)
-      if channelMask < 0:
-        raise newBonyLoadError(schemaViolation, context & ".channels must be non-negative")
+      let pcScalars = decodeJsonScalarsFromObject(
+        decodePhysicsConstraintJsonScalars, pcObject, bonyPhysicsConstraintScalarSpecs, context)
+      let channelMask = pcScalars.scalarUint("channels", context)
       loadedPhysicsConstraints.add physicsConstraintData(
-        requiredString(pcObject, "name", context),
-        requiredString(pcObject, "bone", context),
-        physicsChannelsFromMask(uint64(channelMask), context & ".channels"),
-        order = optionalInt(pcObject, "order", defaultInt(physicsConstraintTypeId, "order"), context),
-        skinRequired = optionalBool(pcObject, "skinRequired", defaultBool(physicsConstraintTypeId, "skinRequired"), context),
+        scalarString(pcScalars, "name", context),
+        scalarString(pcScalars, "bone", context),
+        physicsChannelsFromMask(channelMask, context & ".channels"),
+        order = scalarInt(pcScalars, "order", context),
+        skinRequired = scalarBool(pcScalars, "skinRequired", context),
         hasInertia = pcObject.hasKey("inertia"),
-        inertia = optionalFloat(pcObject, "inertia", defaultFloat(physicsConstraintTypeId, "inertia"), context),
+        inertia =
+          if pcObject.hasKey("inertia"): scalarFloat(pcScalars, "inertia", context)
+          else: defaultFloat(physicsConstraintTypeId, "inertia"),
         hasStrength = pcObject.hasKey("strength"),
-        strength = optionalFloat(pcObject, "strength", defaultFloat(physicsConstraintTypeId, "strength"), context),
+        strength =
+          if pcObject.hasKey("strength"): scalarFloat(pcScalars, "strength", context)
+          else: defaultFloat(physicsConstraintTypeId, "strength"),
         hasDamping = pcObject.hasKey("damping"),
-        damping = optionalFloat(pcObject, "damping", defaultFloat(physicsConstraintTypeId, "damping"), context),
+        damping =
+          if pcObject.hasKey("damping"): scalarFloat(pcScalars, "damping", context)
+          else: defaultFloat(physicsConstraintTypeId, "damping"),
         hasMass = pcObject.hasKey("mass"),
-        mass = optionalFloat(pcObject, "mass", defaultFloat(physicsConstraintTypeId, "mass"), context),
+        mass =
+          if pcObject.hasKey("mass"): scalarFloat(pcScalars, "mass", context)
+          else: defaultFloat(physicsConstraintTypeId, "mass"),
         hasGravity = pcObject.hasKey("gravity"),
-        gravity = optionalFloat(pcObject, "gravity", defaultFloat(physicsConstraintTypeId, "gravity"), context),
+        gravity =
+          if pcObject.hasKey("gravity"): scalarFloat(pcScalars, "gravity", context)
+          else: defaultFloat(physicsConstraintTypeId, "gravity"),
         hasWind = pcObject.hasKey("wind"),
-        wind = optionalFloat(pcObject, "wind", defaultFloat(physicsConstraintTypeId, "wind"), context),
+        wind =
+          if pcObject.hasKey("wind"): scalarFloat(pcScalars, "wind", context)
+          else: defaultFloat(physicsConstraintTypeId, "wind"),
         hasMix = pcObject.hasKey("physicsMix"),
-        mix = optionalFloat(pcObject, "physicsMix", defaultFloat(physicsConstraintTypeId, "physicsMix"), context),
+        mix =
+          if pcObject.hasKey("physicsMix"): scalarFloat(pcScalars, "physicsMix", context)
+          else: defaultFloat(physicsConstraintTypeId, "physicsMix"),
       )
 
   var loadedSkins: seq[SkinData] = @[]
@@ -737,6 +957,8 @@ proc loadBonyJson*(text: string): SkeletonData =
       let context = "skins[" & $skinIndex & "]"
       let skinObject = requireObject(skinNode, context)
       validateKnownKeys(skinObject, ["name", "entries", "bones", "ikConstraints", "transformConstraints", "pathConstraints", "physicsConstraints"], context)
+      let skinScalars = decodeJsonScalarsFromObject(
+        decodeSkinJsonScalars, skinObject, bonySkinScalarSpecs, context)
       var entries: seq[SkinEntryData] = @[]
       if skinObject.hasKey("entries"):
         let entriesNode = requireArray(skinObject["entries"], context & ".entries")
@@ -744,13 +966,23 @@ proc loadBonyJson*(text: string): SkeletonData =
           let entryContext = context & ".entries[" & $entryIndex & "]"
           let entryObject = requireObject(entryNode, entryContext)
           validateKnownKeys(entryObject, ["slot", "attachment", "target"], entryContext)
+          let entryScalars = decodeJsonScalarsFromObject(
+            decodeSkinEntryJsonScalars,
+            entryObject,
+            bonySkinEntryScalarSpecs,
+            entryContext,
+            [
+              jsonScalarAlias("attachment", "skinAttachment"),
+              jsonScalarAlias("target", "skinTarget"),
+            ],
+          )
           entries.add skinEntryData(
-            requiredString(entryObject, "slot", entryContext),
-            requiredString(entryObject, "attachment", entryContext),
-            requiredString(entryObject, "target", entryContext),
+            scalarString(entryScalars, "slot", entryContext),
+            scalarString(entryScalars, "skinAttachment", entryContext),
+            scalarString(entryScalars, "skinTarget", entryContext),
           )
       loadedSkins.add skinData(
-        requiredString(skinObject, "name", context),
+        scalarString(skinScalars, "name", context),
         entries,
         bones = optionalStringArray(skinObject, "bones", context),
         ikConstraints = optionalStringArray(skinObject, "ikConstraints", context),
@@ -766,11 +998,22 @@ proc loadBonyJson*(text: string): SkeletonData =
       let context = "parameters[" & $index & "]"
       let paramObject = requireObject(paramNode, context)
       validateKnownKeys(paramObject, ["name", "min", "max", "default"], context)
+      let paramScalars = decodeJsonScalarsFromObject(
+        decodeParameterJsonScalars,
+        paramObject,
+        bonyParameterScalarSpecs,
+        context,
+        [
+          jsonScalarAlias("min", "parameterMin"),
+          jsonScalarAlias("max", "parameterMax"),
+          jsonScalarAlias("default", "parameterDefault"),
+        ],
+      )
       loadedParameters.add ParameterAxis(
-        name: requiredString(paramObject, "name", context),
-        minValue: requiredFloat(paramObject, "min", context),
-        maxValue: requiredFloat(paramObject, "max", context),
-        defaultValue: optionalFloat(paramObject, "default", 0.0, context),
+        name: scalarString(paramScalars, "name", context),
+        minValue: scalarFloat(paramScalars, "parameterMin", context),
+        maxValue: scalarFloat(paramScalars, "parameterMax", context),
+        defaultValue: scalarFloat(paramScalars, "parameterDefault", context),
       )
 
   var loadedDeformers: seq[DeformerRecord] = @[]
@@ -785,10 +1028,21 @@ proc loadBonyJson*(text: string): SkeletonData =
       let defObject = requireObject(defNode, context)
       validateKnownKeys(defObject, ["id", "parent", "order", "kind", "warp", "rotation", "keyformBlend"], context)
 
-      let defId = requiredString(defObject, "id", context)
-      let defParent = optionalString(defObject, "parent", "", context)
-      let defOrder = uint32(optionalInt(defObject, "order", 0, context))
-      let defKind = requiredString(defObject, "kind", context)
+      let defScalars = decodeJsonScalarsFromObject(
+        decodeDeformerJsonScalars,
+        defObject,
+        bonyDeformerScalarSpecs,
+        context,
+        [
+          jsonScalarAlias("id", "deformerId"),
+          jsonScalarAlias("order", "deformerOrder"),
+          jsonScalarAlias("kind", "deformerKind"),
+        ],
+      )
+      let defId = scalarString(defScalars, "deformerId", context)
+      let defParent = scalarString(defScalars, "parent", context)
+      let defOrder = uint32(scalarUint(defScalars, "deformerOrder", context))
+      let defKind = scalarString(defScalars, "deformerKind", context)
 
       var deformer: Deformer
       if defKind == "warp":
@@ -796,6 +1050,20 @@ proc loadBonyJson*(text: string): SkeletonData =
           raise newBonyLoadError(schemaViolation, context & ".warp is required for kind=warp")
         let warpObject = requireObject(defObject["warp"], context & ".warp")
         validateKnownKeys(warpObject, ["rows", "cols", "minX", "minY", "maxX", "maxY", "controlPoints"], context & ".warp")
+        let warpScalars = decodeJsonScalarsFromObject(
+          decodeWarpLatticeJsonScalars,
+          warpObject,
+          bonyWarpLatticeScalarSpecs,
+          context & ".warp",
+          [
+            jsonScalarAlias("rows", "warpRows"),
+            jsonScalarAlias("cols", "warpCols"),
+            jsonScalarAlias("minX", "warpMinX"),
+            jsonScalarAlias("minY", "warpMinY"),
+            jsonScalarAlias("maxX", "warpMaxX"),
+            jsonScalarAlias("maxY", "warpMaxY"),
+          ],
+        )
         if not warpObject.hasKey("controlPoints"):
           raise newBonyLoadError(schemaViolation, context & ".warp.controlPoints is required")
         let cpArrayNode = requireArray(warpObject["controlPoints"], context & ".warp.controlPoints")
@@ -809,12 +1077,12 @@ proc loadBonyJson*(text: string): SkeletonData =
             y: requiredFloat(cpObject, "y", cpContext),
           )
         let lattice = WarpLattice(
-          rows: uint32(optionalInt(warpObject, "rows", 2, context & ".warp")),
-          cols: uint32(optionalInt(warpObject, "cols", 2, context & ".warp")),
-          minX: requiredFloat(warpObject, "minX", context & ".warp"),
-          minY: requiredFloat(warpObject, "minY", context & ".warp"),
-          maxX: requiredFloat(warpObject, "maxX", context & ".warp"),
-          maxY: requiredFloat(warpObject, "maxY", context & ".warp"),
+          rows: uint32(scalarUint(warpScalars, "warpRows", context & ".warp")),
+          cols: uint32(scalarUint(warpScalars, "warpCols", context & ".warp")),
+          minX: scalarFloat(warpScalars, "warpMinX", context & ".warp"),
+          minY: scalarFloat(warpScalars, "warpMinY", context & ".warp"),
+          maxX: scalarFloat(warpScalars, "warpMaxX", context & ".warp"),
+          maxY: scalarFloat(warpScalars, "warpMaxY", context & ".warp"),
           controlPoints: controlPoints,
         )
         validateWarpLattice(lattice)
@@ -824,13 +1092,27 @@ proc loadBonyJson*(text: string): SkeletonData =
           raise newBonyLoadError(schemaViolation, context & ".rotation is required for kind=rotation")
         let rotObject = requireObject(defObject["rotation"], context & ".rotation")
         validateKnownKeys(rotObject, ["pivotX", "pivotY", "angleDegrees", "scaleX", "scaleY", "opacity"], context & ".rotation")
+        let rotScalars = decodeJsonScalarsFromObject(
+          decodeRotationDeformerJsonScalars,
+          rotObject,
+          bonyRotationDeformerScalarSpecs,
+          context & ".rotation",
+          [
+            jsonScalarAlias("pivotX", "rotationPivotX"),
+            jsonScalarAlias("pivotY", "rotationPivotY"),
+            jsonScalarAlias("angleDegrees", "rotationAngleDegrees"),
+            jsonScalarAlias("scaleX", "rotationScaleX"),
+            jsonScalarAlias("scaleY", "rotationScaleY"),
+            jsonScalarAlias("opacity", "rotationOpacity"),
+          ],
+        )
         let rotation = RotationDeformer(
-          pivotX: requiredFloat(rotObject, "pivotX", context & ".rotation"),
-          pivotY: requiredFloat(rotObject, "pivotY", context & ".rotation"),
-          angleDegrees: requiredFloat(rotObject, "angleDegrees", context & ".rotation"),
-          scaleX: optionalFloat(rotObject, "scaleX", 1.0, context & ".rotation"),
-          scaleY: optionalFloat(rotObject, "scaleY", 1.0, context & ".rotation"),
-          opacity: optionalFloat(rotObject, "opacity", 1.0, context & ".rotation"),
+          pivotX: scalarFloat(rotScalars, "rotationPivotX", context & ".rotation"),
+          pivotY: scalarFloat(rotScalars, "rotationPivotY", context & ".rotation"),
+          angleDegrees: scalarFloat(rotScalars, "rotationAngleDegrees", context & ".rotation"),
+          scaleX: scalarFloat(rotScalars, "rotationScaleX", context & ".rotation"),
+          scaleY: scalarFloat(rotScalars, "rotationScaleY", context & ".rotation"),
+          opacity: scalarFloat(rotScalars, "rotationOpacity", context & ".rotation"),
         )
         validateRotationDeformer(rotation)
         deformer = Deformer(id: defId, parent: defParent, order: defOrder, kind: rotationDeformerKind, rotation: rotation)
@@ -2014,7 +2296,10 @@ proc appendSkinsJson(result: var string; data: SkeletonData; indent = 1) =
       result.addIndent(indent + 1)
       result.add "{\n"
       var first = true
-      result.addStringField("name", skin.name, indent + 2, first)
+      let skinScalars = encodeSkinJsonScalars([
+        jsonScalarString("name", skin.name),
+      ])
+      result.addJsonScalarField(skinScalars, "name", indent + 2, first)
       result.addStringArrayField("bones", orderedMembership(skin.bones, data.bones.mapIt(it.name)), indent + 2, first)
       result.addStringArrayField(
         "ikConstraints",
@@ -2050,9 +2335,14 @@ proc appendSkinsJson(result: var string; data: SkeletonData; indent = 1) =
           result.addIndent(indent + 3)
           result.add "{\n"
           var entryFirst = true
-          result.addStringField("slot", entry.slot, indent + 4, entryFirst)
-          result.addStringField("attachment", entry.attachment, indent + 4, entryFirst)
-          result.addStringField("target", entry.target, indent + 4, entryFirst)
+          let entryScalars = encodeSkinEntryJsonScalars([
+            jsonScalarString("slot", entry.slot),
+            jsonScalarString("skinAttachment", entry.attachment),
+            jsonScalarString("skinTarget", entry.target),
+          ])
+          result.addJsonScalarField(entryScalars, "slot", indent + 4, entryFirst)
+          result.addJsonScalarField(entryScalars, "skinAttachment", "attachment", indent + 4, entryFirst)
+          result.addJsonScalarField(entryScalars, "skinTarget", "target", indent + 4, entryFirst)
           result.add "\n"
           result.addIndent(indent + 3)
           result.add "}"
@@ -2074,9 +2364,12 @@ proc toBonyJson*(data: SkeletonData): string =
   result.addIndent(1)
   result.add "\"skeleton\": {\n"
   var first = true
-  result.addStringField("name", data.header.name, 2, first)
-  if data.header.version != defaultFor(skeletonTypeId, "version"):
-    result.addStringField("version", data.header.version, 2, first)
+  let skeletonScalars = encodeSkeletonJsonScalars([
+    jsonScalarString("name", data.header.name),
+    jsonScalarString("version", data.header.version),
+  ])
+  result.addJsonScalarField(skeletonScalars, "name", 2, first)
+  result.addJsonScalarField(skeletonScalars, "version", 2, first)
   result.add "\n"
   result.addIndent(1)
   result.add "},\n"
@@ -2092,33 +2385,36 @@ proc toBonyJson*(data: SkeletonData): string =
       result.add "{\n"
       let local = bone.local
       first = true
-      result.addStringField("name", bone.name, 3, first)
-      if bone.parent != defaultFor(boneTypeId, "parent"):
-        result.addStringField("parent", bone.parent, 3, first)
-      if local.x != defaultFloat(boneTypeId, "x"):
-        result.addNumberField("x", local.x, 3, first)
-      if local.y != defaultFloat(boneTypeId, "y"):
-        result.addNumberField("y", local.y, 3, first)
-      if local.rotation != defaultFloat(boneTypeId, "rotation"):
-        result.addNumberField("rotation", local.rotation, 3, first)
-      if local.scaleX != defaultFloat(boneTypeId, "scaleX"):
-        result.addNumberField("scaleX", local.scaleX, 3, first)
-      if local.scaleY != defaultFloat(boneTypeId, "scaleY"):
-        result.addNumberField("scaleY", local.scaleY, 3, first)
-      if local.shearX != defaultFloat(boneTypeId, "shearX"):
-        result.addNumberField("shearX", local.shearX, 3, first)
-      if local.shearY != defaultFloat(boneTypeId, "shearY"):
-        result.addNumberField("shearY", local.shearY, 3, first)
-      if local.inheritRotation != defaultBool(boneTypeId, "inheritRotation"):
-        result.addBoolField("inheritRotation", local.inheritRotation, 3, first)
-      if local.inheritScale != defaultBool(boneTypeId, "inheritScale"):
-        result.addBoolField("inheritScale", local.inheritScale, 3, first)
-      if local.inheritReflection != defaultBool(boneTypeId, "inheritReflection"):
-        result.addBoolField("inheritReflection", local.inheritReflection, 3, first)
-      if transformModeName(local.transformMode) != defaultFor(boneTypeId, "transformMode"):
-        result.addStringField("transformMode", transformModeName(local.transformMode), 3, first)
-      if bone.skinRequired != defaultBool(boneTypeId, "skinRequired"):
-        result.addBoolField("skinRequired", bone.skinRequired, 3, first)
+      let boneScalars = encodeBoneJsonScalars([
+        jsonScalarString("name", bone.name),
+        jsonScalarString("parent", bone.parent),
+        jsonScalarFloat("x", local.x),
+        jsonScalarFloat("y", local.y),
+        jsonScalarFloat("rotation", local.rotation),
+        jsonScalarFloat("scaleX", local.scaleX),
+        jsonScalarFloat("scaleY", local.scaleY),
+        jsonScalarFloat("shearX", local.shearX),
+        jsonScalarFloat("shearY", local.shearY),
+        jsonScalarBool("inheritRotation", local.inheritRotation),
+        jsonScalarBool("inheritScale", local.inheritScale),
+        jsonScalarBool("inheritReflection", local.inheritReflection),
+        jsonScalarString("transformMode", transformModeName(local.transformMode)),
+        jsonScalarBool("skinRequired", bone.skinRequired),
+      ])
+      result.addJsonScalarField(boneScalars, "name", 3, first)
+      result.addJsonScalarField(boneScalars, "parent", 3, first)
+      result.addJsonScalarField(boneScalars, "x", 3, first)
+      result.addJsonScalarField(boneScalars, "y", 3, first)
+      result.addJsonScalarField(boneScalars, "rotation", 3, first)
+      result.addJsonScalarField(boneScalars, "scaleX", 3, first)
+      result.addJsonScalarField(boneScalars, "scaleY", 3, first)
+      result.addJsonScalarField(boneScalars, "shearX", 3, first)
+      result.addJsonScalarField(boneScalars, "shearY", 3, first)
+      result.addJsonScalarField(boneScalars, "inheritRotation", 3, first)
+      result.addJsonScalarField(boneScalars, "inheritScale", 3, first)
+      result.addJsonScalarField(boneScalars, "inheritReflection", 3, first)
+      result.addJsonScalarField(boneScalars, "transformMode", 3, first)
+      result.addJsonScalarField(boneScalars, "skinRequired", 3, first)
       result.add "\n"
       result.addIndent(2)
       result.add "}"
@@ -2136,10 +2432,14 @@ proc toBonyJson*(data: SkeletonData): string =
       result.addIndent(2)
       result.add "{\n"
       first = true
-      result.addStringField("name", slot.name, 3, first)
-      result.addStringField("bone", slot.bone, 3, first)
-      if slot.attachment != defaultFor(slotTypeId, "attachment"):
-        result.addStringField("attachment", slot.attachment, 3, first)
+      let slotScalars = encodeSlotJsonScalars([
+        jsonScalarString("name", slot.name),
+        jsonScalarString("bone", slot.bone),
+        jsonScalarString("attachment", slot.attachment),
+      ])
+      result.addJsonScalarField(slotScalars, "name", 3, first)
+      result.addJsonScalarField(slotScalars, "bone", 3, first)
+      result.addJsonScalarField(slotScalars, "attachment", 3, first)
       result.add "\n"
       result.addIndent(2)
       result.add "}"
@@ -2157,21 +2457,26 @@ proc toBonyJson*(data: SkeletonData): string =
       result.addIndent(2)
       result.add "{\n"
       first = true
-      result.addStringField("name", region.name, 3, first)
-      result.addNumberField("width", region.width, 3, first)
-      result.addNumberField("height", region.height, 3, first)
-      if region.texturePage != defaultFor(regionTypeId, "texturePage"):
-        result.addStringField("texturePage", region.texturePage, 3, first)
-      if region.u0 != defaultFloat(regionTypeId, "u0"):
-        result.addNumberField("u0", region.u0, 3, first)
-      if region.v0 != defaultFloat(regionTypeId, "v0"):
-        result.addNumberField("v0", region.v0, 3, first)
-      if region.u1 != defaultFloat(regionTypeId, "u1"):
-        result.addNumberField("u1", region.u1, 3, first)
-      if region.v1 != defaultFloat(regionTypeId, "v1"):
-        result.addNumberField("v1", region.v1, 3, first)
-      if region.alphaMode != defaultFor(regionTypeId, "alphaMode"):
-        result.addStringField("alphaMode", region.alphaMode, 3, first)
+      let regionScalars = encodeRegionJsonScalars([
+        jsonScalarString("name", region.name),
+        jsonScalarFloat("width", region.width),
+        jsonScalarFloat("height", region.height),
+        jsonScalarString("texturePage", region.texturePage),
+        jsonScalarFloat("u0", region.u0),
+        jsonScalarFloat("v0", region.v0),
+        jsonScalarFloat("u1", region.u1),
+        jsonScalarFloat("v1", region.v1),
+        jsonScalarString("alphaMode", region.alphaMode),
+      ])
+      result.addJsonScalarField(regionScalars, "name", 3, first)
+      result.addJsonScalarField(regionScalars, "width", 3, first)
+      result.addJsonScalarField(regionScalars, "height", 3, first)
+      result.addJsonScalarField(regionScalars, "texturePage", 3, first)
+      result.addJsonScalarField(regionScalars, "u0", 3, first)
+      result.addJsonScalarField(regionScalars, "v0", 3, first)
+      result.addJsonScalarField(regionScalars, "u1", 3, first)
+      result.addJsonScalarField(regionScalars, "v1", 3, first)
+      result.addJsonScalarField(regionScalars, "alphaMode", 3, first)
       result.add "\n"
       result.addIndent(2)
       result.add "}"
@@ -2189,10 +2494,16 @@ proc toBonyJson*(data: SkeletonData): string =
       result.addIndent(2)
       result.add "{\n"
       first = true
-      result.addStringField("name", point.name, 3, first)
-      result.addNumberField("x", point.x, 3, first)
-      result.addNumberField("y", point.y, 3, first)
-      result.addNumberField("rotation", point.rotation, 3, first)
+      let pointScalars = encodePointAttachmentJsonScalars([
+        jsonScalarString("name", point.name),
+        jsonScalarFloat("x", point.x),
+        jsonScalarFloat("y", point.y),
+        jsonScalarFloat("rotation", point.rotation),
+      ])
+      result.addJsonScalarField(pointScalars, "name", 3, first)
+      result.addJsonScalarField(pointScalars, "x", 3, first)
+      result.addJsonScalarField(pointScalars, "y", 3, first)
+      result.addJsonScalarField(pointScalars, "rotation", 3, first)
       result.add "\n"
       result.addIndent(2)
       result.add "}"
@@ -2210,7 +2521,10 @@ proc toBonyJson*(data: SkeletonData): string =
       result.addIndent(2)
       result.add "{\n"
       first = true
-      result.addStringField("name", box.name, 3, first)
+      let boxScalars = encodeBoundingBoxAttachmentJsonScalars([
+        jsonScalarString("name", box.name),
+      ])
+      result.addJsonScalarField(boxScalars, "name", 3, first)
       result.addFieldPrefix("vertices", 3, first)
       result.add "["
       for vertexIndex, vertexValue in box.vertices:
@@ -2235,12 +2549,16 @@ proc toBonyJson*(data: SkeletonData): string =
       result.addIndent(2)
       result.add "{\n"
       first = true
-      result.addStringField("name", nested.name, 3, first)
-      result.addStringField("skeleton", nested.skeleton, 3, first)
-      if nested.skin != defaultFor("nestedRigAttachment", "nestedSkin"):
-        result.addStringField("skin", nested.skin, 3, first)
-      if nested.animation != defaultFor("nestedRigAttachment", "nestedAnimation"):
-        result.addStringField("animation", nested.animation, 3, first)
+      let nestedScalars = encodeNestedRigAttachmentJsonScalars([
+        jsonScalarString("name", nested.name),
+        jsonScalarString("nestedSkeleton", nested.skeleton),
+        jsonScalarString("nestedSkin", nested.skin),
+        jsonScalarString("nestedAnimation", nested.animation),
+      ])
+      result.addJsonScalarField(nestedScalars, "name", 3, first)
+      result.addJsonScalarField(nestedScalars, "nestedSkeleton", "skeleton", 3, first)
+      result.addJsonScalarField(nestedScalars, "nestedSkin", "skin", 3, first)
+      result.addJsonScalarField(nestedScalars, "nestedAnimation", "animation", 3, first)
       result.add "\n"
       result.addIndent(2)
       result.add "}"
@@ -2258,14 +2576,20 @@ proc toBonyJson*(data: SkeletonData): string =
       result.addIndent(2)
       result.add "{\n"
       first = true
-      result.addStringField("name", path.name, 3, first)
-      result.addStringField("bone", path.bone, 3, first)
-      result.addStringField("target", path.target, 3, first)
-      result.addStringField("path", path.path, 3, first)
-      if path.order != defaultInt(pathTypeId, "order"):
-        result.addIntField("order", path.order, 3, first)
-      if path.skinRequired != defaultBool(pathTypeId, "skinRequired"):
-        result.addBoolField("skinRequired", path.skinRequired, 3, first)
+      let pathScalars = encodePathJsonScalars([
+        jsonScalarString("name", path.name),
+        jsonScalarString("bone", path.bone),
+        jsonScalarString("target", path.target),
+        jsonScalarString("path", path.path),
+        jsonScalarInt("order", path.order),
+        jsonScalarBool("skinRequired", path.skinRequired),
+      ])
+      result.addJsonScalarField(pathScalars, "name", 3, first)
+      result.addJsonScalarField(pathScalars, "bone", 3, first)
+      result.addJsonScalarField(pathScalars, "target", 3, first)
+      result.addJsonScalarField(pathScalars, "path", 3, first)
+      result.addJsonScalarField(pathScalars, "order", 3, first)
+      result.addJsonScalarField(pathScalars, "skinRequired", 3, first)
       if path.hasPosition:
         result.addNumberField("position", path.position, 3, first)
       if path.hasTranslateMix:
@@ -2289,7 +2613,13 @@ proc toBonyJson*(data: SkeletonData): string =
       result.addIndent(2)
       result.add "{\n"
       first = true
-      result.addStringField("name", ik.name, 3, first)
+      let ikScalars = encodeIkConstraintJsonScalars([
+        jsonScalarString("name", ik.name),
+        jsonScalarString("target", ik.target),
+        jsonScalarInt("order", ik.order),
+        jsonScalarBool("skinRequired", ik.skinRequired),
+      ])
+      result.addJsonScalarField(ikScalars, "name", 3, first)
       result.addFieldPrefix("bones", 3, first)
       result.add "["
       for boneIndex, boneName in ik.bones:
@@ -2297,11 +2627,9 @@ proc toBonyJson*(data: SkeletonData): string =
           result.add ", "
         result.addJsonString(boneName)
       result.add "]"
-      result.addStringField("target", ik.target, 3, first)
-      if ik.order != defaultInt(ikConstraintTypeId, "order"):
-        result.addIntField("order", ik.order, 3, first)
-      if ik.skinRequired != defaultBool(ikConstraintTypeId, "skinRequired"):
-        result.addBoolField("skinRequired", ik.skinRequired, 3, first)
+      result.addJsonScalarField(ikScalars, "target", 3, first)
+      result.addJsonScalarField(ikScalars, "order", 3, first)
+      result.addJsonScalarField(ikScalars, "skinRequired", 3, first)
       if ik.hasMix:
         result.addNumberField("mix", ik.mix, 3, first)
       if ik.hasBendPositive:
@@ -2323,13 +2651,18 @@ proc toBonyJson*(data: SkeletonData): string =
       result.addIndent(2)
       result.add "{\n"
       first = true
-      result.addStringField("name", tc.name, 3, first)
-      result.addStringField("bone", tc.bone, 3, first)
-      result.addStringField("target", tc.target, 3, first)
-      if tc.order != defaultInt(transformConstraintTypeId, "order"):
-        result.addIntField("order", tc.order, 3, first)
-      if tc.skinRequired != defaultBool(transformConstraintTypeId, "skinRequired"):
-        result.addBoolField("skinRequired", tc.skinRequired, 3, first)
+      let tcScalars = encodeTransformConstraintJsonScalars([
+        jsonScalarString("name", tc.name),
+        jsonScalarString("bone", tc.bone),
+        jsonScalarString("target", tc.target),
+        jsonScalarInt("order", tc.order),
+        jsonScalarBool("skinRequired", tc.skinRequired),
+      ])
+      result.addJsonScalarField(tcScalars, "name", 3, first)
+      result.addJsonScalarField(tcScalars, "bone", 3, first)
+      result.addJsonScalarField(tcScalars, "target", 3, first)
+      result.addJsonScalarField(tcScalars, "order", 3, first)
+      result.addJsonScalarField(tcScalars, "skinRequired", 3, first)
       if tc.hasTranslateMix:
         result.addNumberField("translateMix", tc.translateMix, 3, first)
       if tc.hasRotateMix:
@@ -2355,13 +2688,18 @@ proc toBonyJson*(data: SkeletonData): string =
       result.addIndent(2)
       result.add "{\n"
       first = true
-      result.addStringField("name", pc.name, 3, first)
-      result.addStringField("bone", pc.bone, 3, first)
-      if pc.order != defaultInt(physicsConstraintTypeId, "order"):
-        result.addIntField("order", pc.order, 3, first)
-      if pc.skinRequired != defaultBool(physicsConstraintTypeId, "skinRequired"):
-        result.addBoolField("skinRequired", pc.skinRequired, 3, first)
-      result.addIntField("channels", int(physicsChannelsToMask(pc.channels)), 3, first)
+      let pcScalars = encodePhysicsConstraintJsonScalars([
+        jsonScalarString("name", pc.name),
+        jsonScalarString("bone", pc.bone),
+        jsonScalarInt("order", pc.order),
+        jsonScalarBool("skinRequired", pc.skinRequired),
+        jsonScalarUint("channels", physicsChannelsToMask(pc.channels)),
+      ])
+      result.addJsonScalarField(pcScalars, "name", 3, first)
+      result.addJsonScalarField(pcScalars, "bone", 3, first)
+      result.addJsonScalarField(pcScalars, "order", 3, first)
+      result.addJsonScalarField(pcScalars, "skinRequired", 3, first)
+      result.addJsonScalarField(pcScalars, "channels", 3, first)
       if pc.hasInertia:
         result.addNumberField("inertia", pc.inertia, 3, first)
       if pc.hasStrength:
@@ -2393,15 +2731,26 @@ proc toBonyJson*(data: SkeletonData): string =
       result.addIndent(2)
       result.add "{\n"
       first = true
-      result.addStringField("name", pathAttachment.name, 3, first)
-      result.addNumberField("p0x", pathAttachment.p0x, 3, first)
-      result.addNumberField("p0y", pathAttachment.p0y, 3, first)
-      result.addNumberField("p1x", pathAttachment.p1x, 3, first)
-      result.addNumberField("p1y", pathAttachment.p1y, 3, first)
-      result.addNumberField("p2x", pathAttachment.p2x, 3, first)
-      result.addNumberField("p2y", pathAttachment.p2y, 3, first)
-      result.addNumberField("p3x", pathAttachment.p3x, 3, first)
-      result.addNumberField("p3y", pathAttachment.p3y, 3, first)
+      let pathAttachmentScalars = encodePathAttachmentJsonScalars([
+        jsonScalarString("name", pathAttachment.name),
+        jsonScalarF64("p0x", pathAttachment.p0x),
+        jsonScalarF64("p0y", pathAttachment.p0y),
+        jsonScalarF64("p1x", pathAttachment.p1x),
+        jsonScalarF64("p1y", pathAttachment.p1y),
+        jsonScalarF64("p2x", pathAttachment.p2x),
+        jsonScalarF64("p2y", pathAttachment.p2y),
+        jsonScalarF64("p3x", pathAttachment.p3x),
+        jsonScalarF64("p3y", pathAttachment.p3y),
+      ])
+      result.addJsonScalarField(pathAttachmentScalars, "name", 3, first)
+      result.addJsonScalarField(pathAttachmentScalars, "p0x", 3, first)
+      result.addJsonScalarField(pathAttachmentScalars, "p0y", 3, first)
+      result.addJsonScalarField(pathAttachmentScalars, "p1x", 3, first)
+      result.addJsonScalarField(pathAttachmentScalars, "p1y", 3, first)
+      result.addJsonScalarField(pathAttachmentScalars, "p2x", 3, first)
+      result.addJsonScalarField(pathAttachmentScalars, "p2y", 3, first)
+      result.addJsonScalarField(pathAttachmentScalars, "p3x", 3, first)
+      result.addJsonScalarField(pathAttachmentScalars, "p3y", 3, first)
       result.add "\n"
       result.addIndent(2)
       result.add "}"
@@ -2419,7 +2768,11 @@ proc toBonyJson*(data: SkeletonData): string =
       result.addIndent(2)
       result.add "{\n"
       first = true
-      result.addStringField("name", clip.name, 3, first)
+      let clipScalars = encodeClippingAttachmentJsonScalars([
+        jsonScalarString("name", clip.name),
+        jsonScalarString("untilSlot", clip.untilSlot),
+      ])
+      result.addJsonScalarField(clipScalars, "name", 3, first)
       result.addFieldPrefix("vertices", 3, first)
       result.add "["
       for vertexIndex, vertexValue in clip.vertices:
@@ -2427,8 +2780,7 @@ proc toBonyJson*(data: SkeletonData): string =
           result.add ", "
         result.add canonicalNumber(vertexValue)
       result.add "]"
-      if clip.untilSlot != defaultFor(clippingAttachmentTypeId, "untilSlot"):
-        result.addStringField("untilSlot", clip.untilSlot, 3, first)
+      result.addJsonScalarField(clipScalars, "untilSlot", 3, first)
       result.add "\n"
       result.addIndent(2)
       result.add "}"
@@ -2446,10 +2798,12 @@ proc toBonyJson*(data: SkeletonData): string =
       result.addIndent(2)
       result.add "{\n"
       first = true
-      result.addStringField("name", mesh.name, 3, first)
-      # weighted is omitted when it matches the generated meshWeighted default.
-      if mesh.weighted != defaultBool(meshAttachmentTypeId, "meshWeighted"):
-        result.addBoolField("weighted", mesh.weighted, 3, first)
+      let meshScalars = encodeMeshAttachmentJsonScalars([
+        jsonScalarString("name", mesh.name),
+        jsonScalarBool("meshWeighted", mesh.weighted),
+      ])
+      result.addJsonScalarField(meshScalars, "name", 3, first)
+      result.addJsonScalarField(meshScalars, "meshWeighted", "weighted", 3, first)
       # vertices: one {x,y} or {influences:[...]} object per vertex.
       result.addFieldPrefix("vertices", 3, first)
       result.add "[\n"
@@ -2512,11 +2866,16 @@ proc toBonyJson*(data: SkeletonData): string =
       result.addIndent(2)
       result.add "{\n"
       first = true
-      result.addStringField("name", param.name, 3, first)
-      result.addNumberField("min", param.minValue, 3, first)
-      result.addNumberField("max", param.maxValue, 3, first)
-      if param.defaultValue != 0.0:
-        result.addNumberField("default", param.defaultValue, 3, first)
+      let paramScalars = encodeParameterJsonScalars([
+        jsonScalarString("name", param.name),
+        jsonScalarFloat("parameterMin", param.minValue),
+        jsonScalarFloat("parameterMax", param.maxValue),
+        jsonScalarFloat("parameterDefault", param.defaultValue),
+      ])
+      result.addJsonScalarField(paramScalars, "name", 3, first)
+      result.addJsonScalarField(paramScalars, "parameterMin", "min", 3, first)
+      result.addJsonScalarField(paramScalars, "parameterMax", "max", 3, first)
+      result.addJsonScalarField(paramScalars, "parameterDefault", "default", 3, first)
       result.add "\n"
       result.addIndent(2)
       result.add "}"
@@ -2534,23 +2893,40 @@ proc toBonyJson*(data: SkeletonData): string =
       result.addIndent(2)
       result.add "{\n"
       first = true
-      result.addStringField("id", rec.deformer.id, 3, first)
-      if rec.deformer.parent.len > 0:
-        result.addStringField("parent", rec.deformer.parent, 3, first)
+      let deformerKind =
+        case rec.deformer.kind
+        of warpDeformerKind: "warp"
+        of rotationDeformerKind: "rotation"
+      let deformerScalars = encodeDeformerJsonScalars([
+        jsonScalarString("deformerId", rec.deformer.id),
+        jsonScalarString("parent", rec.deformer.parent),
+        jsonScalarUint("deformerOrder", uint64(rec.deformer.order)),
+        jsonScalarString("deformerKind", deformerKind),
+      ])
+      result.addJsonScalarField(deformerScalars, "deformerId", "id", 3, first)
+      result.addJsonScalarField(deformerScalars, "parent", 3, first)
       result.addIntField("order", int(rec.deformer.order), 3, first)
       case rec.deformer.kind
       of warpDeformerKind:
-        result.addStringField("kind", "warp", 3, first)
+        result.addJsonScalarField(deformerScalars, "deformerKind", "kind", 3, first)
         result.addFieldPrefix("warp", 3, first)
         result.add "{\n"
         var wfirst = true
         let warp = rec.deformer.warp
+        let warpScalars = encodeWarpLatticeJsonScalars([
+          jsonScalarUint("warpRows", uint64(warp.rows)),
+          jsonScalarUint("warpCols", uint64(warp.cols)),
+          jsonScalarFloat("warpMinX", warp.minX),
+          jsonScalarFloat("warpMinY", warp.minY),
+          jsonScalarFloat("warpMaxX", warp.maxX),
+          jsonScalarFloat("warpMaxY", warp.maxY),
+        ])
         result.addIntField("rows", int(warp.rows), 4, wfirst)
         result.addIntField("cols", int(warp.cols), 4, wfirst)
-        result.addNumberField("minX", warp.minX, 4, wfirst)
-        result.addNumberField("minY", warp.minY, 4, wfirst)
-        result.addNumberField("maxX", warp.maxX, 4, wfirst)
-        result.addNumberField("maxY", warp.maxY, 4, wfirst)
+        result.addJsonScalarField(warpScalars, "warpMinX", "minX", 4, wfirst)
+        result.addJsonScalarField(warpScalars, "warpMinY", "minY", 4, wfirst)
+        result.addJsonScalarField(warpScalars, "warpMaxX", "maxX", 4, wfirst)
+        result.addJsonScalarField(warpScalars, "warpMaxY", "maxY", 4, wfirst)
         result.addFieldPrefix("controlPoints", 4, wfirst)
         result.add "["
         for cpIndex, cp in warp.controlPoints:
@@ -2565,20 +2941,25 @@ proc toBonyJson*(data: SkeletonData): string =
         result.addIndent(3)
         result.add "}"
       of rotationDeformerKind:
-        result.addStringField("kind", "rotation", 3, first)
+        result.addJsonScalarField(deformerScalars, "deformerKind", "kind", 3, first)
         result.addFieldPrefix("rotation", 3, first)
         result.add "{\n"
         var rfirst = true
         let rot = rec.deformer.rotation
-        result.addNumberField("pivotX", rot.pivotX, 4, rfirst)
-        result.addNumberField("pivotY", rot.pivotY, 4, rfirst)
-        result.addNumberField("angleDegrees", rot.angleDegrees, 4, rfirst)
-        if rot.scaleX != 1.0:
-          result.addNumberField("scaleX", rot.scaleX, 4, rfirst)
-        if rot.scaleY != 1.0:
-          result.addNumberField("scaleY", rot.scaleY, 4, rfirst)
-        if rot.opacity != 1.0:
-          result.addNumberField("opacity", rot.opacity, 4, rfirst)
+        let rotScalars = encodeRotationDeformerJsonScalars([
+          jsonScalarFloat("rotationPivotX", rot.pivotX),
+          jsonScalarFloat("rotationPivotY", rot.pivotY),
+          jsonScalarFloat("rotationAngleDegrees", rot.angleDegrees),
+          jsonScalarFloat("rotationScaleX", rot.scaleX),
+          jsonScalarFloat("rotationScaleY", rot.scaleY),
+          jsonScalarFloat("rotationOpacity", rot.opacity),
+        ])
+        result.addJsonScalarField(rotScalars, "rotationPivotX", "pivotX", 4, rfirst)
+        result.addJsonScalarField(rotScalars, "rotationPivotY", "pivotY", 4, rfirst)
+        result.addJsonScalarField(rotScalars, "rotationAngleDegrees", "angleDegrees", 4, rfirst)
+        result.addJsonScalarField(rotScalars, "rotationScaleX", "scaleX", 4, rfirst)
+        result.addJsonScalarField(rotScalars, "rotationScaleY", "scaleY", 4, rfirst)
+        result.addJsonScalarField(rotScalars, "rotationOpacity", "opacity", 4, rfirst)
         result.add "\n"
         result.addIndent(3)
         result.add "}"
