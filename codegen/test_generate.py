@@ -324,6 +324,22 @@ class GeneratorValidationTests(unittest.TestCase):
             dart,
         )
 
+    def test_project_generated_nim_emits_scalar_codec_helpers(self) -> None:
+        registry, defaults = self.project_sources()
+        nim = generate.generate_nim(registry, defaults)
+
+        self.assertIn("type\n  BonyScalarKind* = enum", nim)
+        self.assertIn("const bonyBoneScalarSpecs* = [", nim)
+        self.assertIn("proc encodeBoneJsonScalars*", nim)
+        self.assertIn("proc decodeBoneBnbScalars*", nim)
+        self.assertIn("proc encodeBonyObjectJsonScalars*", nim)
+        self.assertIn('propertyId: "x", propertyKey: 1000.uint64, kind: bskF32', nim)
+        self.assertIn("defaultValue: bonyF32Value(0.0)", nim)
+
+        mesh_section = nim.split("const bonyMeshAttachmentScalarSpecs* = [", 1)[1].split("]", 1)[0]
+        self.assertIn('propertyId: "meshWeighted"', mesh_section)
+        self.assertNotIn("meshVertices", mesh_section)
+
     def test_project_schema_root_orders_animations_before_state_machines(self) -> None:
         registry, defaults = self.project_sources()
 

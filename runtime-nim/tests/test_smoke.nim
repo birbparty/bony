@@ -192,6 +192,24 @@ spec "bony package":
       bonyPropertyDefaults.anyIt(it.objectId == "region" and it.propertyId == "alphaMode" and it.value == "\"straight\"")
       bonyRequiredProperties.len == 91
 
+  it "exports generated scalar JSON and BNB codec helpers":
+    let decoded = decodeBoneJsonScalars(@[
+      BonyJsonScalarProperty(propertyId: "name", value: bonyStringValue("root")),
+    ])
+    let encoded = encodeBoneBnbScalars(@[
+      BonyBnbScalarProperty(propertyKey: 1'u64, value: bonyStringValue("root")),
+      BonyBnbScalarProperty(propertyKey: 1000'u64, value: bonyF32Value(0.0)),
+      BonyBnbScalarProperty(propertyKey: 1001'u64, value: bonyF32Value(2.0)),
+    ])
+    then:
+      decoded.anyIt(it.propertyId == "parent" and it.value.stringValue == "")
+      decoded.anyIt(it.propertyId == "transformMode" and it.value.stringValue == "normal")
+      encoded.anyIt(it.propertyKey == 1'u64)
+      not encoded.anyIt(it.propertyKey == 1000'u64)
+      encoded.anyIt(it.propertyKey == 1001'u64)
+      bonyMeshAttachmentScalarSpecs.len == 2
+      not bonyMeshAttachmentScalarSpecs.anyIt(it.propertyId == "meshVertices")
+
   it "encodes and rejects .bnb varints canonically":
     var bytes: seq[byte]
     bytes.writeVaruint(0)
