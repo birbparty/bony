@@ -689,11 +689,49 @@ proc inputValueIndex(runtime: StateMachineRuntime; name: string): int =
   -1
 
 
+proc requireInputValueIndex(runtime: StateMachineRuntime; name: string): int =
+  result = runtime.inputValueIndex(name)
+  if result < 0:
+    raise newBonyLoadError(unknownRequiredReference, "missing state-machine runtime input: " & name)
+
+
+proc inputValueFor(runtime: StateMachineRuntime; input: StateMachineInput): StateMachineInputValue =
+  result = runtime.inputs[runtime.requireInputValueIndex(input.name)]
+  if result.kind != input.kind:
+    raise newBonyLoadError(schemaViolation, "state-machine runtime input kind mismatch: " & input.name)
+
+
+proc validateRuntimeShape(runtime: StateMachineRuntime) =
+  if runtime.layers.len != runtime.machine.layers.len:
+    raise newBonyLoadError(schemaViolation, "state-machine runtime layer count must match machine")
+  for index, layer in runtime.layers:
+    let expected = runtime.machine.layers[index]
+    if layer.layer.name != expected.name:
+      raise newBonyLoadError(unknownRequiredReference, "state-machine runtime layer does not match machine")
+    let current = StateMachineLayerRuntime(
+      layer: expected,
+      currentState: if layer.currentState.len == 0: expected.initialState else: layer.currentState,
+      time: quantizeStateMachineTime(layer.time, "stateMachine.layer.time"),
+    )
+    discard current.currentState()
+  if runtime.inputs.len != runtime.machine.inputs.len:
+    raise newBonyLoadError(schemaViolation, "state-machine runtime input count must match machine")
+  var names = initHashSet[string]()
+  for value in runtime.inputs:
+    if value.name in names:
+      raise newBonyLoadError(duplicateKey, "duplicate state-machine runtime input: " & value.name)
+    names.incl(value.name)
+  for input in runtime.machine.inputs:
+    let value = runtime.inputValueFor(input)
+    if input.kind == numberInput:
+      discard quantizeF32(value.numberValue, "stateMachine.input.number")
+
+
 proc setBoolInputNormalized(runtime: var StateMachineRuntime; name: string; value: bool) =
   let input = runtime.machine.inputByName(name)
   if input.kind != boolInput:
     raise newBonyLoadError(schemaViolation, "state-machine input is not bool: " & name)
-  runtime.inputs[runtime.inputValueIndex(name)].boolValue = value
+  runtime.inputs[runtime.requireInputValueIndex(name)].boolValue = value
 
 
 proc setBoolInput*(runtime: var StateMachineRuntime; name: string; value: bool) =
@@ -705,14 +743,14 @@ proc getBoolInput*(runtime: StateMachineRuntime; name: string): bool =
   let input = runtime.machine.inputByName(name)
   if input.kind != boolInput:
     raise newBonyLoadError(schemaViolation, "state-machine input is not bool: " & name)
-  runtime.inputs[runtime.inputValueIndex(name)].boolValue
+  runtime.inputValueFor(input).boolValue
 
 
 proc setNumberInputNormalized(runtime: var StateMachineRuntime; name: string; value: float64) =
   let input = runtime.machine.inputByName(name)
   if input.kind != numberInput:
     raise newBonyLoadError(schemaViolation, "state-machine input is not number: " & name)
-  runtime.inputs[runtime.inputValueIndex(name)].numberValue = quantizeF32(value, "stateMachine.input.number")
+  runtime.inputs[runtime.requireInputValueIndex(name)].numberValue = quantizeF32(value, "stateMachine.input.number")
 
 
 proc setNumberInput*(runtime: var StateMachineRuntime; name: string; value: float64) =
@@ -724,14 +762,14 @@ proc getNumberInput*(runtime: StateMachineRuntime; name: string): float64 =
   let input = runtime.machine.inputByName(name)
   if input.kind != numberInput:
     raise newBonyLoadError(schemaViolation, "state-machine input is not number: " & name)
-  runtime.inputs[runtime.inputValueIndex(name)].numberValue
+  runtime.inputValueFor(input).numberValue
 
 
 proc fireTriggerNormalized(runtime: var StateMachineRuntime; name: string) =
   let input = runtime.machine.inputByName(name)
   if input.kind != triggerInput:
     raise newBonyLoadError(schemaViolation, "state-machine input is not trigger: " & name)
-  runtime.inputs[runtime.inputValueIndex(name)].boolValue = true
+  runtime.inputs[runtime.requireInputValueIndex(name)].boolValue = true
 
 
 proc fireTrigger*(runtime: var StateMachineRuntime; name: string) =
@@ -743,14 +781,14 @@ proc isTriggerSet*(runtime: StateMachineRuntime; name: string): bool =
   let input = runtime.machine.inputByName(name)
   if input.kind != triggerInput:
     raise newBonyLoadError(schemaViolation, "state-machine input is not trigger: " & name)
-  runtime.inputs[runtime.inputValueIndex(name)].boolValue
+  runtime.inputValueFor(input).boolValue
 
 
 proc clearTriggerNormalized(runtime: var StateMachineRuntime; name: string) =
   let input = runtime.machine.inputByName(name)
   if input.kind != triggerInput:
     raise newBonyLoadError(schemaViolation, "state-machine input is not trigger: " & name)
-  runtime.inputs[runtime.inputValueIndex(name)].boolValue = false
+  runtime.inputs[runtime.requireInputValueIndex(name)].boolValue = false
 
 
 proc clearTrigger*(runtime: var StateMachineRuntime; name: string) =
@@ -759,8 +797,9 @@ proc clearTrigger*(runtime: var StateMachineRuntime; name: string) =
 
 
 proc consumeTrigger*(runtime: var StateMachineRuntime; name: string): bool =
+  runtime = normalizedRuntime(runtime)
   result = runtime.isTriggerSet(name)
-  runtime.clearTrigger(name)
+  runtime.clearTriggerNormalized(name)
 
 
 proc clearEvents*(runtime: var StateMachineRuntime) =
@@ -777,10 +816,7 @@ proc resetInputs*(runtime: var StateMachineRuntime) =
 
 proc conditionMatches(runtime: StateMachineRuntime; condition: StateMachineCondition): bool =
   let input = runtime.machine.inputByName(condition.input)
-  let index = runtime.inputValueIndex(condition.input)
-  if index < 0:
-    raise newBonyLoadError(unknownRequiredReference, "missing state-machine runtime input: " & condition.input)
-  let value = runtime.inputs[index]
+  let value = runtime.inputValueFor(input)
   let expectedKind = conditionInputKind[condition.kind]
   if input.kind != expectedKind or value.kind != expectedKind:
     raise newBonyLoadError(
@@ -1254,6 +1290,7 @@ proc sampleBlendPose(runtime: StateMachineRuntime; state: StateMachineState; tim
 
 
 proc evaluate*(runtime: StateMachineRuntime; data: ref SkeletonData = nil): EvaluatedStateMachine =
+  runtime.validateRuntimeShape()
   for layer in runtime.layers:
     let state = layer.currentState
     let active = layer.currentState()
