@@ -48,15 +48,6 @@ proc parameterTimeline*(axis: ParameterAxis; keys: openArray[ScalarKeyframe]): P
   validatedParameterTimeline(ParameterTimeline(target: axis.name, axis: axis, keys: @keys))
 
 
-proc findSpan(keys: openArray[ScalarKeyframe]; time: float64): int =
-  if time <= keys[0].time:
-    return 0
-  for index in 0 ..< keys.len - 1:
-    if time < keys[index + 1].time:
-      return index
-  keys.len - 1
-
-
 proc sampleParameterValue*(timeline: ParameterTimeline; time: float64): ParameterSample =
   let timeline = validatedParameterTimeline(timeline)
   let storedTime = quantizeTimelineTime(time, "sample.time")

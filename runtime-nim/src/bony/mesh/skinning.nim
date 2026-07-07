@@ -16,18 +16,6 @@ type
     v*: float64
 
 
-proc transformPoint(world: Affine2; x, y: float64): tuple[x: float64, y: float64] =
-  (
-    x: world.a * x + world.c * y + world.tx,
-    y: world.b * x + world.d * y + world.ty,
-  )
-
-
-proc boneIndexByName(data: SkeletonData): Table[string, int] =
-  for index, bone in data.bones:
-    result[bone.name] = index
-
-
 ## Skins mesh vertices using caller-provided world transforms.
 ## `worlds` must be ordered exactly like `data.bones`.
 proc skinMeshVertices*(
@@ -43,7 +31,7 @@ proc skinMeshVertices*(
   if worlds.len != data.bones.len:
     raise newBonyLoadError(schemaViolation, "world transform count must match bone count")
 
-  let boneIndex = boneIndexByName(data)
+  let boneIndex = boneIndexByName(data.bones)
   let slotBoneIndex =
     if mesh.weighted:
       -1

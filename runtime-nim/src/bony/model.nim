@@ -379,6 +379,18 @@ proc skeletonHeader*(name, version: string): SkeletonHeader =
   SkeletonHeader(name: name, version: version)
 
 
+proc transformPoint*(world: Affine2; x, y: float64): tuple[x: float64, y: float64] =
+  (
+    x: world.a * x + world.c * y + world.tx,
+    y: world.b * x + world.d * y + world.ty,
+  )
+
+
+proc boneIndexByName*(bones: openArray[BoneData]): Table[string, int] =
+  for index, bone in bones:
+    result[bone.name] = index
+
+
 proc quantizeF32*(value: float64; context = "value"): float64 =
   if classify(value) in {fcNan, fcInf, fcNegInf}:
     raise newBonyLoadError(numericOutOfRange, context & " must be a finite f32 value")
@@ -965,7 +977,7 @@ proc bendPositive*(ik: IkConstraintData): bool = ik.bendPositive
 proc runtimeEvaluable*(ik: IkConstraintData): bool =
   ## Constraint-only predicate, mirroring the path overload's purity (no
   ## skeleton access). Bone/target name resolution stays in the apply path,
-  ## where boneIndexes() already raises/skips on unknown bones. An IK
+  ## where boneIndexByName() already raises/skips on unknown bones. An IK
   ## constraint contributes nothing when mix == 0 or it names no bones.
   ik.mix > 0.0 and ik.bones.len >= 1
 

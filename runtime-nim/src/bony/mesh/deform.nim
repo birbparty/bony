@@ -32,9 +32,7 @@ proc sampleDeformDeltas*(timeline: DeformTimeline; time: float64): seq[MeshDelta
   let storedTime = quantizeF32(time, "deform.sample.time")
   if storedTime < 0:
     raise newBonyLoadError(schemaViolation, "deform sample time must be non-negative")
-  var index = 0
-  while index < timeline.keys.len - 1 and storedTime >= timeline.keys[index + 1].time:
-    inc index
+  let index = findSpan(timeline.keys, storedTime)
   let current = timeline.keys[index]
   if index == timeline.keys.high or storedTime <= current.time:
     return expandedDeltas(current, timeline.vertexCount)
